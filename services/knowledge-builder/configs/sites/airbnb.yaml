@@ -1,0 +1,61 @@
+# Airbnb Help Center adapter configuration
+name: airbnb
+displayName: Airbnb Help Center
+description: Airbnb Help Center documentation and support articles
+
+selectors:
+  # Main content is in section elements
+  content: "section"
+  title: "h1"
+  # Description is in a div after h1
+  description: "h1 + div"
+  breadcrumb: "nav[aria-label*='breadcrumb'], nav[aria-label*='面包屑']"
+
+remove:
+  # Remove navigation except breadcrumbs
+  - "nav:not([aria-label*='breadcrumb']):not([aria-label*='面包屑'])"
+  - "footer"
+  - "header"
+  - "banner"
+  - "[role='banner']"
+  - "[role='contentinfo']"
+  - "script"
+  - "style"
+  - "noscript"
+  - "iframe"
+  - "#smart-banner"
+  - "#flash-container"
+  - "#education-overlay-root"
+  - "#fb-root"
+  - "#authModals"
+  - "#site-skip-links"
+
+wait:
+  selector: "h1"
+  timeout: 10000
+
+crawl:
+  maxDepth: 4
+  rateLimit: 2000
+  include:
+    - "/help/*"
+  exclude:
+    - "/login*"
+    - "/signup*"
+    - "/host/*"
+    - "/s/*"
+    - "/rooms/*"
+    - "/experiences/*"
+
+cleaning:
+  skipSections:
+    - "Related topics"
+    - "相关话题"
+    - "网站页脚"
+    - "Site footer"
+
+links:
+  includePatterns:
+    - "^/help/"
+    - "^https?://[^/]*airbnb[^/]*/help/"
+  followExternal: false

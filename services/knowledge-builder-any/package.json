@@ -1,0 +1,20 @@
+{
+  "name": "@actionbookdev/knowledge-builder-any",
+  "version": "0.1.0",
+  "description": "Rust service for analyzing websites and generating handbook documentation using Claude AI",
+  "private": true,
+  "scripts": {
+    "dev:once": "cargo run -- worker --poll-interval 5 --once",
+    "dev": "cargo run -- worker --poll-interval 5",
+    "build": "cargo build --release",
+    "build:dev": "cargo build",
+    "test": "cargo test",
+    "worker": "cargo run -- worker --poll-interval 5",
+    "worker:once": "cargo run -- worker --poll-interval 5 --once",
+    "crawl": "cargo run -- crawl",
+    "handbook": "cargo run -- build",
+    "clean": "cargo clean",
+    "check": "cargo check",
+    "lint": "cargo clippy"
+  }
+}

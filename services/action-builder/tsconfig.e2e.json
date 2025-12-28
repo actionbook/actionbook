@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/**/*",
+    "cli/**/*",
+    "test/e2e/firstround-full-pipeline.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests",
+    "**/*.test.ts",
+    "test/**/*.ut.test.ts",
+    "test/**/*.it.test.ts"
+  ]
+}
+

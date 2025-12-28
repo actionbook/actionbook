@@ -1,0 +1,21 @@
+{
+  "name": "@actionbookdev/action-builder-eval",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "eval": "tsx src/runner.ts",
+    "eval:smoke": "tsx src/runner.ts --dataset=smoke",
+    "test:dom": "tsx src/test_dom_verifier.ts"
+  },
+  "dependencies": {
+    "braintrust": "^0.0.182",
+    "dotenv": "^17.2.3",
+    "playwright": "^1.57.0",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

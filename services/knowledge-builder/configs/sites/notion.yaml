@@ -1,0 +1,48 @@
+# Notion Help Center adapter configuration
+name: notion
+displayName: Notion Help Center
+description: Notion Help Center documentation
+
+selectors:
+  content: "main, article, .notion-page-content"
+  title: "h1"
+  description: "meta[name='description']"
+  breadcrumb: "nav[aria-label='breadcrumb'], .breadcrumb"
+
+remove:
+  - "nav"
+  - "footer"
+  - "header"
+  - ".sidebar"
+  - ".toc"
+  - "script"
+  - "style"
+  - ".intercom-launcher"
+  - "[data-testid='feedback']"
+
+wait:
+  selector: "main"
+  timeout: 5000
+
+crawl:
+  maxDepth: 3
+  rateLimit: 1000
+  include:
+    - "/help/*"
+    - "/guides/*"
+  exclude:
+    - "/login*"
+    - "/signup*"
+    - "/pricing*"
+
+cleaning:
+  skipSections:
+    - "Related articles"
+    - "Was this helpful"
+    - "Still have questions"
+
+links:
+  includePatterns:
+    - "^/help/"
+    - "^/guides/"
+  followExternal: false

@@ -1,0 +1,101 @@
+{
+  "version": "1.0",
+  "cases": [
+    {
+      "id": "airbnb_search_flow",
+      "url": "https://www.airbnb.com/",
+      "scenario": "Search for listings near Tokyo Shibuya Station",
+      "capability_file": "../fixtures/airbnb_capability.json",
+      "must_have_elements": [
+        {
+          "id": "search_location_input",
+          "description": "The location search field labeled 'Where' where users can enter their desired destination",
+          "ref_selector": "#bigsearch-query-location-input",
+          "allowed_methods": ["click", "fill"]
+        },
+        {
+          "id": "checkin_date_picker",
+          "description": "The 'When' button that serves as a date selector to add dates for the search",
+          "ref_selector": "xpath=/html[1]/body[1]/div[5]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/header[1]/form[1]/div[1]/div[1]/div[2]/div[2]/div[3]",
+          "pre_actions": [
+            { "element_id": "search_location_input", "action": "click" },
+            { "element_id": "search_location_input", "action": "type", "value": "Tokyo" },
+            { "action": "wait", "value": "600" },
+            { "action": "press", "value": "Escape" }
+          ],
+          "allowed_methods": ["click"]
+        },
+        {
+          "id": "location_suggestion_item",
+          "description": "First location suggestion from dropdown",
+          "ref_selector": "[data-testid=\"option-0\"]",
+          "pre_actions": [
+            { "element_id": "search_location_input", "action": "click" },
+            { "element_id": "search_location_input", "action": "type", "value": "Tokyo" },
+            { "action": "wait", "value": "600" }
+          ],
+          "allowed_methods": ["click"]
+        },
+        {
+          "id": "search_submit_button",
+          "description": "Search button in the search form",
+          "ref_selector": "[data-testid=\"structured-search-input-search-button\"]",
+          "allowed_methods": ["click"]
+        }
+      ],
+      "tags": ["search", "core", "airbnb"]
+    },
+    {
+      "id": "grasp_homepage",
+      "url": "https://getgrasp.ai/",
+      "scenario": "Record homepage elements including navigation, call-to-action buttons, and links for Grasp AI automation platform",
+      "must_have_elements": [
+        {
+          "id": "main_navigation",
+          "description": "Main navigation menu or header navigation links",
+          "ref_selector": "nav a, header nav a",
+          "allowed_methods": ["click"]
+        },
+        {
+          "id": "primary_cta_button",
+          "description": "Primary call-to-action button such as Get Started, Try Free, or Sign Up",
+          "ref_selector": "a[href*='app'], button:has-text('Start'), a:has-text('Start')",
+          "allowed_methods": ["click"]
+        },
+        {
+          "id": "hero_headline",
+          "description": "Hero section main headline text",
+          "ref_selector": "h1, [class*='hero'] h1",
+          "allowed_methods": ["click"]
+        }
+      ],
+      "tags": ["homepage", "saas", "grasp"]
+    },
+    {
+      "id": "firstround_homepage",
+      "url": "https://firstround.com/",
+      "scenario": "Record homepage elements including navigation and featured content for First Round Capital venture capital site",
+      "must_have_elements": [
+        {
+          "id": "main_navigation",
+          "description": "Main site navigation with links to different sections",
+          "ref_selector": "nav a, header a",
+          "allowed_methods": ["click"]
+        },
+        {
+          "id": "hero_content",
+          "description": "Hero section with main headline or featured content",
+          "ref_selector": "h1, [class*='hero'] h1, main h1",
+          "allowed_methods": ["click"]
+        },
+        {
+          "id": "portfolio_link",
+          "description": "Link to portfolio or companies page",
+          "ref_selector": "a[href*='companies'], a[href*='portfolio'], a:has-text('Portfolio')",
+          "allowed_methods": ["click"]
+        }
+      ],
+      "tags": ["homepage", "vc", "firstround"]
+    }
+  ]
+}

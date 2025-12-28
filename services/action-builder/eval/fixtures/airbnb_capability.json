@@ -1,0 +1,263 @@
+{
+  "domain": "www.airbnb.com",
+  "name": "Airbnb",
+  "description": "Accommodation booking platform - Tokyo Shibuya search flow",
+  "version": "1.0.0",
+  "recorded_at": "2025-12-18T12:58:39.751Z",
+  "scenario": "airbnb_hotel_search_tokyo",
+  "global_elements": {},
+  "pages": {
+    "home": {
+      "page_type": "home",
+      "name": "Airbnb Home Page",
+      "description": "Main landing page with search functionality for accommodations",
+      "url_patterns": [],
+      "concrete_url": "https://www.airbnb.com/",
+      "elements": {
+        "search_location_input": {
+          "id": "search_location_input",
+          "selectors": [
+            {
+              "type": "id",
+              "value": "#bigsearch-query-location-input",
+              "priority": 1,
+              "confidence": 0.95
+            },
+            {
+              "type": "data-testid",
+              "value": "[data-testid=\"structured-search-input-field-query\"]",
+              "priority": 2,
+              "confidence": 0.9
+            },
+            {
+              "type": "aria-label",
+              "value": "[aria-label=\"Where\"]",
+              "priority": 3,
+              "confidence": 0.85
+            },
+            {
+              "type": "css",
+              "value": "[data-testid=\"structured-search-input-field-query\"]",
+              "priority": 4,
+              "confidence": 0.75
+            },
+            {
+              "type": "placeholder",
+              "value": "[placeholder=\"Search destinations\"]",
+              "priority": 6,
+              "confidence": 0.65
+            }
+          ],
+          "description": "Main location search input field for entering travel destinations",
+          "element_type": "input",
+          "allow_methods": ["click", "type", "clear"],
+          "discovered_at": "2025-12-18T12:59:12.931Z"
+        },
+        "location_suggestion_item": {
+          "id": "location_suggestion_item",
+          "selectors": [
+            {
+              "type": "id",
+              "value": "#bigsearch-query-location-suggestion-0",
+              "priority": 1,
+              "confidence": 0.95
+            },
+            {
+              "type": "data-testid",
+              "value": "[data-testid=\"option-0\"]",
+              "priority": 2,
+              "confidence": 0.9
+            },
+            {
+              "type": "css",
+              "value": "[data-testid=\"option-0\"]",
+              "priority": 3,
+              "confidence": 0.75
+            }
+          ],
+          "description": "First location suggestion from dropdown for Tokyo Shibuya Station",
+          "element_type": "select",
+          "allow_methods": ["click"],
+          "discovered_at": "2025-12-18T12:59:38.854Z"
+        },
+        "checkin_date_picker": {
+          "id": "checkin_date_picker",
+          "selectors": [
+            {
+              "type": "css",
+              "value": "div.fhzfs0e",
+              "priority": 1,
+              "confidence": 0.75
+            },
+            {
+              "type": "xpath",
+              "value": "/html[1]/body[1]/div[5]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/header[1]/form[1]/div[1]/div[1]/div[2]/div[2]/div[3]",
+              "priority": 2,
+              "confidence": 0.6
+            }
+          ],
+          "description": "Check-in date selector field in the search form",
+          "element_type": "input",
+          "allow_methods": ["click"],
+          "discovered_at": "2025-12-18T12:59:55.030Z"
+        },
+        "calendar_date_28_december": {
+          "id": "calendar_date_28_december",
+          "selectors": [
+            {
+              "type": "aria-label",
+              "value": "[aria-label=\"28, Sunday, December 2025. Available. Select as checkout date.\"]",
+              "priority": 1,
+              "confidence": 0.85
+            },
+            {
+              "type": "css",
+              "value": "[aria-label=\"28, Sunday, December 2025. Available. Select as checkout date.\"]",
+              "priority": 2,
+              "confidence": 0.75
+            }
+          ],
+          "description": "December 28th date button in the calendar for 2025",
+          "element_type": "button",
+          "allow_methods": ["click"],
+          "discovered_at": "2025-12-18T13:00:25.076Z"
+        },
+        "calendar_date_30": {
+          "id": "calendar_date_30",
+          "selectors": [
+            {
+              "type": "aria-label",
+              "value": "[aria-label=\"30, Tuesday, December 2025. Available. Select as check-in date.\"]",
+              "priority": 1,
+              "confidence": 0.85
+            },
+            {
+              "type": "css",
+              "value": "[aria-label=\"30, Tuesday, December 2025. Available. Select as check-in date.\"]",
+              "priority": 2,
+              "confidence": 0.75
+            }
+          ],
+          "description": "Calendar date button for December 30th check-out date",
+          "element_type": "button",
+          "allow_methods": ["click"],
+          "discovered_at": "2025-12-18T13:00:38.480Z"
+        },
+        "search_submit_button": {
+          "id": "search_submit_button",
+          "selectors": [
+            {
+              "type": "data-testid",
+              "value": "[data-testid=\"structured-search-input-search-button\"]",
+              "priority": 1,
+              "confidence": 0.9
+            },
+            {
+              "type": "aria-label",
+              "value": "[aria-label=\"Search\"]",
+              "priority": 2,
+              "confidence": 0.85
+            },
+            {
+              "type": "css",
+              "value": "[data-testid=\"structured-search-input-search-button\"]",
+              "priority": 3,
+              "confidence": 0.75
+            }
+          ],
+          "description": "Main search button to submit the search form with location and dates",
+          "element_type": "button",
+          "allow_methods": ["click"],
+          "discovered_at": "2025-12-18T13:00:54.559Z"
+        }
+      }
+    },
+    "search_results": {
+      "page_type": "search_results",
+      "name": "Airbnb Search Results",
+      "description": "Search results page showing accommodations near Tokyo Shibuya Station",
+      "url_patterns": [],
+      "concrete_url": "https://www.airbnb.com/s/Shibuya-Station--Tokyo-Prefecture--Japan/homes",
+      "elements": {
+        "filters_button": {
+          "id": "filters_button",
+          "selectors": [
+            {
+              "type": "data-testid",
+              "value": "[data-testid=\"category-bar-filter-button\"]",
+              "priority": 1,
+              "confidence": 0.9
+            },
+            {
+              "type": "css",
+              "value": "[data-testid=\"category-bar-filter-button\"]",
+              "priority": 2,
+              "confidence": 0.75
+            }
+          ],
+          "description": "Filters button to open additional search filters and refinement options",
+          "element_type": "button",
+          "allow_methods": ["click"],
+          "discovered_at": "2025-12-18T09:14:11.680Z"
+        },
+        "accommodation_listing_item": {
+          "id": "accommodation_listing_item",
+          "selectors": [
+            {
+              "type": "css",
+              "value": "a.l1ovpqvx",
+              "priority": 1,
+              "confidence": 0.75
+            }
+          ],
+          "description": "Individual accommodation listing item showing property details, photos, price, and ratings",
+          "element_type": "other",
+          "allow_methods": ["click"],
+          "discovered_at": "2025-12-18T09:14:56.978Z"
+        },
+        "guest_count_filter": {
+          "id": "guest_count_filter",
+          "selectors": [
+            {
+              "type": "data-testid",
+              "value": "[data-testid=\"little-search-guests\"]",
+              "priority": 1,
+              "confidence": 0.9
+            },
+            {
+              "type": "css",
+              "value": "[data-testid=\"little-search-guests\"]",
+              "priority": 2,
+              "confidence": 0.75
+            }
+          ],
+          "description": "Guest count filter to specify number of guests in the search",
+          "element_type": "select",
+          "allow_methods": ["click"],
+          "discovered_at": "2025-12-18T13:01:51.087Z"
+        },
+        "map_toggle_button": {
+          "id": "map_toggle_button",
+          "selectors": [
+            {
+              "type": "aria-label",
+              "value": "[aria-label=\"Show fullscreen map\"]",
+              "priority": 1,
+              "confidence": 0.85
+            },
+            {
+              "type": "css",
+              "value": "[aria-label=\"Show fullscreen map\"]",
+              "priority": 2,
+              "confidence": 0.75
+            }
+          ],
+          "description": "Map toggle button to show or hide the map view of search results",
+          "element_type": "button",
+          "allow_methods": ["click"],
+          "discovered_at": "2025-12-18T13:02:05.163Z"
+        }
+      }
+    }
+  }
+}

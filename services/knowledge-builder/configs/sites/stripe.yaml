@@ -1,0 +1,49 @@
+# Stripe Documentation adapter configuration
+name: stripe
+displayName: Stripe Docs
+description: Stripe API and integration documentation
+
+selectors:
+  content: "article, main, .DocSearch-content, [role='main']"
+  title: "h1"
+  description: "meta[name='description']"
+  breadcrumb: "nav[aria-label='breadcrumb']"
+
+remove:
+  - "nav"
+  - "footer"
+  - "header"
+  - ".sidebar"
+  - ".toc"
+  - "script"
+  - "style"
+  - ".DocSearch-Modal"
+  - "[data-testid='feedback-widget']"
+  - ".copy-button"
+
+wait:
+  selector: "article"
+  timeout: 5000
+
+crawl:
+  maxDepth: 4
+  rateLimit: 1500
+  include:
+    - "/docs/*"
+    - "/api/*"
+  exclude:
+    - "/login*"
+    - "/register*"
+    - "/dashboard*"
+
+cleaning:
+  skipSections:
+    - "Was this page helpful"
+    - "Need help"
+    - "Questions"
+
+links:
+  includePatterns:
+    - "^/docs/"
+    - "^/api/"
+  followExternal: false

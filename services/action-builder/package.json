@@ -1,0 +1,76 @@
+{
+  "name": "@actionbookdev/action-builder",
+  "version": "0.1.0",
+  "description": "Actionbook Capability Builder - Record and validate website UI capabilities",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "actionbook-builder": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "concurrently \"tsc --watch\" \"tsx scripts/build-task-worker.ts\"",
+    "dev:build": "tsc --watch",
+    "clean": "rm -rf dist",
+    "lint": "eslint src cli --ext .ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "cli": "node dist/cli/index.js",
+    "airbnb:record": "npx tsx test/airbnb-record.ts",
+    "airbnb:task-record": "npx tsx test/e2e/airbnb-task-record.ts",
+    "airbnb:validate": "npx tsx test/e2e/airbnb-validate.ts",
+    "grasp:observe": "npx tsx test/grasp-observe.ts",
+    "grasp:record": "npx tsx test/e2e/grasp-record.ts",
+    "grasp:validate": "npx tsx test/e2e/grasp-validate.ts",
+    "test:mcp": "npx tsx test/mcp-basic.ts",
+    "firstround:pipeline": "tsc -p tsconfig.e2e.json && node dist/test/e2e/firstround-full-pipeline.js",
+    "task:create": "npx tsx scripts/task-cli.ts create",
+    "task:status": "npx tsx scripts/task-cli.ts status",
+    "task:run": "npx tsx scripts/task-cli.ts run",
+    "task:clear": "npx tsx scripts/task-cli.ts clear",
+    "task": "npx tsx scripts/task-cli.ts",
+    "worker:build-task": "npx tsx scripts/build-task-worker.ts",
+    "worker:build-task:once": "npx tsx scripts/build-task-worker.ts --once",
+    "worker:build-task:debug": "npx tsx scripts/build-task-worker.ts --debug",
+    "login": "npx tsx scripts/login.ts"
+  },
+  "dependencies": {
+    "@actionbookdev/db": "workspace:*",
+    "@actionbookdev/mcp": "workspace:*",
+    "@ai-sdk/amazon-bedrock": "^3.0.70",
+    "@ai-sdk/anthropic": "^2.0.56",
+    "@ai-sdk/openai": "^2.0.87",
+    "@browserbasehq/stagehand": "^3.0.5",
+    "@openrouter/ai-sdk-provider": "^1.5.4",
+    "ai": "^5.0.113",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "openai": "^4.77.0",
+    "playwright": "^1.49.1",
+    "undici": "^6.22.0",
+    "yaml": "^2.8.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "concurrently": "^8.2.2",
+    "dotenv": "^17.2.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "actionbook",
+    "capability",
+    "browser-automation",
+    "stagehand",
+    "playwright"
+  ]
+}
