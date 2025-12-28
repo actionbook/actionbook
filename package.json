@@ -1,0 +1,19 @@
+{
+  "name": "actionbook-project",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Actionbook - The Action Engine",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@10.24.0",
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "test": "turbo test",
+    "lint": "turbo lint",
+    "clean": "turbo clean",
+    "prepare": "git config core.hooksPath .githooks"
+  },
+  "devDependencies": {
+    "turbo": "^2.6.3"
+  }
+}

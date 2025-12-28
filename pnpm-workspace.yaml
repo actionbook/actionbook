@@ -1,0 +1,11 @@
+packages:
+  - packages/*
+  - apps/*
+  - playground/*
+  - services/*
+
+onlyBuiltDependencies:
+  - bufferutil
+  - esbuild
+  - sharp
+  - unrs-resolver
