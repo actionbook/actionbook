@@ -1,0 +1,40 @@
+{
+  "name": "@actionbookdev/api-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Actionbook API Service",
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "vitest",
+    "test:e2e:build-tasks": "vitest run test/build-tasks.test.ts",
+    "discover": "tsx test/m1-browser-discovery.ts",
+    "discover:grasp": "tsx test/grasp-browser-discovery.ts",
+    "discover:grasp:fallback": "tsx test/grasp-browser-discovery.ts --fallback",
+    "discover:airbnb": "tsx test/airbnb-browser-discovery.ts",
+    "discover:airbnb:fallback": "tsx test/airbnb-browser-discovery.ts --fallback"
+  },
+  "dependencies": {
+    "@actionbookdev/db": "workspace:*",
+    "drizzle-orm": "^0.44.7",
+    "https-proxy-agent": "^7.0.0",
+    "next": "^16.0.10",
+    "openai": "^4.70.0",
+    "pg": "^8.13.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/pg": "^8.11.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "dotenv": "^17.2.3",
+    "tsx": "^4.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}
