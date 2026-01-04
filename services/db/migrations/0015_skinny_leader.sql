@@ -1,0 +1,3 @@
+ALTER TABLE "recording_tasks" ADD COLUMN "build_task_id" integer;--> statement-breakpoint
+ALTER TABLE "recording_tasks" ADD CONSTRAINT "recording_tasks_build_task_id_build_tasks_id_fk" FOREIGN KEY ("build_task_id") REFERENCES "public"."build_tasks"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "recording_tasks" ADD CONSTRAINT "recording_tasks_chunk_build_task_unique" UNIQUE("chunk_id","build_task_id");

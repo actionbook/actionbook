@@ -12,6 +12,7 @@
 import type { Database } from '@actionbookdev/db'
 import { BuildTaskScheduler } from './build-task-scheduler.js'
 import { TaskGenerator } from './task-generator.js'
+import { TaskScheduler } from './task-scheduler.js'
 import { WorkerPool, type WorkerStats } from './worker-pool.js'
 import type {
   BuildTaskWorkerConfig,
@@ -65,6 +66,7 @@ function createHeartbeat(
 
 export class BuildTaskWorker {
   private buildTaskScheduler: BuildTaskScheduler
+  private taskScheduler: TaskScheduler
   private taskGenerator: TaskGenerator
   private workerPool: WorkerPool
   private recordingTaskLimit: number
@@ -96,6 +98,7 @@ export class BuildTaskWorker {
       maxAttempts: this.maxAttempts,
       staleTimeoutMinutes: this.staleTimeoutMinutes,
     })
+    this.taskScheduler = new TaskScheduler(db)
     this.taskGenerator = new TaskGenerator(db)
 
     const concurrency = config.concurrency ?? 1
@@ -162,6 +165,9 @@ export class BuildTaskWorker {
     )
 
     try {
+      let tasksReset = 0
+      let tasksCreated = 0
+
       // 2. Verify sourceId exists (should always be true due to WHERE clause, but defensive check)
       if (!buildTask.sourceId) {
         const errorMessage =
@@ -170,6 +176,7 @@ export class BuildTaskWorker {
         return {
           success: false,
           taskId: buildTask.id,
+          recordingTasksReset: 0,
           recordingTasksCreated: 0,
           recordingTasksCompleted: 0,
           recordingTasksFailed: 0,
@@ -181,22 +188,32 @@ export class BuildTaskWorker {
 
       const sourceId = buildTask.sourceId
 
-      // 3. Generate recording_tasks from chunks
-      const tasksCreated = await this.taskGenerator.generate(
+      // 3. Reset existing recording_tasks to allow re-execution
+      // This allows failed/completed tasks to be retried when build_task is re-run
+      tasksReset = await this.taskScheduler.resetRecordingTasksForBuildTask(buildTask.id)
+
+      // 4. Generate new recording_tasks from chunks for this specific build_task
+      tasksCreated = await this.taskGenerator.generate(
+        buildTask.id,
         sourceId,
         this.recordingTaskLimit
       )
 
-      // 4. Execute all pending recording_tasks concurrently via WorkerPool
+      // 5. Execute all pending recording_tasks for this build_task concurrently via WorkerPool
       // WorkerPool manages N concurrent TaskExecutors, each with its own browser
-      const executionStats = await this.workerPool.executeAll(sourceId, {
-        staleTimeoutMinutes: this.staleTimeoutMinutes,
-        maxAttempts: this.maxAttempts,
-        heartbeatIntervalMs: this.heartbeatIntervalMs,
-      })
+      const executionStats = await this.workerPool.executeAll(
+        buildTask.id,
+        sourceId,
+        {
+          staleTimeoutMinutes: this.staleTimeoutMinutes,
+          maxAttempts: this.maxAttempts,
+          heartbeatIntervalMs: this.heartbeatIntervalMs,
+        }
+      )
 
-      // 5. Complete the build_task
+      // 6. Complete the build_task
       const stats: BuildTaskStats = {
+        recordingTasksReset: tasksReset,
         recordingTasksCreated: tasksCreated,
         recordingTasksCompleted: executionStats.completed,
         recordingTasksFailed: executionStats.failed,
@@ -238,6 +255,7 @@ export class BuildTaskWorker {
       return {
         success: false,
         taskId: buildTask.id,
+        recordingTasksReset: 0,
         recordingTasksCreated: 0,
         recordingTasksCompleted: 0,
         recordingTasksFailed: 0,

@@ -47,6 +47,7 @@ import {
   createDb,
   closeDb,
   sources,
+  buildTasks,
   documents,
   chunks,
   pages,
@@ -159,6 +160,7 @@ function hasLLMApiKey(): boolean {
 }
 
 const SOURCE_ID = Number(process.env.ACTION_BUILDER_E2E_SOURCE_ID || 1) // First Round Capital source
+const BUILD_TASK_ID = process.env.ACTION_BUILDER_E2E_BUILD_TASK_ID // Optional: if not set, will create a new build_task
 const CHUNK_LIMIT = Number(process.env.ACTION_BUILDER_E2E_CHUNK_LIMIT || 2) // Only process 2 chunks
 const RUN_ONLY_CHUNK_INDEX = Number(
   process.env.ACTION_BUILDER_E2E_RUN_ONLY_CHUNK_INDEX || 0
@@ -270,6 +272,40 @@ async function runFullPipelineTest(): Promise<void> {
 
   const generator = new TaskGenerator(db)
 
+  // Get or create build_task
+  let buildTaskId: number
+  if (BUILD_TASK_ID) {
+    buildTaskId = Number(BUILD_TASK_ID)
+    console.log(`\n📋 Using existing build_task: ID=${buildTaskId}`)
+  } else {
+    console.log(`\n📋 Creating new build_task for source ${SOURCE_ID}...`)
+    const source = await db
+      .select()
+      .from(sources)
+      .where(eq(sources.id, SOURCE_ID))
+      .limit(1)
+
+    if (source.length === 0) {
+      throw new Error(`Source ${SOURCE_ID} not found`)
+    }
+
+    const buildTaskResult = await db
+      .insert(buildTasks)
+      .values({
+        sourceId: SOURCE_ID,
+        sourceUrl: source[0].baseUrl,
+        sourceName: source[0].name,
+        sourceCategory: 'any',
+        stage: 'knowledge_build',
+        stageStatus: 'completed',
+        config: {},
+      })
+      .returning({ id: buildTasks.id })
+
+    buildTaskId = buildTaskResult[0].id
+    console.log(`✅ Created build_task: ID=${buildTaskId}`)
+  }
+
   // Clear existing tasks ONLY for the chunks we will process (safe cleanup in shared DBs)
   console.log('\n🧹 Clearing existing tasks for selected chunks...')
   const selectedChunkIds = chunksData.map((c) => c.chunkId)
@@ -304,7 +340,7 @@ async function runFullPipelineTest(): Promise<void> {
   }
 
   // Generate tasks
-  const generatedCount = await generator.generate(SOURCE_ID, CHUNK_LIMIT)
+  const generatedCount = await generator.generate(buildTaskId, SOURCE_ID, CHUNK_LIMIT)
   console.log(`✅ Generated ${generatedCount} recording tasks`)
 
   // Query generated tasks (use raw SQL to ensure chunk_id is returned correctly)

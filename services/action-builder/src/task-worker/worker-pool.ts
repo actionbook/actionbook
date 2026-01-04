@@ -118,7 +118,7 @@ export class WorkerPool {
   }
 
   /**
-   * Execute all pending tasks for a source with N concurrent workers
+   * Execute all pending tasks for a build_task with N concurrent workers
    *
    * Uses a loop that:
    * 1. Finds an available worker
@@ -131,11 +131,13 @@ export class WorkerPool {
    * - Running tasks continue to completion even if the main loop errors
    * - Stats from completed tasks are preserved in the returned result
    *
+   * @param buildTaskId - Build task ID to filter tasks
    * @param sourceId - Source ID to filter tasks
    * @param options - Execution options
    * @returns Execution statistics
    */
   async executeAll(
+    buildTaskId: number,
     sourceId: number,
     options: ExecuteAllOptions
   ): Promise<ExecutionStats> {
@@ -170,7 +172,7 @@ export class WorkerPool {
     }
 
     console.log(
-      `[WorkerPool] Starting execution for source ${sourceId} with ${this.concurrency} workers`
+      `[WorkerPool] Starting execution for build_task ${buildTaskId} (source ${sourceId}) with ${this.concurrency} workers`
     )
 
     try {
@@ -190,8 +192,9 @@ export class WorkerPool {
           break // No workers and no running tasks - shouldn't happen
         }
 
-        // 2. Atomically claim next task
+        // 2. Atomically claim next task for this build_task
         const task = await this.taskScheduler.claimNextTask({
+          buildTaskId,
           sourceId,
           staleTimeoutMinutes: options.staleTimeoutMinutes,
           maxAttempts: options.maxAttempts,

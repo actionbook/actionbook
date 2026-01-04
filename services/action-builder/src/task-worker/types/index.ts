@@ -178,6 +178,7 @@ export interface BuildTaskInfo {
  * Build Task Execution Statistics
  */
 export interface BuildTaskStats {
+  recordingTasksReset: number;
   recordingTasksCreated: number;
   recordingTasksCompleted: number;
   recordingTasksFailed: number;
@@ -203,6 +204,7 @@ export interface BuildTaskWorkerConfig extends TaskExecutorConfig {
 export interface BuildTaskResult {
   success: boolean;
   taskId: number;
+  recordingTasksReset: number;
   recordingTasksCreated: number;
   recordingTasksCompleted: number;
   recordingTasksFailed: number;

@@ -133,7 +133,7 @@ describe('WorkerPool', () => {
 
       mockExecute.mockResolvedValue(createSuccessResult(5));
 
-      const result = await pool.executeAll(100, {
+      const result = await pool.executeAll(1000, 100, {
         staleTimeoutMinutes: 10,
         maxAttempts: 3,
         heartbeatIntervalMs: 60000,
@@ -168,7 +168,7 @@ describe('WorkerPool', () => {
         .mockResolvedValueOnce(createSuccessResult(10))
         .mockResolvedValueOnce(createSuccessResult(5));
 
-      const result = await pool.executeAll(100, {
+      const result = await pool.executeAll(1000, 100, {
         staleTimeoutMinutes: 10,
         maxAttempts: 3,
         heartbeatIntervalMs: 60000,
@@ -206,7 +206,7 @@ describe('WorkerPool', () => {
         .mockResolvedValueOnce(createFailResult('Task 2 failed'))
         .mockResolvedValueOnce(createSuccessResult(5));
 
-      const result = await pool.executeAll(100, {
+      const result = await pool.executeAll(1000, 100, {
         staleTimeoutMinutes: 10,
         maxAttempts: 3,
         heartbeatIntervalMs: 60000,
@@ -225,7 +225,7 @@ describe('WorkerPool', () => {
 
       mockTaskScheduler.claimNextTask.mockResolvedValue(null);
 
-      const result = await pool.executeAll(100, {
+      const result = await pool.executeAll(1000, 100, {
         staleTimeoutMinutes: 10,
         maxAttempts: 3,
         heartbeatIntervalMs: 60000,
@@ -260,7 +260,7 @@ describe('WorkerPool', () => {
         .mockRejectedValueOnce(new Error('Executor crashed'))
         .mockResolvedValueOnce(createSuccessResult(5));
 
-      const result = await pool.executeAll(100, {
+      const result = await pool.executeAll(1000, 100, {
         staleTimeoutMinutes: 10,
         maxAttempts: 3,
         heartbeatIntervalMs: 60000,
@@ -300,7 +300,7 @@ describe('WorkerPool', () => {
 
       // executeAll should throw, but only after waiting for running task
       await expect(
-        pool.executeAll(100, {
+        pool.executeAll(1000, 100, {
           staleTimeoutMinutes: 10,
           maxAttempts: 3,
           heartbeatIntervalMs: 60000,

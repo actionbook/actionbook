@@ -20,6 +20,7 @@ import type { TaskExecutorConfig } from '../../../src/task-worker/types'
 import {
   getDb,
   sources,
+  buildTasks,
   documents,
   recordingTasks,
   eq,
@@ -58,6 +59,7 @@ describe('IT-301: End-to-End Integration Test (M1)', () => {
   let generator: TaskGenerator
   let executor: TaskExecutor
   let testSourceId: number
+  let testBuildTaskId: number
   const testRunId = `it-301-${Date.now()}-${Math.floor(Math.random() * 10000)}`
   const testDomain = `${testRunId}.example.test`
 
@@ -79,8 +81,10 @@ describe('IT-301: End-to-End Integration Test (M1)', () => {
     generator = new TaskGenerator(db)
     executor = new TaskExecutor(db, mockConfig)
 
-    // Create test data: 1 source, 10 chunks
-    testSourceId = await createTestData(db, testDomain)
+    // Create test data: 1 source, 1 build_task, 10 chunks
+    const testData = await createTestData(db, testDomain)
+    testSourceId = testData.sourceId
+    testBuildTaskId = testData.buildTaskId
   })
 
   afterAll(async () => {
@@ -90,7 +94,7 @@ describe('IT-301: End-to-End Integration Test (M1)', () => {
 
   it('IT-301: TaskGenerator → TaskExecutor Complete pipeline (10 records)', async () => {
     // Step 1: Generate tasks
-    const generatedCount = await generator.generate(testSourceId)
+    const generatedCount = await generator.generate(testBuildTaskId, testSourceId)
     expect(generatedCount).toBe(10) // M1: LIMIT 10
 
     // Step 2: Verify tasks created
@@ -140,12 +144,12 @@ describe('IT-301: End-to-End Integration Test (M1)', () => {
 })
 
 /**
- * Create test data: 1 source + 10 chunks (mixed task_driven and exploratory)
+ * Create test data: 1 source + 1 build_task + 10 chunks (mixed task_driven and exploratory)
  */
 async function createTestData(
   db: Database,
   testDomain: string
-): Promise<number> {
+): Promise<{ sourceId: number; buildTaskId: number }> {
   // Create source
   const timestamp = Date.now()
   const sourceResult = await db
@@ -160,6 +164,22 @@ async function createTestData(
     .returning({ id: sources.id })
 
   const sourceId = sourceResult[0].id
+
+  // Create build_task
+  const buildTaskResult = await db
+    .insert(buildTasks)
+    .values({
+      sourceId,
+      sourceUrl: `https://${testDomain}`,
+      sourceName: `integration_test_${timestamp}`,
+      sourceCategory: 'any',
+      stage: 'knowledge_build',
+      stageStatus: 'completed',
+      config: {},
+    })
+    .returning({ id: buildTasks.id })
+
+  const buildTaskId = buildTaskResult[0].id
 
   // Create 10 chunks (5 task-driven, 5 exploratory)
   for (let i = 0; i < 10; i++) {
@@ -192,5 +212,5 @@ async function createTestData(
     `)
   }
 
-  return sourceId
+  return { sourceId, buildTaskId }
 }
