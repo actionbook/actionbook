@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/cli/worker.ts",
-    "build": "tsup"
+    "build": "tsup",
+    "login": "tsx scripts/login.ts"
   },
   "dependencies": {
+    "@actionbookdev/browser-profile": "workspace:*",
     "@actionbookdev/db": "workspace:*",
     "@mozilla/readability": "^0.5.0",
     "cheerio": "^1.1.2",

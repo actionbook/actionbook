@@ -282,9 +282,11 @@ export class ActionRecorder {
     }
 
     // 4. data-* attributes (including date strings)
+    const addedDataAttrs = new Set<string>();
     if (additionalInfo?.dataAttributes) {
       for (const [attrName, attrValue] of Object.entries(additionalInfo.dataAttributes)) {
         const attrSelector = `[${attrName}="${attrValue}"]`;
+        addedDataAttrs.add(attrSelector);
         const templateInfo = this.detectTemplatePattern(attrSelector);
         selectors.push({
           type: 'css' as SelectorType,
@@ -297,8 +299,8 @@ export class ActionRecorder {
       }
     }
 
-    // 5. CSS selector
-    if (cssSelector) {
+    // 5. CSS selector (skip if already added as data-* attribute)
+    if (cssSelector && !addedDataAttrs.has(cssSelector)) {
       const templateInfo = this.detectTemplatePattern(cssSelector);
       if (templateInfo) {
         selectors.push({

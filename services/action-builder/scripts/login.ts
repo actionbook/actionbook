@@ -12,7 +12,7 @@
  */
 
 import { Stagehand } from "@browserbasehq/stagehand";
-import { BrowserProfileManager, DEFAULT_PROFILE_DIR } from "../src/browser/BrowserProfileManager.js";
+import { BrowserProfileManager, DEFAULT_PROFILE_DIR, ANTI_DETECTION_ARGS, IGNORE_DEFAULT_ARGS } from "../src/browser/BrowserProfileManager.js";
 import readline from "readline";
 
 // Parse command line arguments
@@ -88,16 +88,13 @@ async function main() {
     console.log(`🌐 Using proxy: ${proxyUrl}`);
   }
 
-  // Build browser launch options
+  // Build browser launch options using common constants
   const localBrowserLaunchOptions: Record<string, unknown> = {
     headless: false,
     userDataDir: profileManager.getProfilePath(),
     preserveUserDataDir: true,
-    args: [
-      "--disable-blink-features=AutomationControlled",
-      "--no-first-run",
-    ],
-    ignoreDefaultArgs: ["--enable-automation"],
+    args: ANTI_DETECTION_ARGS,
+    ignoreDefaultArgs: IGNORE_DEFAULT_ARGS,
   };
 
   // Add proxy if configured

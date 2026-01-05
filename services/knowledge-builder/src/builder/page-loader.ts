@@ -12,11 +12,17 @@
  * - URL queue management (handled by Processor)
  */
 
-import { chromium, Browser } from 'playwright'
+import { chromium, Browser, BrowserContext } from 'playwright'
 import * as cheerio from 'cheerio'
 import crypto from 'crypto'
 import type { CrawlConfig, BreadcrumbItem } from '@actionbookdev/db'
 import { getAdapter, type SiteAdapter } from './adapters/index.js'
+import {
+  BrowserProfileManager,
+  DEFAULT_PROFILE_DIR,
+  ANTI_DETECTION_ARGS,
+  IGNORE_DEFAULT_ARGS,
+} from '@actionbookdev/browser-profile'
 
 /**
  * Raw page content extracted from a URL
@@ -57,6 +63,7 @@ export interface PageLoaderConfig {
  */
 export class PageLoader {
   private browser: Browser | null = null
+  private persistentContext: BrowserContext | null = null
   private config: CrawlConfig
   private baseUrl: string
   private adapter: SiteAdapter
@@ -71,28 +78,83 @@ export class PageLoader {
 
   /**
    * Initialize the browser
+   *
+   * When BROWSER_PROFILE_ENABLED=true, the browser will use a persistent profile
+   * to maintain login state across sessions. This is useful for sites that require
+   * authentication or have CAPTCHA challenges.
+   *
+   * Environment variables:
+   * - BROWSER_PROFILE_ENABLED: Set to "true" to enable persistent profile
+   * - BROWSER_PROFILE_DIR: Custom profile directory (default: .browser-profile)
+   * - BROWSER_HEADLESS: Set to "false" to show browser window (default: true)
    */
   async init(): Promise<void> {
-    if (this.browser) return
+    if (this.browser || this.persistentContext) return
 
     const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY
+    const profileEnabled = process.env.BROWSER_PROFILE_ENABLED === 'true'
+    const profileDir = process.env.BROWSER_PROFILE_DIR || DEFAULT_PROFILE_DIR
+    const headless = process.env.BROWSER_HEADLESS !== 'false'
 
+    // Build launch options
+    const launchOptions: Parameters<typeof chromium.launch>[0] = {
+      headless,
+    }
+
+    // Add proxy if configured
     if (proxyUrl) {
       console.log(`[PageLoader] Using proxy: ${proxyUrl}`)
-      this.browser = await chromium.launch({
-        headless: true,
-        proxy: { server: proxyUrl },
-      })
+      launchOptions.proxy = { server: proxyUrl }
     } else {
       console.log('[PageLoader] No proxy configured')
-      this.browser = await chromium.launch({ headless: true })
     }
+
+    // Add profile support if enabled
+    if (profileEnabled) {
+      const profileManager = new BrowserProfileManager({ baseDir: profileDir })
+      const profilePath = profileManager.getProfilePath()
+
+      // Clean up stale lock files from previous crashed sessions
+      profileManager.cleanupStaleLocks()
+
+      // Ensure profile directory exists
+      profileManager.ensureDir()
+
+      // Show profile info
+      const info = profileManager.getInfo()
+      if (info.exists) {
+        console.log(`[PageLoader] Using browser profile: ${info.path} (${info.size})`)
+      } else {
+        console.warn(`[PageLoader] No browser profile found. Run 'pnpm run login' first to save login state.`)
+      }
+
+      // Configure persistent context options
+      // Note: For persistent profile, we use launchPersistentContext instead of launch
+      // This returns a BrowserContext directly, not a Browser
+      this.persistentContext = await chromium.launchPersistentContext(profilePath, {
+        headless,
+        args: ANTI_DETECTION_ARGS,
+        ignoreDefaultArgs: IGNORE_DEFAULT_ARGS,
+        proxy: proxyUrl ? { server: proxyUrl } : undefined,
+      })
+
+      console.log('[PageLoader] Browser initialized with persistent profile')
+      return
+    }
+
+    // Standard browser launch (no profile)
+    this.browser = await chromium.launch(launchOptions)
+    console.log('[PageLoader] Browser initialized')
   }
 
   /**
    * Close the browser
    */
   async close(): Promise<void> {
+    if (this.persistentContext) {
+      await this.persistentContext.close()
+      this.persistentContext = null
+    }
     if (this.browser) {
       await this.browser.close()
       this.browser = null
@@ -106,11 +168,14 @@ export class PageLoader {
    * @returns Page content or null if failed
    */
   async loadPage(url: string): Promise<PageContent | null> {
-    if (!this.browser) {
+    if (!this.browser && !this.persistentContext) {
       await this.init()
     }
 
-    const page = await this.browser!.newPage()
+    // Create a new page from either persistent context or browser
+    const page = this.persistentContext
+      ? await this.persistentContext.newPage()
+      : await this.browser!.newPage()
 
     try {
       console.log(`[PageLoader] Loading: ${url}`)

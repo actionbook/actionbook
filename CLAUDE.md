@@ -41,7 +41,8 @@ actionbook/
 ├── services/
 │   ├── db/                 # @actionbookdev/db - Database Schema + Types (Drizzle ORM)
 │   ├── action-builder/     # Action recording, validation, Eval (local)
-│   └── knowledge-builder/  # Scenario knowledge extraction, Eval (local)
+│   ├── knowledge-builder/  # Scenario knowledge extraction, Eval (local)
+│   └── common/             # Shared internal packages for services
 ├── playground/             # Demo and example projects
 └── old_projects/           # Legacy/archived projects
 ```

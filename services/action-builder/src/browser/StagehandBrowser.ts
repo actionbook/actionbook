@@ -6,7 +6,79 @@ import { ProxyAgent, fetch as undiciFetch } from "undici";
 import { log } from "../utils/logger.js";
 import type { BrowserConfig, ObserveResultItem, ActionObject } from "../types/index.js";
 import type { BrowserAdapter } from "./BrowserAdapter.js";
-import { BrowserProfileManager, DEFAULT_PROFILE_DIR } from "./BrowserProfileManager.js";
+import { BrowserProfileManager, DEFAULT_PROFILE_DIR, type ProfileLogger } from "./BrowserProfileManager.js";
+
+/**
+ * State-related data attributes that should be filtered out.
+ * These attributes change based on user interaction and are not stable selectors.
+ */
+const STATE_DATA_ATTRS = new Set([
+  'data-state',
+  'data-checked',
+  'data-disabled',
+  'data-active',
+  'data-selected',
+  'data-expanded',
+  'data-open',
+  'data-closed',
+  'data-focus',
+  'data-focus-visible',
+  'data-hover',
+  'data-pressed',
+  'data-visible',
+  'data-hidden',
+  'data-loading',
+  'data-readonly',
+  'data-invalid',
+  'data-valid',
+  'data-highlighted',
+  'data-orientation',
+]);
+
+/**
+ * State-related values that indicate the attribute is a state attribute.
+ */
+const STATE_VALUES = new Set([
+  'open', 'closed',
+  'on', 'off',
+  'true', 'false',
+  'active', 'inactive',
+  'enabled', 'disabled',
+  'visible', 'hidden',
+  'expanded', 'collapsed',
+  'checked', 'unchecked',
+  'selected', 'unselected',
+  'pressed', 'unpressed',
+  'valid', 'invalid',
+  'loading', 'loaded',
+  'horizontal', 'vertical',
+]);
+
+/**
+ * Filter out state-related data attributes that are not stable for selectors.
+ */
+function filterStateDataAttributes(
+  dataAttributes: Record<string, string> | undefined
+): Record<string, string> | undefined {
+  if (!dataAttributes) return undefined;
+
+  const filtered: Record<string, string> = {};
+  for (const [name, value] of Object.entries(dataAttributes)) {
+    // Skip if attribute name is a known state attribute
+    if (STATE_DATA_ATTRS.has(name)) {
+      log("debug", `[StagehandBrowser] Filtering state attr: ${name}="${value}"`);
+      continue;
+    }
+    // Skip if value is a known state value
+    if (STATE_VALUES.has(value.toLowerCase())) {
+      log("debug", `[StagehandBrowser] Filtering state value: ${name}="${value}"`);
+      continue;
+    }
+    filtered[name] = value;
+  }
+
+  return Object.keys(filtered).length > 0 ? filtered : undefined;
+}
 
 /**
  * Create a proxy-enabled fetch function for Bedrock requests
@@ -327,7 +399,11 @@ export class StagehandBrowser implements BrowserAdapter {
     // Add profile support if enabled
     if (this.config.profile?.enabled) {
       const profileDir = this.config.profile.profileDir || DEFAULT_PROFILE_DIR;
-      const profileManager = new BrowserProfileManager({ baseDir: profileDir });
+      // Create custom logger that uses action-builder's log function
+      const profileLogger: ProfileLogger = (level, message) => {
+        log(level, `[BrowserProfileManager] ${message}`);
+      };
+      const profileManager = new BrowserProfileManager({ baseDir: profileDir, logger: profileLogger });
       const profilePath = profileManager.getProfilePath();
 
       // Clean up stale lock files from previous crashed sessions
@@ -739,9 +815,12 @@ export class StagehandBrowser implements BrowserAdapter {
         return null;
       }
 
+      // Filter out state-related data attributes
+      attrs.dataAttributes = filterStateDataAttributes(attrs.dataAttributes);
+
       // Log all extracted attributes for debugging
       log("info", `[StagehandBrowser] getElementAttributesFromXPath: xpath=${xpathSelector}`);
-      log("info", `[StagehandBrowser] Extracted attrs: tagName=${attrs.tagName}, id=${attrs.id}, className=${attrs.className}, dataTestId=${attrs.dataTestId}, ariaLabel=${attrs.ariaLabel}, placeholder=${attrs.placeholder}`);
+      log("info", `[StagehandBrowser] Extracted attrs: tagName=${attrs.tagName}, id=${attrs.id}, className=${attrs.className}, dataTestId=${attrs.dataTestId}, ariaLabel=${attrs.ariaLabel}, placeholder=${attrs.placeholder}, dataAttributes=${JSON.stringify(attrs.dataAttributes)}`);
 
       // Build CSS selector from best available attribute
       let cssSelector: string | undefined;
@@ -750,6 +829,14 @@ export class StagehandBrowser implements BrowserAdapter {
       if (attrs.dataTestId) {
         cssSelector = `[data-testid="${attrs.dataTestId}"]`;
         cssSelectorSource = "dataTestId";
+      } else if (attrs.dataAttributes && Object.keys(attrs.dataAttributes).length > 0) {
+        // Use other data-* attributes (data-id, data-component, etc.) - stable and i18n safe
+        // Prefer semantic data attributes over random ones
+        const preferredAttrs = ['data-id', 'data-component', 'data-element', 'data-action', 'data-section', 'data-name', 'data-type'];
+        const dataKeys = Object.keys(attrs.dataAttributes);
+        const preferredKey = preferredAttrs.find(k => dataKeys.includes(k)) || dataKeys[0];
+        cssSelector = `[${preferredKey}="${attrs.dataAttributes[preferredKey]}"]`;
+        cssSelectorSource = `dataAttr(${preferredKey})`;
       } else if (attrs.id) {
         cssSelector = `#${attrs.id}`;
         cssSelectorSource = "id";

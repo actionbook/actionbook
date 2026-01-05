@@ -292,19 +292,26 @@ UNSTABLE patterns to detect:
 - User-specific: Contains usernames, IDs like "user-12345"
 - Session-specific: Random tokens, session IDs
 - Framework-generated IDs: "#ember123", "#react-xxx", ".ng-c123", ":r0:", ":r1:", "#radix-123"
+- Hash-based CSS classes (change on each build):
+  - CSS Modules: ".styles_button__x7y8z", ".Component_name__hash"
+  - styled-components: ".sc-1a2b3c", ".sc-aBcDeF"
+  - Emotion: ".css-1a2b3c", ".css-xxxxxx"
+  - Generic hash patterns: classes ending with "_[a-z0-9]{5,}", "__[a-z0-9]{5,}", or "-[a-z0-9]{6,}"
 
 STABLE patterns (prefer these):
 - data-testid: Always stable, designed for testing
+- data-* attributes: data-id, data-component, data-element, data-action, data-section (semantic, stable)
 - Static aria-label: "Submit", "Close", "Search" (no dynamic content)
 - Semantic IDs: "main-nav", "search-button"
 - BEM class names: "header__nav-item", "btn--primary"
 
 SELECTOR PRIORITY (when all are stable):
 1. data-testid (most stable)
-2. id selector (#id)
-3. Static aria-label
-4. Semantic CSS class
-5. XPath (least preferred)
+2. Other semantic data-* attributes (data-id, data-component, etc.)
+3. id selector (#id)
+4. Static aria-label
+5. Semantic CSS class
+6. XPath (least preferred)
 
 Return JSON array with your analysis.`
 

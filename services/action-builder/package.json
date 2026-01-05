@@ -36,6 +36,7 @@
     "login": "npx tsx scripts/login.ts"
   },
   "dependencies": {
+    "@actionbookdev/browser-profile": "workspace:*",
     "@actionbookdev/db": "workspace:*",
     "@actionbookdev/mcp": "workspace:*",
     "@ai-sdk/amazon-bedrock": "^3.0.70",
