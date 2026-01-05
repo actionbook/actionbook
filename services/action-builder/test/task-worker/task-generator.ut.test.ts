@@ -8,6 +8,7 @@ import {
   getDb,
   sources,
   documents,
+  buildTasks,
   recordingTasks,
   eq,
   inArray,
@@ -16,6 +17,7 @@ import {
 import type { Database } from '@actionbookdev/db'
 
 let createdSourceIds: number[] = []
+let createdBuildTaskIds: number[] = []
 
 describe('TaskGenerator', () => {
   let generator: TaskGenerator
@@ -25,12 +27,18 @@ describe('TaskGenerator', () => {
     db = getDb()
     generator = new TaskGenerator(db)
     createdSourceIds = []
+    createdBuildTaskIds = []
   })
 
   afterEach(async () => {
-    if (createdSourceIds.length === 0) return
-    // Deleting sources cascades to documents/chunks/pages/tasks.
-    await db.delete(sources).where(inArray(sources.id, createdSourceIds))
+    // Clean up build_tasks first (cascades to recording_tasks)
+    if (createdBuildTaskIds.length > 0) {
+      await db.delete(buildTasks).where(inArray(buildTasks.id, createdBuildTaskIds))
+    }
+    // Then clean up sources (cascades to documents/chunks)
+    if (createdSourceIds.length > 0) {
+      await db.delete(sources).where(inArray(sources.id, createdSourceIds))
+    }
   })
 
   // ========================================================================
@@ -40,9 +48,10 @@ describe('TaskGenerator', () => {
     // Setup: Create test data - 15 chunks
     const sourceId = await createTestSource(db, 'airbnb.com')
     await createTestChunks(db, sourceId, 15, 'task_driven')
+    const buildTaskId = await createTestBuildTask(db, sourceId)
 
     // Execute
-    const count = await generator.generate()
+    const count = await generator.generate(buildTaskId, sourceId)
 
     // Assert
     expect(count).toBe(10) // Even with 15 records, only generates 10
@@ -65,10 +74,12 @@ describe('TaskGenerator', () => {
     const sourceId2 = await createTestSource(db, 'booking.com')
 
     await createTestChunks(db, sourceId1, 8, 'task_driven')
+    const buildTaskId1 = await createTestBuildTask(db, sourceId1)
     await createTestChunks(db, sourceId2, 8, 'exploratory')
+    const buildTaskId2 = await createTestBuildTask(db, sourceId2)
 
     // Execute: Generate only for sourceId1
-    const count = await generator.generate(sourceId1)
+    const count = await generator.generate(buildTaskId1, sourceId1)
 
     // Assert
     expect(count).toBe(8)
@@ -97,12 +108,13 @@ describe('TaskGenerator', () => {
 
     // 3 task-driven chunks
     await createTestChunks(db, sourceId, 3, 'task_driven')
+    const buildTaskId = await createTestBuildTask(db, sourceId)
 
     // 5 exploratory chunks
     await createTestChunks(db, sourceId, 5, 'exploratory')
 
     // Execute
-    const count = await generator.generate(sourceId)
+    const count = await generator.generate(buildTaskId, sourceId)
 
     // Assert
     expect(count).toBe(8)
@@ -131,9 +143,10 @@ describe('TaskGenerator', () => {
   it('UT-TG-04: Source with no chunks', async () => {
     // Setup: Create a source with no documents/chunks
     const sourceId = await createTestSource(db, 'empty-source.test')
+    const buildTaskId = await createTestBuildTask(db, sourceId)
 
     // Execute: Generate tasks for that source
-    const count = await generator.generate(sourceId)
+    const count = await generator.generate(buildTaskId, sourceId)
 
     // Assert
     expect(count).toBe(0)
@@ -153,9 +166,10 @@ describe('TaskGenerator', () => {
     // Setup
     const sourceId = await createTestSource(db, 'airbnb.com')
     const chunkIds = await createTestChunks(db, sourceId, 5, 'task_driven')
+    const buildTaskId = await createTestBuildTask(db, sourceId)
 
     // Execute
-    const count = await generator.generate(sourceId)
+    const count = await generator.generate(buildTaskId, sourceId)
 
     // Assert
     expect(count).toBe(5)
@@ -179,9 +193,10 @@ describe('TaskGenerator', () => {
     // Setup
     const sourceId = await createTestSource(db, 'airbnb.com')
     await createTestChunks(db, sourceId, 3, 'task_driven')
+    const buildTaskId = await createTestBuildTask(db, sourceId)
 
     // Execute
-    await generator.generate(sourceId)
+    await generator.generate(buildTaskId, sourceId)
 
     // Assert
     const tasks = await db
@@ -204,9 +219,10 @@ describe('TaskGenerator', () => {
     // Setup
     const sourceId = await createTestSource(db, 'airbnb.com')
     await createTestChunks(db, sourceId, 2, 'exploratory')
+    const buildTaskId = await createTestBuildTask(db, sourceId)
 
     // Execute
-    await generator.generate(sourceId)
+    await generator.generate(buildTaskId, sourceId)
 
     // Assert
     const tasks = await db
@@ -227,9 +243,10 @@ describe('TaskGenerator', () => {
     // Setup: Create 100 chunks
     const sourceId = await createTestSource(db, 'airbnb.com')
     await createTestChunks(db, sourceId, 100, 'task_driven')
+    const buildTaskId = await createTestBuildTask(db, sourceId)
 
     // Execute
-    const count = await generator.generate()
+    const count = await generator.generate(buildTaskId, sourceId)
 
     // Assert: Only 10 tasks created
     expect(count).toBe(10)
@@ -249,9 +266,10 @@ describe('TaskGenerator', () => {
     // Setup: Create 10 chunks
     const sourceId = await createTestSource(db, 'airbnb.com')
     await createTestChunks(db, sourceId, 10, 'task_driven')
+    const buildTaskId = await createTestBuildTask(db, sourceId)
 
     // First generation: creates 10 tasks
-    const count1 = await generator.generate(sourceId, 100)
+    const count1 = await generator.generate(buildTaskId, sourceId, 100)
     expect(count1).toBe(10)
 
     // Verify 10 tasks created
@@ -262,7 +280,7 @@ describe('TaskGenerator', () => {
     expect(tasks1).toHaveLength(10)
 
     // Second generation: should create 0 tasks (all chunks already have tasks)
-    const count2 = await generator.generate(sourceId, 100)
+    const count2 = await generator.generate(buildTaskId, sourceId, 100)
     expect(count2).toBe(0)
 
     // Verify still only 10 tasks (no duplicates)
@@ -280,17 +298,18 @@ describe('TaskGenerator', () => {
     // Setup: Create 10 chunks
     const sourceId = await createTestSource(db, 'airbnb.com')
     await createTestChunks(db, sourceId, 10, 'task_driven')
+    const buildTaskId = await createTestBuildTask(db, sourceId)
 
     // First generation: creates 5 tasks (limit=5)
-    const count1 = await generator.generate(sourceId, 5)
+    const count1 = await generator.generate(buildTaskId, sourceId, 5)
     expect(count1).toBe(5)
 
     // Second generation: creates 5 more tasks (remaining chunks)
-    const count2 = await generator.generate(sourceId, 10)
+    const count2 = await generator.generate(buildTaskId, sourceId, 10)
     expect(count2).toBe(5)
 
     // Third generation: creates 0 tasks (all chunks have tasks)
-    const count3 = await generator.generate(sourceId, 10)
+    const count3 = await generator.generate(buildTaskId, sourceId, 10)
     expect(count3).toBe(0)
 
     // Verify total 10 tasks
@@ -381,4 +400,32 @@ async function createTestChunks(
   }
 
   return chunkIds
+}
+
+/**
+ * Create a default test build_task for a source
+ */
+async function createTestBuildTask(
+  db: Database,
+  sourceId: number
+): Promise<number> {
+  const timestamp = Date.now()
+  const random = Math.floor(Math.random() * 10000)
+
+  const result = await db
+    .insert(buildTasks)
+    .values({
+      sourceId,
+      sourceUrl: `https://test-${timestamp}-${random}.com`,
+      sourceName: `test-${timestamp}-${random}`,
+      sourceCategory: 'any',
+      stage: 'knowledge_build',
+      stageStatus: 'completed',
+      config: {},
+    })
+    .returning({ id: buildTasks.id })
+
+  const buildTaskId = result[0].id
+  createdBuildTaskIds.push(buildTaskId)
+  return buildTaskId
 }

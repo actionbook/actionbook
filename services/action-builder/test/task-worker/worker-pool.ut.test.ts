@@ -133,7 +133,7 @@ describe('WorkerPool', () => {
 
       mockExecute.mockResolvedValue(createSuccessResult(5));
 
-      const result = await pool.executeAll(100, {
+      const result = await pool.executeAll(1000, 100, {
         staleTimeoutMinutes: 10,
         maxAttempts: 3,
         heartbeatIntervalMs: 60000,
@@ -168,7 +168,7 @@ describe('WorkerPool', () => {
         .mockResolvedValueOnce(createSuccessResult(10))
         .mockResolvedValueOnce(createSuccessResult(5));
 
-      const result = await pool.executeAll(100, {
+      const result = await pool.executeAll(1000, 100, {
         staleTimeoutMinutes: 10,
         maxAttempts: 3,
         heartbeatIntervalMs: 60000,
@@ -206,7 +206,7 @@ describe('WorkerPool', () => {
         .mockResolvedValueOnce(createFailResult('Task 2 failed'))
         .mockResolvedValueOnce(createSuccessResult(5));
 
-      const result = await pool.executeAll(100, {
+      const result = await pool.executeAll(1000, 100, {
         staleTimeoutMinutes: 10,
         maxAttempts: 3,
         heartbeatIntervalMs: 60000,
@@ -225,7 +225,7 @@ describe('WorkerPool', () => {
 
       mockTaskScheduler.claimNextTask.mockResolvedValue(null);
 
-      const result = await pool.executeAll(100, {
+      const result = await pool.executeAll(1000, 100, {
         staleTimeoutMinutes: 10,
         maxAttempts: 3,
         heartbeatIntervalMs: 60000,
@@ -260,7 +260,7 @@ describe('WorkerPool', () => {
         .mockRejectedValueOnce(new Error('Executor crashed'))
         .mockResolvedValueOnce(createSuccessResult(5));
 
-      const result = await pool.executeAll(100, {
+      const result = await pool.executeAll(1000, 100, {
         staleTimeoutMinutes: 10,
         maxAttempts: 3,
         heartbeatIntervalMs: 60000,
@@ -300,7 +300,7 @@ describe('WorkerPool', () => {
 
       // executeAll should throw, but only after waiting for running task
       await expect(
-        pool.executeAll(100, {
+        pool.executeAll(1000, 100, {
           staleTimeoutMinutes: 10,
           maxAttempts: 3,
           heartbeatIntervalMs: 60000,
@@ -322,5 +322,151 @@ describe('WorkerPool', () => {
       // No errors should be thrown
       await expect(pool.shutdown()).resolves.not.toThrow();
     });
+  });
+
+  describe('timeout protection', () => {
+    // UT-WP-07: Task execution timeout after 10 minutes
+    it('should timeout task execution after 10 minutes', async () => {
+      const pool = new WorkerPool(mockDb, {
+        databaseUrl: 'postgres://test',
+        concurrency: 1,
+      });
+
+      const task = createSampleTask({ id: 999 });
+
+      mockTaskScheduler.claimNextTask
+        .mockResolvedValueOnce(task)
+        .mockResolvedValueOnce(null); // No more tasks
+
+      // Mock executor that hangs indefinitely
+      mockExecute.mockImplementation(
+        () =>
+          new Promise(() => {
+            // Promise never resolves - simulates hanging task
+          })
+      );
+
+      vi.useFakeTimers();
+
+      // Start execution
+      const executePromise = pool.executeAll(1000, 100, {
+        staleTimeoutMinutes: 10,
+        maxAttempts: 3,
+        heartbeatIntervalMs: 1000,
+      });
+
+      // Fast-forward time by 10 minutes (600 seconds)
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+      // Wait for executeAll to complete
+      const result = await executePromise;
+
+      vi.useRealTimers();
+
+      // Assert: Task should be marked as failed due to timeout
+      expect(result.completed).toBe(0);
+      expect(result.failed).toBe(1);
+      expect(mockTaskScheduler.markFailed).toHaveBeenCalledWith(
+        999,
+        expect.stringContaining('timeout')
+      );
+    }, 60000); // Increase test timeout to 60 seconds
+
+    // UT-WP-08: Multiple tasks with one timing out
+    it('should handle timeout for one task while others complete normally', async () => {
+      const pool = new WorkerPool(mockDb, {
+        databaseUrl: 'postgres://test',
+        concurrency: 2,
+      });
+
+      const tasks = [
+        createSampleTask({ id: 1 }),
+        createSampleTask({ id: 2 }),
+        createSampleTask({ id: 3 }),
+      ];
+
+      let claimCallCount = 0;
+      mockTaskScheduler.claimNextTask.mockImplementation(async () => {
+        if (claimCallCount < tasks.length) {
+          return tasks[claimCallCount++];
+        }
+        return null;
+      });
+
+      // First task succeeds quickly, second hangs, third succeeds
+      let executeCallCount = 0;
+      mockExecute.mockImplementation(async (task: RecordingTask) => {
+        executeCallCount++;
+        if (executeCallCount === 2) {
+          // Second task hangs
+          return new Promise(() => {
+            // Never resolves
+          });
+        }
+        // Others succeed
+        return createSuccessResult(5);
+      });
+
+      vi.useFakeTimers();
+
+      const executePromise = pool.executeAll(1000, 100, {
+        staleTimeoutMinutes: 10,
+        maxAttempts: 3,
+        heartbeatIntervalMs: 1000,
+      });
+
+      // Fast-forward time by 10 minutes
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+      const result = await executePromise;
+
+      vi.useRealTimers();
+
+      // Assert: 2 completed, 1 failed (timeout)
+      expect(result.completed).toBe(2);
+      expect(result.failed).toBe(1);
+    }, 60000); // Increase test timeout to 60 seconds
+
+    // UT-WP-09: Timeout error is properly caught and logged
+    it('should catch timeout error and update task status', async () => {
+      const pool = new WorkerPool(mockDb, {
+        databaseUrl: 'postgres://test',
+        concurrency: 1,
+      });
+
+      const task = createSampleTask({ id: 777 });
+
+      mockTaskScheduler.claimNextTask
+        .mockResolvedValueOnce(task)
+        .mockResolvedValueOnce(null);
+
+      // Mock hanging executor
+      mockExecute.mockImplementation(
+        () =>
+          new Promise(() => {
+            // Never resolves
+          })
+      );
+
+      vi.useFakeTimers();
+
+      const executePromise = pool.executeAll(1000, 100, {
+        staleTimeoutMinutes: 10,
+        maxAttempts: 3,
+        heartbeatIntervalMs: 1000,
+      });
+
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+      await executePromise;
+
+      vi.useRealTimers();
+
+      // Assert: markFailed was called with timeout error
+      expect(mockTaskScheduler.markFailed).toHaveBeenCalledWith(
+        777,
+        expect.stringContaining('10 minutes')
+      );
+    }, 60000); // Increase test timeout to 60 seconds
   });
 });

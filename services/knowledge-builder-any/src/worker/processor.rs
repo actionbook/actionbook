@@ -164,7 +164,19 @@ impl TaskProcessor {
         title: &str,
         content: &str,
     ) -> Result<i32> {
-        let doc_url = format!("{}/{}", base_url.trim_end_matches('/'), doc_name);
+        // Use fragment identifier to distinguish different handbook documents
+        // while keeping the base URL valid and accessible.
+        // The fragment is ignored by browsers when accessing the URL.
+        // Example: https://dev.to#handbook-action, https://dev.to#handbook-overview
+        let handbook_type = doc_name
+            .trim_end_matches(".md")
+            .to_lowercase()
+            .replace(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_', "-");
+        let doc_url = format!(
+            "{}#handbook-{}",
+            base_url.trim_end_matches('/'),
+            handbook_type
+        );
         let url_hash = documents::generate_url_hash(&doc_url);
         let content_hash = documents::generate_content_hash(content);
 

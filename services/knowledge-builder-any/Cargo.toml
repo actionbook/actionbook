@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "A Rust service for analyzing websites and generating handbook documentation using Claude AI"
 authors = ["Cue Labs, Inc."]
+default-run = "handbook_builder"
 
 [dependencies]
 # Async runtime
@@ -40,7 +41,7 @@ futures = "0.3"
 url = "2.5"
 
 # Database
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "json", "chrono"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "json", "chrono", "tls-rustls"] }
 pgvector = "0.4"
 
 # OpenAI API (for embeddings)
@@ -61,3 +62,24 @@ regex = "1.11"
 
 [dev-dependencies]
 tokio-test = "0.4"
+
+# Test utility binaries
+[[bin]]
+name = "create_test_task"
+path = "bin/tests/create_test_task.rs"
+
+[[bin]]
+name = "create_unique_test_task"
+path = "bin/tests/create_unique_test_task.rs"
+
+[[bin]]
+name = "create_real_test_task"
+path = "bin/tests/create_real_test_task.rs"
+
+[[bin]]
+name = "verify_url_format"
+path = "bin/tests/verify_url_format.rs"
+
+[[bin]]
+name = "cleanup_test_data"
+path = "bin/tests/cleanup_test_data.rs"

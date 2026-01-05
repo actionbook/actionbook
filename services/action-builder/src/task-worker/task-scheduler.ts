@@ -16,6 +16,7 @@ import type { RecordingTask, TaskConfig } from './types/index.js'
 
 export interface GetTaskOptions {
   sourceId?: number
+  buildTaskId?: number
   /** Stale timeout in minutes. Running tasks older than this are considered stale. Default: 30 */
   staleTimeoutMinutes?: number
   /** Max retry attempts for stale tasks. Default: 3 */
@@ -238,6 +239,51 @@ export class TaskScheduler {
   }
 
   /**
+   * Reset all recording tasks for a specific build_task to pending state
+   *
+   * This allows a build_task to be re-executed from the beginning.
+   * Only resets tasks that are not currently running to avoid conflicts.
+   *
+   * @param buildTaskId - The build task ID to reset tasks for
+   * @returns Number of tasks reset
+   */
+  async resetRecordingTasksForBuildTask(buildTaskId: number): Promise<number> {
+    const now = new Date()
+
+    // Reset all non-running tasks to pending
+    // Running tasks are left alone to avoid interfering with active executions
+    const result = await this.db.execute<{ id: number }>(sql`
+      UPDATE recording_tasks
+      SET
+        status = 'pending',
+        started_at = NULL,
+        completed_at = NULL,
+        last_heartbeat = NULL,
+        progress = 0,
+        elements_discovered = 0,
+        pages_discovered = 0,
+        tokens_used = 0,
+        attempt_count = 0,
+        duration_ms = NULL,
+        error_message = NULL,
+        updated_at = ${now}
+      WHERE build_task_id = ${buildTaskId}
+        AND status != 'running'
+      RETURNING id
+    `)
+
+    const resetCount = result.rows.length
+
+    if (resetCount > 0) {
+      console.log(
+        `[TaskScheduler] Reset ${resetCount} recording task(s) for build_task ${buildTaskId}`
+      )
+    }
+
+    return resetCount
+  }
+
+  /**
    * Mark task as completed
    */
   async markCompleted(taskId: number): Promise<void> {
@@ -315,7 +361,12 @@ export class TaskScheduler {
   async claimNextTask(
     options: GetTaskOptions = {}
   ): Promise<RecordingTask | null> {
-    const { sourceId, staleTimeoutMinutes = 10, maxAttempts = 3 } = options
+    const {
+      sourceId,
+      buildTaskId,
+      staleTimeoutMinutes = 10,
+      maxAttempts = 3,
+    } = options
     const now = new Date()
     const staleThreshold = new Date(
       now.getTime() - staleTimeoutMinutes * 60 * 1000
@@ -323,9 +374,13 @@ export class TaskScheduler {
 
     type RawRecordingTask = typeof TaskScheduler.RawRecordingTaskType
 
-    // Build source filter condition
+    // Build filter conditions
     const sourceFilter =
       sourceId !== undefined ? sql`AND source_id = ${sourceId}` : sql``
+    const buildTaskFilter =
+      buildTaskId !== undefined
+        ? sql`AND build_task_id = ${buildTaskId}`
+        : sql``
 
     // First, try to claim a pending task (most common case)
     const pendingResult = await this.db.execute<RawRecordingTask>(sql`
@@ -339,6 +394,7 @@ export class TaskScheduler {
         SELECT id FROM recording_tasks
         WHERE status = 'pending'
           ${sourceFilter}
+          ${buildTaskFilter}
         ORDER BY id ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED
@@ -370,6 +426,7 @@ export class TaskScheduler {
               OR (last_heartbeat IS NULL AND updated_at < ${staleThreshold})
             )
             ${sourceFilter}
+            ${buildTaskFilter}
           ORDER BY id ASC
           LIMIT 1
           FOR UPDATE SKIP LOCKED

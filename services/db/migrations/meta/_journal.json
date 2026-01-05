@@ -106,6 +106,13 @@
       "when": 1766650473710,
       "tag": "0014_wide_korvac",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1767549045994,
+      "tag": "0015_skinny_leader",
+      "breakpoints": true
     }
   ]
 }

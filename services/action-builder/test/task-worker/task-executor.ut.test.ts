@@ -501,4 +501,206 @@ describe('TaskExecutor', () => {
     // Assert: Total = 3 (home) + 2 (search) + 2 (global) = 7
     expect(result.actions_created).toBe(7);
   });
+
+  // ========================================================================
+  // UT-TE-15: builder.build() timeout after 8 minutes
+  // ========================================================================
+  it('UT-TE-15: builder.build() timeout after 8 minutes', async () => {
+    // Arrange
+    const { ActionBuilder } = await import('../../src/ActionBuilder');
+
+    // Mock builder.build() that hangs indefinitely
+    const closeMock = vi.fn().mockResolvedValue(undefined);
+    (ActionBuilder as any).mockImplementationOnce(() => ({
+      initialize: vi.fn().mockResolvedValue(undefined),
+      build: vi.fn().mockImplementation(
+        () =>
+          new Promise(() => {
+            // Promise never resolves - simulates hanging LLM call
+          })
+      ),
+      close: closeMock,
+    }));
+
+    const executor2 = new TaskExecutor(mockDb, mockConfig);
+    const mockTask = createMockTask();
+
+    selectChain.limit.mockResolvedValueOnce([mockChunkData()]);
+
+    vi.useFakeTimers();
+
+    // Act
+    const executePromise = executor2.execute(mockTask);
+
+    // Fast-forward time by 8 minutes
+    await vi.advanceTimersByTimeAsync(8 * 60 * 1000);
+
+    const result = await executePromise;
+
+    vi.useRealTimers();
+
+    // Assert: Task failed due to timeout
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('timeout');
+    expect(result.error).toContain('8 minutes');
+
+    // Task status should be updated to failed
+    expect(updateChain.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'failed',
+        errorMessage: expect.stringContaining('timeout'),
+      })
+    );
+
+    // Browser should still be closed (finally block)
+    expect(closeMock).toHaveBeenCalled();
+  }, 60000); // Increase test timeout to 60 seconds
+
+  // ========================================================================
+  // UT-TE-16: builder.build() completes before timeout
+  // ========================================================================
+  it('UT-TE-16: builder.build() completes before timeout', async () => {
+    // Arrange
+    const { ActionBuilder } = await import('../../src/ActionBuilder');
+
+    // Mock builder.build() that completes in 2 minutes (before timeout)
+    (ActionBuilder as any).mockImplementationOnce(() => ({
+      initialize: vi.fn().mockResolvedValue(undefined),
+      build: vi.fn().mockImplementation(
+        async () => {
+          // Simulate 2 minutes of work
+          await new Promise((resolve) => setTimeout(resolve, 2 * 60 * 1000));
+          return {
+            success: true,
+            turns: 5,
+            totalDuration: 120000,
+            tokens: { input: 1000, output: 500, total: 1500 },
+            savedPath: './output/test.yaml',
+            siteCapability: {
+              domain: 'test.com',
+              pages: {
+                home: {
+                  elements: { el1: {} },
+                },
+              },
+              global_elements: {},
+            },
+          };
+        }
+      ),
+      close: vi.fn().mockResolvedValue(undefined),
+    }));
+
+    const executor2 = new TaskExecutor(mockDb, mockConfig);
+    const mockTask = createMockTask();
+
+    selectChain.limit.mockResolvedValueOnce([mockChunkData()]);
+
+    vi.useFakeTimers();
+
+    // Act
+    const executePromise = executor2.execute(mockTask);
+
+    // Fast-forward time by 2 minutes (task completes)
+    await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+
+    const result = await executePromise;
+
+    vi.useRealTimers();
+
+    // Assert: Task completed successfully (no timeout)
+    expect(result.success).toBe(true);
+    expect(result.actions_created).toBe(1);
+  }, 60000); // Increase test timeout to 60 seconds
+
+  // ========================================================================
+  // UT-TE-17: Timeout error properly caught and status updated
+  // ========================================================================
+  it('UT-TE-17: Timeout error properly caught and status updated', async () => {
+    // Arrange
+    const { ActionBuilder } = await import('../../src/ActionBuilder');
+
+    // Mock hanging builder
+    (ActionBuilder as any).mockImplementationOnce(() => ({
+      initialize: vi.fn().mockResolvedValue(undefined),
+      build: vi.fn().mockImplementation(
+        () =>
+          new Promise(() => {
+            // Never resolves
+          })
+      ),
+      close: vi.fn().mockResolvedValue(undefined),
+    }));
+
+    const executor2 = new TaskExecutor(mockDb, mockConfig);
+    const mockTask = createMockTask({ id: 888, attemptCount: 1 });
+
+    selectChain.limit.mockResolvedValueOnce([mockChunkData()]);
+
+    vi.useFakeTimers();
+
+    const executePromise = executor2.execute(mockTask);
+
+    // Fast-forward to timeout
+    await vi.advanceTimersByTimeAsync(8 * 60 * 1000);
+
+    const result = await executePromise;
+
+    vi.useRealTimers();
+
+    // Assert: Error is caught and task status updated
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('ActionBuilder.build() timeout');
+
+    // Verify database update was called with failed status
+    expect(mockDb.update).toHaveBeenCalled();
+    expect(updateChain.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'failed',
+        errorMessage: expect.stringContaining('timeout'),
+        attemptCount: 2, // Incremented from 1
+      })
+    );
+  }, 60000); // Increase test timeout to 60 seconds
+
+  // ========================================================================
+  // UT-TE-18: Browser cleanup happens even on timeout
+  // ========================================================================
+  it('UT-TE-18: Browser cleanup happens even on timeout', async () => {
+    // Arrange
+    const { ActionBuilder } = await import('../../src/ActionBuilder');
+
+    const closeMock = vi.fn().mockResolvedValue(undefined);
+    const initMock = vi.fn().mockResolvedValue(undefined);
+
+    (ActionBuilder as any).mockImplementationOnce(() => ({
+      initialize: initMock,
+      build: vi.fn().mockImplementation(
+        () =>
+          new Promise(() => {
+            // Hangs forever
+          })
+      ),
+      close: closeMock,
+    }));
+
+    const executor2 = new TaskExecutor(mockDb, mockConfig);
+    const mockTask = createMockTask();
+
+    selectChain.limit.mockResolvedValueOnce([mockChunkData()]);
+
+    vi.useFakeTimers();
+
+    const executePromise = executor2.execute(mockTask);
+
+    await vi.advanceTimersByTimeAsync(8 * 60 * 1000);
+
+    await executePromise;
+
+    vi.useRealTimers();
+
+    // Assert: Browser was initialized and closed
+    expect(initMock).toHaveBeenCalledTimes(1);
+    expect(closeMock).toHaveBeenCalledTimes(1);
+  }, 60000); // Increase test timeout to 60 seconds
 });

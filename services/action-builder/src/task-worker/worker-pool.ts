@@ -32,6 +32,8 @@ import type {
 export interface WorkerPoolConfig extends TaskExecutorConfig {
   /** Number of concurrent workers (default: 3) */
   concurrency?: number
+  /** Task execution timeout in minutes (default: 10) */
+  taskTimeoutMinutes?: number
 }
 
 /**
@@ -88,9 +90,11 @@ export class WorkerPool {
   private concurrency: number
   private taskScheduler: TaskScheduler
   private stopHeartbeats: Map<number, () => void> = new Map()
+  private taskTimeoutMs: number
 
   constructor(db: Database, config: WorkerPoolConfig) {
     this.concurrency = config.concurrency ?? 3
+    this.taskTimeoutMs = (config.taskTimeoutMinutes ?? 10) * 60 * 1000
     this.taskScheduler = new TaskScheduler(db)
 
     // Pre-create worker slots with executors
@@ -118,7 +122,7 @@ export class WorkerPool {
   }
 
   /**
-   * Execute all pending tasks for a source with N concurrent workers
+   * Execute all pending tasks for a build_task with N concurrent workers
    *
    * Uses a loop that:
    * 1. Finds an available worker
@@ -131,11 +135,13 @@ export class WorkerPool {
    * - Running tasks continue to completion even if the main loop errors
    * - Stats from completed tasks are preserved in the returned result
    *
+   * @param buildTaskId - Build task ID to filter tasks
    * @param sourceId - Source ID to filter tasks
    * @param options - Execution options
    * @returns Execution statistics
    */
   async executeAll(
+    buildTaskId: number,
     sourceId: number,
     options: ExecuteAllOptions
   ): Promise<ExecutionStats> {
@@ -170,7 +176,7 @@ export class WorkerPool {
     }
 
     console.log(
-      `[WorkerPool] Starting execution for source ${sourceId} with ${this.concurrency} workers`
+      `[WorkerPool] Starting execution for build_task ${buildTaskId} (source ${sourceId}) with ${this.concurrency} workers`
     )
 
     try {
@@ -190,8 +196,9 @@ export class WorkerPool {
           break // No workers and no running tasks - shouldn't happen
         }
 
-        // 2. Atomically claim next task
+        // 2. Atomically claim next task for this build_task
         const task = await this.taskScheduler.claimNextTask({
+          buildTaskId,
           sourceId,
           staleTimeoutMinutes: options.staleTimeoutMinutes,
           maxAttempts: options.maxAttempts,
@@ -283,13 +290,61 @@ export class WorkerPool {
 
   /**
    * Execute a single task with a specific worker
+   *
+   * Includes timeout protection to prevent tasks from hanging indefinitely.
+   * If a task exceeds the timeout, it will be marked as failed and the worker
+   * will be released.
    */
   private async executeTaskWithWorker(
     worker: WorkerState,
     task: RecordingTask
   ): Promise<ExecutionResult> {
     console.log(`[WorkerPool] Worker ${worker.id} executing task ${task.id}`)
-    return worker.executor.execute(task)
+
+    // Maximum execution time (configurable, default: 10 minutes)
+    // This prevents tasks from hanging indefinitely due to unhandled Promise deadlocks
+    const timeoutPromise = new Promise<ExecutionResult>((_, reject) => {
+      setTimeout(() => {
+        reject(
+          new Error(
+            `Task execution timeout after ${this.taskTimeoutMs / 1000 / 60} minutes`
+          )
+        )
+      }, this.taskTimeoutMs)
+    })
+
+    try {
+      return await Promise.race([
+        worker.executor.execute(task),
+        timeoutPromise,
+      ])
+    } catch (error) {
+      // If timeout or other error occurs, ensure task is marked as failed
+      const errorMessage = error instanceof Error ? error.message : String(error)
+
+      console.error(
+        `[WorkerPool] Worker ${worker.id} task ${task.id} failed:`,
+        errorMessage
+      )
+
+      // Update task status to failed (best-effort - TaskExecutor may have already updated)
+      try {
+        await this.taskScheduler.markFailed(task.id, errorMessage)
+      } catch (updateError) {
+        console.warn(
+          `[WorkerPool] Failed to update task ${task.id} status:`,
+          updateError
+        )
+      }
+
+      // Return failure result
+      return {
+        success: false,
+        actions_created: 0,
+        error: errorMessage,
+        duration_ms: this.taskTimeoutMs,
+      }
+    }
   }
 
   /**

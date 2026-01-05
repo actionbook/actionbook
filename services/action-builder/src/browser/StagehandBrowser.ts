@@ -406,6 +406,9 @@ export class StagehandBrowser implements BrowserAdapter {
       const profileManager = new BrowserProfileManager({ baseDir: profileDir, logger: profileLogger });
       const profilePath = profileManager.getProfilePath();
 
+      // Ensure profile directory exists before use
+      profileManager.ensureDir();
+
       // Clean up stale lock files from previous crashed sessions
       profileManager.cleanupStaleLocks();
 

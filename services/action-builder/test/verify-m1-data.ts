@@ -35,6 +35,7 @@ import type { TaskExecutorConfig } from '../src/task-worker/types'
 import {
   getDb,
   sources,
+  buildTasks,
   documents,
   chunks,
   recordingTasks,
@@ -86,6 +87,23 @@ async function verifyM1Data() {
   const sourceId = sourceResult[0].id
   console.log(`✅ Created source: ID=${sourceId}, domain=m1-test.example.com`)
 
+  // Create build_task
+  const buildTaskResult = await db
+    .insert(buildTasks)
+    .values({
+      sourceId,
+      sourceUrl: `https://m1-test-${timestamp}.example.com`,
+      sourceName: `m1_verification_${timestamp}`,
+      sourceCategory: 'any',
+      stage: 'knowledge_build',
+      stageStatus: 'completed',
+      config: {},
+    })
+    .returning({ id: buildTasks.id })
+
+  const buildTaskId = buildTaskResult[0].id
+  console.log(`✅ Created build_task: ID=${buildTaskId}`)
+
   // Create 10 chunks (5 task-driven, 5 exploratory)
   console.log('\n📦 Creating 10 chunks...')
   for (let i = 0; i < 10; i++) {
@@ -124,7 +142,7 @@ async function verifyM1Data() {
 
   // Step 2: Generate tasks
   console.log('\n🔄 Step 2: Generating tasks...')
-  const generatedCount = await generator.generate(sourceId)
+  const generatedCount = await generator.generate(buildTaskId, sourceId)
   console.log(`✅ Generated ${generatedCount} tasks`)
 
   // Verify tasks created

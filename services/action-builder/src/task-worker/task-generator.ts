@@ -25,22 +25,26 @@ export class TaskGenerator {
   constructor(private db: Database) {}
 
   /**
-   * Generate recording tasks
-   * M1: Default generates 10 tasks
+   * Generate recording tasks for a specific build_task
    *
+   * @param buildTaskId - Build task ID to associate recording tasks with
    * @param sourceId - Optional data source ID filter
    * @param limit - Maximum number of tasks to generate (default 10)
    * @returns Number of tasks generated
    */
-  async generate(sourceId?: number, limit: number = 10): Promise<number> {
-    // 1. Query chunks with JOIN (M1: default LIMIT 10)
-    const chunksData = await this.queryChunks(sourceId, limit)
+  async generate(
+    buildTaskId: number,
+    sourceId?: number,
+    limit: number = 10
+  ): Promise<number> {
+    // 1. Query chunks that don't have a recording_task for this build_task yet
+    const chunksData = await this.queryChunks(buildTaskId, sourceId, limit)
 
     // 2. Create recording_task for each chunk
     let createdCount = 0
     for (const chunk of chunksData) {
       try {
-        await this.createTask(chunk)
+        await this.createTask(buildTaskId, chunk)
         createdCount++
       } catch (error) {
         // M1: Simplified error handling, log and continue
@@ -57,10 +61,12 @@ export class TaskGenerator {
   /**
    * Query chunks data (includes document and source info)
    *
-   * Only returns chunks that do NOT already have a recording_task.
-   * This prevents duplicate task creation on build_task recovery.
+   * Only returns chunks that do NOT already have a recording_task for the given build_task_id.
+   * This allows the same chunk to be processed in different build_tasks while preventing
+   * duplicates within the same build_task.
    */
   private async queryChunks(
+    buildTaskId: number,
     sourceIdFilter: number | undefined,
     limit: number
   ): Promise<ChunkWithMetadata[]> {
@@ -89,6 +95,7 @@ export class TaskGenerator {
       WHERE NOT EXISTS (
         SELECT 1 FROM recording_tasks rt
         WHERE rt.chunk_id = c.id
+          AND rt.build_task_id = ${buildTaskId}
       )
       ${sourceFilter}
       ORDER BY c.id DESC
@@ -97,7 +104,7 @@ export class TaskGenerator {
 
     // Debug log
     console.log(
-      `[TaskGenerator] queryChunks results: ${results.rows.length} records (excluding existing tasks)`
+      `[TaskGenerator] queryChunks results: ${results.rows.length} records (excluding tasks for build_task_id=${buildTaskId})`
     )
     for (const r of results.rows) {
       console.log(
@@ -117,9 +124,12 @@ export class TaskGenerator {
   }
 
   /**
-   * Create recording_task for a single chunk
+   * Create recording_task for a single chunk with build_task association
    */
-  private async createTask(chunk: ChunkWithMetadata): Promise<number> {
+  private async createTask(
+    buildTaskId: number,
+    chunk: ChunkWithMetadata
+  ): Promise<number> {
     // 1. Detect chunk type
     const chunkType: ChunkType = detectChunkType(chunk.chunkContent)
 
@@ -130,14 +140,14 @@ export class TaskGenerator {
 
     // Debug: log what we're inserting
     console.log(
-      `[TaskGenerator] createTask: chunkId=${chunk.chunkId}, sourceId=${chunk.sourceId}`
+      `[TaskGenerator] createTask: chunkId=${chunk.chunkId}, sourceId=${chunk.sourceId}, buildTaskId=${buildTaskId}`
     )
 
-    // 3. Use raw SQL insert (bypass Drizzle ORM chunkId issue)
+    // 3. Use raw SQL insert with build_task_id
     const configJson = JSON.stringify(config)
     const result = await this.db.execute<{ id: number }>(sql`
-      INSERT INTO recording_tasks (source_id, chunk_id, start_url, status, config, attempt_count, scenario)
-      VALUES (${chunk.sourceId}, ${chunk.chunkId}, ${chunk.documentUrl}, 'pending', ${configJson}::jsonb, 0, 'default')
+      INSERT INTO recording_tasks (source_id, build_task_id, chunk_id, start_url, status, config, attempt_count, scenario)
+      VALUES (${chunk.sourceId}, ${buildTaskId}, ${chunk.chunkId}, ${chunk.documentUrl}, 'pending', ${configJson}::jsonb, 0, 'default')
       RETURNING id
     `)
 

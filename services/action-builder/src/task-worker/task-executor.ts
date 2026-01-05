@@ -55,14 +55,17 @@ interface ExtendedChunkData {
 export class TaskExecutor {
   private config: TaskExecutorConfig
   private dbWriter: DbWriter
+  private buildTimeoutMs: number
 
   constructor(private db: Database, config: TaskExecutorConfig) {
     this.config = {
       headless: config.headless ?? true,
       maxTurns: config.maxTurns ?? 30,
       outputDir: config.outputDir ?? './output',
+      buildTimeoutMinutes: config.buildTimeoutMinutes ?? 8,
       ...config,
     }
+    this.buildTimeoutMs = (this.config.buildTimeoutMinutes ?? 8) * 60 * 1000
     this.dbWriter = new DbWriter(db)
   }
 
@@ -151,13 +154,26 @@ export class TaskExecutor {
       // e.g., https://notion.com/help → https://notion.com
       const startUrl = new URL(chunkData.source_base_url).origin
 
-      // Call ActionBuilder.build()
-      const buildResult = await builder.build(startUrl, scenarioName, {
+      // Call ActionBuilder.build() with timeout protection
+      // Uses configurable timeout (default: 8 minutes)
+      const buildPromise = builder.build(startUrl, scenarioName, {
         siteName: chunkData.source_name,
         customSystemPrompt: systemPrompt,
         customUserPrompt: userPrompt,
         taskId: task.id, // Pass existing task ID to avoid duplicate task creation
       })
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(
+            new Error(
+              `ActionBuilder.build() timeout after ${this.buildTimeoutMs / 1000 / 60} minutes`
+            )
+          )
+        }, this.buildTimeoutMs)
+      })
+
+      const buildResult = await Promise.race([buildPromise, timeoutPromise])
 
       if (buildResult.success) {
         // Success: count elements
