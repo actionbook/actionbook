@@ -27,7 +27,13 @@ export function createDb(databaseUrl?: string) {
   const pool = new Pool({
     connectionString: url,
     // Enable SSL for remote databases, skip certificate verification
-    ssl: needsSsl ? { rejectUnauthorized: false } : false,
+    ssl: needsSsl
+      ? {
+          rejectUnauthorized: false,
+          // Additional SSL options for compatibility with cloud databases
+          checkServerIdentity: () => undefined,
+        }
+      : false,
   });
   const db = drizzle(pool, { schema });
   poolMap.set(db, pool);
