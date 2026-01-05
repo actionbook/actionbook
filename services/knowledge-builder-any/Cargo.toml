@@ -41,7 +41,7 @@ futures = "0.3"
 url = "2.5"
 
 # Database
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "json", "chrono"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "json", "chrono", "tls-rustls"] }
 pgvector = "0.4"
 
 # OpenAI API (for embeddings)
