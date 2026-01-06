@@ -62,7 +62,9 @@ Thumbs.db
 .turbo
 
 # Project specific
-.docs
+.docs/
+.scripts/
+
 output/
 leilei-temp-docs/
 

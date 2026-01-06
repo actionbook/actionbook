@@ -2,6 +2,13 @@
 
 Capability Builder for recording website UI element selectors. Uses LLM + Stagehand to automatically discover UI elements and extract selectors.
 
+## Requirements
+
+- **Node.js**: `>=20.0.0 <21.0.0` (Node 20.x LTS)
+  - ⚠️ **Important**: Node.js 21+ is currently **not supported** due to Stagehand dependency incompatibility
+  - Stagehand's dependency `buffer-equal-constant-time` uses the deprecated `SlowBuffer` API, which was removed in Node.js 21+
+  - Use `nvm use 20` to switch to the correct version
+
 ## Quick Start
 
 ```bash
