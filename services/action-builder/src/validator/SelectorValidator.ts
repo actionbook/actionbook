@@ -333,8 +333,17 @@ export class SelectorValidator {
     const selectorValue = resolved.value;
 
     try {
-      const locator = this.buildLocator(page, selector.type, selectorValue);
-      const count = await locator.count();
+      // For XPath selectors, use direct browser evaluation to bypass Stagehand's XPath handling.
+      // See evaluateXPathInBrowser() for details on why this is needed.
+      let count: number;
+      if (selector.type === 'xpath') {
+        count = await this.evaluateXPathInBrowser(page, selectorValue);
+        log("debug", `[SelectorValidator] XPath evaluate count: ${count} for ${selectorValue}`);
+      } else {
+        const locator = this.buildLocator(page, selector.type, selectorValue);
+        count = await locator.count();
+        log("debug", `[SelectorValidator] Locator count: ${count} for ${selector.type}=${selectorValue}`);
+      }
 
       if (count === 0) {
         return {
@@ -353,63 +362,107 @@ export class SelectorValidator {
       let visible = false;
       let interactable = false;
 
-      try {
-        visible = await locator.isVisible({ timeout: 1000 });
-      } catch {
-        // isVisible failed, element might be detached
-        visible = false;
-      }
-
-      if (visible) {
+      // For XPath, use browser evaluation for visibility check.
+      // This is consistent with evaluateXPathInBrowser() - we evaluate everything in browser context
+      // to avoid Stagehand's XPath handling issues.
+      if (selector.type === 'xpath') {
         try {
-          // Check if element is enabled (not disabled)
-          const isEnabled = await locator.isEnabled({ timeout: 1000 });
-          // Check if element has a bounding box (not zero-sized or off-screen)
-          const boundingBox = await locator.boundingBox();
-
-          if (isEnabled && boundingBox !== null) {
-            // Additional checks via getComputedStyle
-            const styleCheck = await locator.evaluate((el) => {
-              const style = window.getComputedStyle(el);
-              return {
-                pointerEvents: style.pointerEvents,
-                opacity: style.opacity,
-              };
-            });
-
-            // Check pointer-events and opacity
-            const hasPointerEvents = styleCheck.pointerEvents !== 'none';
-            const hasOpacity = parseFloat(styleCheck.opacity) > 0;
-
-            // Check if element is obstructed by another element
-            let notObstructed = true;
-            const centerX = boundingBox.x + boundingBox.width / 2;
-            const centerY = boundingBox.y + boundingBox.height / 2;
-
-            const elementAtPoint = await page.evaluate(
-              ([x, y]) => {
-                const el = document.elementFromPoint(x, y);
-                return el ? true : false;
-              },
-              [centerX, centerY]
+          const visibilityResult = await page.evaluate((xp: string) => {
+            const result = document.evaluate(
+              xp,
+              document,
+              null,
+              XPathResult.FIRST_ORDERED_NODE_TYPE,
+              null
             );
+            const el = result.singleNodeValue as HTMLElement;
+            if (!el) return { visible: false, interactable: false };
 
-            // If elementFromPoint returns something, check if it's our element or a child
-            if (elementAtPoint) {
-              notObstructed = await locator.evaluate((el, point) => {
-                const topEl = document.elementFromPoint(point.x, point.y);
-                // Element is not obstructed if topEl is the element itself or a descendant
-                return topEl === el || el.contains(topEl);
-              }, { x: centerX, y: centerY });
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            const isVisible = rect.width > 0 && rect.height > 0 &&
+              style.visibility !== 'hidden' && style.display !== 'none';
+
+            if (!isVisible) return { visible: false, interactable: false };
+
+            // Check interactability
+            const hasPointerEvents = style.pointerEvents !== 'none';
+            const hasOpacity = parseFloat(style.opacity) > 0;
+            const isEnabled = !(el as any).disabled;
+
+            return {
+              visible: isVisible,
+              interactable: isVisible && hasPointerEvents && hasOpacity && isEnabled,
+            };
+          }, selectorValue);
+
+          visible = visibilityResult.visible;
+          interactable = visibilityResult.interactable;
+        } catch {
+          visible = false;
+          interactable = false;
+        }
+      } else {
+        // For non-XPath selectors, use the locator
+        const locator = this.buildLocator(page, selector.type, selectorValue);
+        try {
+          visible = await locator.isVisible({ timeout: 1000 });
+        } catch {
+          // isVisible failed, element might be detached
+          visible = false;
+        }
+
+        if (visible) {
+          try {
+            // Check if element is enabled (not disabled)
+            const isEnabled = await locator.isEnabled({ timeout: 1000 });
+            // Check if element has a bounding box (not zero-sized or off-screen)
+            const boundingBox = await locator.boundingBox();
+
+            if (isEnabled && boundingBox !== null) {
+              // Additional checks via getComputedStyle
+              const styleCheck = await locator.evaluate((el) => {
+                const style = window.getComputedStyle(el);
+                return {
+                  pointerEvents: style.pointerEvents,
+                  opacity: style.opacity,
+                };
+              });
+
+              // Check pointer-events and opacity
+              const hasPointerEvents = styleCheck.pointerEvents !== 'none';
+              const hasOpacity = parseFloat(styleCheck.opacity) > 0;
+
+              // Check if element is obstructed by another element
+              let notObstructed = true;
+              const centerX = boundingBox.x + boundingBox.width / 2;
+              const centerY = boundingBox.y + boundingBox.height / 2;
+
+              const elementAtPoint = await page.evaluate(
+                ([x, y]) => {
+                  const el = document.elementFromPoint(x, y);
+                  return el ? true : false;
+                },
+                [centerX, centerY]
+              );
+
+              // If elementFromPoint returns something, check if it's our element or a child
+              if (elementAtPoint) {
+                notObstructed = await locator.evaluate((el, point) => {
+                  const topEl = document.elementFromPoint(point.x, point.y);
+                  // Element is not obstructed if topEl is the element itself or a descendant
+                  return topEl === el || el.contains(topEl);
+                }, { x: centerX, y: centerY });
+              }
+
+              interactable = hasPointerEvents && hasOpacity && notObstructed;
+            } else {
+              interactable = false;
             }
-
-            interactable = hasPointerEvents && hasOpacity && notObstructed;
-          } else {
+          } catch {
+            // Check failed
             interactable = false;
           }
-        } catch {
-          // Check failed
-          interactable = false;
         }
       }
 
@@ -435,13 +488,54 @@ export class SelectorValidator {
   }
 
   private buildLocator(page: Page, selectorType: SelectorItem['type'], selectorValue: string) {
+    let locatorStr: string;
     switch (selectorType) {
       case 'xpath':
-        return page.locator(`xpath=${selectorValue}`).first();
+        locatorStr = `xpath=${selectorValue}`;
+        break;
       case 'text':
-        return page.locator(`text=${selectorValue}`).first();
+        locatorStr = `text=${selectorValue}`;
+        break;
       default:
-        return page.locator(selectorValue).first();
+        locatorStr = selectorValue;
+        break;
+    }
+    log("debug", `[SelectorValidator] Building locator: type=${selectorType}, locatorStr=${locatorStr}`);
+    return page.locator(locatorStr).first();
+  }
+
+  /**
+   * Evaluate XPath directly in browser context using document.evaluate()
+   *
+   * Why this is needed:
+   * Stagehand's page.locator('xpath=...') uses CDP (Chrome DevTools Protocol) internally,
+   * which has issues with relative XPath expressions (e.g., //a[@id="..."], //button[contains(...)]).
+   * Absolute XPath paths (e.g., /html[1]/body[1]/...) work fine, but relative XPath returns count=0.
+   *
+   * This method bypasses Stagehand's XPath handling by using page.evaluate() to execute
+   * document.evaluate() directly in the browser context, which correctly handles all XPath expressions.
+   *
+   * References:
+   * - Stagehand Locator docs: https://docs.stagehand.dev/v3/references/locator
+   * - Playwright XPath docs: https://playwright.dev/docs/other-locators#xpath-locator
+   * - MDN document.evaluate: https://developer.mozilla.org/en-US/docs/Web/API/Document/evaluate
+   */
+  private async evaluateXPathInBrowser(page: Page, xpath: string): Promise<number> {
+    try {
+      const count = await page.evaluate((xp: string) => {
+        const result = document.evaluate(
+          xp,
+          document,
+          null,
+          XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+          null
+        );
+        return result.snapshotLength;
+      }, xpath);
+      return count;
+    } catch (error) {
+      log("debug", `[SelectorValidator] XPath evaluate error: ${error}`);
+      return 0;
     }
   }
 

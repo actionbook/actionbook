@@ -327,6 +327,7 @@ export class RecorderToolExecutor {
         }
 
         // Try to extract additional selectors from XPath for complete selector coverage
+        let optimizedXPath: string | undefined;
         if (xpathSelector) {
           const extractedAttrs = await this.browser.getElementAttributesFromXPath(xpathSelector);
           if (extractedAttrs) {
@@ -340,7 +341,9 @@ export class RecorderToolExecutor {
             ariaLabel = ariaLabel || extractedAttrs.ariaLabel;
             // Prefer actual placeholder from page over LLM-provided value (LLM often guesses wrong)
             placeholder = extractedAttrs.placeholder || placeholder;
-            log("info", `[ActionRecorder] Auto-extracted selectors for ${toolArgs.element_id}: id=${elementId}, dataTestId=${dataTestId}, css=${cssSelector}, aria=${ariaLabel}, placeholder=${placeholder}`);
+            // Use optimized XPath (attribute-based) instead of absolute path
+            optimizedXPath = extractedAttrs.optimizedXPath;
+            log("info", `[ActionRecorder] Auto-extracted selectors for ${toolArgs.element_id}: id=${elementId}, dataTestId=${dataTestId}, css=${cssSelector}, aria=${ariaLabel}, placeholder=${placeholder}, optimizedXPath=${optimizedXPath}`);
           }
         }
 
@@ -408,13 +411,15 @@ export class RecorderToolExecutor {
           }
         }
 
-        // 5. XPath
-        if (xpathSelector) {
+        // 5. XPath (prefer optimized attribute-based XPath over absolute path)
+        const finalXPath = optimizedXPath || xpathSelector;
+        if (finalXPath) {
           multiSelectors.push({
             type: "xpath" as SelectorType,
-            value: xpathSelector,
+            value: finalXPath,
             priority: priority++,
-            confidence: 0.6,
+            // Higher confidence for attribute-based XPath, lower for absolute path
+            confidence: optimizedXPath && optimizedXPath !== xpathSelector ? 0.8 : 0.6,
           });
         }
 
