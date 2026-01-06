@@ -22,6 +22,9 @@ export interface BrowserAdapter {
     cssSelector?: string;
     tagName?: string;
     dataAttributes?: Record<string, string>;
+    name?: string;
+    textContent?: string;
+    optimizedXPath?: string;
   } | null>;
 
   wait(ms: number): Promise<void>;

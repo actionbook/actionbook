@@ -140,7 +140,7 @@ export type BuildTaskStageStatus = 'pending' | 'running' | 'completed' | 'error'
 /**
  * Source Category
  */
-export type SourceCategory = 'help' | 'unknown' | 'any';
+export type SourceCategory = 'help' | 'playbook' | 'unknown' | 'any';
 
 /**
  * Build Task Config (stored in JSONB)
