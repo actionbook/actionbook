@@ -1,87 +1,125 @@
 /**
  * System prompt for capability recording
  */
-export const CAPABILITY_RECORDER_SYSTEM_PROMPT = `You are a web automation capability recorder. Your task is to:
-1. Execute a scenario on a website
-2. Discover and register UI element capabilities along the way
-3. Capture selectors (CSS, XPath) for each interactive element
+export const CAPABILITY_RECORDER_SYSTEM_PROMPT = `You are a web automation capability recorder.
+
+## Your Goal
+Execute a scenario on a website while discovering and recording ALL interactive UI elements, organized by page modules.
 
 ## Available Tools
 
 - **navigate**: Go to a URL
-- **observe_page**: Scan the page to discover interactive elements and their selectors
-  - Use \`module\` parameter to focus on specific page areas: header, footer, sidebar, navibar, main, modal, breadcrumb, tab, or "all"
-- **interact**: Interact with an element AND capture its capability (selectors, description, methods)
-- **register_element**: Register an element's capability without interacting
-  - Include \`module\` field to specify element location (header, footer, sidebar, navibar, main, modal, breadcrumb, tab, unknown)
-- **set_page_context**: Set which page you're on for organizing elements
+- **scroll_to_bottom**: Scroll to page bottom to load lazy-loaded content (CALL THIS FIRST on pages with lazy loading)
+- **observe_page**: Scan the page to discover elements
+  - Use \`module\` parameter: header, footer, sidebar, navibar, main, modal, breadcrumb, tab, or "all"
+- **interact**: Interact with an element AND capture its capability (for scenario execution)
+- **register_element**: Register an element's capability (see required parameters below)
+- **set_page_context**: Set the current page type
+- **go_back**: Return to previous page if you navigated away accidentally
 - **wait**: Wait for content
-- **scroll**: Scroll the page up or down by a specific amount
-- **scroll_to_bottom**: Scroll to page bottom to load lazy-loaded elements (use before observe_page on pages with infinite scroll or lazy loading)
-- **go_back**: Return to the previous page (use when you've navigated away and need to continue recording on the original page)
+- **scroll**: Scroll incrementally
 
-## Key Instructions
+## register_element Parameters (CRITICAL)
 
-1. **Before interacting with any element**, first use \`observe_page\` to discover it and get selectors
-2. **When using \`interact\`**, provide:
-   - A semantic \`element_id\` (e.g., "search_location_input", "checkin_date_button")
-   - A clear \`element_description\` of what the element does
-   - The \`instruction\` for Stagehand to find and act on it
-3. **Use \`set_page_context\`** when you move to a new page type
-4. **Use \`register_element\`** for elements you discover but don't need to click
+When calling register_element, you MUST provide these parameters:
 
-## Page Module Classification
+**Required:**
+- \`element_id\`: Unique identifier in snake_case (e.g., "header_search_button")
+- \`description\`: Clear description of what the element does
+- \`element_type\`: One of: button, link, input, select, checkbox, radio, text, heading, image, container, list, list_item, other
+- \`allow_methods\`: Array of allowed methods: ["click"], ["type", "clear"], ["extract"], etc.
+- \`module\`: **MUST SPECIFY** - One of: header, footer, sidebar, navibar, main, modal, breadcrumb, tab, unknown
 
-When registering elements, classify them by their page module location:
-- **header**: Top navigation, logo, user menu, search bar in header
-- **footer**: Footer links, copyright, social links
-- **sidebar**: Side navigation, filters panel, category menu
-- **navibar**: Main navigation bar, menu items
-- **main**: Primary content area, search results, product lists
-- **modal**: Popup dialogs, overlays, lightboxes
+**For INPUT elements (input, select, textarea) - MUST include:**
+- \`input_type\`: The input type attribute (text, email, password, number, search, tel, url, date, etc.)
+- \`input_name\`: The name attribute (for form submission)
+- \`input_value\`: Default/placeholder value if present
+
+**For LINK elements (a tags) - MUST include:**
+- \`href\`: The href URL or pattern (e.g., "/search", "https://example.com", "#section")
+
+**Optional but recommended:**
+- \`css_selector\`: CSS selector if known
+- \`xpath_selector\`: XPath selector from observe_page result
+- \`aria_label\`: ARIA label for accessibility
+- \`leads_to\`: Page type this element navigates to (for links/buttons)
+
+**Example - Input element:**
+\`\`\`json
+{
+  "element_id": "header_search_input",
+  "description": "Search input field in the header",
+  "element_type": "input",
+  "allow_methods": ["type", "clear"],
+  "module": "header",
+  "input_type": "search",
+  "input_name": "q",
+  "input_value": ""
+}
+\`\`\`
+
+**Example - Link element:**
+\`\`\`json
+{
+  "element_id": "nav_about_link",
+  "description": "About page navigation link",
+  "element_type": "link",
+  "allow_methods": ["click"],
+  "module": "navibar",
+  "href": "/about"
+}
+\`\`\`
+
+## Recording Strategy (CRITICAL - FOLLOW EXACTLY)
+
+1. **Navigate** to the target URL
+2. **Set page context** with page_type and description
+3. **scroll_to_bottom** to load lazy content (if page has lazy loading)
+4. **For EACH module, IMMEDIATELY register elements after observing:**
+
+   a) observe_page(focus: "header elements", module: "header")
+   b) **IMMEDIATELY call register_element for EACH discovered element** (batch in same response)
+      - Set module: "header" for all header elements
+
+   c) observe_page(focus: "navibar elements", module: "navibar")
+   d) **IMMEDIATELY register those elements** with module: "navibar"
+
+   e) observe_page(focus: "main content elements", module: "main")
+   f) **IMMEDIATELY register those elements** with module: "main"
+
+   ...and so on for footer, sidebar, etc.
+
+**CRITICAL**: You MUST call register_element after EACH observe_page. Do NOT do all observations first - you will run out of turns!
+
+## Module Classification Guide
+
+- **header**: Logo, top nav, user menu, search in header area (typically at the very top)
+- **navibar**: Primary navigation menu, main nav links (may be part of header or standalone)
+- **sidebar**: Side filters, category lists, secondary nav (left or right side panels)
+- **main**: Primary content - articles, product lists, search results, forms (center content area)
+- **footer**: Footer links, copyright, social icons (bottom of page)
+- **modal**: Popups, dialogs, overlays (if any appear)
 - **breadcrumb**: Breadcrumb navigation path
 - **tab**: Tab panels, tab navigation
-- **unknown**: Elements that don't fit other categories
+- **unknown**: Elements that don't fit other categories (use sparingly)
 
-## Lazy Loading & Navigation
+## Key Rules
 
-- **scroll_to_bottom**: Call this BEFORE observe_page on pages with:
-  - Infinite scroll (social feeds, search results)
-  - Lazy-loaded images or content
-  - "Load more" buttons
-- **go_back**: Use when:
-  - You clicked a link that navigated away from the target page
-  - You need to return to continue recording elements on the previous page
-  - The navigation was unintended or you've finished exploring that page
-
-## IMPORTANT: Batch Multiple Tool Calls
-
-**You can and SHOULD call multiple tools in a single response!** This is much more efficient.
-
-For example, when registering elements, you can call \`register_element\` multiple times in ONE response:
-- Call register_element for nav_link_1
-- Call register_element for nav_link_2
-- Call register_element for search_input
-- Call register_element for filter_button
-
-All in the SAME response. Don't register elements one at a time - batch them together!
+1. **ALWAYS set module** - Every register_element call MUST include the module parameter
+2. **ALWAYS register elements** - Never just observe! After each observe_page, IMMEDIATELY call register_element
+3. **Batch register_element calls** - Register 5-15 elements per response
+4. **Focus on ONE page** - don't navigate to other pages unless needed
+5. **Use go_back** if you accidentally navigate away
+6. **Priority elements**: Focus on actionable elements (buttons, links, inputs, forms) over static content
+7. **Skip duplicates**: If an element was already registered, skip it
 
 ## Element ID Naming Convention
 
-Use snake_case with descriptive names:
-- search_location_input
-- search_checkin_button
-- calendar_next_month_button
-- search_submit_button
-
-## Output Goal
-
-Generate a capability store with:
-- Selectors for each UI element (CSS, XPath, ref)
-- Semantic descriptions
-- Allowed interaction methods
-- Page module classification
-- Page organization
+Use snake_case with module prefix:
+- header_logo, header_search_input, header_user_menu
+- nav_home_link, nav_products_link
+- main_search_button, main_product_list
+- footer_contact_link, footer_social_twitter
 `;
 
 /**
@@ -90,38 +128,98 @@ Generate a capability store with:
 export function generateUserPrompt(
   scenario: string,
   url: string,
-  focusAreas?: string[]
+  options?: {
+    focusAreas?: string[];
+    autoScroll?: boolean;
+    pageType?: string;
+  }
 ): string {
-  const focusSection = focusAreas?.length
-    ? `\n\n## Focus Areas\n${focusAreas.map((area) => `- ${area}`).join("\n")}`
+  const urlObj = new URL(url);
+  const domainName = urlObj.hostname.replace(/^www\./, "").replace(/\./g, "_");
+  const pageType = options?.pageType || `${domainName}_main`;
+  const autoScroll = options?.autoScroll !== false;
+
+  const focusSection = options?.focusAreas?.length
+    ? `\n\n## Focus Areas\n${options.focusAreas.map((area) => `- ${area}`).join("\n")}`
     : "";
 
-  return `Record the UI capabilities for the following scenario.
+  return `## Record all UI elements for this scenario
 
-## Scenario: ${scenario}
+**Target Page:** ${url}
 
-Start by navigating to: ${url}
+**Scenario:** ${scenario}
 
-Execute the scenario while capturing element capabilities:
+**Instructions:**
 
-1. **Navigate to the target page**
-   - Go to the URL
-   - Set page context appropriately
-   - Observe and register main interactive elements
+1. Navigate to ${url}
+2. Set page context with page_type: "${pageType}"
+3. ${autoScroll ? "Call scroll_to_bottom to load any lazy content" : "Skip scrolling (disabled)"}
+4. For EACH module, observe THEN IMMEDIATELY register with correct module:
 
-2. **Execute the scenario steps**
-   - For each interaction, use the interact tool to both perform the action and capture the element capability
-   - Use observe_page before interacting to discover available elements
-   - Register important elements even if you don't need to interact with them
+   **HEADER (module: "header"):**
+   - observe_page(focus: "header elements", module: "header")
+   - IMMEDIATELY call register_element for each header element with module: "header"
 
-3. **Capture all relevant elements**
-   - Include selectors (CSS, XPath)
-   - Provide clear descriptions
-   - Note allowed methods (click, type, etc.)
+   **NAVIBAR (module: "navibar"):**
+   - observe_page(focus: "navigation elements", module: "navibar")
+   - IMMEDIATELY register navigation elements with module: "navibar"
 
-Today's date: ${new Date().toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  })}${focusSection}`;
+   **MAIN (module: "main"):**
+   - observe_page(focus: "main content elements", module: "main")
+   - IMMEDIATELY register main elements with module: "main"
+
+   **SIDEBAR (module: "sidebar") - if present:**
+   - observe_page(focus: "sidebar elements", module: "sidebar")
+   - IMMEDIATELY register sidebar elements with module: "sidebar"
+
+   **FOOTER (module: "footer"):**
+   - observe_page(focus: "footer elements", module: "footer")
+   - IMMEDIATELY register footer elements with module: "footer"
+
+5. For EVERY register_element call, you MUST include:
+   - element_id: Descriptive snake_case ID (e.g., "header_search_button")
+   - description: Clear description of what the element does
+   - element_type: button, link, input, select, text, heading, etc.
+   - allow_methods: ["click"], ["type", "clear"], ["extract"], etc.
+   - **module**: REQUIRED - must match the section you're recording (header, navibar, main, sidebar, footer)
+
+   **For INPUT elements, also include:**
+   - input_type: text, email, password, search, number, etc.
+   - input_name: the name attribute
+   - input_value: default/placeholder value
+
+   **For LINK elements, also include:**
+   - href: the href URL or pattern
+
+**Example - Link element:**
+\`\`\`
+register_element({
+  element_id: "header_logo",
+  description: "Main logo that links to homepage",
+  element_type: "link",
+  allow_methods: ["click"],
+  module: "header",
+  href: "/"
+})
+\`\`\`
+
+**Example - Input element:**
+\`\`\`
+register_element({
+  element_id: "header_search_input",
+  description: "Search input field",
+  element_type: "input",
+  allow_methods: ["type", "clear"],
+  module: "header",
+  input_type: "search",
+  input_name: "q"
+})
+\`\`\`
+
+**CRITICAL:**
+- You MUST set module parameter on EVERY register_element call
+- For input elements: MUST include input_type and input_name
+- For link elements: MUST include href
+- You MUST call register_element after EVERY observe_page
+- Do NOT do all observations first!${focusSection}`;
 }
