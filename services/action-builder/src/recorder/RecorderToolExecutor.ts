@@ -438,7 +438,7 @@ export class RecorderToolExecutor {
           // Input-specific attributes
           input_type: toolArgs.input_type as string | undefined,
           input_name: toolArgs.input_name as string | undefined,
-          input_value: toolArgs.input_value as string | undefined,
+          input_value: (toolArgs.input_value as string) || undefined, // Skip empty string
           // Link-specific attributes
           href: toolArgs.href as string | undefined,
         };
