@@ -1,5 +1,6 @@
 import type { BrowserAdapter } from "../browser/BrowserAdapter.js";
 import { log } from "../utils/logger.js";
+import { createIdSelector } from "../utils/string.js";
 import type {
   ElementCapability,
   ElementType,
@@ -272,6 +273,14 @@ export class RecorderToolExecutor {
       }
 
       case "register_element": {
+        // Validate element_id - reject undefined, null, empty, or "undefined" string
+        const rawElementId = toolArgs.element_id as string | undefined;
+        if (!rawElementId || rawElementId === "undefined" || rawElementId.trim() === "") {
+          log("warn", `[RecorderToolExecutor] Skipping element with invalid element_id: ${rawElementId}`);
+          output = { error: "invalid_element_id", message: "element_id is required and cannot be empty or undefined" };
+          break;
+        }
+
         let xpathSelector = toolArgs.xpath_selector as string | undefined;
         let cssSelector = toolArgs.css_selector as string | undefined;
         let ariaLabel = toolArgs.aria_label as string | undefined;
@@ -329,8 +338,9 @@ export class RecorderToolExecutor {
             elementId = extractedAttrs.id;
             dataTestId = extractedAttrs.dataTestId;
             ariaLabel = ariaLabel || extractedAttrs.ariaLabel;
-            placeholder = placeholder || extractedAttrs.placeholder;
-            log("info", `[ActionRecorder] Auto-extracted selectors for ${toolArgs.element_id}: id=${elementId}, dataTestId=${dataTestId}, css=${cssSelector}, aria=${ariaLabel}`);
+            // Prefer actual placeholder from page over LLM-provided value (LLM often guesses wrong)
+            placeholder = extractedAttrs.placeholder || placeholder;
+            log("info", `[ActionRecorder] Auto-extracted selectors for ${toolArgs.element_id}: id=${elementId}, dataTestId=${dataTestId}, css=${cssSelector}, aria=${ariaLabel}, placeholder=${placeholder}`);
           }
         }
 
@@ -339,14 +349,15 @@ export class RecorderToolExecutor {
         let priority = 1;
 
         // 1. ID selector (highest priority)
+        // Use createIdSelector to handle special characters like dots (e.g., "cs.AI" -> '[id="cs.AI"]')
         if (elementId) {
           multiSelectors.push({
             type: "id" as SelectorType,
-            value: `#${elementId}`,
+            value: createIdSelector(elementId),
             priority: priority++,
             confidence: 0.95,
           });
-        } else if (cssSelector?.startsWith("#")) {
+        } else if (cssSelector?.startsWith("#") || cssSelector?.startsWith("[id=")) {
           multiSelectors.push({
             type: "id" as SelectorType,
             value: cssSelector,

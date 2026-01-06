@@ -57,3 +57,41 @@ export function formatToolResult(result: unknown): string {
   }
   return truncate(JSON.stringify(result), 500);
 }
+
+/**
+ * CSS special characters that need escaping in selectors
+ * Reference: https://www.w3.org/TR/CSS21/syndata.html#characters
+ * Note: Do NOT use /g flag with .test() - it causes lastIndex issues
+ */
+const CSS_SPECIAL_CHARS = /[!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~]/;
+
+/**
+ * Check if an ID contains CSS special characters
+ */
+export function hasSpecialCssChars(id: string): boolean {
+  return CSS_SPECIAL_CHARS.test(id);
+}
+
+/**
+ * Create a safe CSS ID selector
+ * If ID contains special characters (like `.`), uses attribute selector [id="..."]
+ * Otherwise uses standard #id format
+ *
+ * @example
+ * createIdSelector("simple") => "#simple"
+ * createIdSelector("cs.AI") => '[id="cs.AI"]'
+ * createIdSelector("my:id") => '[id="my:id"]'
+ */
+export function createIdSelector(id: string): string {
+  if (!id) return "";
+
+  // If ID contains special CSS characters, use attribute selector
+  if (hasSpecialCssChars(id)) {
+    // Escape quotes in the ID value
+    const escapedId = id.replace(/"/g, '\\"');
+    return `[id="${escapedId}"]`;
+  }
+
+  // Standard ID selector
+  return `#${id}`;
+}

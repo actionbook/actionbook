@@ -37,6 +37,14 @@ interface ChunkElementEntry {
   allow_methods: string[]
   depends_on?: string
   visibility_condition?: string
+  // Page module classification
+  module?: string
+  // Input-specific attributes
+  input_type?: string
+  input_name?: string
+  input_value?: string
+  // Link-specific attributes
+  href?: string
 }
 
 /**
@@ -739,6 +747,24 @@ export class DbWriter {
     }
     if (element.visibility_condition) {
       entry.visibility_condition = element.visibility_condition
+    }
+    // Page module classification
+    if (element.module) {
+      entry.module = element.module
+    }
+    // Input-specific attributes
+    if (element.input_type) {
+      entry.input_type = element.input_type
+    }
+    if (element.input_name) {
+      entry.input_name = element.input_name
+    }
+    if (element.input_value && element.input_value.trim()) {
+      entry.input_value = element.input_value
+    }
+    // Link-specific attributes
+    if (element.href) {
+      entry.href = element.href
     }
 
     return entry

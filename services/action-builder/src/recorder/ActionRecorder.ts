@@ -5,7 +5,7 @@ import { YamlWriter } from "../writers/YamlWriter.js";
 import { DbWriter } from "../writers/DbWriter.js";
 import { SelectorOptimizer } from "../optimizer/SelectorOptimizer.js";
 import { log } from "../utils/logger.js";
-import { truncate, humanDelay } from "../utils/index.js";
+import { truncate, humanDelay, createIdSelector } from "../utils/index.js";
 import { getRecorderTools } from "./RecorderTools.js";
 import { RecorderToolExecutor } from "./RecorderToolExecutor.js";
 import type {
@@ -253,10 +253,11 @@ export class ActionRecorder {
     let priority = 1;
 
     // 1. ID selector (highest priority)
+    // Use createIdSelector to handle special characters like dots (e.g., "cs.AI" -> '[id="cs.AI"]')
     if (additionalInfo?.id) {
       selectors.push({
         type: 'id' as SelectorType,
-        value: `#${additionalInfo.id}`,
+        value: createIdSelector(additionalInfo.id),
         priority: priority++,
         confidence: 0.95,
       });

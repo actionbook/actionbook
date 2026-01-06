@@ -4,6 +4,7 @@ import type { Page, BrowserContext } from "playwright";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { ProxyAgent, fetch as undiciFetch } from "undici";
 import { log } from "../utils/logger.js";
+import { createIdSelector } from "../utils/string.js";
 import type { BrowserConfig, ObserveResultItem, ActionObject } from "../types/index.js";
 import type { BrowserAdapter } from "./BrowserAdapter.js";
 import { BrowserProfileManager, DEFAULT_PROFILE_DIR, type ProfileLogger } from "./BrowserProfileManager.js";
@@ -841,7 +842,8 @@ export class StagehandBrowser implements BrowserAdapter {
         cssSelector = `[${preferredKey}="${attrs.dataAttributes[preferredKey]}"]`;
         cssSelectorSource = `dataAttr(${preferredKey})`;
       } else if (attrs.id) {
-        cssSelector = `#${attrs.id}`;
+        // Use createIdSelector to handle special characters like dots (e.g., "cs.AI" -> '[id="cs.AI"]')
+        cssSelector = createIdSelector(attrs.id);
         cssSelectorSource = "id";
       } else if (attrs.ariaLabel) {
         cssSelector = `[aria-label="${attrs.ariaLabel}"]`;
