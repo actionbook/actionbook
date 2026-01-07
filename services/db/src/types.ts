@@ -78,6 +78,11 @@ export type {
 } from './models';
 
 // ============================================================================
+// Re-export JSON types from models - Playbook Builder
+// ============================================================================
+export type { ActionCategory, ActionStatus } from './models';
+
+// ============================================================================
 // Re-export JSON types from models - Action Builder
 // ============================================================================
 export type {

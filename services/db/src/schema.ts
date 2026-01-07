@@ -32,6 +32,8 @@ export type {
   DocumentStatus,
   BreadcrumbItem,
   HeadingItem,
+  ActionCategory,
+  ActionStatus,
   CrawlStatus,
   CrawlError,
 } from './models';

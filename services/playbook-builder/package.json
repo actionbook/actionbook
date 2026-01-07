@@ -1,0 +1,38 @@
+{
+  "name": "@actionbookdev/playbook-builder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Playbook Builder - LLM-powered page exploration and action discovery",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsup",
+    "dev": "npx tsx scripts/worker.ts",
+    "test": "vitest",
+    "login": "npx tsx scripts/login.ts"
+  },
+  "dependencies": {
+    "@actionbookdev/browser-profile": "workspace:*",
+    "@actionbookdev/db": "workspace:*",
+    "@ai-sdk/amazon-bedrock": "^3.0.70",
+    "@ai-sdk/anthropic": "^2.0.56",
+    "@ai-sdk/openai": "^2.0.87",
+    "@browserbasehq/stagehand": "^1.13.0",
+    "@openrouter/ai-sdk-provider": "^1.5.4",
+    "ai": "^5.0.113",
+    "dotenv": "^16.5.0",
+    "drizzle-orm": "^0.44.7",
+    "https-proxy-agent": "^7.0.6",
+    "openai": "^4.103.0",
+    "playwright": "^1.52.0",
+    "undici": "^7.5.0",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.3"
+  }
+}

@@ -14,7 +14,7 @@ import { sourceVersions } from './source-version';
 
 /**
  * Documents table - Documents table
- * Stores crawled web documents
+ * Stores crawled web documents and playbooks
  */
 export const documents = pgTable(
   'documents',
@@ -27,6 +27,7 @@ export const documents = pgTable(
     /** Associated version ID (Blue/Green deployment) - optional, for backward compatibility */
     sourceVersionId: integer('source_version_id')
       .references(() => sourceVersions.id, { onDelete: 'cascade' }),
+
     url: text('url').notNull(),
     urlHash: varchar('url_hash', { length: 64 }).notNull(),
     title: text('title'),
@@ -40,7 +41,9 @@ export const documents = pgTable(
     wordCount: integer('word_count'),
     language: varchar('language', { length: 10 }).default('en'),
     contentHash: varchar('content_hash', { length: 64 }),
+    /** @deprecated Kept for backward compatibility */
     elements: text('elements'),
+
     status: varchar('status', { length: 20 }).$type<DocumentStatus>().notNull().default('active'),
     version: integer('version').notNull().default(1),
     publishedAt: timestamp('published_at', { withTimezone: true }),
@@ -71,3 +74,4 @@ export interface BreadcrumbItem {
   title: string;
   url: string;
 }
+

@@ -25,7 +25,7 @@ export { buildTasks } from './build-task';
 export type { CrawlConfig } from './source';
 export type { SourceVersionStatus } from './source-version';
 export type { DocumentStatus, BreadcrumbItem } from './document';
-export type { HeadingItem } from './chunk';
+export type { HeadingItem, ActionCategory, ActionStatus } from './chunk';
 export type { CrawlStatus, CrawlError } from './crawl-log';
 
 // JSON types - Action Builder

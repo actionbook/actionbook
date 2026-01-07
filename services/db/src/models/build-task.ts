@@ -105,7 +105,7 @@ export type SourceCategory = 'help' | 'unknown' | 'any';
  */
 export type BuildTaskStage =
   | 'init' // Initial state, waiting for knowledge build
-  | 'knowledge_build' // Knowledge building in progress
+  | 'knowledge_build' // Knowledge/Playbook building in progress
   | 'action_build' // Action building in progress
   | 'completed' // All stages completed
   | 'error'; // Permanent error (max retries exceeded)
@@ -131,6 +131,15 @@ export interface BuildTaskConfig {
   excludePatterns?: string[];
   /** Rate limit in milliseconds */
   rateLimit?: number;
+
+  // ========== Playbook Builder Config ==========
+  /** Enable playbook building stage */
+  enablePlaybook?: boolean;
+  /** Maximum pages to process in playbook builder */
+  playbookMaxPages?: number;
+  /** Run playbook builder in headless mode */
+  playbookHeadless?: boolean;
+
   /** Additional configuration */
   [key: string]: unknown;
 }

@@ -12,7 +12,7 @@ import { documents } from './document';
 
 /**
  * Chunks table - Document chunks table
- * Stores document chunks and vector embeddings
+ * Stores document chunks, vector embeddings, and playbook actions
  */
 export const chunks = pgTable('chunks', {
   id: serial('id').primaryKey(),
@@ -31,7 +31,9 @@ export const chunks = pgTable('chunks', {
   tokenCount: integer('token_count').notNull(),
   embedding: vector('embedding', { dimensions: 1536 }),
   embeddingModel: varchar('embedding_model', { length: 50 }),
+  /** @deprecated Kept for backward compatibility. */
   elements: text('elements'),
+
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -42,3 +44,14 @@ export interface HeadingItem {
   level: number;
   text: string;
 }
+
+/**
+ * ActionCategory - Category of an action
+ */
+export type ActionCategory = 'navigation' | 'form' | 'data' | 'other';
+
+/**
+ * ActionStatus - Status of an action
+ */
+export type ActionStatus = 'discovered' | 'valid' | 'invalid';
+

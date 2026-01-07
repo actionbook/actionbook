@@ -76,6 +76,9 @@ export type {
   CrawlError,
 } from './types'
 
+// JSON column types - Playbook Builder
+export type { ActionCategory, ActionStatus } from './types'
+
 // JSON column types - Action Builder
 export type {
   ElementType,
