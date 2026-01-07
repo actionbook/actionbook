@@ -137,6 +137,8 @@ export interface BuildTaskConfig {
   enablePlaybook?: boolean;
   /** Maximum pages to process in playbook builder */
   playbookMaxPages?: number;
+  /** Maximum depth for recursive page discovery in playbook builder (default: 1) */
+  playbookMaxDepth?: number;
   /** Run playbook builder in headless mode */
   playbookHeadless?: boolean;
 

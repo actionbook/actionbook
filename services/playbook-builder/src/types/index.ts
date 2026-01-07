@@ -12,8 +12,14 @@ export interface PlaybookBuilderConfig {
   startUrl: string;
   /** Whether to run browser in headless mode */
   headless?: boolean;
-  /** Maximum number of pages to explore */
+  /** Maximum number of pages to explore (default: 10) */
   maxPages?: number;
+  /** Maximum depth for recursive page discovery (default: 1)
+   *  - 0: Only process startUrl
+   *  - 1: Discover pages from startUrl only (single-level)
+   *  - 2+: Recursively discover pages from discovered pages
+   */
+  maxDepth?: number;
   /** Source version ID (optional, creates new version if not provided) */
   sourceVersionId?: number;
   /** LLM provider for page exploration (auto-detected if not specified) */
@@ -34,6 +40,8 @@ export interface DiscoveredPage {
   description: string;
   /** How to navigate to this page */
   navigation?: string;
+  /** Discovery depth (0 = startUrl, 1 = discovered from startUrl, etc.) */
+  depth?: number;
 }
 
 /**

@@ -239,12 +239,14 @@ export class PlaybookTaskControllerImpl implements IPlaybookTaskController {
         startUrl: task.sourceUrl,
         headless: config.playbookHeadless ?? true,
         maxPages: config.playbookMaxPages ?? 10,
+        maxDepth: config.playbookMaxDepth ?? 1,
       });
 
       log('info', `[Controller] Processing task #${task.id} with config:`, {
         sourceId: task.sourceId,
         startUrl: task.sourceUrl,
         maxPages: config.playbookMaxPages ?? 10,
+        maxDepth: config.playbookMaxDepth ?? 1,
       });
 
       // Execute playbook builder

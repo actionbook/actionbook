@@ -20,6 +20,7 @@ import type {
   PlaybookBuilderConfig,
   PlaybookBuildResult,
   PageCapabilities,
+  DiscoveredPage,
 } from './types/index.js';
 
 // Import discoverers and analyzers
@@ -47,6 +48,7 @@ export class PlaybookBuilder {
       startUrl: config.startUrl,
       headless: config.headless ?? (process.env.HEADLESS === 'true'),
       maxPages: config.maxPages ?? 10,
+      maxDepth: config.maxDepth ?? 1,
       sourceVersionId: config.sourceVersionId ?? 0,
       llmProvider: config.llmProvider,
     };
@@ -85,6 +87,7 @@ export class PlaybookBuilder {
     fileLogger.initialize('.', 'playbook-builder');
     log('info', `[PlaybookBuilder] Starting build for source ${this.config.sourceId}`);
     log('info', `[PlaybookBuilder] Start URL: ${this.config.startUrl}`);
+    log('info', `[PlaybookBuilder] Config: maxPages=${this.config.maxPages}, maxDepth=${this.config.maxDepth}`);
 
     let sourceVersionId = this.config.sourceVersionId;
 
@@ -100,22 +103,19 @@ export class PlaybookBuilder {
         sourceVersionId = version.id;
       }
 
-      // Step 1: Navigate to start URL and discover pages
-      await this.browser.goto(this.config.startUrl);
-      const screenshot = await this.browser.screenshot();
-      const content = await this.browser.getContent();
-
-      const discoveredPages = await this.pageDiscoverer.discover(screenshot, content, this.config.startUrl);
-      log('info', `[PlaybookBuilder] Discovered ${discoveredPages.length} pages`);
+      // Discover pages with depth control
+      const allPages = await this.discoverPagesRecursively();
+      log('info', `[PlaybookBuilder] Total pages discovered: ${allPages.length}`);
 
       // Limit pages
-      const pagesToProcess = discoveredPages.slice(0, this.config.maxPages);
+      const pagesToProcess = allPages.slice(0, this.config.maxPages);
+      log('info', `[PlaybookBuilder] Pages to process: ${pagesToProcess.length}`);
 
       const playbookIds: number[] = [];
 
-      // Step 2: Process each page
+      // Process each page
       for (const page of pagesToProcess) {
-        log('info', `[PlaybookBuilder] Processing page: ${page.name} (${page.semanticId})`);
+        log('info', `[PlaybookBuilder] Processing page: ${page.name} (depth=${page.depth}, ${page.semanticId})`);
 
         try {
           // Navigate to the page
@@ -123,11 +123,11 @@ export class PlaybookBuilder {
           const pageScreenshot = await this.browser.screenshot();
           const pageContent = await this.browser.getContent();
 
-          // Step 2a: Analyze page for basic info
+          // Analyze page for basic info
           const analyzedPage = await this.pageAnalyzer.analyze(pageScreenshot, pageContent, page);
           log('info', `[PlaybookBuilder] Analyzed page: ${analyzedPage.name}`);
 
-          // Step 2b: Discover page capabilities
+          // Discover page capabilities
           const capabilities = await this.capabilitiesDiscoverer.discover(
             pageScreenshot,
             pageContent,
@@ -135,7 +135,7 @@ export class PlaybookBuilder {
           );
           log('info', `[PlaybookBuilder] Discovered ${capabilities.capabilities.length} capabilities`);
 
-          // Step 2c: Build chunk content and generate embedding
+          // Build chunk content and generate embedding
           const chunkContent = this.buildChunkContent(analyzedPage.name, capabilities);
           let embedding: number[] | undefined;
           if (this.embedding) {
@@ -148,7 +148,7 @@ export class PlaybookBuilder {
             }
           }
 
-          // Step 2d: Create playbook (document + chunk)
+          // Create playbook (document + chunk)
           const playbook = await this.storage.createPlaybook({
             sourceId: this.config.sourceId,
             sourceVersionId,
@@ -182,6 +182,125 @@ export class PlaybookBuilder {
     } finally {
       await this.browser.close();
       fileLogger.close();
+    }
+  }
+
+  /**
+   * Recursively discover pages up to maxDepth
+   * Uses BFS (breadth-first search) to explore pages level by level
+   */
+  private async discoverPagesRecursively(): Promise<DiscoveredPage[]> {
+    const visitedUrls = new Set<string>();
+    const allPages: DiscoveredPage[] = [];
+
+    // Queue of pages to discover from: [url, depth]
+    const queue: Array<{ url: string; depth: number }> = [
+      { url: this.config.startUrl, depth: 0 }
+    ];
+
+    // Add startUrl as first page
+    const startUrlNormalized = this.normalizeUrl(this.config.startUrl);
+    visitedUrls.add(startUrlNormalized);
+
+    // Create a page entry for startUrl
+    allPages.push({
+      url: this.config.startUrl,
+      semanticId: 'start',
+      name: 'Start Page',
+      description: 'Starting page for exploration',
+      depth: 0,
+    });
+
+    while (queue.length > 0 && allPages.length < this.config.maxPages) {
+      const current = queue.shift()!;
+
+      // Skip if we've reached max depth for discovery
+      if (current.depth >= this.config.maxDepth) {
+        continue;
+      }
+
+      log('info', `[PlaybookBuilder] Discovering pages from: ${current.url} (depth=${current.depth})`);
+
+      try {
+        // Navigate to the page
+        await this.browser.goto(current.url);
+        const screenshot = await this.browser.screenshot();
+        const content = await this.browser.getContent();
+
+        // Discover pages from this page
+        const discoveredPages = await this.pageDiscoverer.discover(screenshot, content, current.url);
+        log('info', `[PlaybookBuilder] Found ${discoveredPages.length} pages at depth ${current.depth}`);
+
+        // Add new pages to queue and results
+        for (const page of discoveredPages) {
+          const normalizedUrl = this.normalizeUrl(page.url);
+
+          // Skip if already visited or external
+          if (visitedUrls.has(normalizedUrl)) {
+            continue;
+          }
+
+          // Skip external URLs
+          if (!this.isSameDomain(page.url, this.config.startUrl)) {
+            continue;
+          }
+
+          visitedUrls.add(normalizedUrl);
+
+          const pageWithDepth: DiscoveredPage = {
+            ...page,
+            depth: current.depth + 1,
+          };
+
+          allPages.push(pageWithDepth);
+
+          // Add to queue for further discovery if not at max depth
+          if (current.depth + 1 < this.config.maxDepth) {
+            queue.push({ url: page.url, depth: current.depth + 1 });
+          }
+
+          // Stop if we have enough pages
+          if (allPages.length >= this.config.maxPages) {
+            break;
+          }
+        }
+
+      } catch (error) {
+        log('error', `[PlaybookBuilder] Error discovering pages from ${current.url}:`, error);
+        // Continue with next page in queue
+      }
+    }
+
+    return allPages;
+  }
+
+  /**
+   * Normalize URL for comparison (remove trailing slash, fragment, etc.)
+   */
+  private normalizeUrl(url: string): string {
+    try {
+      const parsed = new URL(url);
+      // Remove fragment and trailing slash
+      let normalized = `${parsed.origin}${parsed.pathname}${parsed.search}`;
+      if (normalized.endsWith('/') && normalized.length > 1) {
+        normalized = normalized.slice(0, -1);
+      }
+      return normalized.toLowerCase();
+    } catch {
+      return url.toLowerCase();
+    }
+  }
+
+  /**
+   * Check if URL is same domain as base URL
+   */
+  private isSameDomain(url: string, baseUrl: string): boolean {
+    try {
+      const urlHost = new URL(url).hostname;
+      const baseHost = new URL(baseUrl).hostname;
+      return urlHost === baseHost;
+    } catch {
+      return false;
     }
   }
 
