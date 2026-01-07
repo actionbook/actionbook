@@ -17,6 +17,21 @@ export interface ArgumentDef {
 }
 
 /**
+ * Page module type for categorizing elements by their location on the page
+ * Used for organizing and displaying elements in a structured way
+ */
+export type PageModule =
+  | 'header'
+  | 'footer'
+  | 'sidebar'
+  | 'navibar'
+  | 'main'
+  | 'modal'
+  | 'breadcrumb'
+  | 'tab'
+  | 'unknown'
+
+/**
  * Element type enumeration
  * - Interactive types: button, input, link, select, checkbox, radio
  * - Data display types: text, data_field, container, list, list_item
@@ -127,6 +142,23 @@ export interface ElementCapability {
 
   /** For container/list: IDs of child elements */
   children?: string[]
+
+  /** Element's page module location (LLM inferred) */
+  module?: PageModule
+
+  // Input-specific attributes
+  /** For input elements: the input type (text, email, password, number, etc.) */
+  input_type?: string
+
+  /** For input elements: the name attribute */
+  input_name?: string
+
+  /** For input elements: the default/current value */
+  input_value?: string
+
+  // Link-specific attributes
+  /** For link elements: the href URL or pattern */
+  href?: string
 }
 
 /**

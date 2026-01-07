@@ -5,7 +5,8 @@ import { YamlWriter } from "../writers/YamlWriter.js";
 import { DbWriter } from "../writers/DbWriter.js";
 import { SelectorOptimizer } from "../optimizer/SelectorOptimizer.js";
 import { log } from "../utils/logger.js";
-import { truncate, humanDelay } from "../utils/index.js";
+import { truncate, humanDelay, createIdSelector } from "../utils/index.js";
+import { isTargetPage } from "../utils/url-matcher.js";
 import { getRecorderTools } from "./RecorderTools.js";
 import { RecorderToolExecutor } from "./RecorderToolExecutor.js";
 import type {
@@ -60,6 +61,9 @@ export class ActionRecorder {
   private visitedPagesCount: number = 0;
   private currentTurn: number = 0;
 
+  // P0-2: Track if we've scrolled on current page for autoScrollToBottom
+  private hasScrolledCurrentPage: boolean = false;
+
   constructor(
     browser: BrowserAdapter,
     llmClient: AIClient,
@@ -71,7 +75,9 @@ export class ActionRecorder {
     this.config = config;
     this.yamlWriter = new YamlWriter(config.outputDir);
     this.dbWriter = dbWriter || null;
-    this.toolExecutor = new RecorderToolExecutor(this.browser, {
+    this.toolExecutor = new RecorderToolExecutor(
+      this.browser,
+      {
       ensureSiteCapability: (domain: string) => {
         if (!this.siteCapability) this.initializeSiteCapability(domain);
       },
@@ -127,6 +133,8 @@ export class ActionRecorder {
         // Store previous URL before updating
         this.previousUrl = this.currentUrl;
         this.currentUrl = url;
+        // P0-2: Reset scroll flag for new page
+        this.hasScrolledCurrentPage = false;
         return { isNew: true };  // New URL
       },
       getCurrentUrl: () => {
@@ -141,6 +149,24 @@ export class ActionRecorder {
       inferElementType: (action: string, instruction: string) => this.inferElementType(action, instruction),
       inferAllowMethods: (action: string) => this.inferAllowMethods(action),
     });
+  }
+
+  /**
+   * Update playbook-specific configuration at runtime
+   * Called before record() to set targetUrlPattern and autoScrollToBottom
+   */
+  updatePlaybookConfig(options: {
+    targetUrlPattern?: string;
+    autoScrollToBottom?: boolean;
+  }): void {
+    if (options.targetUrlPattern !== undefined) {
+      this.config.targetUrlPattern = options.targetUrlPattern;
+      log("info", `[ActionRecorder] Target URL pattern set: ${options.targetUrlPattern}`);
+    }
+    if (options.autoScrollToBottom !== undefined) {
+      this.config.autoScrollToBottom = options.autoScrollToBottom;
+      log("info", `[ActionRecorder] Auto scroll to bottom: ${options.autoScrollToBottom}`);
+    }
   }
 
   /**
@@ -253,10 +279,11 @@ export class ActionRecorder {
     let priority = 1;
 
     // 1. ID selector (highest priority)
+    // Use createIdSelector to handle special characters like dots (e.g., "cs.AI" -> '[id="cs.AI"]')
     if (additionalInfo?.id) {
       selectors.push({
         type: 'id' as SelectorType,
-        value: `#${additionalInfo.id}`,
+        value: createIdSelector(additionalInfo.id),
         priority: priority++,
         confidence: 0.95,
       });
@@ -435,6 +462,15 @@ export class ActionRecorder {
   private registerElement(element: ElementCapability): void {
     if (!this.siteCapability) return;
 
+    // P0-1: Check if current page matches targetUrlPattern
+    // Skip elements on non-target pages when pattern is specified
+    if (this.config.targetUrlPattern && this.currentUrl) {
+      if (!isTargetPage(this.currentUrl, this.config.targetUrlPattern)) {
+        log("info", `[ActionRecorder] Skipping element ${element.id} - page does not match pattern: ${this.config.targetUrlPattern}`);
+        return;
+      }
+    }
+
     if (
       this.currentPageType &&
       this.siteCapability.pages[this.currentPageType]
@@ -571,6 +607,28 @@ export class ActionRecorder {
 
     const timeouts = this.config.operationTimeouts || {};
     const observeTimeout = timeouts.observe ?? 30000;
+
+    // P0-2: Auto-scroll before observe_page if enabled and not yet scrolled
+    if (toolName === 'observe_page' && !this.hasScrolledCurrentPage) {
+      const autoScroll = this.config.autoScrollToBottom !== false; // Default: true
+      if (autoScroll) {
+        try {
+          log("info", `[ActionRecorder] Auto-scrolling to bottom before observe_page...`);
+          await this.browser.scrollToBottom(1000);
+          this.hasScrolledCurrentPage = true;
+          log("info", `[ActionRecorder] Auto-scroll complete`);
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          log("warn", `[ActionRecorder] Auto-scroll failed: ${errMsg}`);
+          // Continue with observe_page even if scroll fails
+        }
+      }
+    }
+
+    // Track manual scroll_to_bottom calls
+    if (toolName === 'scroll_to_bottom') {
+      this.hasScrolledCurrentPage = true;
+    }
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
@@ -902,6 +960,8 @@ export class ActionRecorder {
     this.observeElementsTotal = 0;
     this.visitedPagesCount = 0;
     this.currentTurn = 0;
+    // P0-2: Reset scroll tracking
+    this.hasScrolledCurrentPage = false;
 
     const tools = getRecorderTools();
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [

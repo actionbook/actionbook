@@ -37,6 +37,14 @@ interface ChunkElementEntry {
   allow_methods: string[]
   depends_on?: string
   visibility_condition?: string
+  // Page module classification
+  module?: string
+  // Input-specific attributes
+  input_type?: string
+  input_name?: string
+  input_value?: string
+  // Link-specific attributes
+  href?: string
 }
 
 /**
@@ -225,6 +233,14 @@ export class DbWriter {
       return -1
     }
 
+    // Skip elements with empty selectors (phantom elements)
+    if (!element.selectors || element.selectors.length === 0) {
+      console.warn(
+        `[DbWriter] Skipping element with empty selectors: id=${element.id}`
+      )
+      return -1
+    }
+
     const columnInfo = await this.getElementsColumnInfo()
     const existingElement = await this.db
       .select()
@@ -239,7 +255,7 @@ export class DbWriter {
     const legacySelector: DbSelectorItem =
       selectors[0] ||
       ({ type: 'css', value: '', priority: 0, confidence: 0 } as DbSelectorItem)
-    const allowMethods = element.allow_methods as DbAllowMethod[]
+    const allowMethods = (element.allow_methods || []) as DbAllowMethod[]
     const args = element.arguments as DbArgumentDef[] | undefined
     const discoveredAt = element.discovered_at
       ? new Date(element.discovered_at)
@@ -739,6 +755,24 @@ export class DbWriter {
     }
     if (element.visibility_condition) {
       entry.visibility_condition = element.visibility_condition
+    }
+    // Page module classification
+    if (element.module) {
+      entry.module = element.module
+    }
+    // Input-specific attributes
+    if (element.input_type) {
+      entry.input_type = element.input_type
+    }
+    if (element.input_name) {
+      entry.input_name = element.input_name
+    }
+    if (element.input_value && element.input_value.trim()) {
+      entry.input_value = element.input_value
+    }
+    // Link-specific attributes
+    if (element.href) {
+      entry.href = element.href
     }
 
     return entry

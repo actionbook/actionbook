@@ -24,12 +24,10 @@ import {
 } from '@actionbookdev/db'
 import { ActionBuilder } from '../ActionBuilder.js'
 import { DbWriter } from '../writers/DbWriter.js'
-import { buildPrompt } from './utils/prompt-builder.js'
 import type {
   RecordingTask,
   ExecutionResult,
   TaskExecutorConfig,
-  ChunkType,
 } from './types/index.js'
 
 /**
@@ -137,17 +135,15 @@ export class TaskExecutor {
     });
 
     try {
-      // 4. Build prompts
-      const chunkType = (task.config?.chunk_type as ChunkType) || 'exploratory';
-      const { systemPrompt, userPrompt } = this.buildCustomPrompts(chunkData, chunkType);
+      // 4. Build scenario info
       const scenarioName = `task_${task.id}_${Date.now()}`;
       const startUrl = new URL(chunkData.source_base_url).origin;
 
-      // 5. Call ActionBuilder.build() - it handles retry/timeout internally
+      // 5. Call ActionBuilder.build() - uses default CAPABILITY_RECORDER_SYSTEM_PROMPT
+      // Pass chunk_content as scenarioDescription for the LLM to understand the task
       const buildResult = await builder.build(startUrl, scenarioName, {
         siteName: chunkData.source_name,
-        customSystemPrompt: systemPrompt,
-        customUserPrompt: userPrompt,
+        scenarioDescription: chunkData.chunk_content,
         taskId: task.id,
       });
 
@@ -286,36 +282,6 @@ export class TaskExecutor {
       chunk_content: row.chunk_content,
       chunk_index: row.chunk_index,
       createdAt: row.createdAt,
-    }
-  }
-
-  /**
-   * Build custom Prompt (apply Token limit)
-   */
-  private buildCustomPrompts(
-    chunkData: ExtendedChunkData,
-    chunkType: ChunkType
-  ): { systemPrompt: string; userPrompt: string } {
-    // Convert to ChunkData format
-    const chunkForPrompt = {
-      id: String(chunkData.id),
-      source_id: String(chunkData.source_id),
-      document_url: chunkData.document_url,
-      document_title: chunkData.document_title,
-      source_domain: chunkData.source_domain,
-      chunk_content: chunkData.chunk_content,
-      chunk_index: chunkData.chunk_index,
-      created_at: chunkData.createdAt,
-      // Pass app URL for action building (optional, LLM will infer if not set)
-      source_app_url: chunkData.source_app_url || undefined,
-    }
-
-    // Use prompt-builder (Token limit already handled internally)
-    const result = buildPrompt(chunkForPrompt, chunkType)
-
-    return {
-      systemPrompt: result.systemPrompt,
-      userPrompt: result.userPrompt,
     }
   }
 

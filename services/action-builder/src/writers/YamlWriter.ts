@@ -70,13 +70,15 @@ export class YamlWriter {
 
   /**
    * Merge two capabilities, with new data taking precedence for conflicts
+   * Also filters out elements with empty selectors (phantom elements)
    */
   private mergeCapabilities(
     existing: SiteCapability | null,
     newCap: SiteCapability
   ): SiteCapability {
     if (!existing) {
-      return newCap;
+      // Filter new capability before returning
+      return this.filterEmptySelectors(newCap);
     }
 
     // Merge pages
@@ -104,28 +106,76 @@ export class YamlWriter {
       ...newCap.global_elements,
     };
 
-    // Count total elements for logging
-    const existingCount = Object.values(existing.pages).reduce(
+    // Count elements before filtering
+    const beforeFilterCount = Object.values(mergedPages).reduce(
       (sum, p) => sum + Object.keys(p.elements).length,
       0
-    );
-    const newCount = Object.values(newCap.pages).reduce(
-      (sum, p) => sum + Object.keys(p.elements).length,
-      0
-    );
-    const mergedCount = Object.values(mergedPages).reduce(
-      (sum, p) => sum + Object.keys(p.elements).length,
-      0
-    );
-    log(
-      "info",
-      `[YamlWriter] Merged: ${existingCount} existing + ${newCount} new = ${mergedCount} total elements`
-    );
+    ) + Object.keys(mergedGlobalElements).length;
 
-    return {
+    // Build merged result
+    const merged: SiteCapability = {
       ...newCap,
       global_elements: mergedGlobalElements,
       pages: mergedPages,
+    };
+
+    // Filter out elements with empty selectors
+    const filtered = this.filterEmptySelectors(merged);
+
+    // Count elements after filtering
+    const afterFilterCount = Object.values(filtered.pages).reduce(
+      (sum, p) => sum + Object.keys(p.elements).length,
+      0
+    ) + Object.keys(filtered.global_elements).length;
+
+    const removedCount = beforeFilterCount - afterFilterCount;
+    if (removedCount > 0) {
+      log(
+        "info",
+        `[YamlWriter] Filtered out ${removedCount} elements with empty selectors`
+      );
+    }
+
+    log(
+      "info",
+      `[YamlWriter] Merged: ${afterFilterCount} valid elements (removed ${removedCount} invalid)`
+    );
+
+    return filtered;
+  }
+
+  /**
+   * Filter out elements with empty selectors from a SiteCapability
+   * These are "phantom elements" that couldn't be found on the page
+   */
+  private filterEmptySelectors(capability: SiteCapability): SiteCapability {
+    // Filter global elements
+    const filteredGlobalElements: SiteCapability["global_elements"] = {};
+    for (const [id, element] of Object.entries(capability.global_elements)) {
+      if (element.selectors && element.selectors.length > 0) {
+        filteredGlobalElements[id] = element;
+      }
+    }
+
+    // Filter page elements
+    const filteredPages: SiteCapability["pages"] = {};
+    for (const [pageType, page] of Object.entries(capability.pages)) {
+      const filteredElements: typeof page.elements = {};
+      for (const [id, element] of Object.entries(page.elements)) {
+        if (element.selectors && element.selectors.length > 0) {
+          filteredElements[id] = element;
+        }
+      }
+      filteredPages[pageType] = {
+        ...page,
+        elements: filteredElements,
+      };
+    }
+
+    return {
+      ...capability,
+      global_elements: filteredGlobalElements,
+      pages: filteredPages,
     };
   }
 

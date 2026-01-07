@@ -182,6 +182,20 @@ export interface RecorderConfig {
    * Default: true
    */
   enableSelectorOptimization?: boolean;
+
+  // === Playbook mode options ===
+  /**
+   * Target page URL pattern (regex). Only elements on pages matching this pattern will be recorded.
+   * If not provided, elements on all pages will be recorded.
+   * @example '^/search' - only record elements on /search/* pages
+   */
+  targetUrlPattern?: string;
+
+  /**
+   * Whether to auto-scroll to bottom before observe_page to load lazy elements.
+   * Default: true
+   */
+  autoScrollToBottom?: boolean;
 }
 
 /**
@@ -202,6 +216,8 @@ export interface ValidatorConfig {
 export interface BuildOptions {
   siteName?: string;
   siteDescription?: string;
+  /** Detailed scenario description (e.g., chunk_content from knowledge base) */
+  scenarioDescription?: string;
   focusAreas?: string[];
   pageTypes?: string[];
   /** Custom system prompt (overrides default CAPABILITY_RECORDER_SYSTEM_PROMPT) */
@@ -210,6 +226,22 @@ export interface BuildOptions {
   customUserPrompt?: string;
   /** Existing task ID to use instead of creating a new one (for TaskWorker mode) */
   taskId?: number;
+
+  // === Playbook mode options ===
+  /**
+   * Target page URL pattern (regex). Only elements on pages matching this pattern will be recorded.
+   * If not provided, elements on all pages will be recorded.
+   * @example '^/search' - only record elements on /search/* pages
+   * @example '/products/\\d+' - only record elements on /products/123 style pages
+   */
+  targetUrlPattern?: string;
+
+  /**
+   * Enable auto-scroll to bottom before observing page elements.
+   * This ensures lazy-loaded elements are loaded before recording.
+   * @default true
+   */
+  autoScrollToBottom?: boolean;
 }
 
 /**
@@ -289,6 +321,10 @@ export interface SelectorValidationDetail {
   valid: boolean;
   error?: string;
   isTemplate?: boolean;
+  /** Whether the element is visible on the page */
+  visible?: boolean;
+  /** Whether the element is interactable (enabled and not obstructed) */
+  interactable?: boolean;
 }
 
 /**

@@ -362,13 +362,24 @@ export class ActionBuilder {
       options.customSystemPrompt || CAPABILITY_RECORDER_SYSTEM_PROMPT
     const userMessage =
       options.customUserPrompt ||
-      generateUserPrompt(scenario, url, options.focusAreas)
+      generateUserPrompt(scenario, url, {
+        scenarioDescription: options.scenarioDescription,
+        focusAreas: options.focusAreas,
+      })
 
     if (options.customSystemPrompt || options.customUserPrompt) {
       this.log(
         'info',
         `[ActionBuilder] Using custom prompts (task-driven mode)`
       )
+    }
+
+    // Pass playbook options to recorder (targetUrlPattern, autoScrollToBottom)
+    if (options.targetUrlPattern !== undefined || options.autoScrollToBottom !== undefined) {
+      this.recorder.updatePlaybookConfig({
+        targetUrlPattern: options.targetUrlPattern,
+        autoScrollToBottom: options.autoScrollToBottom,
+      })
     }
 
     const result = await this.recorder.record(

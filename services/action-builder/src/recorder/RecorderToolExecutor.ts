@@ -1,5 +1,6 @@
 import type { BrowserAdapter } from "../browser/BrowserAdapter.js";
 import { log } from "../utils/logger.js";
+import { createIdSelector } from "../utils/string.js";
 import type {
   ElementCapability,
   ElementType,
@@ -9,6 +10,7 @@ import type {
   SelectorItem,
   SelectorType,
   TemplateParam,
+  PageModule,
 } from "../types/index.js";
 
 type ExtractMultipleSelectors = (
@@ -271,6 +273,14 @@ export class RecorderToolExecutor {
       }
 
       case "register_element": {
+        // Validate element_id - reject undefined, null, empty, or "undefined" string
+        const rawElementId = toolArgs.element_id as string | undefined;
+        if (!rawElementId || rawElementId === "undefined" || rawElementId.trim() === "") {
+          log("warn", `[RecorderToolExecutor] Skipping element with invalid element_id: ${rawElementId}`);
+          output = { error: "invalid_element_id", message: "element_id is required and cannot be empty or undefined" };
+          break;
+        }
+
         let xpathSelector = toolArgs.xpath_selector as string | undefined;
         let cssSelector = toolArgs.css_selector as string | undefined;
         let ariaLabel = toolArgs.aria_label as string | undefined;
@@ -317,6 +327,7 @@ export class RecorderToolExecutor {
         }
 
         // Try to extract additional selectors from XPath for complete selector coverage
+        let optimizedXPath: string | undefined;
         if (xpathSelector) {
           const extractedAttrs = await this.browser.getElementAttributesFromXPath(xpathSelector);
           if (extractedAttrs) {
@@ -328,8 +339,11 @@ export class RecorderToolExecutor {
             elementId = extractedAttrs.id;
             dataTestId = extractedAttrs.dataTestId;
             ariaLabel = ariaLabel || extractedAttrs.ariaLabel;
-            placeholder = placeholder || extractedAttrs.placeholder;
-            log("info", `[ActionRecorder] Auto-extracted selectors for ${toolArgs.element_id}: id=${elementId}, dataTestId=${dataTestId}, css=${cssSelector}, aria=${ariaLabel}`);
+            // Prefer actual placeholder from page over LLM-provided value (LLM often guesses wrong)
+            placeholder = extractedAttrs.placeholder || placeholder;
+            // Use optimized XPath (attribute-based) instead of absolute path
+            optimizedXPath = extractedAttrs.optimizedXPath;
+            log("info", `[ActionRecorder] Auto-extracted selectors for ${toolArgs.element_id}: id=${elementId}, dataTestId=${dataTestId}, css=${cssSelector}, aria=${ariaLabel}, placeholder=${placeholder}, optimizedXPath=${optimizedXPath}`);
           }
         }
 
@@ -338,14 +352,15 @@ export class RecorderToolExecutor {
         let priority = 1;
 
         // 1. ID selector (highest priority)
+        // Use createIdSelector to handle special characters like dots (e.g., "cs.AI" -> '[id="cs.AI"]')
         if (elementId) {
           multiSelectors.push({
             type: "id" as SelectorType,
-            value: `#${elementId}`,
+            value: createIdSelector(elementId),
             priority: priority++,
             confidence: 0.95,
           });
-        } else if (cssSelector?.startsWith("#")) {
+        } else if (cssSelector?.startsWith("#") || cssSelector?.startsWith("[id=")) {
           multiSelectors.push({
             type: "id" as SelectorType,
             value: cssSelector,
@@ -396,13 +411,15 @@ export class RecorderToolExecutor {
           }
         }
 
-        // 5. XPath
-        if (xpathSelector) {
+        // 5. XPath (prefer optimized attribute-based XPath over absolute path)
+        const finalXPath = optimizedXPath || xpathSelector;
+        if (finalXPath) {
           multiSelectors.push({
             type: "xpath" as SelectorType,
-            value: xpathSelector,
+            value: finalXPath,
             priority: priority++,
-            confidence: 0.6,
+            // Higher confidence for attribute-based XPath, lower for absolute path
+            confidence: optimizedXPath && optimizedXPath !== xpathSelector ? 0.8 : 0.6,
           });
         }
 
@@ -414,6 +431,18 @@ export class RecorderToolExecutor {
             priority: priority++,
             confidence: 0.65,
           });
+        }
+
+        // Skip elements with no valid selectors (phantom elements)
+        // These are elements the LLM thinks exist but can't be found on the current page
+        if (multiSelectors.length === 0) {
+          log("warn", `[RecorderToolExecutor] Skipping element ${toolArgs.element_id} - no valid selectors found (element may not exist on current page)`);
+          output = {
+            error: "no_selectors_found",
+            message: `Could not find element "${toolArgs.element_id}" on current page. The element may exist on a different page. Skip this element and continue with others.`,
+            element_id: toolArgs.element_id,
+          };
+          break;
         }
 
         const elementCapability: ElementCapability = {
@@ -432,6 +461,14 @@ export class RecorderToolExecutor {
           is_repeating: toolArgs.is_repeating as boolean | undefined,
           data_key: toolArgs.data_key as string | undefined,
           children: toolArgs.children as string[] | undefined,
+          // Page module classification
+          module: toolArgs.module as PageModule | undefined,
+          // Input-specific attributes
+          input_type: toolArgs.input_type as string | undefined,
+          input_name: toolArgs.input_name as string | undefined,
+          input_value: (toolArgs.input_value as string) || undefined, // Skip empty string
+          // Link-specific attributes
+          href: toolArgs.href as string | undefined,
         };
 
         this.handlers.registerElement(elementCapability);
@@ -484,6 +521,27 @@ export class RecorderToolExecutor {
         const amount = (toolArgs.amount as number) || 300;
         await this.browser.scroll(direction, amount);
         output = { scrolled: direction, amount };
+        break;
+      }
+
+      case "scroll_to_bottom": {
+        const waitAfterScroll = (toolArgs.wait_after_scroll as number) || 1000;
+        log("info", `[ActionRecorder] Scrolling to bottom (wait: ${waitAfterScroll}ms)`);
+        await this.browser.scrollToBottom(waitAfterScroll);
+        output = { success: true, wait_after_scroll: waitAfterScroll };
+        break;
+      }
+
+      case "go_back": {
+        log("info", `[ActionRecorder] Navigating back to previous page`);
+        const previousUrl = this.handlers.getPreviousUrl?.();
+        await this.browser.goBack();
+        const currentUrl = this.handlers.getCurrentUrl?.();
+        output = {
+          success: true,
+          previous_url: previousUrl,
+          current_url: currentUrl,
+        };
         break;
       }
 

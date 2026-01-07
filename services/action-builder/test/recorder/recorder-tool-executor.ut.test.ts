@@ -287,6 +287,147 @@ describe('RecorderToolExecutor', () => {
       // Should fall back to observe
       expect(mockBrowser.observe).toHaveBeenCalledWith('Target div element');
     });
+
+    // UT-RTE-18: register_element rejects undefined element_id
+    it('UT-RTE-18: register_element rejects undefined element_id', async () => {
+      const executor = new RecorderToolExecutor(mockBrowser, mockHandlers as any);
+
+      const result = await executor.execute('register_element', {
+        element_id: undefined,
+        description: 'Some element',
+        element_type: 'button',
+        allow_methods: ['click'],
+      });
+
+      // Should NOT call registerElement
+      expect(mockHandlers.registerElement).not.toHaveBeenCalled();
+      // Should return error
+      expect((result.output as any).error).toBe('invalid_element_id');
+    });
+
+    // UT-RTE-19: register_element rejects "undefined" string element_id
+    it('UT-RTE-19: register_element rejects "undefined" string element_id', async () => {
+      const executor = new RecorderToolExecutor(mockBrowser, mockHandlers as any);
+
+      const result = await executor.execute('register_element', {
+        element_id: 'undefined',
+        description: 'Some element',
+        element_type: 'button',
+        allow_methods: ['click'],
+      });
+
+      expect(mockHandlers.registerElement).not.toHaveBeenCalled();
+      expect((result.output as any).error).toBe('invalid_element_id');
+    });
+
+    // UT-RTE-20: register_element rejects empty string element_id
+    it('UT-RTE-20: register_element rejects empty string element_id', async () => {
+      const executor = new RecorderToolExecutor(mockBrowser, mockHandlers as any);
+
+      const result = await executor.execute('register_element', {
+        element_id: '',
+        description: 'Some element',
+        element_type: 'button',
+        allow_methods: ['click'],
+      });
+
+      expect(mockHandlers.registerElement).not.toHaveBeenCalled();
+      expect((result.output as any).error).toBe('invalid_element_id');
+    });
+
+    // UT-RTE-21: register_element rejects whitespace-only element_id
+    it('UT-RTE-21: register_element rejects whitespace-only element_id', async () => {
+      const executor = new RecorderToolExecutor(mockBrowser, mockHandlers as any);
+
+      const result = await executor.execute('register_element', {
+        element_id: '   ',
+        description: 'Some element',
+        element_type: 'button',
+        allow_methods: ['click'],
+      });
+
+      expect(mockHandlers.registerElement).not.toHaveBeenCalled();
+      expect((result.output as any).error).toBe('invalid_element_id');
+    });
+
+    // UT-RTE-22: register_element prefers page placeholder over LLM placeholder
+    it('UT-RTE-22: register_element prefers page placeholder over LLM placeholder', async () => {
+      const executor = new RecorderToolExecutor(mockBrowser, mockHandlers as any);
+
+      // LLM provides wrong placeholder, page has correct one
+      (mockBrowser.getElementAttributesFromXPath as any).mockResolvedValue({
+        placeholder: 'Search...', // Actual placeholder from page
+        cssSelector: 'input.search',
+      });
+
+      await executor.execute('register_element', {
+        element_id: 'search_input',
+        description: 'Search input field',
+        element_type: 'input',
+        allow_methods: ['type'],
+        xpath_selector: '//input[@class="search"]',
+        placeholder: 'Search for articles', // LLM guessed wrong
+      });
+
+      // Should use page placeholder, not LLM placeholder
+      const registeredElement = mockHandlers.registerElement.mock.calls[0][0] as ElementCapability;
+      const placeholderSelector = registeredElement.selectors.find(s => s.type === 'placeholder');
+
+      expect(placeholderSelector).toBeDefined();
+      expect(placeholderSelector?.value).toBe('[placeholder="Search..."]');
+    });
+
+    // UT-RTE-23: register_element uses LLM placeholder when page has none
+    it('UT-RTE-23: register_element uses LLM placeholder when page has none', async () => {
+      const executor = new RecorderToolExecutor(mockBrowser, mockHandlers as any);
+
+      // Page has no placeholder
+      (mockBrowser.getElementAttributesFromXPath as any).mockResolvedValue({
+        cssSelector: 'input.search',
+        // No placeholder
+      });
+
+      await executor.execute('register_element', {
+        element_id: 'search_input',
+        description: 'Search input field',
+        element_type: 'input',
+        allow_methods: ['type'],
+        xpath_selector: '//input[@class="search"]',
+        placeholder: 'Enter search term', // LLM provided
+      });
+
+      const registeredElement = mockHandlers.registerElement.mock.calls[0][0] as ElementCapability;
+      const placeholderSelector = registeredElement.selectors.find(s => s.type === 'placeholder');
+
+      expect(placeholderSelector).toBeDefined();
+      expect(placeholderSelector?.value).toBe('[placeholder="Enter search term"]');
+    });
+
+    // UT-RTE-24: register_element creates correct ID selector for special characters
+    it('UT-RTE-24: register_element creates correct ID selector for special characters', async () => {
+      const executor = new RecorderToolExecutor(mockBrowser, mockHandlers as any);
+
+      // Page has ID with dot (like arxiv.org's cs.AI)
+      (mockBrowser.getElementAttributesFromXPath as any).mockResolvedValue({
+        id: 'cs.AI',
+        cssSelector: '[id="cs.AI"]',
+      });
+
+      await executor.execute('register_element', {
+        element_id: 'cs_ai_category',
+        description: 'CS AI category link',
+        element_type: 'link',
+        allow_methods: ['click'],
+        xpath_selector: '//a[@id="cs.AI"]',
+      });
+
+      const registeredElement = mockHandlers.registerElement.mock.calls[0][0] as ElementCapability;
+      const idSelector = registeredElement.selectors.find(s => s.type === 'id');
+
+      expect(idSelector).toBeDefined();
+      // Should use attribute selector format, not #cs.AI
+      expect(idSelector?.value).toBe('[id="cs.AI"]');
+    });
   });
 
   // ==========================================================================

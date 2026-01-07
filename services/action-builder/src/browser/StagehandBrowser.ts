@@ -4,6 +4,7 @@ import type { Page, BrowserContext } from "playwright";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { ProxyAgent, fetch as undiciFetch } from "undici";
 import { log } from "../utils/logger.js";
+import { createIdSelector } from "../utils/string.js";
 import type { BrowserConfig, ObserveResultItem, ActionObject } from "../types/index.js";
 import type { BrowserAdapter } from "./BrowserAdapter.js";
 import { BrowserProfileManager, DEFAULT_PROFILE_DIR, type ProfileLogger } from "./BrowserProfileManager.js";
@@ -78,6 +79,132 @@ function filterStateDataAttributes(
   }
 
   return Object.keys(filtered).length > 0 ? filtered : undefined;
+}
+
+/**
+ * Generate an optimized XPath selector based on element attributes.
+ * Priority (highest to lowest stability):
+ * 1. @id / @data-testid - Most stable, unique identifiers
+ * 2. @name / @aria-label - Stable, semantic attributes
+ * 3. @class + tag - Moderately stable
+ * 4. text() content - Can change with i18n
+ * 5. Fallback to original absolute path - Least stable
+ *
+ * @param attrs - Element attributes extracted from the page
+ * @param originalXPath - The original absolute XPath as fallback
+ * @returns Optimized XPath string
+ */
+function generateOptimizedXPath(
+  attrs: {
+    tagName: string;
+    id?: string;
+    dataTestId?: string;
+    name?: string;
+    ariaLabel?: string;
+    className?: string;
+    textContent?: string;
+    placeholder?: string;
+    dataAttributes?: Record<string, string>;
+  },
+  originalXPath: string
+): { xpath: string; source: string } {
+  const tag = attrs.tagName;
+
+  // Priority 1: @id (most stable, unique)
+  if (attrs.id) {
+    return {
+      xpath: `//${tag}[@id="${attrs.id}"]`,
+      source: "id",
+    };
+  }
+
+  // Priority 1: @data-testid (most stable, designed for testing)
+  if (attrs.dataTestId) {
+    return {
+      xpath: `//${tag}[@data-testid="${attrs.dataTestId}"]`,
+      source: "data-testid",
+    };
+  }
+
+  // Priority 1: Other stable data-* attributes (data-id, data-component, etc.)
+  if (attrs.dataAttributes) {
+    const stableDataAttrs = ['data-id', 'data-component', 'data-element', 'data-action', 'data-section', 'data-name'];
+    for (const attr of stableDataAttrs) {
+      if (attrs.dataAttributes[attr]) {
+        return {
+          xpath: `//${tag}[@${attr}="${attrs.dataAttributes[attr]}"]`,
+          source: attr,
+        };
+      }
+    }
+  }
+
+  // Priority 2: @name (stable for form elements - use tag for specificity)
+  if (attrs.name) {
+    return {
+      xpath: `//${tag}[@name="${attrs.name}"]`,
+      source: "name",
+    };
+  }
+
+  // Priority 2: @aria-label (stable, semantic - use tag for specificity)
+  if (attrs.ariaLabel) {
+    return {
+      xpath: `//${tag}[@aria-label="${attrs.ariaLabel}"]`,
+      source: "aria-label",
+    };
+  }
+
+  // Priority 2: @placeholder (for inputs - use tag for specificity)
+  if (attrs.placeholder) {
+    return {
+      xpath: `//${tag}[@placeholder="${attrs.placeholder}"]`,
+      source: "placeholder",
+    };
+  }
+
+  // Priority 3: @class (moderately stable, filter out hash-like classes)
+  if (attrs.className) {
+    const classes = attrs.className.split(" ").filter((c: string) => {
+      if (!c) return false;
+      // Keep BEM-style classes
+      if (/^[a-z][a-z0-9]*(-[a-z0-9]+)*(__[a-z0-9]+(-[a-z0-9]+)*)?(--[a-z0-9]+(-[a-z0-9]+)*)?$/i.test(c)) {
+        return true;
+      }
+      // Filter out hash-like classes
+      if (/^[a-z]{1,3}-[a-zA-Z0-9]{4,}$/.test(c)) return false;
+      if (/^[a-zA-Z]{2,}[A-Z][a-z]+$/.test(c)) return false;
+      if (/[A-Z].*[A-Z]/.test(c) && c.length < 12) return false;
+      return true;
+    });
+
+    if (classes.length > 0) {
+      // Prefer BEM-style classes
+      const bemClass = classes.find((c: string) => c.includes('__') || c.includes('--'));
+      const selectedClass = bemClass || classes[0];
+      return {
+        xpath: `//${tag}[contains(@class, "${selectedClass}")]`,
+        source: `class(${selectedClass})`,
+      };
+    }
+  }
+
+  // Priority 4: text() content (can change with i18n, use contains for partial match)
+  if (attrs.textContent && attrs.textContent.length > 2 && attrs.textContent.length <= 30) {
+    // Escape quotes in text content
+    const escapedText = attrs.textContent.replace(/"/g, '\\"');
+    // Use normalize-space to handle whitespace variations
+    return {
+      xpath: `//${tag}[normalize-space()="${escapedText}"]`,
+      source: "text",
+    };
+  }
+
+  // Priority 5: Fallback to original absolute path (least stable)
+  return {
+    xpath: originalXPath,
+    source: "absolute-path",
+  };
 }
 
 /**
@@ -696,6 +823,9 @@ export class StagehandBrowser implements BrowserAdapter {
     cssSelector?: string;
     tagName?: string;
     dataAttributes?: Record<string, string>;
+    name?: string;
+    textContent?: string;
+    optimizedXPath?: string;
   } | null> {
     const page = await this.getPage();
 
@@ -712,6 +842,8 @@ export class StagehandBrowser implements BrowserAdapter {
         ariaLabel?: string;
         dataTestId?: string;
         dataAttributes?: Record<string, string>;
+        name?: string;
+        textContent?: string;
       } | null = null;
 
       if (iframeMatch) {
@@ -749,6 +881,10 @@ export class StagehandBrowser implements BrowserAdapter {
                   }
                 }
 
+                // Get text content (trim and limit length)
+                const rawText = el.textContent?.trim() || "";
+                const textContent = rawText.length > 50 ? rawText.substring(0, 50) : rawText;
+
                 return {
                   tagName: el.tagName.toLowerCase(),
                   id: el.id || undefined,
@@ -757,6 +893,8 @@ export class StagehandBrowser implements BrowserAdapter {
                   ariaLabel: el.getAttribute("aria-label") || undefined,
                   dataTestId: el.getAttribute("data-testid") || undefined,
                   dataAttributes: Object.keys(dataAttributes).length > 0 ? dataAttributes : undefined,
+                  name: el.getAttribute("name") || undefined,
+                  textContent: textContent || undefined,
                 };
               }, elementPath);
 
@@ -801,6 +939,10 @@ export class StagehandBrowser implements BrowserAdapter {
             }
           }
 
+          // Get text content (trim and limit length)
+          const rawText = el.textContent?.trim() || "";
+          const textContent = rawText.length > 50 ? rawText.substring(0, 50) : rawText;
+
           return {
             tagName: el.tagName.toLowerCase(),
             id: el.id || undefined,
@@ -809,6 +951,8 @@ export class StagehandBrowser implements BrowserAdapter {
             ariaLabel: el.getAttribute("aria-label") || undefined,
             dataTestId: el.getAttribute("data-testid") || undefined,
             dataAttributes: Object.keys(dataAttributes).length > 0 ? dataAttributes : undefined,
+            name: el.getAttribute("name") || undefined,
+            textContent: textContent || undefined,
           };
         }, xpathSelector);
       }
@@ -841,7 +985,8 @@ export class StagehandBrowser implements BrowserAdapter {
         cssSelector = `[${preferredKey}="${attrs.dataAttributes[preferredKey]}"]`;
         cssSelectorSource = `dataAttr(${preferredKey})`;
       } else if (attrs.id) {
-        cssSelector = `#${attrs.id}`;
+        // Use createIdSelector to handle special characters like dots (e.g., "cs.AI" -> '[id="cs.AI"]')
+        cssSelector = createIdSelector(attrs.id);
         cssSelectorSource = "id";
       } else if (attrs.ariaLabel) {
         cssSelector = `[aria-label="${attrs.ariaLabel}"]`;
@@ -898,6 +1043,10 @@ export class StagehandBrowser implements BrowserAdapter {
 
       log("info", `[StagehandBrowser] Final CSS selector: ${cssSelector || "undefined"} (source: ${cssSelectorSource})`);
 
+      // Generate optimized XPath based on element attributes
+      const optimizedXPathResult = generateOptimizedXPath(attrs, xpathSelector);
+      log("info", `[StagehandBrowser] Optimized XPath: ${optimizedXPathResult.xpath} (source: ${optimizedXPathResult.source})`);
+
       return {
         id: attrs.id,
         dataTestId: attrs.dataTestId,
@@ -906,6 +1055,9 @@ export class StagehandBrowser implements BrowserAdapter {
         cssSelector,
         tagName: attrs.tagName,
         dataAttributes: attrs.dataAttributes,
+        name: attrs.name,
+        textContent: attrs.textContent,
+        optimizedXPath: optimizedXPathResult.xpath,
       };
     } catch (error) {
       log("warn", `[StagehandBrowser] Failed to get element attributes: ${error}`);
@@ -962,6 +1114,73 @@ export class StagehandBrowser implements BrowserAdapter {
       // Fallback: use keyboard scroll
       const key = direction === "down" ? "PageDown" : "PageUp";
       await (page as any).keyboard?.press(key);
+    }
+  }
+
+  /**
+   * Scroll to the bottom of the page to load lazy-loaded content (V3 API)
+   * Performs incremental scrolling to trigger lazy load events
+   *
+   * @param waitAfterMs - Time to wait after scrolling completes (default: 1000ms)
+   */
+  async scrollToBottom(waitAfterMs: number = 1000): Promise<void> {
+    const page = await this.getPage();
+
+    try {
+      // Get initial scroll height
+      let lastScrollHeight = await (page as any).evaluate(() => document.body.scrollHeight);
+      let scrollAttempts = 0;
+      const maxAttempts = 10; // Prevent infinite scroll on infinite scroll pages
+
+      while (scrollAttempts < maxAttempts) {
+        // Scroll to current bottom
+        await (page as any).evaluate(() => {
+          window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+        });
+
+        // Wait for content to load
+        await this.wait(500);
+
+        // Check if new content was loaded
+        const newScrollHeight = await (page as any).evaluate(() => document.body.scrollHeight);
+
+        if (newScrollHeight === lastScrollHeight) {
+          // No new content, we've reached the bottom
+          break;
+        }
+
+        lastScrollHeight = newScrollHeight;
+        scrollAttempts++;
+      }
+
+      // Final wait for any remaining lazy-loaded content
+      await this.wait(waitAfterMs);
+      log("info", `[StagehandBrowser] Scrolled to bottom (${scrollAttempts} scroll iterations)`);
+    } catch (error) {
+      log("warn", `[StagehandBrowser] scrollToBottom failed: ${error}`);
+      // Fallback: simple keyboard scroll
+      for (let i = 0; i < 5; i++) {
+        await (page as any).keyboard?.press("End");
+        await this.wait(200);
+      }
+      await this.wait(waitAfterMs);
+    }
+  }
+
+  /**
+   * Navigate back to the previous page in browser history (V3 API)
+   */
+  async goBack(): Promise<void> {
+    const page = await this.getPage();
+
+    try {
+      await (page as any).goBack({ waitUntil: 'domcontentloaded', timeout: 30000 });
+      // Wait for page to stabilize
+      await this.wait(1000);
+      log("info", `[StagehandBrowser] Navigated back to: ${(page as any).url?.()}`);
+    } catch (error) {
+      log("warn", `[StagehandBrowser] goBack failed: ${error}`);
+      throw error;
     }
   }
 

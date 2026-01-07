@@ -29,6 +29,12 @@ export function getRecorderTools(): OpenAI.Chat.Completions.ChatCompletionTool[]
               type: "string",
               description: "What to focus on when observing (e.g., 'search box and submit button')",
             },
+            module: {
+              type: "string",
+              enum: ["header", "footer", "sidebar", "navibar", "main", "modal", "breadcrumb", "tab", "all"],
+              description:
+                "Page module to observe. Use 'all' to observe the entire page. If not specified, observes all modules.",
+            },
           },
           required: ["focus"],
         },
@@ -99,6 +105,29 @@ export function getRecorderTools(): OpenAI.Chat.Completions.ChatCompletionTool[]
               items: { type: "string" },
               description: "Optional child element ids",
             },
+            module: {
+              type: "string",
+              enum: ["header", "footer", "sidebar", "navibar", "main", "modal", "breadcrumb", "tab", "unknown"],
+              description: "Page module where this element is located (e.g., header, main, sidebar)",
+            },
+            // Input-specific attributes
+            input_type: {
+              type: "string",
+              description: "For input elements: the input type (text, email, password, number, search, tel, url, etc.)",
+            },
+            input_name: {
+              type: "string",
+              description: "For input elements: the name attribute",
+            },
+            input_value: {
+              type: "string",
+              description: "For input elements: the default/placeholder value",
+            },
+            // Link-specific attributes
+            href: {
+              type: "string",
+              description: "For link elements: the href URL or pattern (e.g., '/search', 'https://example.com')",
+            },
           },
           required: ["element_id", "description", "element_type", "allow_methods"],
         },
@@ -151,6 +180,35 @@ export function getRecorderTools(): OpenAI.Chat.Completions.ChatCompletionTool[]
             amount: { type: "number", description: "Scroll amount in pixels (default 300)" },
           },
           required: ["direction"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "scroll_to_bottom",
+        description: "Scroll the page to the bottom to ensure lazy-loaded elements are loaded",
+        parameters: {
+          type: "object",
+          properties: {
+            wait_after_scroll: {
+              type: "number",
+              description: "Time to wait after scrolling in milliseconds (default 1000)",
+            },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "go_back",
+        description: "Navigate back to the previous page in browser history",
+        parameters: {
+          type: "object",
+          properties: {},
+          required: [],
         },
       },
     },
