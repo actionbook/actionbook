@@ -28,8 +28,6 @@ interface BuildTaskDetail {
   knowledgeCompletedAt: string | null
   actionStartedAt: string | null
   actionCompletedAt: string | null
-  playbookStartedAt: string | null
-  playbookCompletedAt: string | null
 }
 
 // ============================================================================
@@ -55,8 +53,6 @@ function mapToDetail(row: typeof buildTasks.$inferSelect): BuildTaskDetail {
     knowledgeCompletedAt: row.knowledgeCompletedAt?.toISOString() ?? null,
     actionStartedAt: row.actionStartedAt?.toISOString() ?? null,
     actionCompletedAt: row.actionCompletedAt?.toISOString() ?? null,
-    playbookStartedAt: row.playbookStartedAt?.toISOString() ?? null,
-    playbookCompletedAt: row.playbookCompletedAt?.toISOString() ?? null,
   }
 }
 
