@@ -64,8 +64,8 @@ async function main() {
 
   console.log('[Worker] Starting continuous polling mode');
   console.log('[Worker] Looking for tasks with:');
-  console.log('  - stage=init, status=pending, enablePlaybook=true');
-  console.log('  - OR stage=playbook_build, status=pending');
+  console.log('  - stage=init, status=pending');
+  console.log('  - OR stage=knowledge_build, status=pending (retry tasks)');
   console.log('');
   console.log('Press Ctrl+C to stop gracefully');
   console.log('');

@@ -3,7 +3,7 @@
  *
  * Features:
  * - Polls database for tasks ready for playbook building
- *   (stage='action_build', stageStatus='completed', config.enablePlaybook=true)
+ *   (stage='init' or 'knowledge_build', stageStatus='pending')
  * - Claims tasks with optimistic locking to prevent duplicate execution
  * - Executes playbook-builder pipeline
  * - Updates task status with heartbeat mechanism
@@ -174,14 +174,22 @@ export class PlaybookTaskControllerImpl implements IPlaybookTaskController {
   private async pollTask(): Promise<BuildTask | null> {
     const db = getDb();
 
+    // Poll for:
+    // 1. New tasks: stage='init', stageStatus='pending'
+    // 2. Retry tasks: stage='knowledge_build', stageStatus='pending' (set by handleTaskError for retry)
     const tasks = await db
       .select()
       .from(buildTasks)
       .where(
         sql`(
-          ${buildTasks.stage} = 'init'
-          AND ${buildTasks.stageStatus} = 'pending'
-          AND (${buildTasks.config}->>'enablePlaybook')::boolean = true
+          (
+            ${buildTasks.stage} = 'init'
+            AND ${buildTasks.stageStatus} = 'pending'
+          )
+          OR (
+            ${buildTasks.stage} = 'knowledge_build'
+            AND ${buildTasks.stageStatus} = 'pending'
+          )
         )`
       )
       .orderBy(buildTasks.createdAt)
@@ -199,7 +207,18 @@ export class PlaybookTaskControllerImpl implements IPlaybookTaskController {
   // ============================================================================
 
   private async executeTask(task: BuildTask): Promise<void> {
-    // If no sourceId, try to find or create one
+    // Try to claim the task first (optimistic lock to prevent race conditions)
+    // This must happen BEFORE findOrCreateSource to avoid multiple workers
+    // racing to create/update sources for the same task
+    const claimed = await this.claimTask(task.id);
+    if (!claimed) {
+      log('info', `[Controller] Task #${task.id} already claimed by another worker`);
+      return;
+    }
+
+    log('info', `[Controller] Claimed task #${task.id}: ${task.sourceUrl}`);
+
+    // Now that we've claimed the task, safely find or create source
     if (!task.sourceId) {
       log('info', `[Controller] Task #${task.id} has no sourceId, trying to find or create source...`);
       const sourceId = await this.findOrCreateSource(task);
@@ -211,15 +230,6 @@ export class PlaybookTaskControllerImpl implements IPlaybookTaskController {
       task.sourceId = sourceId;
       log('info', `[Controller] Task #${task.id} assigned sourceId: ${sourceId}`);
     }
-
-    // Try to claim the task
-    const claimed = await this.claimTask(task.id);
-    if (!claimed) {
-      log('info', `[Controller] Task #${task.id} already claimed by another worker`);
-      return;
-    }
-
-    log('info', `[Controller] Claimed task #${task.id}: ${task.sourceUrl}`);
     this.state = 'processing';
     this.currentTaskId = task.id;
 

@@ -166,8 +166,9 @@ export class PlaybookBuilder {
         }
       }
 
-      // Publish version
-      await this.storage.publishVersion(sourceVersionId, this.config.sourceId);
+      // Note: publishVersion is NOT called here.
+      // It should be called after action-builder completes the full pipeline:
+      // init -> playbook builder -> action-builder -> completed (publish)
 
       const result: PlaybookBuildResult = {
         playbookCount: playbookIds.length,

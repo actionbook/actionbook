@@ -133,8 +133,6 @@ export interface BuildTaskConfig {
   rateLimit?: number;
 
   // ========== Playbook Builder Config ==========
-  /** Enable playbook building stage */
-  enablePlaybook?: boolean;
   /** Maximum pages to process in playbook builder */
   playbookMaxPages?: number;
   /** Maximum depth for recursive page discovery in playbook builder (default: 1) */
