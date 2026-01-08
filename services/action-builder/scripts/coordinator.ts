@@ -39,6 +39,7 @@ async function main() {
       headless: process.env.ACTION_BUILDER_HEADLESS !== 'false',
       outputDir: process.env.OUTPUT_DIR ?? './output',
       maxAttempts: parseInt(process.env.ACTION_BUILDER_MAX_ATTEMPTS ?? '3'),
+      maxTurns: parseInt(process.env.ACTION_BUILDER_MAX_TURNS ?? '30'),
     },
     buildTaskRunner: {
       checkIntervalSeconds: parseInt(
