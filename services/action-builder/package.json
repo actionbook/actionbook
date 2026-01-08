@@ -11,7 +11,6 @@
   "scripts": {
     "build": "tsc",
     "dev": "concurrently \"tsc --watch\" \"tsx scripts/coordinator.ts\"",
-    "dev:old": "concurrently \"tsc --watch\" \"tsx scripts/build-task-worker.ts\"",
     "dev:build": "tsc --watch",
     "clean": "rm -rf dist",
     "lint": "eslint src cli --ext .ts",
@@ -31,9 +30,6 @@
     "task:run": "npx tsx scripts/task-cli.ts run",
     "task:clear": "npx tsx scripts/task-cli.ts clear",
     "task": "npx tsx scripts/task-cli.ts",
-    "worker:build-task": "npx tsx scripts/build-task-worker.ts",
-    "worker:build-task:once": "npx tsx scripts/build-task-worker.ts --once",
-    "worker:build-task:debug": "npx tsx scripts/build-task-worker.ts --debug",
     "coordinator": "npx tsx scripts/coordinator.ts",
     "login": "npx tsx scripts/login.ts"
   },

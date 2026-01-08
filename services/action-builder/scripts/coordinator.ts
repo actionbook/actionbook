@@ -16,27 +16,31 @@ async function main() {
 
   const db = getDb();
 
-  // 读取配置
+  // 读取配置（复用现有环境变量名）
   const config = {
     maxConcurrentBuildTasks: parseInt(
-      process.env.MAX_CONCURRENT_BUILD_TASKS ?? '5'
+      process.env.ACTION_BUILDER_MAX_CONCURRENT_BUILD_TASKS ?? '5'
     ),
     buildTaskPollIntervalSeconds: parseInt(
-      process.env.BUILD_TASK_POLL_INTERVAL ?? '5'
+      process.env.ACTION_BUILDER_BUILD_TASK_POLL_INTERVAL ?? '5'
     ),
     queueWorker: {
-      concurrency: parseInt(process.env.RECORDING_TASK_CONCURRENCY ?? '3'),
-      staleTimeoutMinutes: parseInt(process.env.STALE_TIMEOUT_MINUTES ?? '15'),
-      taskTimeoutMinutes: parseInt(process.env.TASK_TIMEOUT_MINUTES ?? '10'),
+      concurrency: parseInt(process.env.ACTION_BUILDER_TASK_CONCURRENCY ?? '3'),
+      staleTimeoutMinutes: parseInt(
+        process.env.ACTION_BUILDER_STALE_TIMEOUT_MINUTES ?? '15'
+      ),
+      taskTimeoutMinutes: parseInt(
+        process.env.ACTION_BUILDER_TASK_TIMEOUT_MINUTES ?? '10'
+      ),
       databaseUrl: process.env.DATABASE_URL!,
-      headless: process.env.HEADLESS !== 'false',
+      headless: process.env.ACTION_BUILDER_HEADLESS !== 'false',
       outputDir: process.env.OUTPUT_DIR ?? './output',
     },
     buildTaskRunner: {
       checkIntervalSeconds: parseInt(
-        process.env.CHECK_INTERVAL_SECONDS ?? '5'
+        process.env.ACTION_BUILDER_CHECK_INTERVAL_SECONDS ?? '5'
       ),
-      maxAttempts: parseInt(process.env.MAX_ATTEMPTS ?? '3'),
+      maxAttempts: parseInt(process.env.ACTION_BUILDER_MAX_ATTEMPTS ?? '3'),
     },
   };
 
