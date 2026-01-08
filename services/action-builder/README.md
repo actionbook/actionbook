@@ -278,10 +278,15 @@ Configuration:
 [QueueWorker] Starting task #2003
 
 [Metrics] build_tasks=1/5, recording_tasks=3/3, elapsed=30.0s
-[BuildTaskRunner #123] Status: pending=45, running=3, completed=2, failed=0
+  #123 [arxiv.org] tasks=2+0/50 (4.0%) elapsed=0.5min
 
+[BuildTaskRunner #123] Status: pending=45, running=3, completed=2, failed=0
 [QueueWorker] Task #2001 completed
 [QueueWorker] Starting task #2004
+
+[Metrics] build_tasks=1/5, recording_tasks=3/3, elapsed=30.0s
+  #123 [arxiv.org] tasks=15+1/50 (32.0%) elapsed=1.5min
+
 ...
 
 [BuildTaskRunner #123] All recording tasks finished
@@ -289,8 +294,18 @@ Configuration:
 [BuildTaskRunner #123] Completed successfully
 [Coordinator] BuildTaskRunner #123 completed
 
-[Metrics] build_tasks=0/5, recording_tasks=0/3, elapsed=60.0s
+[Metrics] build_tasks=0/5, recording_tasks=0/3, elapsed=30.0s
 ```
+
+**Metrics format:**
+- `build_tasks=X/Y`: X running build_tasks out of Y max concurrent
+- `recording_tasks=X/Y`: X running recording_tasks out of Y concurrency limit
+- Per build_task details:
+  - `#123`: build_task ID
+  - `[arxiv.org]`: source name
+  - `tasks=15+1/50`: 15 completed + 1 failed / 50 total
+  - `(32.0%)`: completion percentage
+  - `elapsed=1.5min`: time since build_task started
 
 **Detailed logs in file** (`logs/action-builder_20260108153000.log`):
 ```

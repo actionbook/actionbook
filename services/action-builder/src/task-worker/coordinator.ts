@@ -9,8 +9,8 @@
  */
 
 import type { Database } from '@actionbookdev/db';
-import { buildTasks } from '@actionbookdev/db';
-import { sql } from 'drizzle-orm';
+import { buildTasks, recordingTasks } from '@actionbookdev/db';
+import { sql, eq } from 'drizzle-orm';
 import { BuildTaskRunner, type BuildTaskRunnerConfig } from './build-task-runner.js';
 import {
   RecordingTaskQueueWorker,
@@ -251,11 +251,15 @@ export class Coordinator {
    */
   private startMetrics(): void {
     this.metricsTimer = setInterval(() => {
-      this.outputMetrics();
+      this.outputMetrics().catch((error: unknown) => {
+        console.error('[Coordinator] Metrics error:', error);
+      });
     }, this.metricsIntervalMs);
 
     // 立即输出一次
-    this.outputMetrics();
+    this.outputMetrics().catch((error: unknown) => {
+      console.error('[Coordinator] Metrics error:', error);
+    });
   }
 
   /**
@@ -271,7 +275,7 @@ export class Coordinator {
   /**
    * 输出监控指标
    */
-  private outputMetrics(): void {
+  private async outputMetrics(): Promise<void> {
     const queueStatus = this.queueWorker.getStatus();
     const now = Date.now();
     const elapsedSeconds = (now - this.lastMetricsTime) / 1000;
@@ -283,7 +287,88 @@ export class Coordinator {
         `elapsed=${elapsedSeconds.toFixed(1)}s`
     );
 
+    // 输出每个 build_task 的详细状态
+    if (this.runningBuildTasks.size > 0) {
+      for (const [buildTaskId] of this.runningBuildTasks) {
+        try {
+          const details = await this.getBuildTaskDetails(buildTaskId);
+          if (details) {
+            const progress = details.total > 0
+              ? ((details.completed + details.failed) / details.total * 100).toFixed(1)
+              : '0.0';
+
+            const elapsed = details.startedAt
+              ? ((now - details.startedAt.getTime()) / 1000 / 60).toFixed(1)
+              : '0.0';
+
+            console.log(
+              `  #${buildTaskId} [${details.sourceName}] ` +
+                `tasks=${details.completed}+${details.failed}/${details.total} (${progress}%) ` +
+                `elapsed=${elapsed}min`
+            );
+          }
+        } catch (error) {
+          // Ignore errors in metrics collection
+        }
+      }
+    }
+
     this.lastMetricsTime = now;
+  }
+
+  /**
+   * 获取 build_task 详细信息
+   */
+  private async getBuildTaskDetails(buildTaskId: number): Promise<{
+    sourceName: string;
+    total: number;
+    completed: number;
+    failed: number;
+    pending: number;
+    running: number;
+    startedAt: Date | null;
+  } | null> {
+    try {
+      // 1. Get build_task info
+      const buildTaskResult = await this.db
+        .select({
+          sourceName: buildTasks.sourceName,
+          startedAt: buildTasks.actionStartedAt,
+        })
+        .from(buildTasks)
+        .where(eq(buildTasks.id, buildTaskId))
+        .limit(1);
+
+      if (buildTaskResult.length === 0) {
+        return null;
+      }
+
+      // 2. Get recording_tasks stats
+      const statsResult = await this.db.execute(sql`
+        SELECT
+          COUNT(*) as total,
+          SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+          SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+          SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+          SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running
+        FROM ${recordingTasks}
+        WHERE build_task_id = ${buildTaskId}
+      `);
+
+      const stats = statsResult.rows[0] as any;
+
+      return {
+        sourceName: buildTaskResult[0].sourceName || 'unknown',
+        total: parseInt(stats.total || '0'),
+        completed: parseInt(stats.completed || '0'),
+        failed: parseInt(stats.failed || '0'),
+        pending: parseInt(stats.pending || '0'),
+        running: parseInt(stats.running || '0'),
+        startedAt: buildTaskResult[0].startedAt,
+      };
+    } catch (error) {
+      return null;
+    }
   }
 
   /**
