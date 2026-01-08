@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import type { BrowserAdapter } from "../browser/BrowserAdapter.js";
+import type { AIBrowserAdapter } from "@actionbookdev/browser";
 import { log } from "../utils/logger.js";
 import type {
   ValidatorConfig,
@@ -88,10 +88,10 @@ const PRE_ACTION_GROUPS: PreActionGroup[] = [
  * Selector Validator - Validates selector effectiveness
  */
 export class SelectorValidator {
-  private browser: BrowserAdapter;
+  private browser: AIBrowserAdapter;
   private config: ValidatorConfig;
 
-  constructor(browser: BrowserAdapter, config: ValidatorConfig = {}) {
+  constructor(browser: AIBrowserAdapter, config: ValidatorConfig = {}) {
     this.browser = browser;
     this.config = {
       timeout: config.timeout || 5000,
@@ -147,7 +147,7 @@ export class SelectorValidator {
         await this.browser.navigate(pageUrl);
         await this.browser.autoClosePopups();
 
-        let browserPage = await this.browser.getPage();
+        let browserPage = await this.browser.getPage() as Page;
 
         for (const [elementId, element] of Object.entries(page.elements)) {
           totalCount++;
@@ -160,7 +160,7 @@ export class SelectorValidator {
             );
             await this.browser.navigate(pageUrl);
             await this.browser.autoClosePopups();
-            browserPage = await this.browser.getPage();
+            browserPage = await this.browser.getPage() as Page;
             log(
               "info",
               `[SelectorValidator] Page reset complete for ${pageType}/${elementId}, executing ${preActionGroup.steps.length} pre-action steps`
@@ -224,7 +224,7 @@ export class SelectorValidator {
         await this.browser.navigate(mainUrl);
         await this.browser.autoClosePopups();
 
-        const browserPage = await this.browser.getPage();
+        const browserPage = await this.browser.getPage() as Page;
 
         for (const [elementId, element] of Object.entries(
           capability.global_elements

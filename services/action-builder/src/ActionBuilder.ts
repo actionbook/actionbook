@@ -1,5 +1,5 @@
-import { StagehandBrowser } from './browser/StagehandBrowser.js'
-import type { BrowserAdapter } from './browser/BrowserAdapter.js'
+import { StagehandBrowser } from '@actionbookdev/browser'
+import type { AIBrowserAdapter } from '@actionbookdev/browser'
 import { AIClient } from './llm/AIClient.js'
 import { ActionRecorder } from './recorder/ActionRecorder.js'
 import { SelectorValidator } from './validator/SelectorValidator.js'
@@ -37,7 +37,7 @@ export interface ValidateOptions {
  * ActionBuilder - Main coordinator for capability recording and validation
  */
 export class ActionBuilder {
-  private browser: BrowserAdapter
+  private browser: AIBrowserAdapter
   private llmClient: AIClient
   private recorder: ActionRecorder
   private validator: SelectorValidator
@@ -68,12 +68,9 @@ export class ActionBuilder {
     // Create instance-specific file logger for parallel execution support
     this.fileLogger = new FileLogger()
 
-    // Initialize browser (Stagehand has its own LLM config via env vars)
+    // Initialize browser (Stagehand uses env vars for LLM config)
     this.browser = new StagehandBrowser({
-      headless: this.config.headless!,
-      llmApiKey: this.config.llmApiKey || '',
-      llmBaseURL: config.llmBaseURL,
-      llmModel: this.config.llmModel,
+      headless: this.config.headless,
       profile: config.profileEnabled
         ? { enabled: true, profileDir: config.profileDir }
         : undefined,

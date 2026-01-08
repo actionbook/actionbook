@@ -1,0 +1,69 @@
+{
+  "name": "@actionbookdev/browser",
+  "version": "0.1.0",
+  "description": "Browser adapters for Actionbook - supports Stagehand, AgentCore, and Playwright",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/types/index.js"
+    },
+    "./adapters": {
+      "types": "./dist/adapters/index.d.ts",
+      "import": "./dist/adapters/index.js"
+    },
+    "./stagehand": {
+      "types": "./dist/implementations/StagehandBrowser.d.ts",
+      "import": "./dist/implementations/StagehandBrowser.js"
+    },
+    "./agentcore": {
+      "types": "./dist/implementations/AgentCoreBrowser.d.ts",
+      "import": "./dist/implementations/AgentCoreBrowser.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@actionbookdev/browser-profile": "workspace:*"
+  },
+  "devDependencies": {
+    "@ai-sdk/amazon-bedrock": "^3.0.0",
+    "@types/node": "^22.10.2",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.2"
+  },
+  "peerDependencies": {
+    "@browserbasehq/stagehand": ">=1.0.0",
+    "playwright": ">=1.40.0",
+    "bedrock-agentcore": ">=0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@browserbasehq/stagehand": {
+      "optional": true
+    },
+    "bedrock-agentcore": {
+      "optional": true
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "actionbook",
+    "browser",
+    "automation",
+    "playwright",
+    "stagehand",
+    "agentcore"
+  ]
+}

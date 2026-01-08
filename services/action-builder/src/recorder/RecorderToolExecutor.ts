@@ -1,4 +1,4 @@
-import type { BrowserAdapter } from "../browser/BrowserAdapter.js";
+import type { AIBrowserAdapter } from "@actionbookdev/browser";
 import { log } from "../utils/logger.js";
 import { createIdSelector } from "../utils/string.js";
 import type {
@@ -48,7 +48,7 @@ export type NavigateResult = {
 
 export class RecorderToolExecutor {
   constructor(
-    private browser: BrowserAdapter,
+    private browser: AIBrowserAdapter,
     private handlers: {
       ensureSiteCapability: (domain: string) => void;
       registerElement: (element: ElementCapability) => void;

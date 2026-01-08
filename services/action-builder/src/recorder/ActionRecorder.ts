@@ -1,5 +1,5 @@
 import type OpenAI from "openai";
-import type { BrowserAdapter } from "../browser/BrowserAdapter.js";
+import type { AIBrowserAdapter } from "@actionbookdev/browser";
 import { AIClient } from "../llm/AIClient.js";
 import { YamlWriter } from "../writers/YamlWriter.js";
 import { DbWriter } from "../writers/DbWriter.js";
@@ -29,7 +29,7 @@ import { sleep } from "../utils/retry.js";
  * Action Recorder - Records website UI element capabilities
  */
 export class ActionRecorder {
-  private browser: BrowserAdapter;
+  private browser: AIBrowserAdapter;
   private llmClient: AIClient;
   private config: RecorderConfig;
   private yamlWriter: YamlWriter;
@@ -65,7 +65,7 @@ export class ActionRecorder {
   private hasScrolledCurrentPage: boolean = false;
 
   constructor(
-    browser: BrowserAdapter,
+    browser: AIBrowserAdapter,
     llmClient: AIClient,
     config: RecorderConfig,
     dbWriter?: DbWriter
