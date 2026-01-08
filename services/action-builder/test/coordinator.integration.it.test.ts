@@ -271,6 +271,19 @@ describe('Coordinator Integration Tests', () => {
 
     expect(retried).toBe(true);
 
+    // 4.1 Wait for the retried task to actually be executed again (attemptCount should increase)
+    const executedAgain = await waitForCondition(
+      async () => {
+        const task = await db.select().from(recordingTasks).where(
+          eq(recordingTasks.id, firstTaskId)
+        );
+        return task.length > 0 && (task[0].attemptCount ?? 0) > 1;
+      },
+      { timeout: 20000, interval: 500 }
+    );
+
+    expect(executedAgain).toBe(true);
+
     // 5. Stop Coordinator
     await coordinator.stop(5000);
     await coordinatorPromise;

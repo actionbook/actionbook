@@ -108,6 +108,12 @@ describe('IT-301: End-to-End Integration Test (M1)', () => {
 
     // Step 3: Execute all tasks manually (M1: no RecordingWorker)
     for (const task of tasks) {
+      // Simulate QueueWorker.claim(): TaskExecutor is designed to update status only while task is 'running'
+      await db
+        .update(recordingTasks)
+        .set({ status: 'running' })
+        .where(eq(recordingTasks.id, task.id))
+
       const result = await executor.execute(task)
       expect(result.success).toBe(true)
       expect(result.actions_created).toBeGreaterThanOrEqual(0)

@@ -192,10 +192,6 @@ export class BuildTaskRunner {
                 WHEN ${recordingTasks.status} IN ('pending', 'running') THEN 'pending'
                 ELSE ${recordingTasks.status}
               END`,
-              attemptCount: sql`CASE
-                WHEN ${recordingTasks.status} IN ('pending', 'running') THEN 0
-                ELSE ${recordingTasks.attemptCount}
-              END`,
               updatedAt: new Date(),
             },
           });
@@ -230,11 +226,16 @@ export class BuildTaskRunner {
           `completed=${status.completed}, failed=${status.failed}`
       );
 
-      // 2. Check and retry failed tasks first (before checking completion)
-      await this.retryFailedTasks();
+      // 2. Retry failed tasks (retriable only). If retried any, we must NOT finish.
+      const retriedCount = await this.retryFailedTasks();
 
-      // 3. Check if all finished (pending=0 and running=0)
-      const allFinished = status.pending === 0 && status.running === 0;
+      // 3. Check if all finished:
+      // - pending=0 and running=0
+      // - and no retriable failures were just re-queued
+      //
+      // Note: permanent failures (attemptCount >= maxAttempts) do NOT block completion.
+      const allFinished =
+        status.pending === 0 && status.running === 0 && retriedCount === 0;
 
       if (allFinished) {
         console.log(
@@ -281,7 +282,7 @@ export class BuildTaskRunner {
    * 重试失败的任务
    * 只重置 attemptCount < maxAttempts 的任务
    */
-  private async retryFailedTasks(): Promise<void> {
+  private async retryFailedTasks(): Promise<number> {
     // 1. 查找可重试的失败任务
     const failedTasks = await this.db
       .select()
@@ -295,7 +296,7 @@ export class BuildTaskRunner {
       );
 
     if (failedTasks.length === 0) {
-      return;
+      return 0;
     }
 
     console.log(
@@ -308,10 +309,17 @@ export class BuildTaskRunner {
       .update(recordingTasks)
       .set({
         status: 'pending',
+        progress: 0,
         errorMessage: null,
+        startedAt: null,
+        completedAt: null,
+        durationMs: null,
+        tokensUsed: 0,
         updatedAt: new Date(),
       })
       .where(inArray(recordingTasks.id, taskIds));
+
+    return failedTasks.length;
   }
 
   /**

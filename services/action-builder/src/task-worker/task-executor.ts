@@ -20,6 +20,7 @@ import {
   chunks,
   documents,
   sources,
+  and,
   eq,
 } from '@actionbookdev/db'
 import { ActionBuilder } from '../ActionBuilder.js'
@@ -351,12 +352,14 @@ export class TaskExecutor {
       tokensUsed?: number
     }
   ): Promise<void> {
+    // Idempotency/safety: only allow status updates while task is still 'running'.
+    // This prevents a "zombie" executor (after stale recovery) from overwriting a re-queued task.
     await this.db
       .update(recordingTasks)
       .set({
         ...updates,
         updatedAt: new Date(),
       })
-      .where(eq(recordingTasks.id, taskId))
+      .where(and(eq(recordingTasks.id, taskId), eq(recordingTasks.status, 'running')))
   }
 }

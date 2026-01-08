@@ -22,6 +22,8 @@ export interface CoordinatorConfig {
   maxConcurrentBuildTasks?: number;
   /** build_task 轮询间隔（秒）*/
   buildTaskPollIntervalSeconds?: number;
+  /** build_task stale 判定阈值（分钟），用于重启恢复 action_build/running 的任务 */
+  buildTaskStaleTimeoutMinutes?: number;
   /** BuildTaskRunner 配置 */
   buildTaskRunner?: BuildTaskRunnerConfig;
   /** RecordingTaskQueueWorker 配置 */
@@ -49,6 +51,7 @@ export class Coordinator {
     this.config = {
       maxConcurrentBuildTasks: config.maxConcurrentBuildTasks ?? 5,
       buildTaskPollIntervalSeconds: config.buildTaskPollIntervalSeconds ?? 5,
+      buildTaskStaleTimeoutMinutes: config.buildTaskStaleTimeoutMinutes ?? 15,
       buildTaskRunner: config.buildTaskRunner ?? {},
       queueWorker: config.queueWorker ?? {},
     };
@@ -159,20 +162,30 @@ export class Coordinator {
    */
   private async claimBuildTask(): Promise<{ id: number } | null> {
     try {
+      const staleMs = this.config.buildTaskStaleTimeoutMinutes * 60 * 1000;
+      const staleThreshold = new Date(Date.now() - staleMs);
       const result = await this.db.execute(sql`
         UPDATE ${buildTasks}
         SET
           stage = 'action_build',
           stage_status = 'running',
-          action_started_at = NOW(),
+          action_started_at = COALESCE(action_started_at, NOW()),
           updated_at = NOW()
         WHERE id = (
           SELECT id
           FROM ${buildTasks}
           WHERE
-            stage = 'knowledge_build'
-            AND stage_status = 'completed'
-          ORDER BY id
+            (
+              (stage = 'knowledge_build' AND stage_status = 'completed')
+              OR
+              (stage = 'action_build' AND stage_status = 'running' AND updated_at < ${staleThreshold})
+            )
+          ORDER BY
+            CASE
+              WHEN stage = 'action_build' AND stage_status = 'running' THEN 0
+              ELSE 1
+            END,
+            id
           LIMIT 1
           FOR UPDATE SKIP LOCKED
         )
@@ -183,7 +196,9 @@ export class Coordinator {
         return null;
       }
 
-      return { id: (result.rows[0] as any).id };
+      const id = (result.rows[0] as any).id as number;
+      // If this was a stale recovery, it will be in action_build/running already; BuildTaskRunner will re-upsert tasks idempotently.
+      return { id };
     } catch (error) {
       console.error('[Coordinator] Failed to claim build_task:', error);
       return null;

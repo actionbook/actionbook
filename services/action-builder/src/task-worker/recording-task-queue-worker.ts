@@ -28,6 +28,8 @@ export interface RecordingTaskQueueWorkerConfig extends TaskExecutorConfig {
   idleWaitMs?: number;
   /** 任务心跳间隔（毫秒）*/
   heartbeatIntervalMs?: number;
+  /** 最大重试次数（用于 stale 恢复） */
+  maxAttempts?: number;
   /** Stale 任务判定阈值（分钟）*/
   staleTimeoutMinutes?: number;
 }
@@ -54,6 +56,7 @@ export class RecordingTaskQueueWorker {
       idleWaitMs: config.idleWaitMs ?? 1000,
       heartbeatIntervalMs: config.heartbeatIntervalMs ?? 5000,
       taskTimeoutMinutes: config.taskTimeoutMinutes ?? 10,
+      maxAttempts: config.maxAttempts ?? 3,
       staleTimeoutMinutes: config.staleTimeoutMinutes ?? 15,
       headless: config.headless ?? true,
       maxTurns: config.maxTurns ?? 30,
@@ -287,13 +290,14 @@ export class RecordingTaskQueueWorker {
       const staleThresholdMs = this.config.staleTimeoutMinutes * 60 * 1000;
       const staleThreshold = new Date(Date.now() - staleThresholdMs);
 
+      const maxAttempts = this.config.maxAttempts;
       const result = await this.db.execute(sql`
         WITH stale_tasks AS (
           SELECT
             id,
             attempt_count,
             CASE
-              WHEN attempt_count < 3 THEN 'pending'
+              WHEN attempt_count < ${maxAttempts} THEN 'pending'
               ELSE 'failed'
             END AS new_status
           FROM ${recordingTasks}
@@ -305,8 +309,8 @@ export class RecordingTaskQueueWorker {
         SET
           status = stale_tasks.new_status,
           attempt_count = CASE
-            WHEN stale_tasks.new_status = 'pending' THEN ${recordingTasks.attemptCount} + 1
-            ELSE ${recordingTasks.attemptCount}
+            WHEN stale_tasks.new_status = 'pending' THEN "recording_tasks".attempt_count + 1
+            ELSE "recording_tasks".attempt_count
           END,
           error_message = CASE
             WHEN stale_tasks.new_status = 'failed' THEN 'Task stale: max attempts reached'
