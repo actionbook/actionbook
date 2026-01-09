@@ -12,7 +12,7 @@
 
 import 'dotenv/config';
 
-import { StagehandBrowser } from '@actionbookdev/browser';
+import { createBrowserAuto, type BrowserAdapter } from '@actionbookdev/browser';
 import { AIClient, createEmbeddingProvider, type EmbeddingProvider } from './brain/index.js';
 import { Storage, createStorage } from './storage/index.js';
 import { log, fileLogger, normalizeUrl, isSameDomain, buildChunkContent } from './utils/index.js';
@@ -31,7 +31,7 @@ import { PageAnalyzer } from './analyzer/index.js';
  */
 export class PlaybookBuilder {
   private config: Required<Omit<PlaybookBuilderConfig, 'llmProvider'>> & Pick<PlaybookBuilderConfig, 'llmProvider'>;
-  private browser: StagehandBrowser;
+  private browser: BrowserAdapter;
   private ai: AIClient;
   private embedding: EmbeddingProvider | null = null;
   private storage: Storage;
@@ -52,7 +52,8 @@ export class PlaybookBuilder {
       llmProvider: config.llmProvider,
     };
 
-    this.browser = new StagehandBrowser({ headless: this.config.headless });
+    // Auto-detect browser: AgentCoreBrowser in AWS, StagehandBrowser locally
+    this.browser = createBrowserAuto({ headless: this.config.headless });
     // AIClient: Use specified provider, env var, or auto-detect
     const llmProvider = this.config.llmProvider ||
       (process.env.LLM_PROVIDER as 'openrouter' | 'openai' | 'anthropic' | 'bedrock' | undefined);

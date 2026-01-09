@@ -39,7 +39,7 @@ export interface AgentCoreBrowserConfig extends BrowserConfig {
  */
 export class AgentCoreBrowser implements BrowserAdapter {
   private client: any = null;
-  private sessionId: string | null = null;
+  private initialized: boolean = false;
   private config: AgentCoreBrowserConfig;
   private currentUrl: string = 'about:blank';
 
@@ -57,7 +57,7 @@ export class AgentCoreBrowser implements BrowserAdapter {
   // ============================================
 
   async initialize(): Promise<void> {
-    if (this.client && this.sessionId) {
+    if (this.initialized && this.client) {
       return;
     }
 
@@ -71,7 +71,7 @@ export class AgentCoreBrowser implements BrowserAdapter {
       );
     }
 
-    log('info', '[AgentCoreBrowser] Initializing AgentCore Browser session...');
+    log('info', '[AgentCoreBrowser] Initializing AgentCore Browser...');
     log('info', `[AgentCoreBrowser] Region: ${this.config.region}`);
     log(
       'info',
@@ -79,30 +79,33 @@ export class AgentCoreBrowser implements BrowserAdapter {
     );
 
     try {
+      // Create PlaywrightBrowser instance
+      // Session will be created automatically on first method call (e.g., navigate)
       this.client = new PlaywrightBrowser({
         region: this.config.region,
         sessionTimeout: this.config.sessionTimeoutMinutes,
       });
 
-      this.sessionId = await this.client.startSession();
-      log('info', `[AgentCoreBrowser] Session started: ${this.sessionId}`);
+      this.initialized = true;
+      log('info', '[AgentCoreBrowser] Browser client created (session will be created on first use)');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      log('error', `[AgentCoreBrowser] Failed to start session: ${message}`);
+      log('error', `[AgentCoreBrowser] Failed to create browser client: ${message}`);
       throw new Error(`Failed to initialize AgentCore Browser: ${message}`);
     }
   }
 
   async close(): Promise<void> {
-    if (this.client && this.sessionId) {
-      log('info', `[AgentCoreBrowser] Stopping session: ${this.sessionId}`);
+    if (this.client && this.initialized) {
+      log('info', '[AgentCoreBrowser] Stopping session...');
       try {
         await this.client.stopSession();
+        log('info', '[AgentCoreBrowser] Session stopped');
       } catch (error) {
         log('warn', `[AgentCoreBrowser] Error stopping session: ${error}`);
       }
       this.client = null;
-      this.sessionId = null;
+      this.initialized = false;
       this.currentUrl = 'about:blank';
     }
   }
@@ -116,7 +119,9 @@ export class AgentCoreBrowser implements BrowserAdapter {
 
     log('info', `[AgentCoreBrowser] Navigating to: ${url}`);
     try {
-      await this.client.navigate(url, {
+      // SDK requires object parameter: { url, timeout?, waitUntil? }
+      await this.client.navigate({
+        url,
         timeout: options?.timeout ?? this.config.timeout,
         waitUntil: options?.waitUntil ?? 'domcontentloaded',
       });
@@ -157,8 +162,8 @@ export class AgentCoreBrowser implements BrowserAdapter {
   async getTitle(): Promise<string> {
     this.ensureInitialized();
     try {
-      // Use evaluate to get title
-      const title = await this.client.evaluate(() => document.title);
+      // SDK requires object parameter: { script, args? }
+      const title = await this.client.evaluate({ script: 'document.title' });
       return title || '';
     } catch {
       return '';
@@ -214,7 +219,9 @@ export class AgentCoreBrowser implements BrowserAdapter {
 
     log('info', `[AgentCoreBrowser] Waiting for selector: ${selector}`);
     try {
-      await this.client.waitForSelector(selector, {
+      // SDK requires object parameter: { selector, timeout?, state? }
+      await this.client.waitForSelector({
+        selector,
         timeout: options?.timeout ?? 30000,
         state: options?.hidden ? 'hidden' : options?.visible ? 'visible' : 'attached',
       });
@@ -244,9 +251,10 @@ export class AgentCoreBrowser implements BrowserAdapter {
 
     const delta = direction === 'down' ? amount : -amount;
     try {
-      await this.client.evaluate((scrollAmount: number) => {
-        window.scrollBy(0, scrollAmount);
-      }, delta);
+      // SDK requires object parameter: { script, args? }
+      await this.client.evaluate({
+        script: `window.scrollBy(0, ${delta})`,
+      });
     } catch (error) {
       log('warn', `[AgentCoreBrowser] Scroll failed: ${error}`);
     }
@@ -262,12 +270,13 @@ export class AgentCoreBrowser implements BrowserAdapter {
       const maxAttempts = 10;
 
       while (attempts < maxAttempts) {
-        const currentHeight = await this.client.evaluate(
-          () => document.body.scrollHeight
-        );
+        // SDK requires object parameter: { script, args? }
+        const currentHeight = await this.client.evaluate({
+          script: 'document.body.scrollHeight',
+        });
 
-        await this.client.evaluate(() => {
-          window.scrollTo(0, document.body.scrollHeight);
+        await this.client.evaluate({
+          script: 'window.scrollTo(0, document.body.scrollHeight)',
         });
 
         await this.wait(500);
@@ -296,7 +305,8 @@ export class AgentCoreBrowser implements BrowserAdapter {
    */
   async click(selector: string): Promise<void> {
     this.ensureInitialized();
-    await this.client.click(selector);
+    // SDK requires object parameter: { selector, timeout? }
+    await this.client.click({ selector });
   }
 
   /**
@@ -304,7 +314,8 @@ export class AgentCoreBrowser implements BrowserAdapter {
    */
   async fill(selector: string, value: string): Promise<void> {
     this.ensureInitialized();
-    await this.client.fill(selector, value);
+    // SDK requires object parameter: { selector, value, timeout? }
+    await this.client.fill({ selector, value });
   }
 
   /**
@@ -312,7 +323,8 @@ export class AgentCoreBrowser implements BrowserAdapter {
    */
   async type(selector: string, text: string): Promise<void> {
     this.ensureInitialized();
-    await this.client.type(selector, text);
+    // SDK requires object parameter: { selector, text, delay? }
+    await this.client.type({ selector, text });
   }
 
   /**
@@ -320,27 +332,35 @@ export class AgentCoreBrowser implements BrowserAdapter {
    */
   async getText(selector: string): Promise<string> {
     this.ensureInitialized();
-    return await this.client.getText(selector);
+    // SDK requires object parameter: { selector }
+    return await this.client.getText({ selector });
   }
 
   /**
    * Execute JavaScript in the browser
+   * SDK requires object parameter: { script: string, args?: any[] }
    */
   async evaluate<T>(fn: () => T): Promise<T>;
   async evaluate<T, A>(fn: (arg: A) => T, arg: A): Promise<T>;
   async evaluate<T, A>(fn: ((arg: A) => T) | (() => T), arg?: A): Promise<T> {
     this.ensureInitialized();
+    // Convert function to string for SDK
+    const fnString = fn.toString();
     if (arg !== undefined) {
-      return await this.client.evaluate(fn, arg);
+      // Wrap function call with argument
+      const script = `(${fnString})(${JSON.stringify(arg)})`;
+      return await this.client.evaluate({ script });
     }
-    return await this.client.evaluate(fn);
+    // Wrap function call without argument
+    const script = `(${fnString})()`;
+    return await this.client.evaluate({ script });
   }
 
   /**
-   * Get session ID
+   * Get session ID (from SDK's internal state)
    */
   getSessionId(): string | null {
-    return this.sessionId;
+    return this.client?._session?.sessionId ?? null;
   }
 
   // ============================================
@@ -348,7 +368,7 @@ export class AgentCoreBrowser implements BrowserAdapter {
   // ============================================
 
   private ensureInitialized(): void {
-    if (!this.client || !this.sessionId) {
+    if (!this.client || !this.initialized) {
       throw new Error('Browser not initialized. Call initialize() first.');
     }
   }

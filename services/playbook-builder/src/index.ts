@@ -29,7 +29,8 @@ export type {
 } from './types/index.js';
 
 // Browser utilities (re-exported from shared packages)
-export { StagehandBrowser } from '@actionbookdev/browser';
+export { createBrowserAuto, StagehandBrowser, AgentCoreBrowser } from '@actionbookdev/browser';
+export type { BrowserAdapter } from '@actionbookdev/browser';
 export { BrowserProfileManager } from '@actionbookdev/browser-profile';
 
 // Brain (AI capabilities)

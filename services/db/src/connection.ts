@@ -14,37 +14,53 @@ export type Database = NodePgDatabase<typeof schema>;
 const poolMap = new WeakMap<Database, Pool | NeonPool>();
 
 /**
- * Check if running in local environment.
- * Local = not production AND not on Vercel.
+ * Check if should use node-postgres driver.
+ *
+ * Use pg driver for:
+ * - Local development (not production)
+ * - Node.js environment (e.g.: AgentCore runtime, needs TCP not WebSocket)
+ *
+ * Use Neon serverless driver only for Vercel (edge/serverless with WebSocket support).
  */
-function isLocalEnv(): boolean {
-  return process.env.NODE_ENV !== 'production' && !process.env.VERCEL;
+function shouldUsePgDriver(): boolean {
+  // Local development
+  if (process.env.NODE_ENV !== 'production') {
+    return true;
+  }
+  // AgentCore runtime (Node.js, no native WebSocket)
+  if (process.env.AWS_AGENTCORE_RUNTIME === 'true') {
+    return true;
+  }
+  // Non-Vercel production environments use pg driver
+  if (!process.env.VERCEL) {
+    return true;
+  }
+  // Vercel uses Neon serverless
+  return false;
 }
 
 /**
  * Create a database connection.
  *
  * Connection strategy:
- * - Local environment + DATABASE_URL: Use node-postgres (pg) driver
- * - Otherwise (Vercel/production): Use Neon serverless driver with POSTGRES_URL
+ * - Local/AgentCore/Non-Vercel: Use node-postgres (pg) driver
+ * - Vercel: Use Neon serverless driver (WebSocket-based)
  */
 export function createDb(databaseUrl?: string): Database {
-  const isLocal = isLocalEnv();
-  const localDbUrl = databaseUrl ?? process.env.DATABASE_URL;
+  const usePgDriver = shouldUsePgDriver();
+  const dbUrl = databaseUrl ?? process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
 
-  if (isLocal && localDbUrl) {
-    // Local environment with DATABASE_URL: use node-postgres
-    return createPgDb(localDbUrl);
-  }
-
-  // Production/Vercel: use Neon serverless
-  const neonUrl = process.env.POSTGRES_URL;
-  if (!neonUrl) {
+  if (!dbUrl) {
     throw new Error(
-      'Database URL not found. Set DATABASE_URL for local or POSTGRES_URL for Neon.'
+      'Database URL not found. Set DATABASE_URL or POSTGRES_URL.'
     );
   }
-  return createNeonDb(neonUrl);
+
+  if (usePgDriver) {
+    return createPgDb(dbUrl);
+  }
+
+  return createNeonDb(dbUrl);
 }
 
 /**
