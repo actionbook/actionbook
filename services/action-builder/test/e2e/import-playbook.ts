@@ -359,12 +359,13 @@ async function importPlaybook(filePath: string): Promise<ImportResult> {
   const version = versionResult[0];
   console.log(`   Created version #${version.id} (v${nextVersionNumber})`);
 
-  // 3. Create build_task
+  // 3. Create build_task (with sourceVersionId linkage)
   console.log(`\n📝 Creating Build Task...`);
   const taskResult = await db
     .insert(buildTasks)
     .values({
       sourceId: source.id,
+      sourceVersionId: version.id, // Link to the source_version
       sourceUrl: data.startUrl,
       sourceName: data.domain,
       sourceCategory: "playbook",
@@ -378,7 +379,7 @@ async function importPlaybook(filePath: string): Promise<ImportResult> {
     })
     .returning();
   const buildTask = taskResult[0];
-  console.log(`   Created build_task #${buildTask.id}`);
+  console.log(`   Created build_task #${buildTask.id} (linked to version #${version.id})`);
 
   // 4. Prepare page contents for batch embedding generation
   console.log(`\n🧠 Generating Embeddings...`);

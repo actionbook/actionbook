@@ -162,6 +162,7 @@ export interface BuildTaskConfig {
 export interface BuildTaskInfo {
   id: number;
   sourceId: number | null;
+  sourceVersionId: number | null; // 1:1 relationship with source_version
   sourceUrl: string;
   sourceName: string | null;
   sourceCategory: SourceCategory;

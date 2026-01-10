@@ -1,0 +1,2 @@
+ALTER TABLE "build_tasks" ADD COLUMN "source_version_id" integer;--> statement-breakpoint
+ALTER TABLE "build_tasks" ADD CONSTRAINT "build_tasks_source_version_id_source_versions_id_fk" FOREIGN KEY ("source_version_id") REFERENCES "public"."source_versions"("id") ON DELETE set null ON UPDATE no action;

@@ -127,6 +127,13 @@
       "when": 1767980420513,
       "tag": "0017_nostalgic_loa",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1768011160381,
+      "tag": "0018_pale_epoch",
+      "breakpoints": true
     }
   ]
 }
