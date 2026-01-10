@@ -1,0 +1,1 @@
+ALTER TABLE "sources" DROP CONSTRAINT "sources_name_unique";

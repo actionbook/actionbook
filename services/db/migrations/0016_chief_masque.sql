@@ -1,0 +1,1 @@
+ALTER TABLE "chunks" ADD CONSTRAINT "chunks_document_chunk_unique" UNIQUE("document_id","chunk_index");

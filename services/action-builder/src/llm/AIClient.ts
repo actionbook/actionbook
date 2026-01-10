@@ -99,7 +99,7 @@ export class AIClient {
    * Priority: OpenRouter > OpenAI > Anthropic > Bedrock
    */
   private resolveConfig(config: AIClientConfig): ResolvedConfig {
-    const openrouterKey = config.apiKey || process.env.OPENROUTER_API_KEY;
+    const openrouterKey = process.env.OPENROUTER_API_KEY;
     const openaiKey = process.env.OPENAI_API_KEY;
     const anthropicKey = process.env.ANTHROPIC_API_KEY;
     // Bedrock uses AWS credentials (access key + secret key) or IAM role
@@ -124,7 +124,7 @@ export class AIClient {
         openai: openaiKey,
         anthropic: anthropicKey,
       };
-      const apiKey = keyMap[config.provider];
+      const apiKey = keyMap[config.provider] || config.apiKey;
       if (!apiKey) {
         throw new Error(`API key not found for provider: ${config.provider}`);
       }
@@ -136,11 +136,11 @@ export class AIClient {
     }
 
     // Auto-detect based on available keys
-    if (openrouterKey) {
+    if (openrouterKey || config.apiKey) {
       return {
         provider: 'openrouter',
         model: config.model || process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4',
-        apiKey: openrouterKey,
+        apiKey: openrouterKey || config.apiKey!,
       };
     }
     if (openaiKey) {
@@ -351,14 +351,15 @@ export class AIClient {
     let metrics: LLMMetrics;
 
     try {
-      // Use AI SDK's built-in retry mechanism
+      // Use AI SDK's built-in retry mechanism with exponential backoff
       // maxRetries: 3 means 4 total attempts (1 initial + 3 retries)
+      // For rate limit errors, AI SDK will automatically use exponential backoff
       const result = await generateText({
         model: this.model,
         messages: modelMessages,
         tools: aiTools,
         maxOutputTokens: 4096,
-        maxRetries: 3,
+        maxRetries: 5, // Increased from 3 to 5 for better rate limit handling
       } as Parameters<typeof generateText>[0]);
 
       const e2eLatencyMs = Date.now() - startTime;

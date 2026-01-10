@@ -9,6 +9,7 @@ import {
   jsonb,
 } from 'drizzle-orm/pg-core';
 import { sources } from './source';
+import { sourceVersions } from './source-version';
 
 /**
  * BuildTasks table - Build pipeline tasks
@@ -22,6 +23,10 @@ export const buildTasks = pgTable(
     // ========== Source association ==========
     /** Associated source ID (created after knowledge build starts) */
     sourceId: integer('source_id').references(() => sources.id, {
+      onDelete: 'set null',
+    }),
+    /** Associated source version ID (1:1 relationship with build_task) */
+    sourceVersionId: integer('source_version_id').references(() => sourceVersions.id, {
       onDelete: 'set null',
     }),
     /** Start URL */

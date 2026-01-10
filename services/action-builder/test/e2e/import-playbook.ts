@@ -1,22 +1,26 @@
 #!/usr/bin/env npx tsx
 /**
- * Import Playbook - 导入爬虫数据到数据库
+ * Import Playbook - Import crawled playbook data to database
  *
- * 功能:
- * - 读取 crawl_playbook 的 JSON/YAML 输出
- * - 创建/更新 source 记录
- * - 创建 source_version 记录（如果已存在则新建版本）
- * - 创建 documents 记录
- * - 创建 chunks 记录（1:1 对应 document，带 embedding）
- * - 创建 build_task 记录
+ * Features:
+ * - Read JSON output from crawl_playbook
+ * - Create/update source records
+ * - Create source_version records (new version if exists)
+ * - Create documents records
+ * - Create chunks records (1:1 with document, including embedding)
+ * - Create build_task records
  *
- * 使用方法:
- *   npx tsx scripts/import-playbook.ts <json_file>
- *   npx tsx scripts/import-playbook.ts output/sites/arxiv.org/crawl_playbooks/crawl_playbook_xxx.json
+ * Supports both formats:
+ * - New format: Merged patterns with url_pattern and playbook fields
+ * - Legacy format: Individual pages with url and features fields
  *
- * 环境变量:
- *   DATABASE_URL - 数据库连接字符串
- *   OPENAI_API_KEY 或 OPENROUTER_API_KEY - 用于生成 embedding
+ * Usage:
+ *   npx tsx test/e2e/import-playbook.ts <json_file>
+ *   npx tsx test/e2e/import-playbook.ts output/sites/arxiv.org/crawl_playbooks/crawl_playbook_xxx.json
+ *
+ * Environment Variables:
+ *   DATABASE_URL - Database connection string
+ *   OPENAI_API_KEY - For embedding generation
  */
 
 import fs from "fs";
@@ -38,18 +42,37 @@ import type {
   DocumentStatus,
 } from "@actionbookdev/db";
 
-// 加载环境变量 (同时加载 action-builder 和 knowledge-builder 的 .env)
+// Load environment variables (from both action-builder and knowledge-builder .env)
 import * as dotenv from "dotenv";
-// 先加载 action-builder 的 .env (DATABASE_URL 等)
+// Load action-builder .env first (DATABASE_URL, etc.)
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
-// 再加载 knowledge-builder 的 .env (OPENAI_API_KEY 等)，不覆盖已有的
+// Load knowledge-builder .env (OPENAI_API_KEY, etc.), don't override existing
 dotenv.config({ path: path.resolve(process.cwd(), "../knowledge-builder/.env") });
 
 // ============================================================================
 // Types
 // ============================================================================
 
-interface PageInfo {
+// Pattern parameter definition
+interface PatternParam {
+  name: string;
+  description: string;
+}
+
+// New format: Merged page info (after pattern grouping)
+interface MergedPageInfo {
+  url_pattern: string;
+  pattern_params?: PatternParam[];
+  matched_urls?: string[];    // Up to 3 example URLs
+  matched_count?: number;     // Total matched URLs count
+  title: string;
+  depth: number;
+  playbook: string;           // Full 7-section Playbook Markdown
+  links: string[];
+}
+
+// Legacy format: Old page info
+interface LegacyPageInfo {
   url: string;
   title: string;
   depth: number;
@@ -57,11 +80,29 @@ interface PageInfo {
   links: string[];
 }
 
-interface CrawlPlaybookData {
+// New format: Merged crawl result
+interface MergedCrawlPlaybookData {
   startUrl: string;
   domain: string;
   totalPages: number;
-  pages: PageInfo[];
+  uniquePatterns: number;
+  pages: MergedPageInfo[];
+}
+
+// Legacy format: Old crawl result
+interface LegacyCrawlPlaybookData {
+  startUrl: string;
+  domain: string;
+  totalPages: number;
+  pages: LegacyPageInfo[];
+}
+
+// Union type for both formats
+type CrawlPlaybookData = MergedCrawlPlaybookData | LegacyCrawlPlaybookData;
+
+// Type guard to check if data is new format
+function isNewFormat(data: CrawlPlaybookData): data is MergedCrawlPlaybookData {
+  return 'uniquePatterns' in data && data.pages.length > 0 && 'url_pattern' in data.pages[0];
 }
 
 interface ImportResult {
@@ -89,7 +130,7 @@ class EmbeddingService {
   readonly dimension = EMBEDDING_DIMENSION;
 
   constructor() {
-    // 使用 OpenAI API (与 knowledge-builder 保持一致)
+    // Use OpenAI API (consistent with knowledge-builder)
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       throw new Error(
@@ -174,18 +215,68 @@ function md5(text: string): string {
 }
 
 function estimateTokens(text: string): number {
-  // 简单估算：英文约 4 字符/token，中文约 2 字符/token
+  // Simple estimation: ~4 chars/token for English, ~2 chars/token for Chinese
   return Math.ceil(text.length / 3);
 }
 
-function formatPageAsMarkdown(page: PageInfo): string {
+// Get URL from page (handles both formats)
+function getPageUrl(page: MergedPageInfo | LegacyPageInfo): string {
+  if ('url_pattern' in page) {
+    return page.url_pattern;
+  }
+  return page.url;
+}
+
+// Get content text from page (handles both formats)
+function getContentText(page: MergedPageInfo | LegacyPageInfo): string {
+  if ('playbook' in page) {
+    // New format: playbook is already a full Markdown string
+    return page.playbook;
+  }
+  // Legacy format: join features array
+  return page.features.join("\n");
+}
+
+// Get description from page (handles both formats)
+function getDescription(page: MergedPageInfo | LegacyPageInfo): string {
+  if ('playbook' in page) {
+    // Extract first line or first 200 chars from playbook
+    const firstLine = page.playbook.split('\n').find(line => line.trim() && !line.startsWith('#'));
+    return firstLine?.slice(0, 200) || page.title || "";
+  }
+  return page.features[0] || "";
+}
+
+// Format page as Markdown (handles both formats)
+function formatPageAsMarkdown(page: MergedPageInfo | LegacyPageInfo): string {
+  if ('playbook' in page) {
+    // New format: playbook is already formatted Markdown, add metadata header
+    const lines: string[] = [];
+    lines.push(`# ${page.title || "Untitled"}`);
+    lines.push("");
+    lines.push(`**URL Pattern:** ${page.url_pattern}`);
+    if (page.matched_urls && page.matched_urls.length > 0) {
+      lines.push(`**Example URLs:** ${page.matched_urls.slice(0, 3).join(", ")}`);
+    }
+    if (page.matched_count && page.matched_count > 1) {
+      lines.push(`**Total Matched:** ${page.matched_count} pages`);
+    }
+    lines.push(`**Depth:** ${page.depth}`);
+    lines.push("");
+    lines.push("---");
+    lines.push("");
+    lines.push(page.playbook);
+    return lines.join("\n");
+  }
+
+  // Legacy format
   const lines: string[] = [];
   lines.push(`# ${page.title || "Untitled"}`);
   lines.push("");
   lines.push(`**URL:** ${page.url}`);
   lines.push(`**Depth:** ${page.depth}`);
   lines.push("");
-  lines.push("## 页面功能");
+  lines.push("## Page Features");
   lines.push("");
   page.features.forEach((f, i) => {
     lines.push(`${i + 1}. ${f}`);
@@ -193,29 +284,30 @@ function formatPageAsMarkdown(page: PageInfo): string {
   return lines.join("\n");
 }
 
-function formatContentText(page: PageInfo): string {
-  return page.features.join("\n");
-}
-
 // ============================================================================
 // Import Logic
 // ============================================================================
 
 async function importPlaybook(filePath: string): Promise<ImportResult> {
-  // 读取文件
-  console.log(`\n📖 读取文件: ${filePath}`);
+  // Read file
+  console.log(`\n📖 Reading file: ${filePath}`);
   const content = fs.readFileSync(filePath, "utf-8");
   const data: CrawlPlaybookData = JSON.parse(content);
 
-  console.log(`   域名: ${data.domain}`);
-  console.log(`   起始 URL: ${data.startUrl}`);
-  console.log(`   总页面数: ${data.totalPages}`);
+  const isNew = isNewFormat(data);
+  console.log(`   Format: ${isNew ? 'New (merged patterns)' : 'Legacy (individual pages)'}`);
+  console.log(`   Domain: ${data.domain}`);
+  console.log(`   Start URL: ${data.startUrl}`);
+  console.log(`   Total pages: ${data.totalPages}`);
+  if (isNew) {
+    console.log(`   Unique patterns: ${(data as MergedCrawlPlaybookData).uniquePatterns}`);
+  }
 
   const db = getDb();
   const embeddingService = new EmbeddingService();
 
-  // 1. 创建或获取 source
-  console.log(`\n📦 创建/获取 Source...`);
+  // 1. Create or get source
+  console.log(`\n📦 Creating/Getting Source...`);
   let source = await db
     .select()
     .from(sources)
@@ -224,7 +316,7 @@ async function importPlaybook(filePath: string): Promise<ImportResult> {
     .then((rows) => rows[0]);
 
   if (source) {
-    console.log(`   已存在 source #${source.id}，将新建版本`);
+    console.log(`   Found existing source #${source.id}, creating new version`);
   } else {
     const result = await db
       .insert(sources)
@@ -240,11 +332,11 @@ async function importPlaybook(filePath: string): Promise<ImportResult> {
       })
       .returning();
     source = result[0];
-    console.log(`   创建 source #${source.id}`);
+    console.log(`   Created source #${source.id}`);
   }
 
-  // 2. 创建 source_version
-  console.log(`\n📋 创建 Source Version...`);
+  // 2. Create source_version
+  console.log(`\n📋 Creating Source Version...`);
   const latestVersion = await db
     .select({ versionNumber: sourceVersions.versionNumber })
     .from(sourceVersions)
@@ -265,14 +357,15 @@ async function importPlaybook(filePath: string): Promise<ImportResult> {
     })
     .returning();
   const version = versionResult[0];
-  console.log(`   创建 version #${version.id} (v${nextVersionNumber})`);
+  console.log(`   Created version #${version.id} (v${nextVersionNumber})`);
 
-  // 3. 创建 build_task
-  console.log(`\n📝 创建 Build Task...`);
+  // 3. Create build_task (with sourceVersionId linkage)
+  console.log(`\n📝 Creating Build Task...`);
   const taskResult = await db
     .insert(buildTasks)
     .values({
       sourceId: source.id,
+      sourceVersionId: version.id, // Link to the source_version
       sourceUrl: data.startUrl,
       sourceName: data.domain,
       sourceCategory: "playbook",
@@ -286,53 +379,67 @@ async function importPlaybook(filePath: string): Promise<ImportResult> {
     })
     .returning();
   const buildTask = taskResult[0];
-  console.log(`   创建 build_task #${buildTask.id}`);
+  console.log(`   Created build_task #${buildTask.id} (linked to version #${version.id})`);
 
-  // 4. 准备所有页面内容用于批量生成 embedding
+  // 4. Prepare page contents for batch embedding generation
   console.log(`\n🧠 Generating Embeddings...`);
-  const pageContents = data.pages.map((page) => formatContentText(page));
+  const pageContents = data.pages.map((page) => getContentText(page));
   const embeddings = await embeddingService.getEmbeddings(pageContents);
   console.log(`   Generated ${embeddings.length} embeddings (${embeddings[0]?.length || 0} dim)`);
 
-  // 5. 创建 documents 和 chunks
-  console.log(`\n📄 创建 Documents 和 Chunks...`);
+  // 5. Create documents and chunks
+  console.log(`\n📄 Creating Documents and Chunks...`);
   let documentsCreated = 0;
   let chunksCreated = 0;
 
   for (let i = 0; i < data.pages.length; i++) {
     const page = data.pages[i];
     const embedding = embeddings[i];
-    const contentText = formatContentText(page);
+    const contentText = getContentText(page);
     const contentMd = formatPageAsMarkdown(page);
-    const urlHash = md5(page.url);
+    const pageUrl = getPageUrl(page);
+    const urlHash = md5(pageUrl);
     const contentHash = md5(contentText);
 
-    // 创建 document
+    // Upsert document (update if URL exists in this version)
     const docResult = await db
       .insert(documents)
       .values({
         sourceId: source.id,
         sourceVersionId: version.id,
-        url: page.url,
+        url: pageUrl,
         urlHash,
         title: page.title || "Untitled",
-        description: page.features[0] || "",
+        description: getDescription(page),
         contentText,
-        contentHtml: "", // playbook 不保存 HTML
+        contentHtml: "", // playbook doesn't save HTML
         contentMd,
         depth: page.depth,
         breadcrumb: [],
         wordCount: contentText.length,
-        language: "zh",
+        language: "en", // Changed to English as playbooks are now in English format
         contentHash,
         status: "active" as DocumentStatus,
         version: 1,
+      })
+      .onConflictDoUpdate({
+        target: [documents.sourceVersionId, documents.urlHash],
+        set: {
+          title: page.title || "Untitled",
+          description: getDescription(page),
+          contentText,
+          contentMd,
+          depth: page.depth,
+          wordCount: contentText.length,
+          contentHash,
+          updatedAt: new Date(),
+        },
       })
       .returning();
     const doc = docResult[0];
     documentsCreated++;
 
-    // 创建 chunk (1:1)
+    // Upsert chunk (1:1 mapping with document)
     const embeddingStr = `[${embedding.join(",")}]`;
     await db.execute(sql`
       INSERT INTO chunks (
@@ -353,22 +460,34 @@ async function importPlaybook(filePath: string): Promise<ImportResult> {
         ${embeddingStr}::vector,
         ${"text-embedding-3-small"}
       )
+      ON CONFLICT (document_id, chunk_index)
+      DO UPDATE SET
+        source_version_id = EXCLUDED.source_version_id,
+        content = EXCLUDED.content,
+        content_hash = EXCLUDED.content_hash,
+        start_char = EXCLUDED.start_char,
+        end_char = EXCLUDED.end_char,
+        heading = EXCLUDED.heading,
+        heading_hierarchy = EXCLUDED.heading_hierarchy,
+        token_count = EXCLUDED.token_count,
+        embedding = EXCLUDED.embedding,
+        embedding_model = EXCLUDED.embedding_model
     `);
     chunksCreated++;
 
-    // 进度显示
+    // Progress display
     if ((i + 1) % 10 === 0 || i === data.pages.length - 1) {
-      console.log(`   进度: ${i + 1}/${data.pages.length}`);
+      console.log(`   Progress: ${i + 1}/${data.pages.length}`);
     }
   }
 
-  // 6. 更新版本和任务状态 (knowledge_build 阶段完成，等待 action_build)
-  console.log(`\n✅ 完成 Knowledge Build 阶段...`);
+  // 6. Update version and task status (knowledge_build stage completed, waiting for action_build)
+  console.log(`\n✅ Knowledge Build stage completed...`);
 
-  // 版本状态保持 'building'，等待 action-builder 完成后再发布为 'active'
-  // source_versions.status = 'building' (已经是默认值，不需要更新)
+  // Version status remains 'building', waiting for action-builder to complete before publishing as 'active'
+  // source_versions.status = 'building' (already default, no update needed)
 
-  // 更新 source 的 lastCrawledAt
+  // Update source lastCrawledAt
   await db
     .update(sources)
     .set({
@@ -377,7 +496,7 @@ async function importPlaybook(filePath: string): Promise<ImportResult> {
     })
     .where(eq(sources.id, source.id));
 
-  // 更新 build_task: knowledge_build 阶段完成
+  // Update build_task: knowledge_build stage completed
   await db
     .update(buildTasks)
     .set({
@@ -406,45 +525,48 @@ async function main(): Promise<void> {
 
   if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
     console.log(`
-Import Playbook - 导入爬虫数据到数据库
+Import Playbook - Import crawled playbook data to database
 
-用法:
-  npx tsx scripts/import-playbook.ts <json_file>
+Usage:
+  npx tsx test/e2e/import-playbook.ts <json_file>
 
-示例:
-  npx tsx scripts/import-playbook.ts output/sites/arxiv.org/crawl_playbooks/crawl_playbook_xxx.json
+Examples:
+  npx tsx test/e2e/import-playbook.ts output/sites/arxiv.org/crawl_playbooks/crawl_playbook_xxx.json
 
-环境变量:
-  DATABASE_URL       - 数据库连接字符串
-  OPENAI_API_KEY     - OpenAI API Key (用于 embedding)
-  OPENROUTER_API_KEY - OpenRouter API Key (优先使用)
+Supported Formats:
+  - New format: Merged patterns with url_pattern and playbook fields
+  - Legacy format: Individual pages with url and features fields
+
+Environment Variables:
+  DATABASE_URL       - Database connection string
+  OPENAI_API_KEY     - OpenAI API Key (for embedding generation)
 `);
     process.exit(0);
   }
 
   const filePath = args[0];
 
-  // 验证文件存在
+  // Validate file exists
   if (!fs.existsSync(filePath)) {
-    console.error(`❌ 文件不存在: ${filePath}`);
+    console.error(`❌ File not found: ${filePath}`);
     process.exit(1);
   }
 
-  // 验证文件类型
+  // Validate file type
   if (!filePath.endsWith(".json")) {
-    console.error(`❌ 只支持 JSON 文件`);
+    console.error(`❌ Only JSON files are supported`);
     process.exit(1);
   }
 
   console.log("=".repeat(60));
-  console.log("Import Playbook - 导入爬虫数据到数据库");
+  console.log("Import Playbook - Import crawled data to database");
   console.log("=".repeat(60));
 
   try {
     const result = await importPlaybook(filePath);
 
     console.log("\n" + "=".repeat(60));
-    console.log("导入完成！");
+    console.log("Import completed!");
     console.log("=".repeat(60));
     console.log(`📦 Source ID: ${result.sourceId}`);
     console.log(`📋 Version ID: ${result.versionId}`);
@@ -454,7 +576,7 @@ Import Playbook - 导入爬虫数据到数据库
 
     process.exit(0);
   } catch (error) {
-    console.error("\n❌ 导入失败:", error);
+    console.error("\n❌ Import failed:", error);
     process.exit(1);
   }
 }

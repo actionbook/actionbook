@@ -14,7 +14,7 @@ import {
  */
 export const sources = pgTable('sources', {
   id: serial('id').primaryKey(),
-  name: varchar('name', { length: 255 }).notNull().unique(),
+  name: varchar('name', { length: 255 }).notNull(),
   baseUrl: text('base_url').notNull().unique(),
   description: text('description'),
   crawlConfig: jsonb('crawl_config').$type<CrawlConfig>().notNull().default({}),

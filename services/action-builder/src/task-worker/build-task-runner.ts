@@ -15,7 +15,7 @@
  */
 
 import type { Database } from '@actionbookdev/db';
-import { eq, and, inArray, sql, desc } from 'drizzle-orm';
+import { eq, and, inArray, sql } from 'drizzle-orm';
 import { buildTasks, recordingTasks, chunks, documents, sourceVersions } from '@actionbookdev/db';
 import type { BuildTaskInfo } from './types/index.js';
 import type { SourceVersionStatus } from '@actionbookdev/db';
@@ -131,6 +131,7 @@ export class BuildTaskRunner {
     return {
       id: task.id,
       sourceId: task.sourceId,
+      sourceVersionId: task.sourceVersionId, // Include sourceVersionId
       sourceUrl: task.sourceUrl,
       sourceName: task.sourceName,
       sourceCategory: task.sourceCategory,
@@ -151,7 +152,7 @@ export class BuildTaskRunner {
    * Use atomic transaction + UPSERT (ON CONFLICT DO UPDATE)
    */
   private async generateRecordingTasks(buildTask: BuildTaskInfo): Promise<number> {
-    // 1. Get all chunks associated with this build_task (linked via documents table using sourceId)
+    // 1. Get all chunks associated with this build_task (linked via documents table using sourceVersionId)
     const chunkResults = await this.db
       .select({
         id: chunks.id,
@@ -160,7 +161,12 @@ export class BuildTaskRunner {
       })
       .from(chunks)
       .innerJoin(documents, eq(chunks.documentId, documents.id))
-      .where(eq(documents.sourceId, buildTask.sourceId!))
+      .where(
+        and(
+          eq(documents.sourceId, buildTask.sourceId!),
+          eq(documents.sourceVersionId, buildTask.sourceVersionId!)
+        )
+      )
       .orderBy(chunks.id);
 
     if (chunkResults.length === 0) {
@@ -377,15 +383,31 @@ export class BuildTaskRunner {
   }
 
   /**
-   * Publish new version (Blue-Green deployment)
-   * 1. Get current active version
-   * 2. Archive current active version (status: active → archived)
-   * 3. Create new version (status: active)
+   * Publish version (Blue-Green deployment)
+   * 1. Get the source_version linked to this build_task
+   * 2. Get current active version and archive it
+   * 3. Update the linked source_version status to active (building → active)
    */
   private async publishVersion(buildTask: BuildTaskInfo): Promise<void> {
     try {
-      // 1. Get current active version
-      const currentActiveVersion = await this.db
+      // 1. Get the source_version linked to this build_task
+      const linkedVersion = await this.db
+        .select()
+        .from(buildTasks)
+        .where(eq(buildTasks.id, this.buildTaskId))
+        .limit(1);
+
+      const sourceVersionId = linkedVersion[0]?.sourceVersionId;
+
+      if (!sourceVersionId) {
+        console.warn(
+          `[BuildTaskRunner #${this.buildTaskId}] No source_version linked to this build_task, skipping version publish`
+        );
+        return;
+      }
+
+      // 2. Get current active version (if any) and archive it
+      const currentActiveVersions = await this.db
         .select()
         .from(sourceVersions)
         .where(
@@ -396,45 +418,33 @@ export class BuildTaskRunner {
         )
         .limit(1);
 
-      // 2. Archive current active version
-      if (currentActiveVersion.length > 0) {
+      // Archive current active version
+      if (currentActiveVersions.length > 0) {
         await this.db
           .update(sourceVersions)
           .set({
             status: 'archived' as SourceVersionStatus,
           })
-          .where(eq(sourceVersions.id, currentActiveVersion[0].id));
+          .where(eq(sourceVersions.id, currentActiveVersions[0].id));
 
         console.log(
-          `[BuildTaskRunner #${this.buildTaskId}] Archived version ${currentActiveVersion[0].versionNumber}`
+          `[BuildTaskRunner #${this.buildTaskId}] Archived previous active version #${currentActiveVersions[0].id} (v${currentActiveVersions[0].versionNumber})`
         );
       }
 
-      // 3. Get next version number
-      const latestVersion = await this.db
-        .select({ versionNumber: sourceVersions.versionNumber })
-        .from(sourceVersions)
-        .where(eq(sourceVersions.sourceId, buildTask.sourceId!))
-        .orderBy(desc(sourceVersions.versionNumber))
-        .limit(1);
-
-      const nextVersionNumber = (latestVersion[0]?.versionNumber ?? 0) + 1;
-
-      // 4. Create new active version
-      const newVersion = await this.db
-        .insert(sourceVersions)
-        .values({
-          sourceId: buildTask.sourceId!,
-          versionNumber: nextVersionNumber,
+      // 3. Update linked source_version status: building → active
+      const updatedVersion = await this.db
+        .update(sourceVersions)
+        .set({
           status: 'active' as SourceVersionStatus,
           commitMessage: `Action build completed (build_task #${this.buildTaskId})`,
-          createdBy: 'coordinator',
           publishedAt: new Date(),
         })
+        .where(eq(sourceVersions.id, sourceVersionId))
         .returning({ id: sourceVersions.id, versionNumber: sourceVersions.versionNumber });
 
       console.log(
-        `[BuildTaskRunner #${this.buildTaskId}] Published version ${newVersion[0].versionNumber} (Blue-Green deployment)`
+        `[BuildTaskRunner #${this.buildTaskId}] Published version #${updatedVersion[0].id} (v${updatedVersion[0].versionNumber}) - status: building → active`
       );
     } catch (error) {
       console.error(

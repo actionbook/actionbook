@@ -18,6 +18,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "cli": "node dist/cli/index.js",
+    "crawl:batch": "npx tsx scripts/crawl-playbook-batch.ts",
+    "import:batch": "npx tsx scripts/import-playbook-batch.ts",
     "airbnb:record": "npx tsx test/airbnb-record.ts",
     "airbnb:task-record": "npx tsx test/e2e/airbnb-task-record.ts",
     "airbnb:validate": "npx tsx test/e2e/airbnb-validate.ts",

@@ -216,6 +216,59 @@ export class ActionBuilder {
   }
 
   /**
+   * Use LLM to extract the first example URL from scenarioDescription
+   * Extracts from "Pages:" section. Falls back to original URL if extraction fails.
+   */
+  private async extractStartUrl(
+    url: string,
+    scenarioDescription?: string
+  ): Promise<string> {
+    // If no scenario description, use original URL
+    if (!scenarioDescription) {
+      return url;
+    }
+
+    try {
+      const systemMessage = 'You are a URL extractor. Extract the FIRST URL from the "Pages:" or "pages:" section. Return ONLY the URL, no explanations.';
+      const userMessage = `Given the following scenario description, extract the FIRST URL from the "Pages:" section.
+If there are no pages listed, return the original URL.
+
+Original URL: ${url}
+
+Scenario Description:
+${scenarioDescription}
+
+Return ONLY the URL, nothing else.`;
+
+      const response = await this.llmClient.chat(
+        [
+          { role: 'system', content: systemMessage },
+          { role: 'user', content: userMessage }
+        ],
+        [] // No tools needed
+      );
+
+      const extractedUrl = response.choices[0]?.message?.content?.trim() || '';
+
+      // Basic validation - check if it's a valid HTTP(S) URL
+      if (extractedUrl && (extractedUrl.startsWith('http://') || extractedUrl.startsWith('https://'))) {
+        if (extractedUrl !== url) {
+          this.log('info', `[ActionBuilder] LLM extracted start URL: ${extractedUrl} (from pattern: ${url})`);
+        }
+        return extractedUrl;
+      }
+
+      // Fallback to original URL if LLM extraction failed
+      this.log('warn', `[ActionBuilder] LLM failed to extract valid URL, using original: ${url}`);
+      return url;
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      this.log('error', `[ActionBuilder] Error extracting URL with LLM: ${errMsg}`);
+      return url;
+    }
+  }
+
+  /**
    * Check if an error is retryable (browser/connection errors)
    */
   private isRetryableError(error: unknown): boolean {
@@ -370,12 +423,15 @@ export class ActionBuilder {
     this.log('info', `[ActionBuilder] Building capabilities for: ${url}`)
     this.log('info', `[ActionBuilder] Scenario: ${scenario}`)
 
+    // Use LLM to extract the first example URL from scenarioDescription if available
+    const actualUrl = await this.extractStartUrl(url, options.scenarioDescription);
+
     // Support custom prompts for task-driven recording
     const systemPrompt =
       options.customSystemPrompt || CAPABILITY_RECORDER_SYSTEM_PROMPT
     const userMessage =
       options.customUserPrompt ||
-      generateUserPrompt(scenario, url, {
+      generateUserPrompt(scenario, actualUrl, {
         scenarioDescription: options.scenarioDescription,
         focusAreas: options.focusAreas,
       })
@@ -401,7 +457,7 @@ export class ActionBuilder {
       userMessage,
       options.siteName,
       options.siteDescription,
-      url, // Pass startUrl for recording task
+      actualUrl, // Pass resolved startUrl (pattern -> example URL)
       options.taskId // Pass existing task ID if provided (TaskWorker mode)
     )
 
