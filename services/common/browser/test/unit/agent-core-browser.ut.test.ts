@@ -350,6 +350,7 @@ describe('AgentCoreBrowser Unit Tests', () => {
       const result = await browser.actWithSelector({
         selector: '#btn',
         method: 'click',
+        description: 'Click button',
       });
 
       expect(mockClient.click).toHaveBeenCalledWith({ selector: '#btn' });
@@ -362,6 +363,7 @@ describe('AgentCoreBrowser Unit Tests', () => {
       const result = await browser.actWithSelector({
         selector: '#input',
         method: 'fill',
+        description: 'Fill input',
         arguments: ['test value'],
       });
 
@@ -378,6 +380,7 @@ describe('AgentCoreBrowser Unit Tests', () => {
       const result = await browser.actWithSelector({
         selector: '#input',
         method: 'type',
+        description: 'Type text',
         arguments: ['typed text'],
       });
 
@@ -393,6 +396,7 @@ describe('AgentCoreBrowser Unit Tests', () => {
         browser.actWithSelector({
           selector: '#input',
           method: 'fill',
+          description: 'Fill input',
         })
       ).rejects.toThrow('fill action requires text argument');
 
@@ -400,6 +404,7 @@ describe('AgentCoreBrowser Unit Tests', () => {
         browser.actWithSelector({
           selector: '#input',
           method: 'type',
+          description: 'Type text',
           arguments: [], // Empty array
         })
       ).rejects.toThrow('type action requires text argument');
@@ -411,6 +416,7 @@ describe('AgentCoreBrowser Unit Tests', () => {
       const result = await browser.actWithSelector({
         selector: '#input',
         method: 'press',
+        description: 'Press key',
         arguments: ['Enter'],
       });
 
@@ -423,6 +429,7 @@ describe('AgentCoreBrowser Unit Tests', () => {
         browser.actWithSelector({
           selector: '#input',
           method: 'press',
+          description: 'Press key',
         })
       ).rejects.toThrow('press action requires key argument');
     });
@@ -431,6 +438,7 @@ describe('AgentCoreBrowser Unit Tests', () => {
       const result = await browser.actWithSelector({
         selector: '',
         method: 'wait',
+        description: 'Wait',
       });
 
       expect(result).toEqual({ success: true, action: 'wait', ms: 1000 });
@@ -440,6 +448,7 @@ describe('AgentCoreBrowser Unit Tests', () => {
       const result = await browser.actWithSelector({
         selector: '',
         method: 'wait',
+        description: 'Wait custom',
         arguments: ['500'],
       });
 
@@ -451,6 +460,7 @@ describe('AgentCoreBrowser Unit Tests', () => {
         browser.actWithSelector({
           selector: '#btn',
           method: 'unsupported' as any,
+          description: 'Unsupported',
         })
       ).rejects.toThrow('Unsupported action method: unsupported');
     });

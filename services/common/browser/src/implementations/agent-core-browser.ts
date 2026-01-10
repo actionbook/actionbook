@@ -491,17 +491,19 @@ export class AgentCoreBrowser implements BrowserAdapter {
     log('info', `[AgentCoreBrowser] Acting on instruction: ${instructionOrAction}`);
     const elements = await this.observe(instructionOrAction);
 
-    if (elements.length === 0) {
+    const element = elements[0];
+    const selector = element?.selector;
+
+    if (!selector) {
       throw new Error(`No elements found matching: ${instructionOrAction}`);
     }
 
     // Execute action on the first matching element
-    const element = elements[0];
     return this.actWithSelector({
-      selector: element.selector,
+      selector,
       method: (element.method as any) || 'click',
-      description: element.description,
-      arguments: element.arguments,
+      description: element.description || `${element.method || 'click'} on ${selector}`,
+      arguments: element.arguments?.map(String),
     });
   }
 
@@ -680,11 +682,11 @@ export class AgentCoreBrowser implements BrowserAdapter {
     for (const instruction of popupInstructions) {
       try {
         const elements = await this.observe(instruction);
-        if (elements.length > 0) {
+        if (elements.length > 0 && elements[0].selector) {
           await this.actWithSelector({
             selector: elements[0].selector,
             method: 'click',
-            description: elements[0].description,
+            description: elements[0].description || instruction,
           });
           closedCount++;
           log('info', `[AgentCoreBrowser] Closed popup with: ${instruction}`);

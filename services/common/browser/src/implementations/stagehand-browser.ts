@@ -35,6 +35,7 @@ import {
   type LocalBrowserLaunchOptions,
 } from '@browserbasehq/stagehand';
 import { BrowserProfileManager } from '@actionbookdev/browser-profile';
+import { ProxyAgent, fetch as undiciFetch } from 'undici';
 
 /**
  * Stagehand instance type (using the actual Stagehand class type)
@@ -191,7 +192,7 @@ export class StagehandBrowser implements BrowserAdapter {
         throw error;
       }
     }
-    await this.wait(2000);
+    await this.wait(3000);
   }
 
   async goBack(): Promise<void> {
@@ -330,6 +331,10 @@ export class StagehandBrowser implements BrowserAdapter {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       log('error', `[StagehandBrowser] observe() failed: ${errorMessage}`);
+      // Log full error for debugging
+      if (error instanceof Error && error.stack) {
+        log('error', `[StagehandBrowser] Stack: ${error.stack.substring(0, 500)}`);
+      }
       throw error;
     }
   }
@@ -417,16 +422,29 @@ export class StagehandBrowser implements BrowserAdapter {
 
       if (iframeMatch) {
         // Use frames() API for iframe elements
+        const iframePath = iframeMatch[1];
         const elementPath = `/html[1]/body[1]${iframeMatch[2]}`;
         const frames = page.frames();
+
+        log('info', `[StagehandBrowser] Using frames() API for iframe element: iframePath=${iframePath}, elementPath=${elementPath}`);
+        log('debug', `[StagehandBrowser] Found ${frames.length} frames`);
 
         for (let i = 1; i < frames.length; i++) {
           try {
             attrs = await frames[i].evaluate(this.extractElementAttributes, elementPath);
-            if (attrs) break;
+            if (attrs) {
+              log('info', `[StagehandBrowser] Found element in frame ${i}`);
+              break;
+            }
           } catch {
             continue;
           }
+        }
+
+        if (attrs) {
+          log('info', `[StagehandBrowser] Successfully extracted attrs from iframe element`);
+        } else {
+          log('warn', `[StagehandBrowser] Element not found in any frame: ${elementPath}`);
         }
       } else {
         attrs = await page.evaluate(this.extractElementAttributes, xpathSelector);
@@ -477,10 +495,85 @@ export class StagehandBrowser implements BrowserAdapter {
    */
   async waitForText(text: string, timeout: number = 30000): Promise<void> {
     const page = this.getPageOrThrow();
-    await page.getByText(text, { exact: false }).first().waitFor({
-      state: 'visible',
-      timeout,
-    });
+    try {
+      await page.waitForSelector(`text=${text}`, { timeout });
+    } catch {
+      // Fallback: poll for text
+      const startTime = Date.now();
+      while (Date.now() - startTime < timeout) {
+        const content = await page.content();
+        if (content.includes(text)) return;
+        await this.wait(500);
+      }
+      throw new Error(`Text "${text}" not found within ${timeout}ms`);
+    }
+  }
+
+  /**
+   * Get the Stagehand context (V3 API)
+   */
+  getContext(): unknown {
+    return this.stagehand?.context || null;
+  }
+
+  /**
+   * Try to get a CSS selector for an element given its XPath
+   * @deprecated Use getElementAttributesFromXPath instead for full attribute access
+   */
+  async tryGetCssSelector(xpathSelector: string): Promise<string | undefined> {
+    const result = await this.getElementAttributesFromXPath(xpathSelector);
+    return result?.cssSelector;
+  }
+
+  /**
+   * Get element attributes for better selector generation
+   * Uses Stagehand observe to find the element, then extracts attributes via page.evaluate
+   */
+  async getElementAttributes(
+    instruction: string
+  ): Promise<{
+    id?: string;
+    dataTestId?: string;
+    ariaLabel?: string;
+    placeholder?: string;
+  } | null> {
+    const page = this.getPageOrThrow();
+
+    try {
+      // First, use observe to find the element
+      const observeResults = await this.observe(instruction);
+      if (observeResults.length === 0 || !observeResults[0].selector) {
+        return null;
+      }
+
+      const selector = observeResults[0].selector;
+      const xpath = selector.replace(/^xpath=/, '');
+
+      // Use page.evaluate with document.evaluate for XPath
+      const attributes = await page.evaluate((xpathStr: string) => {
+        const result = document.evaluate(
+          xpathStr,
+          document,
+          null,
+          XPathResult.FIRST_ORDERED_NODE_TYPE,
+          null
+        );
+        const el = result.singleNodeValue as Element;
+        if (!el) return null;
+
+        return {
+          id: el.id || undefined,
+          dataTestId: el.getAttribute('data-testid') || undefined,
+          ariaLabel: el.getAttribute('aria-label') || undefined,
+          placeholder: (el as HTMLInputElement).placeholder || undefined,
+        };
+      }, xpath);
+
+      return attributes;
+    } catch (error) {
+      log('warn', `[StagehandBrowser] Failed to get element attributes: ${error}`);
+      return null;
+    }
   }
 
   // ============================================
@@ -586,12 +679,22 @@ export class StagehandBrowser implements BrowserAdapter {
       const bedrockModel =
         stagehandModel || 'anthropic.claude-3-5-sonnet-20241022-v2:0';
 
+      log('info', `[StagehandBrowser] Using AWS Bedrock via AISdkClient`);
+      log('info', `[StagehandBrowser] Bedrock region: ${region}`);
+      log('info', `[StagehandBrowser] Bedrock model: ${bedrockModel}`);
+
+      // Create proxy-enabled fetch if proxy is configured
+      const proxyFetch = this.createProxyFetchForBedrock();
+
       const bedrock = createAmazonBedrock({
         region,
         accessKeyId: bedrockAccessKey,
         secretAccessKey: bedrockSecretKey,
         sessionToken: process.env.AWS_SESSION_TOKEN,
+        fetch: proxyFetch,
       });
+
+      log('info', `[StagehandBrowser] AISdkClient created for Bedrock`);
 
       return {
         llmClient: new AISdkClient({
@@ -662,6 +765,27 @@ export class StagehandBrowser implements BrowserAdapter {
             .join('\n    ');
       }
       log(level as any, `[Stagehand] ${logLine.message}${auxStr}`);
+    };
+  }
+
+  /**
+   * Create a proxy-enabled fetch function for Bedrock requests
+   */
+  private createProxyFetchForBedrock(): typeof globalThis.fetch | undefined {
+    const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+    if (!proxyUrl) {
+      return undefined;
+    }
+
+    log('info', `[StagehandBrowser] Using proxy for Bedrock: ${proxyUrl}`);
+
+    const proxyAgent = new ProxyAgent(proxyUrl);
+    return async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const response = await undiciFetch(url.toString(), {
+        ...init,
+        dispatcher: proxyAgent,
+      } as any);
+      return response as unknown as Response;
     };
   }
 
@@ -763,27 +887,59 @@ export class StagehandBrowser implements BrowserAdapter {
         actInferenceTimeMs: 0,
       };
 
-      let inputTokens: number, outputTokens: number;
+      let inputTokens: number,
+        outputTokens: number,
+        reasoningTokens: number,
+        cachedTokens: number,
+        inferenceTimeMs: number;
 
       if (operation === 'observe') {
         inputTokens = metrics.observePromptTokens - prev.observePromptTokens;
         outputTokens = metrics.observeCompletionTokens - prev.observeCompletionTokens;
+        reasoningTokens = metrics.observeReasoningTokens - prev.observeReasoningTokens;
+        cachedTokens = metrics.observeCachedInputTokens - prev.observeCachedInputTokens;
+        inferenceTimeMs = metrics.observeInferenceTimeMs - prev.observeInferenceTimeMs;
       } else {
         inputTokens = metrics.actPromptTokens - prev.actPromptTokens;
         outputTokens = metrics.actCompletionTokens - prev.actCompletionTokens;
+        reasoningTokens = metrics.actReasoningTokens - prev.actReasoningTokens;
+        cachedTokens = metrics.actCachedInputTokens - prev.actCachedInputTokens;
+        inferenceTimeMs = metrics.actInferenceTimeMs - prev.actInferenceTimeMs;
       }
 
       // Update metrics snapshot
-      this.lastMetrics = { ...metrics };
+      this.lastMetrics = {
+        observePromptTokens: metrics.observePromptTokens,
+        observeCompletionTokens: metrics.observeCompletionTokens,
+        observeReasoningTokens: metrics.observeReasoningTokens,
+        observeCachedInputTokens: metrics.observeCachedInputTokens,
+        observeInferenceTimeMs: metrics.observeInferenceTimeMs,
+        actPromptTokens: metrics.actPromptTokens,
+        actCompletionTokens: metrics.actCompletionTokens,
+        actReasoningTokens: metrics.actReasoningTokens,
+        actCachedInputTokens: metrics.actCachedInputTokens,
+        actInferenceTimeMs: metrics.actInferenceTimeMs,
+      };
 
       if (inputTokens > 0 || outputTokens > 0) {
         this.accumulatedInputTokens += inputTokens;
         this.accumulatedOutputTokens += outputTokens;
 
         const totalTokens = inputTokens + outputTokens;
+        const tps =
+          inferenceTimeMs > 0
+            ? Math.round((outputTokens / (inferenceTimeMs / 1000)) * 10) / 10
+            : 0;
+
+        // Build token stats
+        const tokenParts = [`in=${inputTokens}`, `out=${outputTokens}`];
+        if (cachedTokens > 0) tokenParts.push(`cache_read=${cachedTokens}`);
+        if (reasoningTokens > 0) tokenParts.push(`reasoning=${reasoningTokens}`);
+        tokenParts.push(`total=${totalTokens}`);
+
         log(
           'info',
-          `[LLM] stagehand/${operation} | tokens: in=${inputTokens}, out=${outputTokens}, total=${totalTokens} | latency=${e2eLatencyMs}ms`
+          `[LLM] ✓ | stagehand/${operation} | tokens: ${tokenParts.join(', ')} | perf: latency=${e2eLatencyMs}ms, inference=${inferenceTimeMs}ms, tps=${tps}`
         );
       }
     } catch {

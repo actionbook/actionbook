@@ -37,7 +37,8 @@
   },
   "dependencies": {
     "@actionbookdev/browser-profile": "workspace:*",
-    "@aws-sdk/client-bedrock-runtime": "^3.966.0"
+    "@aws-sdk/client-bedrock-runtime": "^3.966.0",
+    "undici": "^6.0.0"
   },
   "devDependencies": {
     "@ai-sdk/amazon-bedrock": "^3.0.0",

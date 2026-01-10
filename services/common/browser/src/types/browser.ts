@@ -93,26 +93,28 @@ export type BrowserType = 'stagehand' | 'agentcore' | 'playwright';
 
 /**
  * Result from observe() - AI-detected element
+ * Aligned with Stagehand's ObserveResult type
  */
 export interface ObserveResult {
   /** Element selector (usually XPath) */
-  selector: string;
+  selector?: string;
   /** Human-readable description of the element */
-  description: string;
+  description?: string;
   /** Suggested interaction method */
   method?: string;
   /** Suggested arguments for the method */
-  arguments?: string[];
+  arguments?: unknown[];
 }
 
 /**
  * Action object for direct element interaction
+ * Aligned with main branch - description is required
  */
 export interface ActionObject {
   /** Element selector (CSS or XPath) */
   selector: string;
-  /** Human-readable description */
-  description?: string;
+  /** Human-readable description of the action */
+  description: string;
   /** Interaction method */
   method: ActionMethod;
   /** Arguments for the method (e.g., text to type) */

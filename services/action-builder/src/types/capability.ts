@@ -5,6 +5,14 @@ export type {
   TemplateParam,
 } from '@actionbookdev/db'
 
+// Re-export types from browser package
+export type {
+  ObserveResult,
+  ObserveResult as ObserveResultItem,
+  ActionObject,
+  ActionMethod,
+} from '@actionbookdev/browser'
+
 /**
  * Element operation argument definition
  */
@@ -61,48 +69,6 @@ export type AllowMethod =
   | 'hover'
   | 'select'
   | 'extract' // For data extraction from text/data_field elements
-
-/**
- * Action method types for Stagehand actions
- */
-export type ActionMethod =
-  | 'click'
-  | 'fill'
-  | 'type'
-  | 'press'
-  | 'scroll'
-  | 'select'
-  | 'hover'
-
-/**
- * Action object for direct Stagehand execution (bypasses AI inference)
- * This is the format Stagehand accepts for selector-based actions
- *
- * @example
- * const action: ActionObject = {
- *   selector: "#search-btn",
- *   description: "Click the search button",
- *   method: "click"
- * };
- *
- * @example
- * const action: ActionObject = {
- *   selector: "#email-input",
- *   description: "Fill email field",
- *   method: "fill",
- *   arguments: ["user@example.com"]
- * };
- */
-export interface ActionObject {
-  /** CSS selector or XPath to target the element */
-  selector: string
-  /** Human-readable description of the action (helps with debugging) */
-  description: string
-  /** The method to execute on the element */
-  method: ActionMethod
-  /** Optional arguments for the method (e.g., text to fill) */
-  arguments?: string[]
-}
 
 // Import SelectorItem for use in ElementCapability
 import type { SelectorItem } from '@actionbookdev/db'
@@ -188,12 +154,3 @@ export interface SiteCapability {
   pages: Record<string, PageCapability>
 }
 
-/**
- * Observe result item from Stagehand
- */
-export interface ObserveResultItem {
-  description?: string
-  selector?: string
-  method?: string
-  arguments?: unknown[]
-}
