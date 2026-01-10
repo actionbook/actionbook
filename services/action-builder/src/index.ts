@@ -3,7 +3,7 @@ export { ActionBuilder, createActionBuilder } from "./ActionBuilder.js";
 
 // Sub-modules
 export { StagehandBrowser, ElementNotFoundError, ActionExecutionError } from "@actionbookdev/browser";
-export type { BrowserAdapter, AIBrowserAdapter } from "@actionbookdev/browser";
+export type { BrowserAdapter } from "@actionbookdev/browser";
 export { AIClient } from "./llm/index.js";
 export { ActionRecorder } from "./recorder/index.js";
 export { SelectorValidator } from "./validator/index.js";

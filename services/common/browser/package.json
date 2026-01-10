@@ -31,21 +31,25 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "clean": "rm -rf dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "dependencies": {
-    "@actionbookdev/browser-profile": "workspace:*"
+    "@actionbookdev/browser-profile": "workspace:*",
+    "@aws-sdk/client-bedrock-runtime": "^3.966.0"
   },
   "devDependencies": {
     "@ai-sdk/amazon-bedrock": "^3.0.0",
     "@types/node": "^22.10.2",
     "tsup": "^8.0.0",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.9"
   },
   "peerDependencies": {
     "@browserbasehq/stagehand": ">=1.0.0",
-    "playwright": ">=1.40.0",
-    "bedrock-agentcore": ">=0.1.0"
+    "bedrock-agentcore": ">=0.1.0",
+    "playwright": ">=1.40.0"
   },
   "peerDependenciesMeta": {
     "@browserbasehq/stagehand": {

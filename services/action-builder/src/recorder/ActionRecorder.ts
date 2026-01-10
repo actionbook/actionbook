@@ -1,5 +1,5 @@
 import type OpenAI from "openai";
-import type { AIBrowserAdapter } from "@actionbookdev/browser";
+import type { BrowserAdapter } from "@actionbookdev/browser";
 import { AIClient } from "../llm/AIClient.js";
 import { YamlWriter } from "../writers/YamlWriter.js";
 import { DbWriter } from "../writers/DbWriter.js";
@@ -29,7 +29,7 @@ import { sleep } from "../utils/retry.js";
  * Action Recorder - Records website UI element capabilities
  */
 export class ActionRecorder {
-  private browser: AIBrowserAdapter;
+  private browser: BrowserAdapter;
   private llmClient: AIClient;
   private config: RecorderConfig;
   private yamlWriter: YamlWriter;
@@ -65,7 +65,7 @@ export class ActionRecorder {
   private hasScrolledCurrentPage: boolean = false;
 
   constructor(
-    browser: AIBrowserAdapter,
+    browser: BrowserAdapter,
     llmClient: AIClient,
     config: RecorderConfig,
     dbWriter?: DbWriter
@@ -679,8 +679,10 @@ export class ActionRecorder {
     let browserOutputTokens = 0;
     if (this.browser.getTokenStats) {
       const stats = this.browser.getTokenStats();
-      browserInputTokens = stats.input;
-      browserOutputTokens = stats.output;
+      if (stats) {
+        browserInputTokens = stats.input;
+        browserOutputTokens = stats.output;
+      }
     }
 
     // Calculate combined totals

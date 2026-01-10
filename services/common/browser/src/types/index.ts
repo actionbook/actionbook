@@ -3,19 +3,21 @@
  */
 
 export type {
+  // Browser Configuration
   BrowserConfig,
+  AIBrowserConfig,
+  // Navigation & Screenshot Options
   ScreenshotOptions,
   NavigateOptions,
   WaitForSelectorOptions,
   ScrollDirection,
   BrowserType,
-} from './browser.js';
-
-export type {
+  // AI Capabilities
   ObserveResult,
   ActionObject,
   ActionMethod,
+  // Element Attributes
   ElementAttributes,
+  // Metrics
   TokenStats,
-  AIBrowserConfig,
-} from './ai-browser.js';
+} from './browser.js';

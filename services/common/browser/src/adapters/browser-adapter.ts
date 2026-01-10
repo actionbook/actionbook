@@ -1,27 +1,40 @@
 /**
- * BrowserAdapter - Base interface for browser automation
+ * BrowserAdapter - Unified interface for browser automation
  *
- * This interface defines the minimal set of operations needed for
- * basic browser automation tasks like navigation, screenshots, and
- * content extraction.
+ * This interface defines the complete set of operations for browser automation,
+ * including basic operations, AI-powered element discovery, and action execution.
  *
- * Used by: playbook-builder (basic web crawling)
+ * Implementations:
+ * - StagehandBrowser: Local Playwright + Stagehand AI
+ * - AgentCoreBrowser: AWS Agent Core Browser Tool (cloud-based)
  */
 
+import type { Page } from 'playwright';
 import type {
   NavigateOptions,
   ScreenshotOptions,
   WaitForSelectorOptions,
   ScrollDirection,
+  ObserveResult,
+  ActionObject,
+  ElementAttributes,
+  TokenStats,
 } from '../types/index.js';
 
 /**
- * Base browser adapter interface
+ * Unified browser adapter interface
  *
- * Implementations:
- * - StagehandBrowser: Local Playwright + Stagehand (also implements AIBrowserAdapter)
- * - AgentCoreBrowser: AWS Agent Core Browser Tool (cloud-based)
- * - PlaywrightBrowser: Pure Playwright (lightweight, no AI)
+ * Combines basic browser automation with AI capabilities:
+ * - Lifecycle: initialize, close
+ * - Navigation: navigate, goBack
+ * - Page info: getUrl, getTitle, getContent
+ * - Screenshot: screenshot
+ * - Waiting: waitForSelector, wait, waitForText
+ * - Scrolling: scroll, scrollToBottom
+ * - AI: observe, act, actWithSelector
+ * - Element: getElementAttributesFromXPath, getPage
+ * - Helpers: autoClosePopups
+ * - Metrics: getTokenStats (optional)
  */
 export interface BrowserAdapter {
   // ============================================
@@ -54,16 +67,6 @@ export interface BrowserAdapter {
    * Navigate back in browser history
    */
   goBack(): Promise<void>;
-
-  /**
-   * Navigate forward in browser history
-   */
-  goForward(): Promise<void>;
-
-  /**
-   * Reload the current page
-   */
-  reload(): Promise<void>;
 
   // ============================================
   // Page Information
@@ -107,16 +110,17 @@ export interface BrowserAdapter {
   waitForSelector(selector: string, options?: WaitForSelectorOptions): Promise<void>;
 
   /**
-   * Wait for navigation to complete
-   * @param timeout - Timeout in milliseconds
-   */
-  waitForNavigation(timeout?: number): Promise<void>;
-
-  /**
    * Wait for a specified duration
    * @param ms - Duration in milliseconds
    */
   wait(ms: number): Promise<void>;
+
+  /**
+   * Wait for text to appear on the page
+   * @param text - Text to wait for
+   * @param timeout - Timeout in milliseconds (default: 30000)
+   */
+  waitForText(text: string, timeout?: number): Promise<void>;
 
   // ============================================
   // Scrolling
@@ -135,4 +139,114 @@ export interface BrowserAdapter {
    * @param waitAfterMs - Time to wait after reaching bottom
    */
   scrollToBottom(waitAfterMs?: number): Promise<void>;
+
+  // ============================================
+  // AI Capabilities
+  // ============================================
+
+  /**
+   * Observe page elements using AI
+   *
+   * Uses LLM to analyze the page and find elements matching
+   * the natural language instruction.
+   *
+   * @param instruction - Natural language description of what to find
+   *   e.g., "find the search button", "locate the login form"
+   * @param timeoutMs - Timeout in milliseconds (default: 30000)
+   * @returns Array of observed elements with selectors
+   *
+   * @example
+   * const elements = await browser.observe('find all navigation links');
+   * console.log(elements[0].selector); // xpath=//nav//a[1]
+   */
+  observe(instruction: string, timeoutMs?: number): Promise<ObserveResult[]>;
+
+  /**
+   * Execute an action using AI or direct selector
+   *
+   * Can accept either:
+   * - Natural language instruction (AI inference)
+   * - ActionObject with explicit selector (direct, faster)
+   *
+   * @param instructionOrAction - Instruction string or ActionObject
+   * @returns Action result
+   *
+   * @example
+   * // Natural language mode (AI inference)
+   * await browser.act('click the submit button');
+   *
+   * // Selector mode (direct, faster)
+   * await browser.act({
+   *   selector: '#submit-btn',
+   *   method: 'click',
+   *   description: 'Submit button'
+   * });
+   */
+  act(instructionOrAction: string | ActionObject): Promise<unknown>;
+
+  /**
+   * Execute an action using a predefined selector
+   *
+   * Convenience method for selector-based actions.
+   * Clearer semantics than act() with ActionObject.
+   *
+   * @param action - ActionObject with selector and method
+   * @returns Action result
+   */
+  actWithSelector(action: ActionObject): Promise<unknown>;
+
+  // ============================================
+  // Element Inspection
+  // ============================================
+
+  /**
+   * Extract attributes from an element by XPath
+   *
+   * Retrieves comprehensive element metadata for
+   * selector generation and validation.
+   *
+   * @param xpath - XPath selector to the element
+   * @returns Element attributes or null if not found
+   */
+  getElementAttributesFromXPath(xpath: string): Promise<ElementAttributes | null>;
+
+  /**
+   * Get the underlying Playwright Page instance
+   *
+   * Provides direct access to Playwright Page for advanced operations.
+   * Use with caution - prefer high-level methods when possible.
+   *
+   * @returns Playwright Page instance
+   */
+  getPage(): Promise<Page>;
+
+  // ============================================
+  // Automation Helpers
+  // ============================================
+
+  /**
+   * Auto-detect and close popups/overlays
+   *
+   * Uses AI to find common popup patterns and close them:
+   * - Cookie consent banners
+   * - Newsletter signup modals
+   * - Notification permission dialogs
+   *
+   * @returns Number of popups closed
+   */
+  autoClosePopups(): Promise<number>;
+
+  // ============================================
+  // Metrics (Optional)
+  // ============================================
+
+  /**
+   * Get accumulated token usage statistics
+   *
+   * Returns the total tokens consumed by AI operations
+   * (observe, act) during this browser session.
+   *
+   * @returns Token statistics or undefined if not tracked
+   */
+  getTokenStats?(): TokenStats | undefined;
 }

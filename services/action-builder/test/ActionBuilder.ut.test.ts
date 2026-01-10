@@ -27,8 +27,8 @@ const mockDb = {
 };
 
 // Mock all dependencies
-vi.mock('../src/browser/StagehandBrowser.js', () => ({
-  StagehandBrowser: vi.fn(() => mockBrowser),
+vi.mock('@actionbookdev/browser', () => ({
+  createBrowserAuto: vi.fn(() => mockBrowser),
 }));
 
 vi.mock('../src/llm/AIClient.js', () => ({

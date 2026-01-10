@@ -1,4 +1,4 @@
-import type { AIBrowserAdapter } from "@actionbookdev/browser";
+import type { BrowserAdapter } from "@actionbookdev/browser";
 import { log } from "../utils/logger.js";
 import { createIdSelector } from "../utils/string.js";
 import type {
@@ -48,7 +48,7 @@ export type NavigateResult = {
 
 export class RecorderToolExecutor {
   constructor(
-    private browser: AIBrowserAdapter,
+    private browser: BrowserAdapter,
     private handlers: {
       ensureSiteCapability: (domain: string) => void;
       registerElement: (element: ElementCapability) => void;
@@ -484,8 +484,7 @@ export class RecorderToolExecutor {
 
         let currentUrl: string | undefined;
         try {
-          const page = await this.browser.getPage();
-          currentUrl = (page as any).url?.() || undefined;
+          currentUrl = this.browser.getUrl();
         } catch {
           // Ignore URL extraction errors
         }

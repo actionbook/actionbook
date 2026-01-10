@@ -1,12 +1,12 @@
 /**
  * StagehandBrowser - Local Playwright + Stagehand AI implementation
  *
- * Implements AIBrowserAdapter interface with full AI capabilities
+ * Implements BrowserAdapter interface with full AI capabilities
  * for element observation and intelligent action execution.
  */
 
 import type { Page, BrowserContext } from 'playwright';
-import type { AIBrowserAdapter } from '../adapters/ai-browser-adapter.js';
+import type { BrowserAdapter } from '../adapters/browser-adapter.js';
 import type {
   BrowserConfig,
   NavigateOptions,
@@ -26,10 +26,40 @@ import {
   filterCssClasses,
 } from '../utils/index.js';
 
-// Dynamic imports for optional dependencies
-let Stagehand: any;
-let AISdkClient: any;
-let BrowserProfileManager: any;
+// Static imports for dependencies (external in tsup config)
+import {
+  Stagehand,
+  AISdkClient,
+  type V3Options,
+  type ModelConfiguration,
+  type LocalBrowserLaunchOptions,
+} from '@browserbasehq/stagehand';
+import { BrowserProfileManager } from '@actionbookdev/browser-profile';
+
+/**
+ * Stagehand instance type (using the actual Stagehand class type)
+ */
+type StagehandInstance = InstanceType<typeof Stagehand>;
+
+/**
+ * Stagehand options type for initialization
+ */
+type StagehandOptions = V3Options;
+
+/**
+ * Raw element attributes extracted from the page via evaluate()
+ */
+interface RawElementAttributes {
+  tagName: string;
+  id?: string;
+  className?: string;
+  placeholder?: string;
+  ariaLabel?: string;
+  dataTestId?: string;
+  dataAttributes?: Record<string, string>;
+  name?: string;
+  textContent?: string;
+}
 
 /**
  * Error class for element not found scenarios
@@ -77,8 +107,8 @@ interface StagehandMetricsSnapshot {
 /**
  * StagehandBrowser - Full-featured browser with AI capabilities
  */
-export class StagehandBrowser implements AIBrowserAdapter {
-  private stagehand: any = null;
+export class StagehandBrowser implements BrowserAdapter {
+  private stagehand: StagehandInstance | null = null;
   private page: Page | null = null;
   private config: BrowserConfig;
   private lastMetrics: StagehandMetricsSnapshot | null = null;
@@ -103,49 +133,25 @@ export class StagehandBrowser implements AIBrowserAdapter {
       return;
     }
 
-    // Dynamic import of Stagehand
-    try {
-      const stagehandModule = await import('@browserbasehq/stagehand');
-      Stagehand = stagehandModule.Stagehand;
-      AISdkClient = stagehandModule.AISdkClient;
-    } catch {
-      throw new Error(
-        'Stagehand is not installed. Install with: npm install @browserbasehq/stagehand'
-      );
-    }
-
-    // Dynamic import of BrowserProfileManager
-    try {
-      const profileModule = await import('@actionbookdev/browser-profile');
-      BrowserProfileManager = profileModule.BrowserProfileManager;
-    } catch {
-      log('warn', '[StagehandBrowser] browser-profile not available, profiles disabled');
-    }
-
     log('info', '[StagehandBrowser] Initializing Stagehand...');
 
     const { modelConfig, llmClient } = await this.buildLLMConfig();
     const localBrowserLaunchOptions = this.buildBrowserLaunchOptions();
 
     // Create Stagehand instance
-    const stagehandOptions: any = {
+    const stagehandOptions: StagehandOptions = {
       env: 'LOCAL',
       localBrowserLaunchOptions,
       verbose: 1,
       logger: this.createStagehandLogger(),
+      ...(llmClient ? { llmClient } : modelConfig ? { model: modelConfig } : {}),
     };
-
-    if (llmClient) {
-      stagehandOptions.llmClient = llmClient;
-    } else if (modelConfig) {
-      stagehandOptions.model = modelConfig;
-    }
 
     this.stagehand = new Stagehand(stagehandOptions);
     await this.stagehand.init();
 
-    // Get page from context
-    this.page = this.stagehand.context.pages()[0] as Page;
+    // Get page from context (cast through unknown due to Stagehand's internal Page type)
+    this.page = this.stagehand.context.pages()[0] as unknown as Page;
 
     // Inject storage state if configured
     await this.injectStorageState();
@@ -195,18 +201,6 @@ export class StagehandBrowser implements AIBrowserAdapter {
     log('info', `[StagehandBrowser] Navigated back to: ${page.url()}`);
   }
 
-  async goForward(): Promise<void> {
-    const page = this.getPageOrThrow();
-    await page.goForward({ waitUntil: 'domcontentloaded', timeout: 30000 });
-    await this.wait(1000);
-  }
-
-  async reload(): Promise<void> {
-    const page = this.getPageOrThrow();
-    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
-    await this.wait(1000);
-  }
-
   // ============================================
   // Page Information
   // ============================================
@@ -249,13 +243,6 @@ export class StagehandBrowser implements AIBrowserAdapter {
     await page.waitForSelector(selector, {
       timeout: options?.timeout ?? 30000,
       state: options?.hidden ? 'hidden' : options?.visible ? 'visible' : 'attached',
-    });
-  }
-
-  async waitForNavigation(timeout?: number): Promise<void> {
-    const page = this.getPageOrThrow();
-    await page.waitForLoadState('domcontentloaded', {
-      timeout: timeout ?? 30000,
     });
   }
 
@@ -354,7 +341,17 @@ export class StagehandBrowser implements AIBrowserAdapter {
 
     const startTime = Date.now();
     try {
-      const result = await this.stagehand.act(instructionOrAction);
+      // Handle string instruction vs ActionObject separately for Stagehand's overloads
+      let result: unknown;
+      if (typeof instructionOrAction === 'string') {
+        result = await this.stagehand.act(instructionOrAction);
+      } else {
+        // Convert ActionObject to Stagehand's Action format
+        result = await this.stagehand.act({
+          action: instructionOrAction.description ?? `${instructionOrAction.method} on ${instructionOrAction.selector}`,
+          ...instructionOrAction,
+        } as Parameters<typeof this.stagehand.act>[0]);
+      }
       await this.logStagehandMetrics('act', startTime);
       return result;
     } catch (error) {
@@ -407,7 +404,7 @@ export class StagehandBrowser implements AIBrowserAdapter {
   // Element Inspection
   // ============================================
 
-  async getElementAttributes(xpathSelector: string): Promise<ElementAttributes | null> {
+  async getElementAttributesFromXPath(xpathSelector: string): Promise<ElementAttributes | null> {
     const page = this.getPageOrThrow();
 
     try {
@@ -416,7 +413,7 @@ export class StagehandBrowser implements AIBrowserAdapter {
         /^(.+?\/iframe\[\d+\])\/html\[\d+\]\/body\[\d+\](.*)$/i
       );
 
-      let attrs: any = null;
+      let attrs: RawElementAttributes | null = null;
 
       if (iframeMatch) {
         // Use frames() API for iframe elements
@@ -466,14 +463,6 @@ export class StagehandBrowser implements AIBrowserAdapter {
       log('warn', `[StagehandBrowser] Failed to get element attributes: ${error}`);
       return null;
     }
-  }
-
-  /**
-   * Alias for getElementAttributes (backward compatibility)
-   * @deprecated Use getElementAttributes instead
-   */
-  async getElementAttributesFromXPath(xpath: string): Promise<ElementAttributes | null> {
-    return this.getElementAttributes(xpath);
   }
 
   /**
@@ -555,8 +544,8 @@ export class StagehandBrowser implements AIBrowserAdapter {
   }
 
   private async buildLLMConfig(): Promise<{
-    modelConfig?: any;
-    llmClient?: any;
+    modelConfig?: ModelConfiguration;
+    llmClient?: InstanceType<typeof AISdkClient>;
   }> {
     const openrouterKey = process.env.OPENROUTER_API_KEY;
     const openaiKey = process.env.OPENAI_API_KEY;
@@ -625,8 +614,8 @@ export class StagehandBrowser implements AIBrowserAdapter {
     );
   }
 
-  private buildBrowserLaunchOptions(): Record<string, any> {
-    const options: Record<string, any> = {
+  private buildBrowserLaunchOptions(): LocalBrowserLaunchOptions {
+    const options: LocalBrowserLaunchOptions = {
       headless: this.config.headless,
     };
 
@@ -635,7 +624,7 @@ export class StagehandBrowser implements AIBrowserAdapter {
       log('info', `[StagehandBrowser] Using proxy: ${this.config.proxy}`);
     }
 
-    if (this.config.profile?.enabled && BrowserProfileManager) {
+    if (this.config.profile?.enabled) {
       const profileDir = this.config.profile.profileDir || '.browser-profile';
       const profileManager = new BrowserProfileManager({ baseDir: profileDir });
       const profilePath = profileManager.getProfilePath();
@@ -685,7 +674,8 @@ export class StagehandBrowser implements AIBrowserAdapter {
         const stateData = JSON.parse(
           fs.readFileSync(this.config.storageStatePath, 'utf-8')
         );
-        const context = this.stagehand.context as BrowserContext;
+        // Cast through unknown due to Stagehand's internal V3Context type
+        const context = this.stagehand.context as unknown as BrowserContext;
 
         if (stateData.cookies?.length) {
           await context.addCookies(stateData.cookies);
@@ -835,7 +825,7 @@ export class StagehandBrowser implements AIBrowserAdapter {
     };
   };
 
-  private buildCssSelector(attrs: any): string | undefined {
+  private buildCssSelector(attrs: RawElementAttributes): string | undefined {
     if (attrs.dataTestId) {
       return `[data-testid="${attrs.dataTestId}"]`;
     }

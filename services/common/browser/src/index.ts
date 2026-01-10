@@ -51,8 +51,6 @@ export type {
 // ============================================
 
 export type { BrowserAdapter } from './adapters/index.js';
-export type { AIBrowserAdapter } from './adapters/index.js';
-export { isAIBrowserAdapter } from './adapters/index.js';
 
 // ============================================
 // Implementations
