@@ -157,47 +157,6 @@ init → knowledge_build → action_build → completed
 
 ---
 
-## Version Publishing API
-
-Versions support Blue-Green deployment for atomic content updates.
-
-### Publish Version
-
-```
-POST /api/sync/versions/{versionId}/publish
-```
-
-Atomically switches the active version:
-1. Archives the current active version (if exists)
-2. Sets the specified version to active
-3. Updates `sources.currentVersionId`
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "activeVersionId": 5,
-    "archivedVersionId": 4,
-    "publishedAt": "2025-12-16T10:00:00.000Z"
-  }
-}
-```
-
-### Version Status Flow
-
-```
-building → active → archived
-```
-
-| Status | Description |
-|--------|-------------|
-| `building` | Under construction, data being written |
-| `active` | Live in production |
-| `archived` | Previous version, kept for rollback |
-
----
-
 ## Environment Variables
 
 Create a `.env` file based on `.env.example`:
