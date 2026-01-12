@@ -24,6 +24,12 @@ export interface PlaybookBuilderConfig {
   sourceVersionId?: number;
   /** LLM provider for page exploration (auto-detected if not specified) */
   llmProvider?: 'openrouter' | 'openai' | 'anthropic' | 'bedrock';
+  /**
+   * Custom prompt for site-specific optimization
+   * Appended to user prompts in page discovery, analysis, and capabilities discovery
+   * Example: "Focus on the main navigation menu and ignore promotional banners"
+   */
+  customPrompt?: string;
 }
 
 /**
@@ -75,32 +81,49 @@ export interface UserScenario {
 
 /**
  * Page capabilities - describes what actions can be performed on a page
- * Focuses on CAPABILITIES and SCENARIOS, not element details
- * Element discovery is action-builder's responsibility
+ * Now includes full 7-section Playbook markdown for comprehensive documentation
  */
 export interface PageCapabilities {
   /**
    * Comprehensive description of the page's purpose and main functionality
+   * (Extracted from Playbook Section 1: Page Overview)
    */
   description: string;
 
   /**
    * High-level capabilities as action phrases (e.g., "Search for products", "Add item to cart")
+   * (Extracted from Playbook Section 2: Page Function Summary)
    */
   capabilities: string[];
 
   /**
+   * Full 7-section Playbook markdown document
+   * Contains:
+   * - Section 0: Page URL (parameters, dynamic params)
+   * - Section 1: Page Overview (core business objective)
+   * - Section 2: Page Function Summary (function list)
+   * - Section 3: Page Structure Summary (layout modules + CSS selectors)
+   * - Section 4: DOM Structure Instance (pattern recognition, HTML snippets)
+   * - Section 5: Parsing & Processing Summary (data retrieval scenarios)
+   * - Section 6: Operation Summary (interactive operations)
+   */
+  playbook?: string;
+
+  /**
    * Key functional areas on this page (e.g., "Search form", "Navigation menu", "Product filters")
+   * @deprecated Use playbook Section 3 instead
    */
   functionalAreas?: string[];
 
   /**
    * Common user scenarios/workflows that can be performed on this page
+   * @deprecated Use playbook Section 6 instead
    */
   scenarios?: UserScenario[];
 
   /**
    * Prerequisites or conditions for using this page
+   * @deprecated Use playbook Section 1 instead
    */
   prerequisites?: string[];
 }

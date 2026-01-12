@@ -5,7 +5,7 @@
  * for element observation and intelligent action execution.
  */
 
-import type { Page, BrowserContext } from 'playwright';
+import type { BrowserContext } from 'playwright';
 import type { BrowserAdapter } from '../adapters/browser-adapter.js';
 import type {
   BrowserConfig,
@@ -30,6 +30,7 @@ import {
 import {
   Stagehand,
   AISdkClient,
+  Page,
   type V3Options,
   type ModelConfiguration,
   type LocalBrowserLaunchOptions,
@@ -181,7 +182,7 @@ export class StagehandBrowser implements BrowserAdapter {
     try {
       await page.goto(url, {
         waitUntil: options?.waitUntil ?? 'domcontentloaded',
-        timeout: options?.timeout ?? this.config.timeout,
+        timeoutMs: options?.timeout ?? this.config.timeout,
       });
     } catch (error) {
       // If navigation times out, check if we're still on the page
@@ -197,7 +198,7 @@ export class StagehandBrowser implements BrowserAdapter {
 
   async goBack(): Promise<void> {
     const page = this.getPageOrThrow();
-    await page.goBack({ waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goBack({ waitUntil: 'domcontentloaded', timeoutMs: 30000 });
     await this.wait(1000);
     log('info', `[StagehandBrowser] Navigated back to: ${page.url()}`);
   }
@@ -215,7 +216,7 @@ export class StagehandBrowser implements BrowserAdapter {
   }
 
   async getContent(): Promise<string> {
-    return await this.getPageOrThrow().content();
+    return await this.getPageOrThrow().evaluate(() => document.documentElement.outerHTML);
   }
 
   // ============================================
@@ -241,10 +242,29 @@ export class StagehandBrowser implements BrowserAdapter {
     options?: WaitForSelectorOptions
   ): Promise<void> {
     const page = this.getPageOrThrow();
-    await page.waitForSelector(selector, {
-      timeout: options?.timeout ?? 30000,
-      state: options?.hidden ? 'hidden' : options?.visible ? 'visible' : 'attached',
-    });
+    const timeout = options?.timeout ?? 30000;
+    const shouldBeHidden = options?.hidden ?? false;
+    const shouldBeVisible = options?.visible ?? false;
+
+    // Poll for selector using evaluate
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeout) {
+      const found = await page.evaluate((sel: string) => {
+        const el = document.querySelector(sel);
+        if (!el) return { exists: false, visible: false };
+        const rect = el.getBoundingClientRect();
+        const isVisible = rect.width > 0 && rect.height > 0;
+        return { exists: true, visible: isVisible };
+      }, selector);
+
+      if (shouldBeHidden && !found.exists) return;
+      if (shouldBeVisible && found.exists && found.visible) return;
+      if (!shouldBeHidden && !shouldBeVisible && found.exists) return;
+
+      await this.wait(100);
+    }
+
+    throw new Error(`Selector "${selector}" not found within ${timeout}ms`);
   }
 
   async wait(ms: number): Promise<void> {
@@ -257,13 +277,10 @@ export class StagehandBrowser implements BrowserAdapter {
 
   async scroll(direction: ScrollDirection, amount: number = 300): Promise<void> {
     const page = this.getPageOrThrow();
-    const delta = direction === 'down' ? amount : -amount;
-    try {
-      await page.mouse.wheel(0, delta);
-    } catch {
-      const key = direction === 'down' ? 'PageDown' : 'PageUp';
-      await page.keyboard.press(key);
-    }
+    const deltaY = direction === 'down' ? amount : -amount;
+    // Stagehand V3 Page.scroll(x, y, deltaX, deltaY)
+    // Scroll from center of viewport (0, 0 will be interpreted as viewport center)
+    await page.scroll(0, 0, 0, deltaY);
   }
 
   async scrollToBottom(waitAfterMs: number = 1000): Promise<void> {
@@ -295,8 +312,9 @@ export class StagehandBrowser implements BrowserAdapter {
       log('info', `[StagehandBrowser] Scrolled to bottom (${scrollAttempts} iterations)`);
     } catch (error) {
       log('warn', `[StagehandBrowser] scrollToBottom failed: ${error}`);
+      // Fallback: use keyPress for End key
       for (let i = 0; i < 5; i++) {
-        await page.keyboard.press('End');
+        await page.keyPress('End');
         await this.wait(200);
       }
       await this.wait(waitAfterMs);
@@ -573,18 +591,14 @@ export class StagehandBrowser implements BrowserAdapter {
    */
   async waitForText(text: string, timeout: number = 30000): Promise<void> {
     const page = this.getPageOrThrow();
-    try {
-      await page.waitForSelector(`text=${text}`, { timeout });
-    } catch {
-      // Fallback: poll for text
-      const startTime = Date.now();
-      while (Date.now() - startTime < timeout) {
-        const content = await page.content();
-        if (content.includes(text)) return;
-        await this.wait(500);
-      }
-      throw new Error(`Text "${text}" not found within ${timeout}ms`);
+    // Poll for text using evaluate
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeout) {
+      const content = await page.evaluate(() => document.documentElement.outerHTML);
+      if (content.includes(text)) return;
+      await this.wait(500);
     }
+    throw new Error(`Text "${text}" not found within ${timeout}ms`);
   }
 
   /**

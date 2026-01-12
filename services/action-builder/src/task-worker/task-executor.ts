@@ -142,6 +142,7 @@ export class TaskExecutor {
       const startUrl = task.startUrl; // Use task.startUrl (from chunk's document URL)
 
       // 5. Build dual-mode prompt (task_driven vs exploratory)
+      // Pass actionBuilderPrompt from task config for site-specific optimization
       const prompt = buildPrompt(
         {
           id: String(chunkData.id),
@@ -154,7 +155,8 @@ export class TaskExecutor {
           created_at: chunkData.createdAt,
           source_app_url: chunkData.source_app_url ?? undefined,
         },
-        task.config?.chunk_type ?? 'exploratory'
+        task.config?.chunk_type ?? 'exploratory',
+        { actionBuilderPrompt: task.config?.actionBuilderPrompt }
       )
 
       // 6. Call ActionBuilder.build() with custom prompts (task-worker mode)
