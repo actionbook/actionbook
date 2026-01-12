@@ -288,11 +288,23 @@ Begin recording.`;
 }
 
 /**
+ * Build Prompt Options
+ */
+export interface BuildPromptOptions {
+  /**
+   * Custom prompt for site-specific optimization
+   * Will be appended to the user prompt
+   */
+  actionBuilderPrompt?: string;
+}
+
+/**
  * Build Prompt automatically based on chunk type
  */
 export function buildPrompt(
   chunk: ChunkData,
-  chunkType: ChunkType
+  chunkType: ChunkType,
+  options?: BuildPromptOptions
 ): PromptResult {
   // Apply Token limit (24KB truncation)
   let content = chunk.chunk_content;
@@ -302,9 +314,17 @@ export function buildPrompt(
   }
 
   // Route to corresponding build function based on type
+  let result: PromptResult;
   if (chunkType === 'task_driven') {
-    return buildTaskDrivenPrompt(chunk, content);
+    result = buildTaskDrivenPrompt(chunk, content);
   } else {
-    return buildExploratoryPrompt(chunk, content);
+    result = buildExploratoryPrompt(chunk, content);
   }
+
+  // Append custom prompt if provided
+  if (options?.actionBuilderPrompt) {
+    result.userPrompt += `\n\n## Site-specific Instructions\n${options.actionBuilderPrompt}`;
+  }
+
+  return result;
 }

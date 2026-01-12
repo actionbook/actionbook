@@ -9,7 +9,6 @@
  * - AgentCoreBrowser: AWS Agent Core Browser Tool (cloud-based)
  */
 
-import type { Page } from 'playwright';
 import type {
   NavigateOptions,
   ScreenshotOptions,
@@ -211,14 +210,17 @@ export interface BrowserAdapter {
   getElementAttributesFromXPath(xpath: string): Promise<ElementAttributes | null>;
 
   /**
-   * Get the underlying Playwright Page instance
+   * Get the underlying Page instance
    *
-   * Provides direct access to Playwright Page for advanced operations.
+   * Returns the browser-specific Page object:
+   * - StagehandBrowser: Stagehand Page (limited Playwright-like API)
+   * - AgentCoreBrowser: Playwright Page (full API)
+   *
    * Use with caution - prefer high-level methods when possible.
    *
-   * @returns Playwright Page instance
+   * @returns Page instance (type varies by implementation)
    */
-  getPage(): Promise<Page>;
+  getPage(): Promise<unknown>;
 
   // ============================================
   // Automation Helpers

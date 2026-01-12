@@ -68,9 +68,11 @@ const analyzePageTool: OpenAI.Chat.Completions.ChatCompletionTool = {
  */
 export class PageAnalyzer {
   private ai: AIClient;
+  private customPrompt?: string;
 
-  constructor(ai: AIClient) {
+  constructor(ai: AIClient, customPrompt?: string) {
     this.ai = ai;
+    this.customPrompt = customPrompt;
   }
 
   /**
@@ -81,6 +83,19 @@ export class PageAnalyzer {
 
     // Extract interactive elements from HTML
     const interactiveHtml = this.extractInteractiveHtml(htmlContent);
+
+    // Build user prompt with optional custom instructions
+    let userText = `Page: ${page.name}
+URL: ${page.url}
+Current description: ${page.description}
+
+Interactive elements on this page:
+${interactiveHtml}
+
+Analyze this page and identify all capabilities and features.`;
+    if (this.customPrompt) {
+      userText += `\n\n## Site-specific Instructions\n${this.customPrompt}`;
+    }
 
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: PAGE_ANALYSIS_SYSTEM_PROMPT },
@@ -95,14 +110,7 @@ export class PageAnalyzer {
           },
           {
             type: 'text',
-            text: `Page: ${page.name}
-URL: ${page.url}
-Current description: ${page.description}
-
-Interactive elements on this page:
-${interactiveHtml}
-
-Analyze this page and identify all capabilities and features.`,
+            text: userText,
           },
         ],
       },

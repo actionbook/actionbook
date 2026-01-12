@@ -6,11 +6,24 @@ import {
   getActionByIdDescription,
   getActionByIdParams,
   getActionByIdSchema,
+  listSourcesDescription,
+  listSourcesParams,
+  listSourcesSchema,
+  searchSourcesDescription,
+  searchSourcesParams,
+  searchSourcesSchema,
   type SearchActionsInput,
   type GetActionByIdInput,
+  type ListSourcesInput,
+  type SearchSourcesInput,
   type ToolParams,
 } from './tool-defs.js'
-import type { ChunkSearchResult, ChunkActionDetail } from './types.js'
+import type {
+  ChunkSearchResult,
+  ChunkActionDetail,
+  SourceListResult,
+  SourceSearchResult,
+} from './types.js'
 
 /**
  * Method with attached tool definition (description and params)
@@ -49,6 +62,34 @@ export interface GetActionByIdMethod {
   description: string
   /** Tool parameters in JSON Schema and Zod formats */
   params: ToolParams<typeof getActionByIdSchema>
+}
+
+/**
+ * Method signature for listSources
+ */
+export interface ListSourcesMethod {
+  /** List sources with default limit */
+  (): Promise<SourceListResult>
+  /** List sources with options */
+  (options: ListSourcesInput): Promise<SourceListResult>
+  /** Tool description for LLM */
+  description: string
+  /** Tool parameters in JSON Schema and Zod formats */
+  params: ToolParams<typeof listSourcesSchema>
+}
+
+/**
+ * Overloaded method signature for searchSources
+ */
+export interface SearchSourcesMethod {
+  /** Search with query string only */
+  (query: string): Promise<SourceSearchResult>
+  /** Search with full options */
+  (options: SearchSourcesInput): Promise<SourceSearchResult>
+  /** Tool description for LLM */
+  description: string
+  /** Tool parameters in JSON Schema and Zod formats */
+  params: ToolParams<typeof searchSourcesSchema>
 }
 
 export interface ActionbookOptions {
@@ -106,6 +147,12 @@ export class Actionbook {
   /** Get complete action details by action ID */
   public readonly getActionById: GetActionByIdMethod
 
+  /** List all available sources */
+  public readonly listSources: ListSourcesMethod
+
+  /** Search for sources by keyword */
+  public readonly searchSources: SearchSourcesMethod
+
   constructor(options: ActionbookOptions = {}) {
     // Use environment variable as fallback for API key
     const apiKey = options.apiKey ?? process.env.ACTIONBOOK_API_KEY
@@ -154,5 +201,35 @@ export class Actionbook {
       getActionByIdDescription
     ;(getActionByIdFn as GetActionByIdMethod).params = getActionByIdParams
     this.getActionById = getActionByIdFn as GetActionByIdMethod
+
+    // Create listSources method with attached tool definition
+    const listSourcesFn = async (
+      options?: ListSourcesInput
+    ): Promise<SourceListResult> => {
+      return this.apiClient.listSources(options?.limit ?? 50)
+    }
+
+    // Attach tool definition to the method
+    ;(listSourcesFn as ListSourcesMethod).description = listSourcesDescription
+    ;(listSourcesFn as ListSourcesMethod).params = listSourcesParams
+    this.listSources = listSourcesFn as ListSourcesMethod
+
+    // Create searchSources method with attached tool definition
+    const searchSourcesFn = async (
+      queryOrOptions: string | SearchSourcesInput
+    ): Promise<SourceSearchResult> => {
+      const opts =
+        typeof queryOrOptions === 'string'
+          ? { query: queryOrOptions }
+          : queryOrOptions
+
+      return this.apiClient.searchSources(opts.query, opts.limit ?? 10)
+    }
+
+    // Attach tool definition to the method
+    ;(searchSourcesFn as SearchSourcesMethod).description =
+      searchSourcesDescription
+    ;(searchSourcesFn as SearchSourcesMethod).params = searchSourcesParams
+    this.searchSources = searchSourcesFn as SearchSourcesMethod
   }
 }

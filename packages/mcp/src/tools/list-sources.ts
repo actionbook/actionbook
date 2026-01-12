@@ -1,19 +1,15 @@
-import { z } from 'zod'
-import { defineTool } from './index.js'
+import {
+  defineTool,
+  listSourcesSchema,
+  listSourcesDescription,
+  type ListSourcesInput,
+  type SourceItem,
+} from '@actionbookdev/sdk'
 import { ApiClient } from '../lib/api-client.js'
-import { SourceItem } from '../lib/types.js'
 
-export const ListSourcesInputSchema = z.object({
-  limit: z
-    .number()
-    .int()
-    .min(1)
-    .max(200)
-    .optional()
-    .describe('Maximum number of sources to return (1-200, default: 50)'),
-})
-
-export type ListSourcesInput = z.infer<typeof ListSourcesInputSchema>
+// Re-export for backwards compatibility
+export { listSourcesSchema as ListSourcesInputSchema }
+export type { ListSourcesInput }
 
 function formatSourceList(sources: SourceItem[]): string {
   if (sources.length === 0) {
@@ -55,20 +51,8 @@ export function createListSourcesTool(
 ) {
   return defineTool({
     name: 'list_sources',
-    description: `List all available sources (websites) in the Actionbook database.
-
-Use this tool to:
-- Discover what websites/sources are available
-- Get source IDs for filtering search_actions
-- View source metadata (name, URL, description, tags)
-
-**Typical workflow:**
-1. List sources: list_sources()
-2. Note the source ID you want to search
-3. Search actions: search_actions({ query: "login", sourceIds: "1" })
-
-Returns source IDs, names, URLs, and metadata for each source.`,
-    inputSchema: ListSourcesInputSchema,
+    description: listSourcesDescription,
+    inputSchema: listSourcesSchema,
     handler: async (input: ListSourcesInput): Promise<string> => {
       const result = await apiClient.listSources(input.limit ?? 50)
       return formatSourceList(result.results)

@@ -250,6 +250,7 @@ export class PlaybookTaskControllerImpl implements IPlaybookTaskController {
         headless: config.playbookHeadless ?? true,
         maxPages: config.playbookMaxPages ?? 10,
         maxDepth: config.playbookMaxDepth ?? 1,
+        customPrompt: config.playbookBuilderPrompt,
       });
 
       log('info', `[Controller] Processing task #${task.id} with config:`, {

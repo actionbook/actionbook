@@ -16,7 +16,19 @@ Powered by up-to-date action manuals and DOM structure.
 
 <br />
 
-## ❌ Without Actionbook
+## Table of Contents
+
+- [Why Actionbook?](#why-actionbook)
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Usage Examples](#usage-examples)
+- [Available Tools](#available-tools)
+- [Development](#development)
+- [Contributing](#contributing)
+
+## Why Actionbook?
+
+### ❌ Without Actionbook
 
 Building reliable browser agents is difficult and expensive:
 
@@ -25,7 +37,7 @@ Building reliable browser agents is difficult and expensive:
 - **Brittle Selectors:** Updates to website UIs break hardcoded selectors and agent logic immediately.
 - **Hallucinations:** LLMs often guess incorrect actions when faced with complex, unstructured DOMs.
 
-## ✅ With Actionbook
+### ✅ With Actionbook
 
 Actionbook places up-to-date action manuals with the relevant DOM selectors directly into your LLM's context.
 
@@ -38,17 +50,73 @@ See how Actionbook enables an agent to complete an Airbnb search task 10x faster
 
 https://github.com/user-attachments/assets/c621373e-98e7-451a-bf5c-6adbea23e3b8
 
+## Quick Start
+
+Get started with Actionbook in under 2 minutes:
+
+**Option 1: Install via MCP (for AI IDEs)**
+
+For Cursor users:
+```json
+{
+  "mcpServers": {
+    "actionbook": {
+      "command": "npx",
+      "args": ["-y", "@actionbookdev/mcp@latest"]
+    }
+  }
+}
+```
+
+For Claude Code users:
+```bash
+claude mcp add actionbook -- npx -y @actionbookdev/mcp@latest
+```
+
+Then in your AI IDE, ask:
+```
+"Search for LinkedIn login actions"
+"Get action details for airbnb search button"
+```
+
+**Option 2: Install the JavaScript SDK**
+
+```bash
+npm install @actionbookdev/sdk
+```
+
+```typescript
+import { Actionbook } from '@actionbookdev/sdk'
+
+const actionbook = new Actionbook()
+
+// Search for actions
+const results = await actionbook.searchActions('airbnb search')
+console.log(`Found ${results.length} actions`)
+
+// Get action details
+const action = await actionbook.getActionById(results[0].id)
+console.log('Selectors:', action.selectors)
+```
+
 ## Installation
 
-Actionbook provides two ways to integrate with your AI agents:
+Actionbook provides two integration methods:
 
-1. **MCP Server** - For MCP-compatible clients (Cursor, Claude Code, VS Code, etc.)
-2. **JavaScript SDK** - For custom integrations with any LLM framework (Vercel AI SDK, OpenAI SDK, Claude SDK, etc.)
+| Method | Best For | Installation Time |
+|--------|----------|-------------------|
+| **MCP Server** | AI IDEs (Cursor, Claude Code, VS Code) | < 1 minute |
+| **JavaScript SDK** | Custom agents, browser automation, testing | < 2 minutes |
 
-### Requirements
+### Prerequisites
 
-- Node.js >= v18.0.0
-- Actionbook API Key (get yours at [actionbook.dev](https://actionbook.dev))
+Before installing, make sure you have:
+
+- ✅ **Node.js** >= v18.0.0 ([Download](https://nodejs.org))
+
+> **💡 Tip:** Check your Node.js version with `node --version`
+>
+> **Note:** Actionbook is currently in open beta. No API key required!
 
 ---
 
@@ -68,7 +136,7 @@ Paste the following configuration:
   "mcpServers": {
     "actionbook": {
       "command": "npx",
-      "args": ["-y", "@actionbookdev/mcp@latest", "--api-key", "YOUR_API_KEY"]
+      "args": ["-y", "@actionbookdev/mcp@latest"]
     }
   }
 }
@@ -98,7 +166,7 @@ Add this to your VS Code settings (JSON):
     "servers": {
       "actionbook": {
         "command": "npx",
-        "args": ["-y", "@actionbookdev/mcp@latest", "--api-key", "YOUR_API_KEY"]
+        "args": ["-y", "@actionbookdev/mcp@latest"]
       }
     }
   }
@@ -117,7 +185,7 @@ Add this to your `~/.codeium/windsurf/mcp_config.json` file:
   "mcpServers": {
     "actionbook": {
       "command": "npx",
-      "args": ["-y", "@actionbookdev/mcp@latest", "--api-key", "YOUR_API_KEY"]
+      "args": ["-y", "@actionbookdev/mcp@latest"]
     }
   }
 }
@@ -135,7 +203,7 @@ Add this to your `claude_desktop_config.json` file:
   "mcpServers": {
     "actionbook": {
       "command": "npx",
-      "args": ["-y", "@actionbookdev/mcp@latest", "--api-key", "YOUR_API_KEY"]
+      "args": ["-y", "@actionbookdev/mcp@latest"]
     }
   }
 }
@@ -153,7 +221,7 @@ Go to: `Settings` -> `MCP Servers` -> `Add new MCP server`
   "mcpServers": {
     "actionbook": {
       "command": "npx",
-      "args": ["-y", "@actionbookdev/mcp@latest", "--api-key", "YOUR_API_KEY"]
+      "args": ["-y", "@actionbookdev/mcp@latest"]
     }
   }
 }
@@ -172,7 +240,7 @@ Add this to your Zed settings.json:
     "actionbook": {
       "command": {
         "path": "npx",
-        "args": ["-y", "@actionbookdev/mcp@latest", "--api-key", "YOUR_API_KEY"]
+        "args": ["-y", "@actionbookdev/mcp@latest"]
       }
     }
   }
@@ -191,7 +259,7 @@ Go to: `Settings` -> `Tools` -> `AI Assistant` -> `Model Context Protocol (MCP)`
   "mcpServers": {
     "actionbook": {
       "command": "npx",
-      "args": ["-y", "@actionbookdev/mcp@latest", "--api-key", "YOUR_API_KEY"]
+      "args": ["-y", "@actionbookdev/mcp@latest"]
     }
   }
 }
@@ -209,7 +277,7 @@ Add this to your `~/.aws/amazonq/mcp.json` file:
   "mcpServers": {
     "actionbook": {
       "command": "npx",
-      "args": ["-y", "@actionbookdev/mcp@latest", "--api-key", "YOUR_API_KEY"]
+      "args": ["-y", "@actionbookdev/mcp@latest"]
     }
   }
 }
@@ -246,7 +314,7 @@ Go to: `Settings` -> `MCP Servers` -> `Add new MCP server`
   "mcpServers": {
     "actionbook": {
       "command": "npx",
-      "args": ["-y", "@actionbookdev/mcp@latest", "--api-key", "YOUR_API_KEY"]
+      "args": ["-y", "@actionbookdev/mcp@latest"]
     }
   }
 }
@@ -264,7 +332,7 @@ Go to: `Settings` -> `MCP Servers` -> `Add Server`
   "mcpServers": {
     "actionbook": {
       "command": "npx",
-      "args": ["-y", "@actionbookdev/mcp@latest", "--api-key", "YOUR_API_KEY"]
+      "args": ["-y", "@actionbookdev/mcp@latest"]
     }
   }
 }
@@ -282,7 +350,7 @@ Go to: `Settings` -> `MCP Servers` -> `Add Server`
   "mcpServers": {
     "actionbook": {
       "command": "npx",
-      "args": ["-y", "@actionbookdev/mcp@latest", "--api-key", "YOUR_API_KEY"]
+      "args": ["-y", "@actionbookdev/mcp@latest"]
     }
   }
 }
@@ -300,7 +368,7 @@ Add this to your `~/.gemini/settings.json` file:
   "mcpServers": {
     "actionbook": {
       "command": "npx",
-      "args": ["-y", "@actionbookdev/mcp@latest", "--api-key", "YOUR_API_KEY"]
+      "args": ["-y", "@actionbookdev/mcp@latest"]
     }
   }
 }
@@ -316,7 +384,7 @@ Add this to your `~/.gemini/settings.json` file:
   "mcpServers": {
     "actionbook": {
       "command": "bunx",
-      "args": ["@actionbookdev/mcp@latest", "--api-key", "YOUR_API_KEY"]
+      "args": ["@actionbookdev/mcp@latest"]
     }
   }
 }
@@ -335,9 +403,7 @@ Add this to your `~/.gemini/settings.json` file:
       "args": [
         "run",
         "--allow-all",
-        "npm:@actionbookdev/mcp",
-        "--api-key",
-        "YOUR_API_KEY"
+        "npm:@actionbookdev/mcp"
       ]
     }
   }
@@ -352,24 +418,44 @@ Add this to your `~/.gemini/settings.json` file:
 
 Use this option to integrate Actionbook directly into your custom AI agents built with any LLM framework.
 
-**Install the SDK:**
+**Step 1: Install the SDK**
 
 ```bash
+# Using npm
 npm install @actionbookdev/sdk
+
+# Using pnpm
+pnpm add @actionbookdev/sdk
+
+# Using yarn
+yarn add @actionbookdev/sdk
+
+# Using bun
+bun add @actionbookdev/sdk
 ```
 
-**Basic Usage:**
+**Step 2: Basic Usage**
 
 ```typescript
 import { Actionbook } from '@actionbookdev/sdk'
 
-const client = new Actionbook({ apiKey: 'YOUR_API_KEY' })
+// Initialize the client (no API key required during open beta)
+const actionbook = new Actionbook()
 
 // Search for action manuals
-const results = await client.searchActions('airbnb search')
+const results = await actionbook.searchActions('airbnb search')
+console.log(`Found ${results.length} actions:`, results)
 
 // Get a specific action by ID
-const action = await client.getActionById('site/airbnb.com/page/search/element/search-button')
+const action = await actionbook.getActionById(results[0].id)
+console.log('Action details:', action)
+
+// Access the selectors
+const selector = action.selectors.css ||
+                 action.selectors.dataTestId ||
+                 action.selectors.ariaLabel
+
+console.log('Use this selector:', selector)
 ```
 
 **Tool Definitions:**
@@ -379,16 +465,16 @@ Each method has `description` and `params` attached for easy integration with an
 ```typescript
 import { Actionbook } from '@actionbookdev/sdk'
 
-const client = new Actionbook({ apiKey: 'YOUR_API_KEY' })
+const actionbook = new Actionbook()
 
 // Description
-client.searchActions.description  // "Search for action manuals by keyword"
+actionbook.searchActions.description  // "Search for action manuals by keyword"
 
 // Params - JSON Schema format
-client.searchActions.params.json  // { type: "object", properties: { query: { type: "string" } }, required: ["query"] }
+actionbook.searchActions.params.json  // { type: "object", properties: { query: { type: "string" } }, required: ["query"] }
 
 // Params - Zod format
-client.searchActions.params.zod   // z.object({ query: z.string() })
+actionbook.searchActions.params.zod   // z.object({ query: z.string() })
 ```
 
 **Integration Examples:**
@@ -401,7 +487,7 @@ import { Actionbook } from '@actionbookdev/sdk'
 import { generateText, tool } from 'ai'
 import { openai } from '@ai-sdk/openai'
 
-const actionbook = new Actionbook({ apiKey: process.env.ACTIONBOOK_API_KEY })
+const actionbook = new Actionbook()
 
 const { text } = await generateText({
   model: openai('gpt-4o'),
@@ -431,7 +517,7 @@ const { text } = await generateText({
 import { Actionbook } from '@actionbookdev/sdk'
 import OpenAI from 'openai'
 
-const actionbook = new Actionbook({ apiKey: process.env.ACTIONBOOK_API_KEY })
+const actionbook = new Actionbook()
 const openai = new OpenAI()
 
 const tools: OpenAI.ChatCompletionTool[] = [
@@ -469,7 +555,7 @@ const completion = await openai.chat.completions.create({
 import { Actionbook } from '@actionbookdev/sdk'
 import Anthropic from '@anthropic-ai/sdk'
 
-const actionbook = new Actionbook({ apiKey: process.env.ACTIONBOOK_API_KEY })
+const actionbook = new Actionbook()
 const anthropic = new Anthropic()
 
 const tools: Anthropic.Tool[] = [
@@ -502,7 +588,7 @@ const message = await anthropic.messages.create({
 import { Actionbook } from '@actionbookdev/sdk'
 import { GoogleGenAI } from '@google/genai'
 
-const actionbook = new Actionbook({ apiKey: process.env.ACTIONBOOK_API_KEY })
+const actionbook = new Actionbook()
 const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
 
 const tools = [
@@ -538,7 +624,7 @@ const response = await genai.models.generateContent({
 import { Actionbook } from '@actionbookdev/sdk'
 import { tool } from 'ai'
 
-const actionbook = new Actionbook({ apiKey: process.env.ACTIONBOOK_API_KEY })
+const actionbook = new Actionbook()
 
 const agent = stagehand.agent({
   model: 'openai/gpt-4o',
@@ -560,6 +646,90 @@ await agent.execute('Search for Airbnb booking actions and get the action manual
 ```
 
 </details>
+
+---
+
+## Usage Examples
+
+### Playwright Automation
+
+Here's a simple example using Actionbook with Playwright to automate a web task:
+
+```typescript
+import { Actionbook } from '@actionbookdev/sdk'
+import { chromium } from 'playwright'
+
+async function automateAirbnbSearch() {
+  const actionbook = new Actionbook()
+  const browser = await chromium.launch({ headless: false })
+  const page = await browser.newPage()
+
+  // Navigate to Airbnb
+  await page.goto('https://www.airbnb.com')
+
+  // Step 1: Get the location input action from Actionbook
+  const locationResults = await actionbook.searchActions('airbnb location input')
+  const locationAction = await actionbook.getActionById(locationResults[0].id)
+
+  console.log('Found location input:', locationAction.name)
+  console.log('Using selector:', locationAction.selectors.css)
+
+  // Step 2: Fill the location input
+  await page.fill(locationAction.selectors.css, 'Tokyo, Japan')
+
+  // Step 3: Get the search button action from Actionbook
+  const buttonResults = await actionbook.searchActions('airbnb search button')
+  const buttonAction = await actionbook.getActionById(buttonResults[0].id)
+
+  console.log('Found search button:', buttonAction.name)
+  console.log('Using selector:', buttonAction.selectors.css)
+
+  // Step 4: Click the search button
+  await page.click(buttonAction.selectors.css)
+
+  // Wait to see the results
+  await page.waitForURL(/.*homes.*/)
+  console.log('Search completed! URL:', page.url())
+
+  await browser.close()
+}
+
+automateAirbnbSearch()
+```
+
+### Using Actionbook for E2E Testing
+
+Make your tests more resilient by using Actionbook's up-to-date selectors:
+
+```typescript
+import { test, expect } from '@playwright/test'
+import { Actionbook } from '@actionbookdev/sdk'
+
+const actionbook = new Actionbook()
+
+test('search for a location on Airbnb', async ({ page }) => {
+  await page.goto('https://www.airbnb.com')
+
+  // Get action info from Actionbook instead of hardcoding selectors
+  const locationAction = await actionbook.searchActions('airbnb location input')
+    .then(results => actionbook.getActionById(results[0].id))
+
+  const buttonAction = await actionbook.searchActions('airbnb search button')
+    .then(results => actionbook.getActionById(results[0].id))
+
+  // Use selectors from Actionbook
+  await page.fill(locationAction.selectors.css, 'Paris, France')
+  await page.click(buttonAction.selectors.css)
+
+  // Verify the search worked
+  await expect(page).toHaveURL(/.*homes.*/)
+})
+```
+
+**Benefits:**
+- ✅ No hardcoded selectors that break when UI changes
+- ✅ Selectors are maintained and updated by Actionbook
+- ✅ Tests are more resilient and require less maintenance
 
 ## Available Tools
 

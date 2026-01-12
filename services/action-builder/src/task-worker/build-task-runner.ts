@@ -174,6 +174,8 @@ export class BuildTaskRunner {
     }
 
     // 2. Prepare recording_tasks data
+    // Pass actionBuilderPrompt from build task config to recording task config
+    const actionBuilderPrompt = (buildTask.config as any)?.actionBuilderPrompt;
     const recordingTasksData = chunkResults.map((chunk) => ({
       sourceId: buildTask.sourceId!,
       buildTaskId: this.buildTaskId,
@@ -184,6 +186,7 @@ export class BuildTaskRunner {
       attemptCount: 0,
       config: {
         chunk_type: 'task_driven' as const,
+        ...(actionBuilderPrompt ? { actionBuilderPrompt } : {}),
       },
     }));
 

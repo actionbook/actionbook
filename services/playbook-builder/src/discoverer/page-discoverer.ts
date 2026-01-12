@@ -76,9 +76,11 @@ const discoverPagesTool: OpenAI.Chat.Completions.ChatCompletionTool = {
  */
 export class PageDiscoverer {
   private ai: AIClient;
+  private customPrompt?: string;
 
-  constructor(ai: AIClient) {
+  constructor(ai: AIClient, customPrompt?: string) {
     this.ai = ai;
+    this.customPrompt = customPrompt;
   }
 
   /**
@@ -89,6 +91,12 @@ export class PageDiscoverer {
 
     // Simplify HTML for LLM (extract navigation-related elements)
     const simplifiedHtml = this.extractNavigationHtml(htmlContent);
+
+    // Build user prompt with optional custom instructions
+    let userText = `Current URL: ${currentUrl}\n\nNavigable HTML elements:\n${simplifiedHtml}\n\nAnalyze this page and identify all navigable page types.`;
+    if (this.customPrompt) {
+      userText += `\n\n## Site-specific Instructions\n${this.customPrompt}`;
+    }
 
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: PAGE_DISCOVERY_SYSTEM_PROMPT },
@@ -103,7 +111,7 @@ export class PageDiscoverer {
           },
           {
             type: 'text',
-            text: `Current URL: ${currentUrl}\n\nNavigable HTML elements:\n${simplifiedHtml}\n\nAnalyze this page and identify all navigable page types.`,
+            text: userText,
           },
         ],
       },

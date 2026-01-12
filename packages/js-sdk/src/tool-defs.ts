@@ -1,14 +1,38 @@
-import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
+import { z } from 'zod'
+import { zodToJsonSchema } from 'zod-to-json-schema'
+import { toolInputToJsonSchema } from './schema-utils.js'
 
 /**
  * Tool params interface with both JSON Schema and Zod formats
  */
 export interface ToolParams<T extends z.ZodTypeAny> {
   /** JSON Schema format for OpenAI, Anthropic, Gemini SDKs */
-  json: Record<string, unknown>;
+  json: Record<string, unknown>
   /** Zod schema for Vercel AI SDK */
-  zod: T;
+  zod: T
+}
+
+/**
+ * Tool definition interface for MCP and other frameworks
+ */
+export interface ToolDefinition<T extends z.ZodTypeAny> {
+  /** Tool name (snake_case, e.g., "search_actions") */
+  name: string
+  /** Tool description for LLM */
+  description: string
+  /** Input schema (Zod) */
+  inputSchema: T
+  /** Tool handler function */
+  handler: (input: z.infer<T>) => Promise<string>
+}
+
+/**
+ * Create a tool definition
+ */
+export function defineTool<T extends z.ZodTypeAny>(
+  definition: ToolDefinition<T>
+): ToolDefinition<T> {
+  return definition
 }
 
 /**
@@ -16,9 +40,21 @@ export interface ToolParams<T extends z.ZodTypeAny> {
  */
 function createParams<T extends z.ZodTypeAny>(schema: T): ToolParams<T> {
   return {
-    json: zodToJsonSchema(schema, { $refStrategy: "none" }),
+    json: zodToJsonSchema(schema, { $refStrategy: 'none' }),
     zod: schema,
-  };
+  }
+}
+
+/**
+ * Create tool params with cleaned JSON Schema (for Claude/MCP compatibility)
+ */
+export function createCleanParams<T extends z.ZodTypeAny>(
+  schema: T
+): ToolParams<T> {
+  return {
+    json: toolInputToJsonSchema(schema) as Record<string, unknown>,
+    zod: schema,
+  }
 }
 
 // ============================================
@@ -109,4 +145,87 @@ await page.locator(selector).click();
 3. Get full details: getActionById(123)
 4. Extract selectors and use in automation`;
 
-export const getActionByIdParams = createParams(getActionByIdSchema);
+export const getActionByIdParams = createParams(getActionByIdSchema)
+
+// ============================================
+// listSources tool definition
+// ============================================
+
+export const listSourcesSchema = z.object({
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe('Maximum number of sources to return (1-200, default: 50)'),
+})
+
+export type ListSourcesInput = z.infer<typeof listSourcesSchema>
+
+export const listSourcesDescription = `List all available sources (websites) in the Actionbook database.
+
+Use this tool to:
+- Discover what websites/sources are available
+- Get source IDs for filtering search_actions
+- View source metadata (name, URL, description, tags)
+
+**Typical workflow:**
+1. List sources: listSources()
+2. Note the source ID you want to search
+3. Search actions: searchActions({ query: "login", sourceIds: "1" })
+
+Returns source IDs, names, URLs, and metadata for each source.`
+
+export const listSourcesParams = createParams(listSourcesSchema)
+
+// ============================================
+// searchSources tool definition
+// ============================================
+
+export const searchSourcesSchema = z.object({
+  query: z
+    .string()
+    .min(1, 'Query cannot be empty')
+    .max(200, 'Query too long')
+    .describe(
+      'Search keyword to find sources (searches name, description, domain, URL, and tags)'
+    ),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe('Maximum number of results to return (1-100, default: 10)'),
+})
+
+export type SearchSourcesInput = z.infer<typeof searchSourcesSchema>
+
+export const searchSourcesDescription = `Search for sources (websites) by keyword.
+
+Use this tool to:
+- Find specific websites/sources by name or domain
+- Search by description or tags
+- Get source IDs for filtering search_actions
+
+**Search fields:**
+- Source name
+- Description
+- Domain
+- Base URL
+- Tags
+
+**Typical workflow:**
+1. Search sources: searchSources({ query: "airbnb" })
+2. Note the source ID from results
+3. Search actions: searchActions({ query: "login", sourceIds: "1" })
+
+**Example queries:**
+- "airbnb" → find Airbnb source
+- "linkedin" → find LinkedIn source
+- "e-commerce" → find sources tagged with e-commerce
+
+Returns matching source IDs, names, URLs, and metadata.`
+
+export const searchSourcesParams = createParams(searchSourcesSchema)

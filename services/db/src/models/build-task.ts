@@ -146,6 +146,21 @@ export interface BuildTaskConfig {
   /** Run playbook builder in headless mode */
   playbookHeadless?: boolean;
 
+  // ========== Custom Prompts for Site-specific Optimization ==========
+  /**
+   * Custom prompt for playbook builder stage
+   * Used to provide site-specific instructions during knowledge/playbook building
+   * Example: "Focus on the main navigation menu and ignore promotional banners"
+   */
+  playbookBuilderPrompt?: string;
+
+  /**
+   * Custom prompt for action builder stage
+   * Used to provide site-specific instructions during action recording
+   * Example: "Prioritize form interactions and skip cookie consent dialogs"
+   */
+  actionBuilderPrompt?: string;
+
   /** Additional configuration */
   [key: string]: unknown;
 }
