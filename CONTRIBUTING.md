@@ -360,7 +360,7 @@ Please read and follow our [Code of Conduct](CODE_OF_CONDUCT.md). We are committ
 
 - **GitHub Issues** - Bug reports, feature requests, questions
 - **X (Twitter)** - Follow [@actionbookdev](https://x.com/actionbookdev) for updates
-- **Discord** - Join our community (link coming soon)
+- **Discord** - Join our community at [discord.gg/7sKKp7XQ2d](https://discord.gg/7sKKp7XQ2d)
 
 ### Getting Help
 
