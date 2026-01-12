@@ -60,6 +60,13 @@ function createPgDb(url: string): Database {
     connectionString: url,
     ssl: needsSsl ? { rejectUnauthorized: false } : false,
   });
+
+  // Add error handler to prevent unhandled error events from crashing the process
+  pool.on('error', (err) => {
+    console.error('[Database Pool Error]', err.message);
+    // Don't throw - let individual query errors be handled by their callers
+  });
+
   const db = drizzlePg(pool, { schema });
   poolMap.set(db, pool);
   return db;
@@ -72,6 +79,13 @@ function createPgDb(url: string): Database {
  */
 function createNeonDb(url: string): Database {
   const pool = new NeonPool({ connectionString: url });
+
+  // Add error handler to prevent unhandled error events from crashing the process
+  pool.on('error', (err) => {
+    console.error('[Database Pool Error]', err.message);
+    // Don't throw - let individual query errors be handled by their callers
+  });
+
   // drizzle-orm/neon-serverless with Pool returns compatible type
   const db = drizzleNeon(pool, { schema }) as unknown as Database;
   poolMap.set(db, pool);
