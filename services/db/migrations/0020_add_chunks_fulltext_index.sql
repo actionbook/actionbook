@@ -2,17 +2,17 @@
 -- This dramatically improves fulltext search performance from ~2s to ~200ms
 
 -- Full GIN index on content for fast full-text search
-CREATE INDEX CONCURRENTLY IF NOT EXISTS chunks_content_gin_idx
+CREATE INDEX IF NOT EXISTS chunks_content_gin_idx
 ON chunks
 USING gin (to_tsvector('english', content));
 
 -- Partial GIN index for active chunks only (optimization for common query pattern)
 -- This index is smaller and faster when most queries filter by active versions
-CREATE INDEX CONCURRENTLY IF NOT EXISTS chunks_content_gin_active_idx
+CREATE INDEX IF NOT EXISTS chunks_content_gin_active_idx
 ON chunks
 USING gin (to_tsvector('english', content))
 WHERE source_version_id IS NOT NULL;
 
 -- Add index on document_id for faster JOIN performance
-CREATE INDEX CONCURRENTLY IF NOT EXISTS chunks_document_id_idx
+CREATE INDEX IF NOT EXISTS chunks_document_id_idx
 ON chunks (document_id);

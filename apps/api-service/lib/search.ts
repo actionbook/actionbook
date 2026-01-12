@@ -63,6 +63,13 @@ export async function vectorSearch(
   profiler?.end('vector_prepare_query')
 
   profiler?.start('vector_db_query')
+
+  // Set HNSW search parameter for better performance
+  // ef_search controls the search quality vs speed trade-off (default: 40)
+  // Lower values = faster but less accurate, Higher values = slower but more accurate
+  const efSearch = parseInt(process.env.HNSW_EF_SEARCH || '30', 10);
+  await db.execute(sql.raw(`SET LOCAL hnsw.ef_search = ${efSearch}`));
+
   const results = await db
     .select({
       chunkId: chunks.id,
