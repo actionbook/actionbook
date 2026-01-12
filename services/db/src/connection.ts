@@ -56,15 +56,19 @@ function createPgDb(url: string): Database {
   const hasSslParam = url.includes('sslmode=');
   const needsSsl = hasSslParam || !isLocalhost;
 
+  // Connection pool settings - adjust based on environment
+  // For Serverless (Vercel/AWS Lambda), use smaller values and consider using Neon pooler
+  const isServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+
   const pool = new Pool({
     connectionString: url,
     ssl: needsSsl ? { rejectUnauthorized: false } : false,
     // Optimized connection pool settings
-    max: 20,                      // Maximum number of connections in pool
-    min: 5,                       // Minimum number of idle connections
-    idleTimeoutMillis: 30000,     // Close idle connections after 30s
-    connectionTimeoutMillis: 5000, // Timeout when acquiring connection
-    allowExitOnIdle: false,       // Don't allow Node to exit while pool has idle connections
+    max: isServerless ? 5 : 20,        // Serverless: 5, Traditional: 20
+    min: isServerless ? 0 : 2,         // Serverless: 0 (no idle), Traditional: 2
+    idleTimeoutMillis: 30000,          // Close idle connections after 30s
+    connectionTimeoutMillis: 5000,     // Timeout when acquiring connection
+    allowExitOnIdle: isServerless,     // Allow exit on idle for Serverless
   });
 
   // Add error handler to prevent unhandled error events from crashing the process

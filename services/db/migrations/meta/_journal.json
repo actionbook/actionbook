@@ -134,6 +134,20 @@
       "when": 1768011160381,
       "tag": "0018_pale_epoch",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1768615380000,
+      "tag": "0019_add_vector_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1768630380000,
+      "tag": "0020_add_chunks_fulltext_index",
+      "breakpoints": true
     }
   ]
 }
