@@ -1,0 +1,56 @@
+{
+  "name": "@actionbookdev/cli",
+  "version": "0.1.0",
+  "description": "CLI for Actionbook - Get website action manuals for AI agents",
+  "private": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "actionbook": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "test": "vitest run",
+    "lint": "eslint . --ext .ts",
+    "clean": "rimraf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@actionbookdev/sdk": "workspace:*",
+    "commander": "^12.1.0",
+    "chalk": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.6.3",
+    "vitest": "^1.6.0",
+    "rimraf": "^5.0.5"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "actionbook",
+    "cli",
+    "ai-agent",
+    "browser-automation",
+    "web-scraping",
+    "selectors"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/actionbook/actionbook.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://actionbook.dev",
+  "author": "Actionbook Team",
+  "license": "MIT"
+}
