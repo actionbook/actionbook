@@ -70,14 +70,20 @@ export async function GET(
   const { chunkIndex } = parseActionId(actionId)
 
   // Generate candidate URLs for fuzzy matching
-  const candidates = normalizeActionId(actionId.replace(/#chunk-\d+$/, ''))
+  const inputUrl = actionId.replace(/#chunk-\d+$/, '')
+  const candidates = normalizeActionId(inputUrl)
+
+  // Escape SQL ILIKE wildcards (% and _) to prevent unintended matches
+  const escapedInput = inputUrl.replace(/[%_]/g, '\\$&')
+  const likePattern = `%${escapedInput}%`
 
   try {
     const db = getDb()
 
     // Query chunks using fuzzy matching:
     // 1. Exact match on candidate URLs (highest priority)
-    // 2. ILIKE pattern match for partial URLs
+    // 2. ILIKE pattern match for partial URLs (with escaped wildcards)
+    // Order by: exact match first, then by URL length (shorter = more relevant)
     const results = await db
       .select({
         chunkId: chunks.id,
@@ -99,15 +105,17 @@ export async function GET(
           or(
             // Exact match on candidate URLs
             inArray(documents.url, candidates),
-            // ILIKE fuzzy match
-            sql`${documents.url} ILIKE ${'%' + actionId.replace(/#chunk-\d+$/, '') + '%'}`
+            // ILIKE fuzzy match with escaped wildcards
+            sql`${documents.url} ILIKE ${likePattern} ESCAPE '\\'`
           ),
           eq(documents.status, 'active'),
           eq(chunks.chunkIndex, chunkIndex),
           sql`${chunks.sourceVersionId} = ${sources.currentVersionId}`
         )
       )
-      .limit(10) // Get multiple candidates for ranking
+      // Order in SQL by URL length (shorter = better match, exact matches tend to be shorter)
+      .orderBy(sql`LENGTH(${documents.url})`)
+      .limit(10)
 
     if (results.length === 0) {
       return NextResponse.json(
@@ -122,14 +130,28 @@ export async function GET(
       )
     }
 
-    // Rank results by similarity and pick the best match
-    const inputForScoring = actionId.replace(/#chunk-\d+$/, '')
+    // Rank results by similarity and filter out zero-similarity matches
     const ranked = results
       .map((r) => ({
         ...r,
-        score: urlSimilarity(inputForScoring, r.documentUrl),
+        score: urlSimilarity(inputUrl, r.documentUrl),
       }))
+      .filter((r) => r.score > 0) // Filter out false positives from ILIKE
       .sort((a, b) => b.score - a.score)
+
+    // If no results after filtering, return 404
+    if (ranked.length === 0) {
+      return NextResponse.json(
+        {
+          error: 'NOT_FOUND',
+          code: '404',
+          message: `Action '${actionId}' not found`,
+          suggestion:
+            'The document may have been updated. Use search to find current action IDs.',
+        },
+        { status: 404 }
+      )
+    }
 
     const chunk = ranked[0]
 
