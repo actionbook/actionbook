@@ -18,16 +18,6 @@ Pre-computed action manuals for browser automation. Agents receive structured pa
 - `search_actions` - Search by keyword. Returns: URL-based action IDs, content previews, relevance scores
 - `get_action_by_id` - Get full action details. Returns: action content, page element selectors (CSS/XPath), element types, allowed methods (click, type, extract), document metadata
 
-## API
-
-```bash
-# Search
-curl "https://api.actionbook.dev/api/actions/search?q=airbnb%20search&limit=5"
-
-# Get by ID (URL-based action ID, URL-encoded)
-curl "https://api.actionbook.dev/api/actions?id=www.airbnb.com%2Fsearch"
-```
-
 ### Parameters
 
 **search_actions**:
@@ -46,35 +36,13 @@ curl "https://api.actionbook.dev/api/actions?id=www.airbnb.com%2Fsearch"
 {
   "title": "Airbnb Search",
   "url": "www.airbnb.com/search",
-  "content": "Search page for Airbnb listings...",
   "elements": [
     {
       "name": "location_input",
       "selector": "input[data-testid='structured-search-input-field-query']",
       "type": "textbox",
       "methods": ["type", "fill"]
-    },
-    {
-      "name": "search_button",
-      "selector": "button[data-testid='structured-search-input-search-button']",
-      "type": "button",
-      "methods": ["click"]
     }
   ]
 }
-```
-
-## Usage with Browser Automation
-
-```
-// 1. Search for actions
-search_actions("airbnb search") → returns action_id: "https://www.airbnb.com/search"
-
-// 2. Get action details
-get_action_by_id("https://www.airbnb.com/search") → returns selectors
-
-// 3. Use selectors in your browser automation tool
-browser.goto("www.airbnb.com")
-browser.fill("input[data-testid='structured-search-input-field-query']", "Tokyo")
-browser.click("button[data-testid='structured-search-input-search-button']")
 ```

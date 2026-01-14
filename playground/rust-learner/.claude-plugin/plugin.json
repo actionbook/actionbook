@@ -1,0 +1,7 @@
+{
+  "name": "rust-learner",
+  "description": "Learn Rust language features and crate updates using Actionbook + agent-browser.",
+  "author": {
+    "name": "Actionbook"
+  }
+}
