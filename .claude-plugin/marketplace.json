@@ -1,0 +1,29 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "actionbook-plugins",
+  "version": "1.0.0",
+  "description": "Actionbook plugins for Claude Code - Pre-computed website action manuals for browser automation",
+  "owner": {
+    "name": "Actionbook",
+    "email": "support@actionbook.dev"
+  },
+  "homepage": "https://actionbook.dev",
+  "repository": "https://github.com/actionbook/actionbook",
+  "license": "MIT",
+  "plugins": [
+    {
+      "name": "actionbook",
+      "source": ".",
+      "description": "Pre-computed website action manuals for browser automation. Get accurate selectors without parsing HTML.",
+      "version": "0.2.0",
+      "category": "browser-automation"
+    }
+  ],
+  "categories": [
+    {
+      "id": "browser-automation",
+      "name": "Browser Automation",
+      "description": "Tools for automated web browsing and scraping"
+    }
+  ]
+}
