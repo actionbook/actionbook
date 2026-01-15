@@ -9,6 +9,12 @@
       "source": "./plugins/actionbook",
       "description": "Up-to-date action manuals for browser automation. Get verified CSS/XPath selectors for any website directly into your agent context.",
       "version": "0.2.0"
+    },
+    {
+      "name": "rust-learner",
+      "source": "./playground/rust-learner",
+      "description": "Learn Rust language features and crate updates using Actionbook + agent-browser.",
+      "version": "0.1.0"
     }
   ]
 }
