@@ -4,8 +4,11 @@ Learn Rust language features and crate updates using Actionbook + agent-browser.
 
 ## Installation
 
+Add the marketplace and install the plugin:
+
 ```bash
-claude --plugin-dir /path/to/rust-learner
+claude plugin marketplace add actionbook/actionbook
+claude plugin install rust-learner@actionbook-marketplace
 ```
 
 ## ⚠️ Required Setup
