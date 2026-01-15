@@ -1,0 +1,7 @@
+{
+  "name": "actionbook",
+  "description": "Actionbook MCP server for up-to-date browser automation. Get verified CSS/XPath selectors for any website directly into your agent context.",
+  "author": {
+    "name": "Actionbook"
+  }
+}
