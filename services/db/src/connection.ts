@@ -82,9 +82,13 @@ function createPgDb(url: string): Database {
     // Optimized connection pool settings
     max: isServerless ? 5 : 20,        // Serverless: 5, Traditional: 20
     min: isServerless ? 0 : 2,         // Serverless: 0 (no idle), Traditional: 2
-    idleTimeoutMillis: 30000,          // Close idle connections after 30s
-    connectionTimeoutMillis: 5000,     // Timeout when acquiring connection
+    idleTimeoutMillis: 60000,          // Close idle connections after 60s (increased for remote DB)
+    connectionTimeoutMillis: 20000,    // Timeout when acquiring connection (increased to 20s for remote DB)
     allowExitOnIdle: isServerless,     // Allow exit on idle for Serverless
+    // Additional settings for remote connections (e.g., Neon)
+    keepAlive: true,                   // Enable TCP keepalive
+    keepAliveInitialDelayMillis: 10000, // Start keepalive after 10s
+    statement_timeout: 60000,          // Query timeout: 60s
   });
 
   // Add error handler to prevent unhandled error events from crashing the process

@@ -45,6 +45,9 @@ export class Coordinator {
   private metricsTimer?: NodeJS.Timeout;
   private lastMetricsTime = Date.now();
   private metricsIntervalMs = 30000; // 30 seconds
+  // Error tracking for exponential backoff
+  private consecutiveErrors = 0;
+  private maxBackoffMs = 30000; // Max 30 seconds backoff
 
   constructor(db: Database, config: CoordinatorConfig = {}) {
     this.db = db;
@@ -147,11 +150,27 @@ export class Coordinator {
           this.startBuildTaskRunner(buildTask.id);
         }
 
+        // Reset error counter on successful iteration
+        this.consecutiveErrors = 0;
+
         // 3. Wait before continuing
         await this.sleep(this.config.buildTaskPollIntervalSeconds * 1000);
       } catch (error) {
-        console.error('[Coordinator] Main loop error:', error);
-        await this.sleep(1000);
+        this.consecutiveErrors++;
+
+        // Exponential backoff: 2^n seconds, capped at maxBackoffMs
+        const backoffMs = Math.min(
+          Math.pow(2, this.consecutiveErrors) * 1000,
+          this.maxBackoffMs
+        );
+
+        console.error(
+          `[Coordinator] Main loop error (${this.consecutiveErrors} consecutive):`,
+          error instanceof Error ? error.message : error
+        );
+        console.log(`[Coordinator] Backing off for ${backoffMs / 1000}s before retry...`);
+
+        await this.sleep(backoffMs);
       }
     }
   }
@@ -200,7 +219,23 @@ export class Coordinator {
       // If this was a stale recovery, it will be in action_build/running already; BuildTaskRunner will re-upsert tasks idempotently.
       return { id };
     } catch (error) {
-      console.error('[Coordinator] Failed to claim build_task:', error);
+      // Check if it's a connection error
+      const isConnectionError =
+        error instanceof Error && (
+          error.message.includes('Connection terminated') ||
+          error.message.includes('connection timeout') ||
+          error.message.includes('ECONNREFUSED') ||
+          error.message.includes('ETIMEDOUT')
+        );
+
+      if (isConnectionError) {
+        console.error(
+          '[Coordinator] Database connection error when claiming build_task:',
+          error instanceof Error ? error.message : error
+        );
+      } else {
+        console.error('[Coordinator] Failed to claim build_task:', error);
+      }
       return null;
     }
   }
