@@ -1,13 +1,6 @@
 packages:
   - packages/*
-  - apps/*
   - playground/*
+  - eval
   - services/*
   - services/*/*
-  - eval
-
-onlyBuiltDependencies:
-  - bufferutil
-  - esbuild
-  - sharp
-  - unrs-resolver
