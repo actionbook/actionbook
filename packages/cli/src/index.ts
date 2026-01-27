@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path'
 import { searchCommand } from './commands/search.js'
 import { getCommand } from './commands/get.js'
 import { sourcesCommand } from './commands/sources.js'
+import { browserCommand } from './commands/browser.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'))
@@ -22,5 +23,6 @@ program
 program.addCommand(searchCommand)
 program.addCommand(getCommand)
 program.addCommand(sourcesCommand)
+program.addCommand(browserCommand)
 
 program.parse()
