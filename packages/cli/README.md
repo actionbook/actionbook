@@ -22,6 +22,10 @@ actionbook sources
 
 # Search sources
 actionbook sources search "linkedin"
+
+# Browser automation (requires agent-browser)
+actionbook browser open example.com
+actionbook browser snapshot -i
 ```
 
 ## Commands
@@ -89,6 +93,57 @@ actionbook sources search "e-commerce" --limit 20
 
 **Alias:** `actionbook sources s`
 
+### `actionbook browser [command]`
+
+Execute browser automation commands. This command forwards all arguments to `agent-browser` CLI.
+
+```bash
+# Open a website
+actionbook browser open example.com
+
+# Take interactive snapshot
+actionbook browser snapshot -i
+
+# Click element by reference
+actionbook browser click @e1
+
+# Fill input field
+actionbook browser fill @e3 "test@example.com"
+
+# Check current session
+actionbook browser session
+
+# Close browser
+actionbook browser close
+```
+
+**Prerequisites:**
+
+Install `agent-browser` globally:
+
+```bash
+npm install -g agent-browser
+```
+
+**Common Commands:**
+- `open <url>` - Navigate to URL
+- `snapshot -i` - Get interactive elements with references
+- `click <selector>` - Click element (or @ref)
+- `fill <selector> <text>` - Fill input field
+- `type <selector> <text>` - Type into element
+- `wait <selector|ms>` - Wait for element or time
+- `screenshot [path]` - Take screenshot
+- `close` - Close browser
+
+**For full command list:**
+
+```bash
+actionbook browser --help
+actionbook browser  # Shows full agent-browser help
+```
+
+**Learn more:** [agent-browser on GitHub](https://github.com/vercel-labs/agent-browser)
+
 ## Authentication
 
 Set your API key via environment variable:
@@ -142,6 +197,20 @@ actionbook search "login" --source-ids 1,2
 ```bash
 # Get action and extract selectors
 actionbook get "booking.com" --json | jq '.elements'
+```
+
+### Browser Automation Workflow
+
+```bash
+# 1. Get action details with verified selectors
+actionbook get "github.com/login"
+
+# 2. Use browser command to automate
+actionbook browser open "https://github.com/login"
+actionbook browser snapshot -i
+actionbook browser fill @e1 "username"
+actionbook browser fill @e2 "password"
+actionbook browser click @e3
 ```
 
 ## Related Packages
