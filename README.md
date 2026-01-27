@@ -6,9 +6,9 @@
 
 **The Action Playbook for Agents**
 <br />
-Make your agents act 10× faster with 100× token savings.
+Actionbook provides up-to-date action manuals and DOM structure,
 <br />
-Powered by up-to-date action manuals and DOM structure.
+so your agent operates any website instantly without guessing.
 
 [Website](https://actionbook.dev) · [GitHub](https://github.com/actionbook/actionbook) · [X](https://x.com/ActionbookHQ) · [Discord](https://discord.gg/7sKKp7XQ2d)
 
