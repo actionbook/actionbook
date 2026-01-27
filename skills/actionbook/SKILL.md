@@ -24,17 +24,55 @@ Action manuals include:
 
 ## How to Use
 
-### Step 1: Search for Action Manuals
+Actionbook can be used in two ways: via MCP (for AI agents) or via CLI (for command line usage).
 
-Call `search_actions` with a task description:
+### Method A: Using MCP (for AI Agents)
 
-- `query`: "linkedin send message", "airbnb book listing", "twitter post tweet"
+**Step 1: Search for Action Manuals**
 
-### Step 2: Get the Full Manual
+Call the MCP tool `search_actions` with a task description:
 
-Call `get_action_by_id` with the action ID from search results.
+```typescript
+// MCP tool call
+search_actions({
+  query: "linkedin send message"  // or "airbnb book listing", "twitter post tweet"
+})
+```
 
-### Step 3: Execute the Steps
+**Step 2: Get the Full Manual**
+
+Call the MCP tool `get_action_by_id` with the action ID from search results:
+
+```typescript
+// MCP tool call
+get_action_by_id({
+  actionId: "site/linkedin.com/page/profile/element/message-button"
+})
+```
+
+### Method B: Using CLI (for Command Line)
+
+**Step 1: Search for Action Manuals**
+
+Use the `actionbook search` command:
+
+```bash
+# CLI command
+actionbook search "linkedin send message"
+actionbook search "airbnb book listing"
+actionbook search "twitter post tweet"
+```
+
+**Step 2: Get the Full Manual**
+
+Use the `actionbook get` command with the action ID:
+
+```bash
+# CLI command
+actionbook get "site/linkedin.com/page/profile/element/message-button"
+```
+
+### Step 3: Execute the Steps (Both Methods)
 
 Follow the manual steps in order, using the provided selectors.
 
@@ -51,6 +89,9 @@ actionbook browser click 'button[aria-label="Message"]'
 # Fill message and submit
 actionbook browser fill 'div[role="textbox"]' 'Hello!'
 actionbook browser click 'button[type="submit"]'
+
+# Use following command to get more help
+actionbook browser
 ```
 
 **Option B: Using Playwright/Puppeteer**
