@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { readFileSync } from 'node:fs'
 import chalk from 'chalk'
 
 /**
@@ -119,6 +120,24 @@ export function showAgentBrowserInstallation(): void {
 }
 
 /**
+ * Get playwright-core version from agent-browser's package.json
+ * Returns version string like "1.57.0" (without ^ or ~ prefix)
+ */
+function getAgentBrowserPlaywrightVersion(cliPackageRoot: string): string {
+  try {
+    const agentBrowserPkgPath = join(cliPackageRoot, 'node_modules', 'agent-browser', 'package.json')
+    const pkgContent = readFileSync(agentBrowserPkgPath, 'utf-8')
+    const pkg = JSON.parse(pkgContent)
+    const playwrightCoreVersion = pkg.dependencies?.['playwright-core'] || ''
+    // Remove ^ ~ or other semver prefixes
+    return playwrightCoreVersion.replace(/^[\^~]/, '')
+  } catch (error) {
+    console.warn(chalk.yellow('Warning: Could not read agent-browser version, using latest playwright'))
+    return 'latest'
+  }
+}
+
+/**
  * Install Chromium browser binaries for agent-browser
  * @param installArgs - Additional arguments like ['--with-deps'] for Linux
  */
@@ -130,8 +149,9 @@ export async function installAgentBrowser(installArgs: string[] = []): Promise<n
   const __dirname = dirname(fileURLToPath(import.meta.url))
   const cliPackageRoot = join(__dirname, '..', '..')
 
-  // Use npx playwright install chromium (the official way)
-  const playwrightArgs = ['playwright', 'install', 'chromium']
+  // Dynamically get playwright version from agent-browser to ensure binary compatibility
+  const playwrightVersion = getAgentBrowserPlaywrightVersion(cliPackageRoot)
+  const playwrightArgs = [`playwright@${playwrightVersion}`, 'install', 'chromium']
 
   // Add --with-deps if requested (Linux only)
   if (installArgs.includes('--with-deps')) {
