@@ -24,9 +24,31 @@ Action manuals include:
 
 ## How to Use
 
-Actionbook can be used in two ways: via MCP (for AI agents) or via CLI (for command line usage).
+Actionbook can be used in two ways: via CLI (Recommended) or via MCP.
 
-### Method A: Using MCP (for AI Agents)
+### Method A: Using CLI (Recommended)
+
+**Step 1: Search for Action Manuals**
+
+Use the `actionbook search` command:
+
+```bash
+actionbook search "linkedin send message"
+actionbook search "airbnb book listing"
+actionbook search "twitter post tweet"
+```
+
+**Step 2: Get the Full Manual**
+
+Use the `actionbook get` command with the action ID:
+
+```bash
+actionbook get "site/linkedin.com/page/profile/element/message-button"
+```
+
+### Method B: Using MCP (Alternative)
+
+If you have the Actionbook MCP server configured, you can also use MCP tools.
 
 **Step 1: Search for Action Manuals**
 
@@ -35,7 +57,7 @@ Call the MCP tool `search_actions` with a task description:
 ```typescript
 // MCP tool call
 search_actions({
-  query: "linkedin send message"  // or "airbnb book listing", "twitter post tweet"
+  query: "linkedin send message"
 })
 ```
 
@@ -50,29 +72,7 @@ get_action_by_id({
 })
 ```
 
-### Method B: Using CLI (for Command Line)
-
-**Step 1: Search for Action Manuals**
-
-Use the `actionbook search` command:
-
-```bash
-# CLI command
-actionbook search "linkedin send message"
-actionbook search "airbnb book listing"
-actionbook search "twitter post tweet"
-```
-
-**Step 2: Get the Full Manual**
-
-Use the `actionbook get` command with the action ID:
-
-```bash
-# CLI command
-actionbook get "site/linkedin.com/page/profile/element/message-button"
-```
-
-### Step 3: Execute the Steps (Both Methods)
+### Step 3: Execute the Steps
 
 Follow the manual steps in order, using the provided selectors.
 

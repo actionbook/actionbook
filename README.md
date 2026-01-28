@@ -6,9 +6,9 @@
 
 **The Action Playbook for Agents**
 <br />
-Make your agents act 10× faster with 100× token savings.
+Actionbook provides up-to-date action manuals and DOM structure,
 <br />
-Powered by up-to-date action manuals and DOM structure.
+so your agent operates any website instantly without guessing.
 
 [Website](https://actionbook.dev) · [GitHub](https://github.com/actionbook/actionbook) · [X](https://x.com/ActionbookHQ) · [Discord](https://discord.gg/7sKKp7XQ2d)
 
@@ -48,65 +48,48 @@ Actionbook places up-to-date action manuals with the relevant DOM selectors dire
 
 See how Actionbook enables an agent to complete an Airbnb search task 10x faster.
 
-https://github.com/user-attachments/assets/c621373e-98e7-451a-bf5c-6adbea23e3b8
+https://github.com/user-attachments/assets/9f896fe7-296a-44b3-8592-931a099612de
 
 ## Quick Start
 
 Get started with Actionbook in under 2 minutes:
 
-**Option 1: Install via MCP (for AI IDEs)**
-
-For Cursor users:
-```json
-{
-  "mcpServers": {
-    "actionbook": {
-      "command": "npx",
-      "args": ["-y", "@actionbookdev/mcp@latest"]
-    }
-  }
-}
-```
-
-For Claude Code users:
-```bash
-claude mcp add actionbook -- npx -y @actionbookdev/mcp@latest
-```
-
-Then in your AI IDE, ask:
-```
-"Search for LinkedIn login actions"
-"Get action details for airbnb search button"
-```
-
-**Option 2: Install the JavaScript SDK**
+**Step 1: Install the CLI**
 
 ```bash
-npm install @actionbookdev/sdk
+npm install -g @actionbookdev/cli
+
+# Install browser (Chromium) for automation
+actionbook browser install
 ```
 
-```typescript
-import { Actionbook } from '@actionbookdev/sdk'
+**Step 2: Use with any AI Agent**
 
-const actionbook = new Actionbook()
+When working with any AI coding assistant (Claude Code, Cursor, etc.), add this to your prompt:
 
-// Search for actions
-const results = await actionbook.searchActions('airbnb search')
-console.log(`Found ${results.length} actions`)
+```
+Use Actionbook to understand and operate the web page.
+```
 
-// Get action details
-const action = await actionbook.getActionById(results[0].id)
-console.log('Selectors:', action.selectors)
+The agent will automatically use the CLI to fetch action manuals and execute browser operations.
+
+**Step 3 (Optional): Add the Skill**
+
+For enhanced agent integration, add the Actionbook skill:
+
+```bash
+npx skills add actionbook/actionbook
 ```
 
 ## Installation
 
-Actionbook provides two integration methods:
+Actionbook provides three integration methods:
 
 | Method | Best For | Installation Time |
 |--------|----------|-------------------|
+| **CLI (Recommended)** | AI agents, browser automation, command line | < 1 minute |
 | **MCP Server** | AI IDEs (Cursor, Claude Code, VS Code) | < 1 minute |
-| **JavaScript SDK** | Custom agents, browser automation, testing | < 2 minutes |
+| **JavaScript SDK** | Custom agents, programmatic integration | < 2 minutes |
 
 ### Prerequisites
 
@@ -120,9 +103,37 @@ Before installing, make sure you have:
 
 ---
 
-### Option 1: MCP Server
+### Option 1: CLI (Recommended)
 
-Use this option if you're working with an MCP-compatible client.
+Install the CLI globally to use Actionbook from the command line or with any AI agent.
+
+```bash
+npm install -g @actionbookdev/cli
+
+# Install browser (Chromium) for automation
+actionbook browser install
+```
+
+**Basic Commands:**
+
+```bash
+# Search for action manuals
+actionbook search "airbnb search"
+
+# Get action details by ID
+actionbook get "site/airbnb.com/page/home/element/search-button"
+
+# Browser automation
+actionbook browser open airbnb.com
+actionbook browser click '[data-testid="search-button"]'
+actionbook browser fill 'input[name="location"]' 'Tokyo'
+```
+
+---
+
+### Option 2: MCP Server
+
+Use this option if you're working with an MCP-compatible AI IDE.
 
 <details>
 <summary><b>Cursor</b></summary>
@@ -414,7 +425,7 @@ Add this to your `~/.gemini/settings.json` file:
 
 ---
 
-### Option 2: JavaScript SDK
+### Option 3: JavaScript SDK
 
 Use this option to integrate Actionbook directly into your custom AI agents built with any LLM framework.
 
@@ -649,87 +660,16 @@ await agent.execute('Search for Airbnb booking actions and get the action manual
 
 ---
 
-## Usage Examples
+## Examples
 
-### Playwright Automation
+Explore real-world examples in the [playground](./playground) directory:
 
-Here's a simple example using Actionbook with Playwright to automate a web task:
-
-```typescript
-import { Actionbook } from '@actionbookdev/sdk'
-import { chromium } from 'playwright'
-
-async function automateAirbnbSearch() {
-  const actionbook = new Actionbook()
-  const browser = await chromium.launch({ headless: false })
-  const page = await browser.newPage()
-
-  // Navigate to Airbnb
-  await page.goto('https://www.airbnb.com')
-
-  // Step 1: Get the location input action from Actionbook
-  const locationResults = await actionbook.searchActions('airbnb location input')
-  const locationAction = await actionbook.getActionById(locationResults[0].id)
-
-  console.log('Found location input:', locationAction.name)
-  console.log('Using selector:', locationAction.selectors.css)
-
-  // Step 2: Fill the location input
-  await page.fill(locationAction.selectors.css, 'Tokyo, Japan')
-
-  // Step 3: Get the search button action from Actionbook
-  const buttonResults = await actionbook.searchActions('airbnb search button')
-  const buttonAction = await actionbook.getActionById(buttonResults[0].id)
-
-  console.log('Found search button:', buttonAction.name)
-  console.log('Using selector:', buttonAction.selectors.css)
-
-  // Step 4: Click the search button
-  await page.click(buttonAction.selectors.css)
-
-  // Wait to see the results
-  await page.waitForURL(/.*homes.*/)
-  console.log('Search completed! URL:', page.url())
-
-  await browser.close()
-}
-
-automateAirbnbSearch()
-```
-
-### Using Actionbook for E2E Testing
-
-Make your tests more resilient by using Actionbook's up-to-date selectors:
-
-```typescript
-import { test, expect } from '@playwright/test'
-import { Actionbook } from '@actionbookdev/sdk'
-
-const actionbook = new Actionbook()
-
-test('search for a location on Airbnb', async ({ page }) => {
-  await page.goto('https://www.airbnb.com')
-
-  // Get action info from Actionbook instead of hardcoding selectors
-  const locationAction = await actionbook.searchActions('airbnb location input')
-    .then(results => actionbook.getActionById(results[0].id))
-
-  const buttonAction = await actionbook.searchActions('airbnb search button')
-    .then(results => actionbook.getActionById(results[0].id))
-
-  // Use selectors from Actionbook
-  await page.fill(locationAction.selectors.css, 'Paris, France')
-  await page.click(buttonAction.selectors.css)
-
-  // Verify the search worked
-  await expect(page).toHaveURL(/.*homes.*/)
-})
-```
-
-**Benefits:**
-- ✅ No hardcoded selectors that break when UI changes
-- ✅ Selectors are maintained and updated by Actionbook
-- ✅ Tests are more resilient and require less maintenance
+- [**stagehand-agent**](./playground/stagehand-agent) - Browser automation agent using Stagehand + AI SDK + Actionbook
+- [**generate-scraper-script**](./playground/generate-scraper-script) - Generate accurate web scraper code with Claude Code
+- [**actionbook-scraper**](./playground/actionbook-scraper) - Web scraper plugin using verified Actionbook selectors
+- [**arxiv-viewer**](./playground/arxiv-viewer) - Access and read academic papers from arXiv
+- [**rust-learner**](./playground/rust-learner) - Learn Rust language features and crate updates
+- [**lib-rs-scraper**](./playground/lib-rs-scraper) - Scrape Rust crate information from lib.rs
 
 ## Available Tools
 
