@@ -231,8 +231,9 @@ export const Abstract: React.FC<AbstractProps> = ({
     }
     let highlightedText = displayText;
     highlights.forEach((h) => {
+      const escaped = h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       highlightedText = highlightedText.replace(
-        new RegExp(`(${h})`, 'gi'),
+        new RegExp(`(${escaped})`, 'gi'),
         '<mark style="background:#fef08a;padding:0 2px">$1</mark>'
       );
     });

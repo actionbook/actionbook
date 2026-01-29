@@ -777,15 +777,17 @@ function renderNode(node: ReportJSON): string {
         let zhText = escapeHtml(props.text.zh);
         const highlights = (props.highlights as string[]) || [];
         highlights.forEach(h => {
-          enText = enText.replace(new RegExp(`(${h})`, 'gi'), '<mark>$1</mark>');
-          zhText = zhText.replace(new RegExp(`(${h})`, 'gi'), '<mark>$1</mark>');
+          const escaped = h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          enText = enText.replace(new RegExp(`(${escaped})`, 'gi'), '<mark>$1</mark>');
+          zhText = zhText.replace(new RegExp(`(${escaped})`, 'gi'), '<mark>$1</mark>');
         });
         return `<p class="abstract"><span class="i18n-en">${enText}</span><span class="i18n-zh">${zhText}</span></p>`;
       }
       let text = escapeHtml(String(props.text));
       const highlights = (props.highlights as string[]) || [];
       highlights.forEach(h => {
-        text = text.replace(new RegExp(`(${h})`, 'gi'), '<mark>$1</mark>');
+        const escaped = h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        text = text.replace(new RegExp(`(${escaped})`, 'gi'), '<mark>$1</mark>');
       });
       return `<p class="abstract">${text}</p>`;
     }

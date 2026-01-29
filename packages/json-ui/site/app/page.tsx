@@ -18,7 +18,11 @@ async function getReports(): Promise<ReportMeta[]> {
 export default async function HomePage() {
   const reports = await getReports();
 
-  const grouped = Object.groupBy(reports, (r) => r.category || 'ai');
+  const grouped: Record<string, ReportMeta[]> = {};
+  for (const r of reports) {
+    const key = r.category || 'ai';
+    (grouped[key] ??= []).push(r);
+  }
 
   return (
     <div className="home-page">

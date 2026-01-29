@@ -159,7 +159,8 @@ function Abstract({ props: p }: { props: any }) {
   function processText(raw: string): string {
     let text = p.maxLength && raw.length > p.maxLength ? raw.slice(0, p.maxLength) + '...' : raw;
     (p.highlights || []).forEach((h: string) => {
-      text = text.replace(new RegExp(`(${h})`, 'gi'), '<mark>$1</mark>');
+      const escaped = h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      text = text.replace(new RegExp(`(${escaped})`, 'gi'), '<mark>$1</mark>');
     });
     return text;
   }
