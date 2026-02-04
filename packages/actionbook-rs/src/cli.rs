@@ -44,32 +44,32 @@ pub enum Commands {
         command: BrowserCommands,
     },
 
-    /// Search for actions
+    /// Search for action manuals by keyword
     Search {
-        /// Search query
+        /// Search keyword (e.g., "airbnb search", "google login")
         query: String,
 
-        /// Search type
-        #[arg(short = 't', long, value_parser = ["vector", "fulltext", "hybrid"])]
-        r#type: Option<String>,
+        /// Filter by domain (e.g., "airbnb.com")
+        #[arg(short, long)]
+        domain: Option<String>,
 
-        /// Maximum results (1-100)
-        #[arg(short, long, default_value = "10")]
-        limit: u32,
+        /// Filter by URL
+        #[arg(short, long)]
+        url: Option<String>,
 
-        /// Filter by source IDs (comma-separated)
-        #[arg(short = 's', long)]
-        source_ids: Option<String>,
+        /// Page number
+        #[arg(short, long, default_value = "1")]
+        page: u32,
 
-        /// Minimum relevance score (0.0-1.0)
-        #[arg(long)]
-        min_score: Option<f64>,
+        /// Results per page (1-100)
+        #[arg(short = 's', long, default_value = "10")]
+        page_size: u32,
     },
 
-    /// Get action details by ID
+    /// Get complete action details by area ID
     Get {
-        /// Action ID
-        id: String,
+        /// Area ID (e.g., "airbnb.com:/:default")
+        area_id: String,
     },
 
     /// List or search sources
@@ -372,22 +372,22 @@ impl Cli {
             Commands::Browser { command } => commands::browser::run(self, command).await,
             Commands::Search {
                 query,
-                r#type,
-                limit,
-                source_ids,
-                min_score,
+                domain,
+                url,
+                page,
+                page_size,
             } => {
                 commands::search::run(
                     self,
                     query,
-                    r#type.as_deref(),
-                    *limit,
-                    source_ids.as_deref(),
-                    *min_score,
+                    domain.as_deref(),
+                    url.as_deref(),
+                    *page,
+                    *page_size,
                 )
                 .await
             }
-            Commands::Get { id } => commands::get::run(self, id).await,
+            Commands::Get { area_id } => commands::get::run(self, area_id).await,
             Commands::Sources { command } => commands::sources::run(self, command).await,
             Commands::Config { command } => commands::config::run(self, command).await,
             Commands::Profile { command } => commands::profile::run(self, command).await,

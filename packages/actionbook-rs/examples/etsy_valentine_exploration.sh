@@ -24,7 +24,7 @@ echo -e "${BLUE}=== Etsy Valentine's Day Exploration ===${NC}\n"
 # -----------------------------------------------------------------------------
 echo -e "${YELLOW}Step 1: Searching for Etsy actions in Actionbook...${NC}"
 
-actionbook search "etsy" --limit 5
+actionbook search "etsy" --page-size 5
 
 echo -e "\n${GREEN}Found Etsy actions in the database.${NC}\n"
 
@@ -33,17 +33,18 @@ echo -e "\n${GREEN}Found Etsy actions in the database.${NC}\n"
 # -----------------------------------------------------------------------------
 echo -e "${YELLOW}Step 2: Searching for Valentine's Day content...${NC}"
 
-actionbook search "valentine" --limit 5
+actionbook search "valentine" --domain etsy.com --page-size 5
 
 echo -e "\n${GREEN}Found Valentine's Day related actions.${NC}\n"
 
 # -----------------------------------------------------------------------------
-# Step 3: Get detailed action for Target Valentine's page
+# Step 3: Get detailed action by area ID
 # -----------------------------------------------------------------------------
-echo -e "${YELLOW}Step 3: Getting detailed Target Valentine's page action...${NC}"
+echo -e "${YELLOW}Step 3: Getting detailed action by area ID...${NC}"
 
+# Area ID format: site:path:area
 # This returns element selectors, XPath, and interaction methods
-actionbook get "https://www.target.com/c/{category}/-/N-{category_id}Z{filters}?type=products"
+actionbook get "etsy.com:/:default"
 
 echo -e "\n${GREEN}Retrieved detailed action with selectors.${NC}\n"
 

@@ -150,17 +150,21 @@ The release binary is ~7.8 MB (with LTO and strip enabled).
 
 ```bash
 # Search for Etsy-related actions
-actionbook search "etsy" --limit 5
+actionbook search "etsy"
 
-# Search with type filter
-actionbook search "valentine" --type hybrid --limit 10
+# Search with domain filter
+actionbook search "valentine" --domain etsy.com
+
+# Paginated results
+actionbook search "login" --page 1 --page-size 5
 ```
 
 ### 2. Get Action Details
 
 ```bash
-# Get full action details by ID (URL-based ID)
-actionbook get "https://www.etsy.com/your/shops/me/listing-editor/create"
+# Get full action details by area ID
+# Area ID format: site:path:area (e.g., "airbnb.com:/:default")
+actionbook get "etsy.com:/:search_form"
 ```
 
 ### 3. Browser Automation
@@ -273,20 +277,26 @@ CLI args > Environment variables > Config file > Auto-discovery
 actionbook search <QUERY> [OPTIONS]
 
 Options:
-  --type <TYPE>         Search type: vector, fulltext, hybrid [default: hybrid]
-  --limit <N>           Max results [default: 10]
-  --source-ids <IDS>    Filter by source IDs (comma-separated)
-  --min-score <SCORE>   Minimum relevance score (0.0-1.0)
+  -d, --domain <DOMAIN>     Filter by domain (e.g., "airbnb.com")
+  -u, --url <URL>           Filter by specific URL
+  -p, --page <N>            Page number [default: 1]
+  -s, --page-size <N>       Results per page (1-100) [default: 10]
 ```
 
-### `get` - Get Action by ID
+Output: Plain text with area_id list for next step.
+
+### `get` - Get Action by Area ID
 
 ```bash
-actionbook get <ID>
+actionbook get <AREA_ID>
 
-# ID is typically a URL, e.g.:
-actionbook get "https://www.target.com/c/valentine-s-gifts"
+# Area ID format: site:path:area
+# Examples:
+actionbook get "airbnb.com:/:default"
+actionbook get "etsy.com:/search:search_results"
 ```
+
+Output: Plain text with element selectors and methods.
 
 ### `sources` - Manage Sources
 

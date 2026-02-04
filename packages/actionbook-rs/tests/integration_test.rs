@@ -320,7 +320,7 @@ mod cli_integration {
         // This test just verifies the CLI runs without crashing
         // It may fail with API error if network unavailable, which is OK
         let result = actionbook()
-            .args(["search", "airbnb", "--limit", "1"])
+            .args(["search", "airbnb", "--page-size", "1"])
             .timeout(std::time::Duration::from_secs(15))
             .assert();
 
@@ -330,22 +330,24 @@ mod cli_integration {
     }
 
     #[test]
-    fn cli_search_json_output() {
+    fn cli_search_text_output() {
+        // New text-based API returns plain text
         let result = actionbook()
-            .args(["search", "airbnb", "--limit", "1", "--json"])
+            .args(["search", "airbnb", "--page-size", "1"])
             .timeout(std::time::Duration::from_secs(15))
             .output();
 
         match result {
             Ok(output) => {
                 if output.status.success() {
-                    // If successful, output should be valid JSON array
+                    // Output should be plain text containing area_id hint
                     let stdout = String::from_utf8_lossy(&output.stdout);
-                    if !stdout.is_empty() {
-                        // Verify it's valid JSON
-                        let parsed: Result<serde_json::Value, _> = serde_json::from_str(&stdout);
-                        assert!(parsed.is_ok(), "Output should be valid JSON: {}", stdout);
-                    }
+                    // Verify it contains expected text
+                    assert!(
+                        stdout.contains("Next step") || stdout.contains("area_id") || stdout.is_empty(),
+                        "Output should contain guidance or be empty: {}",
+                        stdout
+                    );
                 }
             }
             Err(_) => {

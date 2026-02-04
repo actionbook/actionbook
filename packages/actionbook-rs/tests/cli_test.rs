@@ -52,26 +52,24 @@ mod search_command {
             .args(["search", "--help"])
             .assert()
             .success()
-            .stdout(predicate::str::contains("--type"))
-            .stdout(predicate::str::contains("--limit"))
-            .stdout(predicate::str::contains("--source-ids"))
-            .stdout(predicate::str::contains("--min-score"));
+            .stdout(predicate::str::contains("--domain"))
+            .stdout(predicate::str::contains("--url"))
+            .stdout(predicate::str::contains("--page"))
+            .stdout(predicate::str::contains("--page-size"));
     }
 
     #[test]
-    fn search_accepts_type_flag() {
+    fn search_accepts_domain_flag() {
         // Just check that the flag is accepted (API call may fail)
         actionbook()
             .args(["search", "--help"])
             .assert()
             .success()
-            .stdout(predicate::str::contains("vector"))
-            .stdout(predicate::str::contains("fulltext"))
-            .stdout(predicate::str::contains("hybrid"));
+            .stdout(predicate::str::contains("airbnb.com"));
     }
 
     #[test]
-    fn search_limit_has_default() {
+    fn search_page_size_has_default() {
         actionbook()
             .args(["search", "--help"])
             .assert()
@@ -84,12 +82,12 @@ mod get_command {
     use super::*;
 
     #[test]
-    fn get_requires_id() {
+    fn get_requires_area_id() {
         actionbook()
             .arg("get")
             .assert()
             .failure()
-            .stderr(predicate::str::contains("ID"));
+            .stderr(predicate::str::contains("AREA_ID"));
     }
 
     #[test]
@@ -98,7 +96,7 @@ mod get_command {
             .args(["get", "--help"])
             .assert()
             .success()
-            .stdout(predicate::str::contains("Action ID"));
+            .stdout(predicate::str::contains("Area ID"));
     }
 }
 
