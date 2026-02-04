@@ -22,6 +22,7 @@ export function createSearchActionsTool(
       return apiClient.searchActions({
         query: input.query,
         domain: input.domain,
+        background: input.background,
         url: input.url,
         page: input.page,
         page_size: input.page_size,
