@@ -1,0 +1,180 @@
+name: Release CLI
+
+on:
+  push:
+    tags:
+      - "actionbook-rs-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            npm-suffix: darwin-arm64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            npm-suffix: darwin-x64
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            npm-suffix: linux-x64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            npm-suffix: linux-arm64
+            use-cross: true
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            npm-suffix: win32-x64
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            npm-suffix: win32-arm64
+
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: packages/actionbook-rs
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (Linux ARM64)
+        if: matrix.use-cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build (cross)
+        if: matrix.use-cross
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Build (native)
+        if: ${{ !matrix.use-cross }}
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Determine binary name
+        id: binary
+        shell: bash
+        run: |
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            echo "name=actionbook.exe" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=actionbook" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: actionbook-${{ matrix.npm-suffix }}
+          path: packages/actionbook-rs/target/${{ matrix.target }}/release/${{ steps.binary.outputs.name }}
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#actionbook-rs-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare platform packages
+        run: |
+          NPM_DIR="packages/actionbook-rs/npm"
+
+          # Map artifact directories to platform packages
+          declare -A PLATFORM_MAP=(
+            ["darwin-arm64"]="darwin-arm64"
+            ["darwin-x64"]="darwin-x64"
+            ["linux-x64"]="linux-x64"
+            ["linux-arm64"]="linux-arm64"
+            ["win32-x64"]="win32-x64"
+            ["win32-arm64"]="win32-arm64"
+          )
+
+          for suffix in "${!PLATFORM_MAP[@]}"; do
+            artifact_dir="artifacts/actionbook-${suffix}"
+            pkg_dir="${NPM_DIR}/@actionbookdev/actionbook-rs-${suffix}"
+
+            if [[ "$suffix" == win32-* ]]; then
+              bin_name="actionbook.exe"
+            else
+              bin_name="actionbook"
+            fi
+
+            # Remove .gitkeep
+            rm -f "${pkg_dir}/bin/.gitkeep"
+
+            # Copy binary
+            cp "${artifact_dir}/${bin_name}" "${pkg_dir}/bin/${bin_name}"
+            chmod +x "${pkg_dir}/bin/${bin_name}"
+
+            echo "Prepared $suffix: $(ls -la "${pkg_dir}/bin/")"
+          done
+
+      - name: Update versions
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          NPM_DIR="packages/actionbook-rs/npm"
+
+          # Update main wrapper package
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('${NPM_DIR}/actionbook-rs/package.json', 'utf8'));
+            pkg.version = '${VERSION}';
+            if (pkg.optionalDependencies) {
+              for (const key of Object.keys(pkg.optionalDependencies)) {
+                pkg.optionalDependencies[key] = '${VERSION}';
+              }
+            }
+            fs.writeFileSync('${NPM_DIR}/actionbook-rs/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+          # Update platform packages
+          for suffix in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64 win32-arm64; do
+            node -e "
+              const fs = require('fs');
+              const f = '${NPM_DIR}/@actionbookdev/actionbook-rs-${suffix}/package.json';
+              const pkg = JSON.parse(fs.readFileSync(f, 'utf8'));
+              pkg.version = '${VERSION}';
+              fs.writeFileSync(f, JSON.stringify(pkg, null, 2) + '\n');
+            "
+          done
+
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          NPM_DIR="packages/actionbook-rs/npm"
+
+          for suffix in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64 win32-arm64; do
+            echo "Publishing @actionbookdev/actionbook-rs-${suffix}..."
+            (cd "${NPM_DIR}/@actionbookdev/actionbook-rs-${suffix}" && npm publish --access public)
+          done
+
+      - name: Publish main wrapper package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          NPM_DIR="packages/actionbook-rs/npm"
+          echo "Publishing @actionbookdev/actionbook-rs..."
+          (cd "${NPM_DIR}/actionbook-rs" && npm publish --access public)

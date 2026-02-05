@@ -1,0 +1,15 @@
+{
+  "name": "@actionbookdev/actionbook-rs-darwin-arm64",
+  "version": "0.1.0",
+  "description": "Actionbook CLI binary for macOS ARM64",
+  "os": ["darwin"],
+  "cpu": ["arm64"],
+  "files": ["bin/actionbook"],
+  "publishConfig": { "access": "public" },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/actionbook/actionbook.git",
+    "directory": "packages/actionbook-rs"
+  }
+}
