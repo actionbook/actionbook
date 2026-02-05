@@ -1,0 +1,54 @@
+---
+title: "Installation"
+description: "How to install Actionbook"
+---
+
+Actionbook provides three integration methods, with the CLI being the primary and recommended way for most users.
+
+| Method | Best For | Installation Time |
+|--------|----------|-------------------|
+| **CLI (Recommended)** | AI agents, browser automation, command line | < 1 minute |
+| **MCP Server** | AI IDEs (Cursor, Claude Code, VS Code) | < 1 minute |
+| **JavaScript SDK** | Custom agents, programmatic integration | < 2 minutes |
+
+## Prerequisites
+
+Before installing, make sure you have:
+
+- <Icon icon="check" color="#22c55e" /> **Node.js** >= v18.0.0 ([Download](https://nodejs.org))
+
+<Tip>
+  Check your Node.js version with `node --version`
+</Tip>
+
+<Note>
+  Actionbook is currently in open beta. No API key required!
+</Note>
+
+## CLI Installation (Recommended)
+
+Install the CLI globally to use Actionbook anywhere:
+
+```bash
+npm install -g @actionbookdev/cli
+
+# Install browser (Chromium) for automation
+actionbook browser install
+```
+
+Once installed, you can use the `actionbook` command directly or let your AI agent use it.
+
+## Skill Installation
+
+To enhance your AI agent's capabilities with Actionbook, add the skill to your project:
+
+```bash
+npx skills add actionbook/actionbook
+```
+
+## Other Methods
+
+For specific IDE integrations or programmatic usage, see:
+
+- [MCP Server Guide](/guides/mcp-server)
+- [SDK Integration Guide](/guides/sdk-integration)

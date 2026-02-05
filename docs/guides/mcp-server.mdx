@@ -1,0 +1,252 @@
+---
+title: "MCP Server"
+description: "Use Actionbook with AI IDEs"
+---
+
+Use this option if you're working with an MCP-compatible AI IDE.
+
+<AccordionGroup>
+  <Accordion title="Cursor">
+    Go to: `Settings` -> `Cursor Settings` -> `MCP` -> `Add new global MCP server`
+
+    Paste the following configuration:
+
+    ```json
+    {
+      "mcpServers": {
+        "actionbook": {
+          "command": "npx",
+          "args": ["-y", "@actionbookdev/mcp@latest"]
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Claude Code">
+    Run the following command:
+
+    ```bash
+    claude mcp add actionbook -- npx -y @actionbookdev/mcp@latest --api-key YOUR_API_KEY
+    ```
+  </Accordion>
+
+  <Accordion title="VS Code">
+    Add this to your VS Code settings (JSON):
+
+    ```json
+    {
+      "mcp": {
+        "servers": {
+          "actionbook": {
+            "command": "npx",
+            "args": ["-y", "@actionbookdev/mcp@latest"]
+          }
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Windsurf">
+    Add this to your `~/.codeium/windsurf/mcp_config.json` file:
+
+    ```json
+    {
+      "mcpServers": {
+        "actionbook": {
+          "command": "npx",
+          "args": ["-y", "@actionbookdev/mcp@latest"]
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Claude Desktop">
+    Add this to your `claude_desktop_config.json` file:
+
+    ```json
+    {
+      "mcpServers": {
+        "actionbook": {
+          "command": "npx",
+          "args": ["-y", "@actionbookdev/mcp@latest"]
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Cline">
+    Go to: `Settings` -> `MCP Servers` -> `Add new MCP server`
+
+    ```json
+    {
+      "mcpServers": {
+        "actionbook": {
+          "command": "npx",
+          "args": ["-y", "@actionbookdev/mcp@latest"]
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Zed">
+    Add this to your Zed settings.json:
+
+    ```json
+    {
+      "context_servers": {
+        "actionbook": {
+          "command": {
+            "path": "npx",
+            "args": ["-y", "@actionbookdev/mcp@latest"]
+          }
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="JetBrains IDEs">
+    Go to: `Settings` -> `Tools` -> `AI Assistant` -> `Model Context Protocol (MCP)`
+
+    ```json
+    {
+      "mcpServers": {
+        "actionbook": {
+          "command": "npx",
+          "args": ["-y", "@actionbookdev/mcp@latest"]
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Amazon Q Developer CLI">
+    Add this to your `~/.aws/amazonq/mcp.json` file:
+
+    ```json
+    {
+      "mcpServers": {
+        "actionbook": {
+          "command": "npx",
+          "args": ["-y", "@actionbookdev/mcp@latest"]
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Warp">
+    Go to: `Settings` -> `AI` -> `Manage MCP servers`
+
+    ```json
+    {
+      "actionbook": {
+        "command": "npx",
+        "args": ["-y", "@actionbookdev/mcp@latest", "--api-key", "YOUR_API_KEY"],
+        "env": {},
+        "working_directory": null,
+        "start_on_launch": true
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Roo Code">
+    Go to: `Settings` -> `MCP Servers` -> `Add new MCP server`
+
+    ```json
+    {
+      "mcpServers": {
+        "actionbook": {
+          "command": "npx",
+          "args": ["-y", "@actionbookdev/mcp@latest"]
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Augment Code">
+    Go to: `Settings` -> `MCP Servers` -> `Add Server`
+
+    ```json
+    {
+      "mcpServers": {
+        "actionbook": {
+          "command": "npx",
+          "args": ["-y", "@actionbookdev/mcp@latest"]
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Trae">
+    Go to: `Settings` -> `MCP Servers` -> `Add Server`
+
+    ```json
+    {
+      "mcpServers": {
+        "actionbook": {
+          "command": "npx",
+          "args": ["-y", "@actionbookdev/mcp@latest"]
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Gemini CLI">
+    Add this to your `~/.gemini/settings.json` file:
+
+    ```json
+    {
+      "mcpServers": {
+        "actionbook": {
+          "command": "npx",
+          "args": ["-y", "@actionbookdev/mcp@latest"]
+        }
+      }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Advanced Usage
+
+<AccordionGroup>
+  <Accordion title="Using Bun">
+    ```json
+    {
+      "mcpServers": {
+        "actionbook": {
+          "command": "bunx",
+          "args": ["@actionbookdev/mcp@latest"]
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Using Deno">
+    ```json
+    {
+      "mcpServers": {
+        "actionbook": {
+          "command": "deno",
+          "args": [
+            "run",
+            "--allow-all",
+            "npm:@actionbookdev/mcp"
+          ]
+        }
+      }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>

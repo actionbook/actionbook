@@ -1,0 +1,81 @@
+---
+title: "CLI & Skills"
+description: "Master Actionbook with CLI and Skills"
+---
+
+The Actionbook CLI and Skills/Workflows are the most powerful way to use Actionbook with AI agents.
+
+## Using the CLI
+
+The CLI allows you (and your agents) to search for actions, inspect them, and perform browser automation.
+
+### Installation
+
+```bash
+npm install -g @actionbookdev/cli
+```
+
+### Core Commands
+
+#### Search Actions
+
+Find available action manuals for a specific task or website.
+
+```bash
+actionbook search "airbnb search"
+```
+
+#### Get Action Details
+
+Retrieve the full manual for a specific action ID.
+
+```bash
+actionbook get "site/airbnb.com/page/home/element/search-button"
+```
+
+#### Browser Automation
+
+The CLI includes a built-in browser automation tool that uses the action manuals.
+
+```bash
+# Open a website
+actionbook browser open airbnb.com
+
+# Click an element using its verified selector
+actionbook browser click '[data-testid="search-button"]'
+
+# Fill a form field
+actionbook browser fill 'input[name="location"]' 'Tokyo'
+```
+
+## Using Skills
+
+Skills are enhanced capabilities that you can add to your AI agent's context. By adding the Actionbook skill, you give your agent a manual on *how* to use Actionbook effectively.
+
+### Add the Skill
+
+Run this command in your project root:
+
+```bash
+npx skills add actionbook/actionbook
+```
+
+This will download the skill definition to your `.skills` (or similar) directory.
+
+### Benefits of Skills
+
+1.  **Context Awareness**: The skill provides the agent with specific instructions on when and how to call Actionbook CLI commands.
+2.  **Workflow Optimization**: It teaches the agent the optimal workflow: `search` -> `get` -> `operate`.
+3.  **Reduced Hallucinations**: By following the skill's procedure, the agent relies on verified action manuals instead of guessing DOM selectors.
+
+### Example Agent Workflow
+
+Once the CLI is installed and the Skill is added, you can simply ask your agent:
+
+> "Go to Airbnb and search for a place in Tokyo."
+
+The agent will formatted:
+1.  **Read Skill**: Understands it should use `actionbook` CLI.
+2.  **Search**: Runs `actionbook search "airbnb search"`.
+3.  **Get**: Runs `actionbook get ...` to find the search input and button selectors.
+4.  **Operate**: Runs `actionbook browser ...` commands to perform the search safely.
