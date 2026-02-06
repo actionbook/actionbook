@@ -151,7 +151,7 @@ jobs:
           echo "Publishing @actionbookdev/cli..."
           (cd packages/cli && npm publish --access public --provenance)
 
-      # --- Create GitHub Release (for postinstall fallback download) ---
+      # --- Create GitHub Release ---
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
