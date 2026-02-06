@@ -2,6 +2,7 @@ use colored::Colorize;
 use dialoguer::Select;
 
 use super::detect::EnvironmentInfo;
+use super::theme::setup_theme;
 use crate::cli::{BrowserMode, Cli};
 use crate::config::Config;
 use crate::error::{ActionbookError, Result};
@@ -91,32 +92,49 @@ pub fn configure_browser(
         .collect();
     options.push("Built-in (recommended for agents)".to_string());
 
-    let selection = Select::new()
-        .with_prompt("  Select browser")
+    let selection = Select::with_theme(&setup_theme())
+        .with_prompt("Select browser")
         .items(&options)
         .default(0)
+        .report(false)
         .interact()
         .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
 
     if selection < env.browsers.len() {
         let browser = &env.browsers[selection];
         config.browser.executable = Some(browser.path.display().to_string());
+        if !cli.json {
+            println!("  {} Browser   {}", "✓".green(), browser.browser_type.name());
+        }
     } else {
         config.browser.executable = None;
+        if !cli.json {
+            println!("  {} Browser   Built-in", "✓".green());
+        }
     }
 
     let headless_options = vec![
         "Headless — no window, ideal for automation",
         "Visible — opens a browser window you can see",
     ];
-    let headless_selection = Select::new()
-        .with_prompt("  Display mode")
+    let headless_selection = Select::with_theme(&setup_theme())
+        .with_prompt("Display mode")
         .items(&headless_options)
         .default(0)
+        .report(false)
         .interact()
         .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
 
     config.browser.headless = headless_selection == 0;
+
+    if !cli.json {
+        let mode_label = if config.browser.headless {
+            "Headless"
+        } else {
+            "Visible"
+        };
+        println!("  {} Display   {}", "✓".green(), mode_label);
+    }
 
     if cli.json {
         println!(

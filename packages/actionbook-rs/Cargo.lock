@@ -12,6 +12,7 @@ dependencies = [
  "chromiumoxide",
  "clap",
  "colored",
+ "console",
  "dialoguer",
  "dirs",
  "figment",

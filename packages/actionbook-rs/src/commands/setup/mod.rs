@@ -3,11 +3,14 @@ pub mod browser_cfg;
 pub mod detect;
 pub mod mode;
 pub mod templates;
+pub mod theme;
 
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
 use dialoguer::Select;
+
+use self::theme::setup_theme;
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::api::ApiClient;
@@ -129,10 +132,11 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
                 "Restart setup",
                 "Discard and exit",
             ];
-            let selection = Select::new()
-                .with_prompt("  What would you like to do?")
+            let selection = Select::with_theme(&setup_theme())
+                .with_prompt("What would you like to do?")
                 .items(&choices)
                 .default(0)
+                .report(false)
                 .interact()
                 .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
 
@@ -302,10 +306,11 @@ fn handle_existing_config(cli: &Cli, non_interactive: bool, reset: bool) -> Resu
         "Cancel",
     ];
 
-    let selection = Select::new()
-        .with_prompt("  What would you like to do?")
+    let selection = Select::with_theme(&setup_theme())
+        .with_prompt("What would you like to do?")
         .items(&choices)
         .default(0)
+        .report(false)
         .interact()
         .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
 

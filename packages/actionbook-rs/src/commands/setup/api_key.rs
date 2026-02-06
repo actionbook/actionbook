@@ -2,6 +2,7 @@ use colored::Colorize;
 use dialoguer::{Confirm, Password};
 
 use super::detect::EnvironmentInfo;
+use super::theme::setup_theme;
 use crate::cli::Cli;
 use crate::config::Config;
 use crate::error::{ActionbookError, Result};
@@ -50,9 +51,10 @@ pub async fn configure_api_key(
         }
 
         // Interactive: ask if they want to change
-        let keep = Confirm::new()
-            .with_prompt("  Keep this API key?")
+        let keep = Confirm::with_theme(&setup_theme())
+            .with_prompt("Keep this API key?")
             .default(true)
+            .report(false)
             .interact()
             .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
 
@@ -94,9 +96,10 @@ pub async fn configure_api_key(
     }
 
     // Interactive input — leave blank to skip
-    let key: String = Password::new()
-        .with_prompt("  Enter your API key (leave blank to skip)")
+    let key: String = Password::with_theme(&setup_theme())
+        .with_prompt("Enter your API key (leave blank to skip)")
         .allow_empty_password(true)
+        .report(false)
         .interact()
         .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
 
