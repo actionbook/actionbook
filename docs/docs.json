@@ -14,11 +14,31 @@
         "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting Started",
+            "group": "Welcome",
             "pages": [
               "index",
-              "quickstart",
-              "playground-demos"
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/installation",
+              "guides/cli-and-skills",
+              "guides/mcp-server",
+              "guides/sdk-integration"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples"
+            ]
+          },
+          {
+            "group": "Community",
+            "pages": [
+              "community/contributing"
             ]
           }
         ]
@@ -27,9 +47,15 @@
         "tab": "API Reference",
         "groups": [
           {
-            "group": "API",
+            "group": "CLI",
             "pages": [
-              "api-reference/introduction"
+              "api-reference/cli"
+            ]
+          },
+          {
+            "group": "MCP Tools",
+            "pages": [
+              "api-reference/mcp-tools"
             ]
           }
         ]
@@ -41,6 +67,11 @@
           "anchor": "GitHub",
           "href": "https://github.com/actionbook/actionbook",
           "icon": "github"
+        },
+        {
+          "anchor": "Discord",
+          "href": "https://discord.gg/7sKKp7XQ2d",
+          "icon": "discord"
         }
       ]
     }
@@ -58,7 +89,9 @@
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/actionbook"
+      "github": "https://github.com/actionbook",
+      "discord": "https://discord.gg/7sKKp7XQ2d",
+      "x": "https://x.com/ActionbookHQ"
     }
   }
 }

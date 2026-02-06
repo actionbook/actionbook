@@ -1,0 +1,46 @@
+---
+title: "Contributing"
+description: "How to contribute to Actionbook"
+---
+
+## Development
+
+This is a monorepo using [pnpm](https://pnpm.io/) workspaces and [Turborepo](https://turborepo.com/).
+
+### Prerequisites
+
+- Node.js >= 18 (20+ recommended)
+- pnpm >= 10
+- PostgreSQL database (local or hosted like [Neon](https://neon.tech) / [Supabase](https://supabase.com))
+
+### First-time Setup
+
+1. Install dependencies:
+
+```bash
+pnpm install
+```
+
+2. Configure environment variables by copying `.env.example` to `.env` in the following packages:
+   - `services/db`
+   - `apps/api-service`
+   - `services/action-builder` (optional, for recording)
+   - `services/knowledge-builder` (optional, for knowledge extraction)
+
+3. Run database migrations:
+
+```bash
+cd services/db && pnpm migrate
+```
+
+### Start the Development Server
+
+```bash
+pnpm dev
+```
+
+## Contributing
+
+- **[Request a Website](https://actionbook.dev/request-website)** - Suggest websites you want Actionbook to index.
+- **[Join the Community](https://discord.gg/7sKKp7XQ2d)** - Join our Discord to get help, share your agents, and discuss ideas.
+- **[Join the Waitlist](https://actionbook.dev)** - We are currently in private beta. Join if you are interested in contributing or using Actionbook.

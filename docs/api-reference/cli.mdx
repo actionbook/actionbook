@@ -1,0 +1,91 @@
+---
+title: "CLI Reference"
+description: "Detailed reference for Actionbook CLI commands"
+---
+
+# CLI Reference
+
+The Actionbook CLI (`actionbook`) is the primary interface for interacting with Actionbook.
+
+## `actionbook search`
+
+Search for available action manuals.
+
+**Usage:**
+
+```bash
+actionbook search [query]
+```
+
+**Arguments:**
+
+- `query`: The search keyword (e.g., "airbnb", "google login").
+
+**Example:**
+
+```bash
+actionbook search "airbnb search"
+```
+
+## `actionbook get`
+
+Retrieve a specific action manual by its ID.
+
+**Usage:**
+
+```bash
+actionbook get [actionId]
+```
+
+**Arguments:**
+
+- `actionId`: The unique identifier of the action.
+
+**Example:**
+
+```bash
+actionbook get "site/airbnb.com/page/home/element/search-button"
+```
+
+## `actionbook browser`
+
+Browser automation commands.
+
+### `actionbook browser open`
+
+Open a URL in the browser.
+
+**Usage:**
+
+```bash
+actionbook browser open [url]
+```
+
+### `actionbook browser click`
+
+Click an element on the current page.
+
+**Usage:**
+
+```bash
+actionbook browser click [selector]
+```
+
+**Arguments:**
+
+- `selector`: The CSS selector, XPath, or other supported selector string.
+
+### `actionbook browser fill`
+
+Fill an input field with text.
+
+**Usage:**
+
+```bash
+actionbook browser fill [selector] [value]
+```
+
+**Arguments:**
+
+- `selector`: The target input element selector.
+- `value`: The text value to input.

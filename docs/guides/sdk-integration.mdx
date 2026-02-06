@@ -1,0 +1,222 @@
+---
+title: "JavaScript SDK"
+description: "Integrate Actionbook into your custom AI agents"
+---
+
+Use this option to integrate Actionbook directly into your custom AI agents built with any LLM framework.
+
+## Integration Examples
+
+<AccordionGroup>
+  <Accordion title="With Vercel AI SDK">
+    ```typescript
+    import { Actionbook } from '@actionbookdev/sdk'
+    import { generateText, tool } from 'ai'
+    import { openai } from '@ai-sdk/openai'
+
+    const actionbook = new Actionbook()
+
+    const { text } = await generateText({
+      model: openai('gpt-4o'),
+      tools: {
+        searchActions: tool({
+          description: actionbook.searchActions.description,
+          parameters: actionbook.searchActions.params.zod,
+          execute: async ({ query }) => actionbook.searchActions(query),
+        }),
+        getActionById: tool({
+          description: actionbook.getActionById.description,
+          parameters: actionbook.getActionById.params.zod,
+          execute: async ({ id }) => actionbook.getActionById(id),
+        }),
+      },
+      maxSteps: 5,
+      prompt: 'Search for LinkedIn message actions and get the action manual',
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="With OpenAI SDK">
+    ```typescript
+    import { Actionbook } from '@actionbookdev/sdk'
+    import OpenAI from 'openai'
+
+    const actionbook = new Actionbook()
+    const openai = new OpenAI()
+
+    const tools: OpenAI.ChatCompletionTool[] = [
+      {
+        type: 'function',
+        function: {
+          name: 'searchActions',
+          description: actionbook.searchActions.description,
+          parameters: actionbook.searchActions.params.json,
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'getActionById',
+          description: actionbook.getActionById.description,
+          parameters: actionbook.getActionById.params.json,
+        },
+      },
+    ]
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      tools,
+      messages: [{ role: 'user', content: 'Search for Google login actions' }],
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="With Anthropic Claude SDK">
+    ```typescript
+    import { Actionbook } from '@actionbookdev/sdk'
+    import Anthropic from '@anthropic-ai/sdk'
+
+    const actionbook = new Actionbook()
+    const anthropic = new Anthropic()
+
+    const tools: Anthropic.Tool[] = [
+      {
+        name: 'searchActions',
+        description: actionbook.searchActions.description,
+        input_schema: actionbook.searchActions.params.json,
+      },
+      {
+        name: 'getActionById',
+        description: actionbook.getActionById.description,
+        input_schema: actionbook.getActionById.params.json,
+      },
+    ]
+
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1024,
+      tools,
+      messages: [{ role: 'user', content: 'Search for Twitter post actions' }],
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="With Google Gemini SDK">
+    ```typescript
+    import { Actionbook } from '@actionbookdev/sdk'
+    import { GoogleGenAI } from '@google/genai'
+
+    const actionbook = new Actionbook()
+    const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
+
+    const tools = [
+      {
+        functionDeclarations: [
+          {
+            name: 'searchActions',
+            description: actionbook.searchActions.description,
+            parameters: actionbook.searchActions.params.json,
+          },
+          {
+            name: 'getActionById',
+            description: actionbook.getActionById.description,
+            parameters: actionbook.getActionById.params.json,
+          },
+        ],
+      },
+    ]
+
+    const response = await genai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: [{ role: 'user', parts: [{ text: 'Search for YouTube upload actions' }] }],
+      config: { tools },
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="With Stagehand">
+    ```typescript
+    import { Actionbook } from '@actionbookdev/sdk'
+    import { tool } from 'ai'
+
+    const actionbook = new Actionbook()
+
+    const agent = stagehand.agent({
+      model: 'openai/gpt-4o',
+      tools: {
+        searchActions: tool({
+          description: actionbook.searchActions.description,
+          inputSchema: actionbook.searchActions.params.zod,
+          execute: async ({ query }) => actionbook.searchActions(query),
+        }),
+        getActionById: tool({
+          description: actionbook.getActionById.description,
+          inputSchema: actionbook.getActionById.params.zod,
+          execute: async ({ id }) => actionbook.getActionById(id),
+        }),
+      },
+    })
+
+    await agent.execute('Search for Airbnb booking actions and get the action manual')
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Installation
+
+```bash
+# Using npm
+npm install @actionbookdev/sdk
+
+# Using pnpm
+pnpm add @actionbookdev/sdk
+
+# Using yarn
+yarn add @actionbookdev/sdk
+
+# Using bun
+bun add @actionbookdev/sdk
+```
+
+## Basic Usage
+
+```typescript
+import { Actionbook } from '@actionbookdev/sdk'
+
+// Initialize the client (no API key required during open beta)
+const actionbook = new Actionbook()
+
+// Search for action manuals
+const results = await actionbook.searchActions('airbnb search')
+console.log(`Found ${results.length} actions:`, results)
+
+// Get a specific action by ID
+const action = await actionbook.getActionById(results[0].id)
+console.log('Action details:', action)
+
+// Access the selectors
+const selector = action.selectors.css ||
+                 action.selectors.dataTestId ||
+                 action.selectors.ariaLabel
+
+console.log('Use this selector:', selector)
+```
+
+## Tool Definitions
+
+Each method has `description` and `params` attached for easy integration with any LLM framework.
+
+```typescript
+import { Actionbook } from '@actionbookdev/sdk'
+
+const actionbook = new Actionbook()
+
+// Description
+actionbook.searchActions.description  // "Search for action manuals by keyword"
+
+// Params - JSON Schema format
+actionbook.searchActions.params.json  // { type: "object", properties: { query: { type: "string" } }, required: ["query"] }
+
+// Params - Zod format
+actionbook.searchActions.params.zod   // z.object({ query: z.string() })
+```
