@@ -3,10 +3,11 @@ name: Release CLI
 on:
   push:
     tags:
-      - "actionbook-rs-v*"
+      - "actionbook-cli-v*"
 
 permissions:
-  contents: read
+  contents: write
+  id-token: write
 
 jobs:
   build:
@@ -68,11 +69,23 @@ jobs:
             echo "name=actionbook" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Rename binary for platform
+        shell: bash
+        run: |
+          SRC="target/${{ matrix.target }}/release/${{ steps.binary.outputs.name }}"
+          if [[ "${{ matrix.npm-suffix }}" == win32-* ]]; then
+            DEST="actionbook-${{ matrix.npm-suffix }}.exe"
+          else
+            DEST="actionbook-${{ matrix.npm-suffix }}"
+          fi
+          cp "$SRC" "$DEST"
+          chmod +x "$DEST"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: actionbook-${{ matrix.npm-suffix }}
-          path: packages/actionbook-rs/target/${{ matrix.target }}/release/${{ steps.binary.outputs.name }}
+          path: packages/actionbook-rs/actionbook-${{ matrix.npm-suffix }}*
           if-no-files-found: error
 
   publish:
@@ -95,86 +108,61 @@ jobs:
 
       - name: Extract version from tag
         id: version
-        run: echo "version=${GITHUB_REF_NAME#actionbook-rs-v}" >> "$GITHUB_OUTPUT"
+        run: echo "version=${GITHUB_REF_NAME#actionbook-cli-v}" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare platform packages
+      # --- Publish @actionbookdev/cli (single package with all binaries) ---
+
+      - name: Prepare CLI package binaries
         run: |
-          NPM_DIR="packages/actionbook-rs/npm"
+          CLI_BIN="packages/cli/bin"
 
-          # Map artifact directories to platform packages
-          declare -A PLATFORM_MAP=(
-            ["darwin-arm64"]="darwin-arm64"
-            ["darwin-x64"]="darwin-x64"
-            ["linux-x64"]="linux-x64"
-            ["linux-arm64"]="linux-arm64"
-            ["win32-x64"]="win32-x64"
-            ["win32-arm64"]="win32-arm64"
-          )
-
-          for suffix in "${!PLATFORM_MAP[@]}"; do
+          for suffix in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64 win32-arm64; do
             artifact_dir="artifacts/actionbook-${suffix}"
-            pkg_dir="${NPM_DIR}/@actionbookdev/actionbook-rs-${suffix}"
 
             if [[ "$suffix" == win32-* ]]; then
-              bin_name="actionbook.exe"
+              src_name="actionbook-${suffix}.exe"
             else
-              bin_name="actionbook"
+              src_name="actionbook-${suffix}"
             fi
 
-            # Remove .gitkeep
-            rm -f "${pkg_dir}/bin/.gitkeep"
+            cp "${artifact_dir}/${src_name}" "${CLI_BIN}/${src_name}"
+            chmod +x "${CLI_BIN}/${src_name}"
 
-            # Copy binary
-            cp "${artifact_dir}/${bin_name}" "${pkg_dir}/bin/${bin_name}"
-            chmod +x "${pkg_dir}/bin/${bin_name}"
-
-            echo "Prepared $suffix: $(ls -la "${pkg_dir}/bin/")"
+            echo "Copied ${src_name} to CLI bin/"
           done
 
-      - name: Update versions
+          echo "CLI bin/ contents:"
+          ls -la "${CLI_BIN}/"
+
+      - name: Update CLI package version
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          NPM_DIR="packages/actionbook-rs/npm"
-
-          # Update main wrapper package
           node -e "
             const fs = require('fs');
-            const pkg = JSON.parse(fs.readFileSync('${NPM_DIR}/actionbook-rs/package.json', 'utf8'));
+            const pkg = JSON.parse(fs.readFileSync('packages/cli/package.json', 'utf8'));
             pkg.version = '${VERSION}';
-            if (pkg.optionalDependencies) {
-              for (const key of Object.keys(pkg.optionalDependencies)) {
-                pkg.optionalDependencies[key] = '${VERSION}';
-              }
-            }
-            fs.writeFileSync('${NPM_DIR}/actionbook-rs/package.json', JSON.stringify(pkg, null, 2) + '\n');
+            fs.writeFileSync('packages/cli/package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
 
-          # Update platform packages
-          for suffix in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64 win32-arm64; do
-            node -e "
-              const fs = require('fs');
-              const f = '${NPM_DIR}/@actionbookdev/actionbook-rs-${suffix}/package.json';
-              const pkg = JSON.parse(fs.readFileSync(f, 'utf8'));
-              pkg.version = '${VERSION}';
-              fs.writeFileSync(f, JSON.stringify(pkg, null, 2) + '\n');
-            "
-          done
-
-      - name: Publish platform packages
+      - name: Publish CLI package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          NPM_DIR="packages/actionbook-rs/npm"
+          echo "Publishing @actionbookdev/cli..."
+          (cd packages/cli && npm publish --access public --provenance)
 
-          for suffix in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64 win32-arm64; do
-            echo "Publishing @actionbookdev/actionbook-rs-${suffix}..."
-            (cd "${NPM_DIR}/@actionbookdev/actionbook-rs-${suffix}" && npm publish --access public)
-          done
+      # --- Create GitHub Release (for postinstall fallback download) ---
 
-      - name: Publish main wrapper package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          NPM_DIR="packages/actionbook-rs/npm"
-          echo "Publishing @actionbookdev/actionbook-rs..."
-          (cd "${NPM_DIR}/actionbook-rs" && npm publish --access public)
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Actionbook CLI v${{ steps.version.outputs.version }}
+          files: |
+            artifacts/actionbook-darwin-arm64/actionbook-darwin-arm64
+            artifacts/actionbook-darwin-x64/actionbook-darwin-x64
+            artifacts/actionbook-linux-x64/actionbook-linux-x64
+            artifacts/actionbook-linux-arm64/actionbook-linux-arm64
+            artifacts/actionbook-win32-x64/actionbook-win32-x64.exe
+            artifacts/actionbook-win32-arm64/actionbook-win32-arm64.exe
+          generate_release_notes: true
