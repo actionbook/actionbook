@@ -91,11 +91,8 @@ pub fn configure_browser(
         .collect();
     options.push("Built-in (recommended for agents)".to_string());
 
-    if !cli.json {
-        println!("  {}", "Select browser".dimmed());
-    }
     let selection = Select::new()
-        .with_prompt("  →")
+        .with_prompt("  Select browser")
         .items(&options)
         .default(0)
         .interact()
@@ -108,16 +105,12 @@ pub fn configure_browser(
         config.browser.executable = None;
     }
 
-    if !cli.json {
-        println!();
-        println!("  {}", "Display mode".dimmed());
-    }
     let headless_options = vec![
         "Headless — no window, ideal for automation",
         "Visible — opens a browser window you can see",
     ];
     let headless_selection = Select::new()
-        .with_prompt("  →")
+        .with_prompt("  Display mode")
         .items(&headless_options)
         .default(0)
         .interact()

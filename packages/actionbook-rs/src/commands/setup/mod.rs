@@ -130,7 +130,7 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
                 "Discard and exit",
             ];
             let selection = Select::new()
-                .with_prompt("  →")
+                .with_prompt("  What would you like to do?")
                 .items(&choices)
                 .default(0)
                 .interact()
