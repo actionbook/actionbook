@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 use std::time::Duration;
 
 use colored::Colorize;
@@ -31,6 +32,73 @@ fn create_session_manager(cli: &Cli, config: &Config) -> SessionManager {
     } else {
         SessionManager::new(config.clone())
     }
+}
+
+fn normalize_navigation_url(raw: &str) -> Result<String> {
+    let trimmed = raw.trim();
+
+    if trimmed.is_empty() {
+        return Err(ActionbookError::Other(
+            "Invalid URL: empty input".to_string(),
+        ));
+    }
+
+    if let Some(rest) = trimmed.strip_prefix("//") {
+        return Ok(format!("https://{}", rest));
+    }
+
+    if trimmed.contains("://") {
+        return Ok(trimmed.to_string());
+    }
+
+    if is_host_port_with_optional_path(trimmed) {
+        return Ok(format!("https://{}", trimmed));
+    }
+
+    if has_explicit_scheme(trimmed) {
+        return Ok(trimmed.to_string());
+    }
+
+    Ok(format!("https://{}", trimmed))
+}
+
+fn is_host_port_with_optional_path(input: &str) -> bool {
+    let boundary = input
+        .find(['/', '?', '#'])
+        .unwrap_or(input.len());
+    let authority = &input[..boundary];
+
+    if authority.is_empty() {
+        return false;
+    }
+
+    match authority.rsplit_once(':') {
+        Some((host, port)) => !host.is_empty() && !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()),
+        None => false,
+    }
+}
+
+fn has_explicit_scheme(input: &str) -> bool {
+    let mut chars = input.chars();
+
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+
+    for c in chars {
+        if c == ':' {
+            return true;
+        }
+
+        if c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.' {
+            continue;
+        }
+
+        return false;
+    }
+
+    false
 }
 
 pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
@@ -197,6 +265,7 @@ async fn status(cli: &Cli, config: &Config) -> Result<()> {
 }
 
 async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
+    let normalized_url = normalize_navigation_url(url)?;
     let session_manager = create_session_manager(cli, config);
     let (browser, mut handler) = session_manager
         .get_or_create_session(cli.profile.as_deref())
@@ -206,7 +275,7 @@ async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
     tokio::spawn(async move { while handler.next().await.is_some() {} });
 
     // Navigate to URL with timeout (30 seconds for page creation)
-    let page = match timeout(Duration::from_secs(30), browser.new_page(url)).await {
+    let page = match timeout(Duration::from_secs(30), browser.new_page(&normalized_url)).await {
         Ok(Ok(page)) => page,
         Ok(Err(e)) => {
             return Err(ActionbookError::Other(format!(
@@ -217,7 +286,7 @@ async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
         Err(_) => {
             return Err(ActionbookError::Timeout(format!(
                 "Page load timed out after 30 seconds: {}",
-                url
+                normalized_url
             )));
         }
     };
@@ -248,32 +317,35 @@ async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
             "{}",
             serde_json::json!({
                 "success": true,
-                "url": url,
+                "url": normalized_url,
                 "title": title
             })
         );
     } else {
         println!("{} {}", "✓".green(), title.bold());
-        println!("  {}", url.dimmed());
+        println!("  {}", normalized_url.dimmed());
     }
 
     Ok(())
 }
 
 async fn goto(cli: &Cli, config: &Config, url: &str, _timeout_ms: u64) -> Result<()> {
+    let normalized_url = normalize_navigation_url(url)?;
     let session_manager = create_session_manager(cli, config);
-    session_manager.goto(cli.profile.as_deref(), url).await?;
+    session_manager
+        .goto(cli.profile.as_deref(), &normalized_url)
+        .await?;
 
     if cli.json {
         println!(
             "{}",
             serde_json::json!({
                 "success": true,
-                "url": url
+                "url": normalized_url
             })
         );
     } else {
-        println!("{} Navigated to: {}", "✓".green(), url);
+        println!("{} Navigated to: {}", "✓".green(), normalized_url);
     }
 
     Ok(())
@@ -597,6 +669,11 @@ async fn screenshot(cli: &Cli, config: &Config, path: &str, full_page: bool) -> 
             .await?
     };
 
+    if let Some(parent) = Path::new(path).parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
     fs::write(path, screenshot_data)?;
 
     if cli.json {
@@ -620,6 +697,11 @@ async fn pdf(cli: &Cli, config: &Config, path: &str) -> Result<()> {
     let session_manager = create_session_manager(cli, config);
     let pdf_data = session_manager.pdf_page(cli.profile.as_deref()).await?;
 
+    if let Some(parent) = Path::new(path).parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
     fs::write(path, pdf_data)?;
 
     if cli.json {
@@ -1431,8 +1513,86 @@ async fn connect(cli: &Cli, config: &Config, endpoint: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::render_snapshot_tree;
+    use super::{normalize_navigation_url, render_snapshot_tree};
     use serde_json::json;
+
+    #[test]
+    fn normalize_domain_without_scheme() {
+        assert_eq!(
+            normalize_navigation_url("google.com").unwrap(),
+            "https://google.com"
+        );
+    }
+
+    #[test]
+    fn normalize_domain_with_path_and_query() {
+        assert_eq!(
+            normalize_navigation_url("google.com/search?q=a").unwrap(),
+            "https://google.com/search?q=a"
+        );
+    }
+
+    #[test]
+    fn normalize_localhost_with_port() {
+        assert_eq!(
+            normalize_navigation_url("localhost:3000").unwrap(),
+            "https://localhost:3000"
+        );
+    }
+
+    #[test]
+    fn normalize_https_keeps_original() {
+        assert_eq!(
+            normalize_navigation_url("https://example.com").unwrap(),
+            "https://example.com"
+        );
+    }
+
+    #[test]
+    fn normalize_http_keeps_original() {
+        assert_eq!(
+            normalize_navigation_url("http://example.com").unwrap(),
+            "http://example.com"
+        );
+    }
+
+    #[test]
+    fn normalize_about_keeps_original() {
+        assert_eq!(
+            normalize_navigation_url("about:blank").unwrap(),
+            "about:blank"
+        );
+    }
+
+    #[test]
+    fn normalize_mailto_keeps_original() {
+        assert_eq!(
+            normalize_navigation_url("mailto:test@example.com").unwrap(),
+            "mailto:test@example.com"
+        );
+    }
+
+    #[test]
+    fn normalize_protocol_relative_url() {
+        assert_eq!(
+            normalize_navigation_url("//example.com/path").unwrap(),
+            "https://example.com/path"
+        );
+    }
+
+    #[test]
+    fn normalize_trims_whitespace() {
+        assert_eq!(
+            normalize_navigation_url("  google.com  ").unwrap(),
+            "https://google.com"
+        );
+    }
+
+    #[test]
+    fn normalize_empty_input_returns_error() {
+        assert!(normalize_navigation_url("").is_err());
+        assert!(normalize_navigation_url("   ").is_err());
+    }
 
     #[test]
     fn render_simple_button() {
