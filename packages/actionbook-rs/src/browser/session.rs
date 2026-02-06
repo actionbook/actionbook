@@ -7,6 +7,7 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use super::launcher::BrowserLauncher;
+use super::stealth::StealthProfile;
 use crate::config::{Config, ProfileConfig};
 use crate::error::{ActionbookError, Result};
 
@@ -31,10 +32,22 @@ struct SessionState {
     cdp_url: String,
 }
 
+/// Stealth configuration for session manager
+#[derive(Debug, Clone, Default)]
+pub struct StealthConfig {
+    /// Whether stealth mode is enabled
+    pub enabled: bool,
+    /// Whether to run headless
+    pub headless: bool,
+    /// Stealth profile configuration
+    pub profile: StealthProfile,
+}
+
 /// Manages browser sessions across CLI invocations
 pub struct SessionManager {
     config: Config,
     sessions_dir: PathBuf,
+    stealth_config: Option<StealthConfig>,
 }
 
 impl SessionManager {
@@ -47,7 +60,30 @@ impl SessionManager {
         Self {
             config,
             sessions_dir,
+            stealth_config: None,
         }
+    }
+
+    /// Create session manager with stealth configuration
+    pub fn with_stealth(config: Config, stealth_config: StealthConfig) -> Self {
+        let sessions_dir = dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("actionbook")
+            .join("sessions");
+
+        Self {
+            config,
+            sessions_dir,
+            stealth_config: Some(stealth_config),
+        }
+    }
+
+    /// Check if stealth mode is enabled
+    pub fn is_stealth_enabled(&self) -> bool {
+        self.stealth_config
+            .as_ref()
+            .map(|c| c.enabled)
+            .unwrap_or(false)
     }
 
     /// Get the session state file path for a profile
@@ -84,6 +120,17 @@ impl SessionManager {
         Ok(())
     }
 
+    /// Save session state for an externally connected browser (via `connect` command)
+    pub fn save_external_session(&self, profile_name: &str, cdp_port: u16, cdp_url: &str) -> Result<()> {
+        let state = SessionState {
+            profile_name: profile_name.to_string(),
+            cdp_port,
+            pid: None,
+            cdp_url: cdp_url.to_string(),
+        };
+        self.save_session_state(&state)
+    }
+
     /// Check if a session is still alive
     async fn is_session_alive(&self, state: &SessionState) -> bool {
         // Check if we can connect to the CDP port (bypass proxy for localhost)
@@ -103,7 +150,7 @@ impl SessionManager {
         let profile_name = profile_name.unwrap_or("default");
         let profile = self.config.get_profile(profile_name)?;
 
-        // Check for existing session
+        // Check for existing session state
         if let Some(state) = self.load_session_state(profile_name) {
             if self.is_session_alive(&state).await {
                 tracing::debug!("Reusing existing session for profile: {}", profile_name);
@@ -114,9 +161,66 @@ impl SessionManager {
             }
         }
 
-        // Create new session
-        tracing::debug!("Creating new session for profile: {}", profile_name);
+        // Try to connect to already running browser on common CDP ports
+        // This handles the case where browser was started manually with --remote-debugging-port
+        for port in [9222, 9223, 9224] {
+            if let Some((browser, handler, cdp_url)) = self.try_connect_to_port(port).await {
+                tracing::info!("Connected to existing browser on port {}", port);
+                // Save session state for future reuse
+                let state = SessionState {
+                    profile_name: profile_name.to_string(),
+                    cdp_port: port,
+                    pid: None,
+                    cdp_url,
+                };
+                self.save_session_state(&state)?;
+                return Ok((browser, handler));
+            }
+        }
+
+        // No existing browser found, create new session
+        tracing::debug!("No existing browser found, creating new session for profile: {}", profile_name);
         self.create_session(profile_name, &profile).await
+    }
+
+    /// Try to connect to a browser on a specific CDP port
+    async fn try_connect_to_port(&self, port: u16) -> Option<(Browser, Handler, String)> {
+        let version_url = format!("http://127.0.0.1:{}/json/version", port);
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(std::time::Duration::from_secs(2))
+            .build()
+            .ok()?;
+
+        // Check if browser is listening
+        let response = client.get(&version_url).send().await.ok()?;
+        if !response.status().is_success() {
+            return None;
+        }
+
+        // Get WebSocket URL
+        let version_info: serde_json::Value = response.json().await.ok()?;
+
+        // Skip non-Chrome browsers (e.g., Arc) to avoid hijacking user's browser
+        if let Some(browser_name) = version_info.get("Browser").and_then(|v| v.as_str()) {
+            let browser_lower = browser_name.to_lowercase();
+            if browser_lower.contains("arc") {
+                tracing::debug!("Skipping Arc browser on port {} (want Chrome)", port);
+                return None;
+            }
+            tracing::debug!("Found browser on port {}: {}", port, browser_name);
+        }
+
+        let ws_url = version_info
+            .get("webSocketDebuggerUrl")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())?;
+
+        tracing::debug!("Connecting to browser on port {}: {}", port, ws_url);
+
+        // Connect to browser
+        let (browser, handler) = Browser::connect(&ws_url).await.ok()?;
+        Some((browser, handler, ws_url))
     }
 
     /// Create a new browser session
@@ -125,7 +229,11 @@ impl SessionManager {
         profile_name: &str,
         profile: &ProfileConfig,
     ) -> Result<(Browser, Handler)> {
-        let launcher = BrowserLauncher::from_profile(profile)?;
+        let stealth_enabled = self.is_stealth_enabled();
+
+        let launcher = BrowserLauncher::from_profile(profile)?
+            .with_stealth(stealth_enabled);
+
         let (_child, cdp_url) = launcher.launch_and_wait().await?;
 
         // Save session state
@@ -138,7 +246,127 @@ impl SessionManager {
         self.save_session_state(&state)?;
 
         // Connect to the browser
-        self.connect_to_session(&state).await
+        let result = self.connect_to_session(&state).await?;
+
+        // Always apply stealth JS overrides
+        self.apply_stealth_js(&state).await;
+
+        Ok(result)
+    }
+
+    /// Apply stealth JavaScript overrides to the browser via CDP
+    async fn apply_stealth_js(&self, state: &SessionState) {
+        // Inject stealth JS on all existing pages
+        let js = r#"
+            // Remove webdriver flag
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            delete navigator.__proto__.webdriver;
+
+            // Fix chrome runtime
+            window.chrome = { runtime: {} };
+
+            // Override permissions query
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications'
+                    ? Promise.resolve({ state: Notification.permission })
+                    : originalQuery(parameters)
+            );
+
+            // Add realistic plugins
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [
+                    { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+                    { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+                    { name: 'Native Client', filename: 'internal-nacl-plugin' }
+                ]
+            });
+
+            // Fix languages
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US', 'en']
+            });
+        "#;
+
+        // Use Page.addScriptToEvaluateOnNewDocument via CDP so it applies to all future pages
+        let pages_url = format!("http://127.0.0.1:{}/json/list", state.cdp_port);
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
+        // Get all pages and inject stealth JS
+        if let Ok(response) = client.get(&pages_url).send().await {
+            if let Ok(pages) = response.json::<Vec<PageInfo>>().await {
+                for page in pages.iter().filter(|p| p.page_type == "page") {
+                    if let Some(ref ws_url) = page.web_socket_debugger_url {
+                        if let Err(e) = self.inject_stealth_to_page(ws_url, js).await {
+                            tracing::debug!("Failed to inject stealth to page {}: {}", page.id, e);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also inject via browser-level CDP for new pages
+        let browser_ws_url = &state.cdp_url;
+        let _ = self.inject_new_document_script(browser_ws_url, js).await;
+
+        tracing::info!("Stealth JS overrides applied");
+    }
+
+    /// Inject stealth JS into a specific page via its WebSocket URL
+    async fn inject_stealth_to_page(&self, ws_url: &str, js: &str) -> Result<()> {
+        use futures::SinkExt;
+        use tokio_tungstenite::connect_async;
+
+        let (mut ws, _) = connect_async(ws_url).await.map_err(|e| {
+            ActionbookError::CdpConnectionFailed(format!("WebSocket failed: {}", e))
+        })?;
+
+        let cmd = serde_json::json!({
+            "id": 1,
+            "method": "Runtime.evaluate",
+            "params": { "expression": js }
+        });
+
+        ws.send(tokio_tungstenite::tungstenite::Message::Text(cmd.to_string().into()))
+            .await
+            .map_err(|e| ActionbookError::Other(format!("Send failed: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Register stealth JS to run on every new document (page/navigation)
+    async fn inject_new_document_script(&self, browser_ws_url: &str, js: &str) -> Result<()> {
+        use futures::SinkExt;
+        use tokio_tungstenite::connect_async;
+
+        let (mut ws, _) = connect_async(browser_ws_url).await.map_err(|e| {
+            ActionbookError::CdpConnectionFailed(format!("Browser WS failed: {}", e))
+        })?;
+
+        // Page.addScriptToEvaluateOnNewDocument ensures stealth runs on every new page
+        let cmd = serde_json::json!({
+            "id": 1,
+            "method": "Page.addScriptToEvaluateOnNewDocument",
+            "params": { "source": js }
+        });
+
+        ws.send(tokio_tungstenite::tungstenite::Message::Text(cmd.to_string().into()))
+            .await
+            .map_err(|e| ActionbookError::Other(format!("Send failed: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Get the stealth profile if enabled
+    #[cfg(feature = "stealth")]
+    pub fn get_stealth_profile(&self) -> Option<&StealthProfile> {
+        self.stealth_config
+            .as_ref()
+            .filter(|c| c.enabled)
+            .map(|c| &c.profile)
     }
 
     /// Connect to an existing browser session
@@ -315,12 +543,27 @@ impl SessionManager {
 
     /// Click an element on the active page
     pub async fn click_on_page(&self, profile_name: Option<&str>, selector: &str) -> Result<()> {
-        // First, find the element and get its center coordinates
+        // First, find the element, scroll it into view, and get its center coordinates
+        // Support both CSS selectors and XPath (starts with //)
         let js = format!(
             r#"
             (function() {{
-                const el = document.querySelector({});
+                const selector = {};
+                let el;
+                if (selector.startsWith('//') || selector.startsWith('(//')) {{
+                    // XPath selector
+                    const result = document.evaluate(selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+                    el = result.singleNodeValue;
+                }} else {{
+                    // CSS selector
+                    el = document.querySelector(selector);
+                }}
                 if (!el) return null;
+
+                // Scroll element into view first
+                el.scrollIntoView({{ behavior: 'instant', block: 'center', inline: 'center' }});
+
+                // Small delay for scroll to complete, then get coordinates
                 const rect = el.getBoundingClientRect();
                 return {{
                     x: rect.left + rect.width / 2,
@@ -376,11 +619,18 @@ impl SessionManager {
 
     /// Type text into an element on the active page
     pub async fn type_on_page(&self, profile_name: Option<&str>, selector: &str, text: &str) -> Result<()> {
-        // Focus the element first
+        // Focus the element first (supports both CSS and XPath)
         let js = format!(
             r#"
             (function() {{
-                const el = document.querySelector({});
+                const selector = {};
+                let el;
+                if (selector.startsWith('//') || selector.startsWith('(//')) {{
+                    const result = document.evaluate(selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+                    el = result.singleNodeValue;
+                }} else {{
+                    el = document.querySelector(selector);
+                }}
                 if (!el) return false;
                 el.focus();
                 return true;
@@ -422,11 +672,18 @@ impl SessionManager {
 
     /// Fill an input element (clear and type)
     pub async fn fill_on_page(&self, profile_name: Option<&str>, selector: &str, text: &str) -> Result<()> {
-        // Clear and set value directly via JS, then dispatch input event
+        // Clear and set value directly via JS, then dispatch input event (supports both CSS and XPath)
         let js = format!(
             r#"
             (function() {{
-                const el = document.querySelector({});
+                const selector = {};
+                let el;
+                if (selector.startsWith('//') || selector.startsWith('(//')) {{
+                    const result = document.evaluate(selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+                    el = result.singleNodeValue;
+                }} else {{
+                    el = document.querySelector(selector);
+                }}
                 if (!el) return false;
                 el.focus();
                 el.value = {};
@@ -1060,6 +1317,154 @@ impl SessionManager {
                 profile: profile_name.to_string(),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+
+    /// Create a SessionManager with a temp directory for isolation
+    fn test_session_manager(dir: &std::path::Path) -> SessionManager {
+        SessionManager {
+            config: Config::default(),
+            sessions_dir: dir.to_path_buf(),
+            stealth_config: None,
+        }
+    }
+
+    #[test]
+    fn save_and_load_external_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+
+        sm.save_external_session("test-profile", 9222, "ws://127.0.0.1:9222/devtools/browser/abc")
+            .unwrap();
+
+        let state = sm.load_session_state("test-profile");
+        assert!(state.is_some());
+        let state = state.unwrap();
+        assert_eq!(state.profile_name, "test-profile");
+        assert_eq!(state.cdp_port, 9222);
+        assert_eq!(
+            state.cdp_url,
+            "ws://127.0.0.1:9222/devtools/browser/abc"
+        );
+        assert!(state.pid.is_none()); // External sessions have no PID
+    }
+
+    #[test]
+    fn save_external_session_creates_sessions_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let sessions_dir = dir.path().join("nested").join("sessions");
+        let sm = SessionManager {
+            config: Config::default(),
+            sessions_dir: sessions_dir.clone(),
+            stealth_config: None,
+        };
+
+        assert!(!sessions_dir.exists());
+        sm.save_external_session("default", 9222, "ws://localhost:9222")
+            .unwrap();
+        assert!(sessions_dir.exists());
+        assert!(sessions_dir.join("default.json").exists());
+    }
+
+    #[test]
+    fn load_nonexistent_session_returns_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+
+        let state = sm.load_session_state("nonexistent");
+        assert!(state.is_none());
+    }
+
+    #[test]
+    fn remove_session_state_deletes_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+
+        sm.save_external_session("removeme", 9222, "ws://localhost:9222")
+            .unwrap();
+        assert!(sm.session_file("removeme").exists());
+
+        sm.remove_session_state("removeme").unwrap();
+        assert!(!sm.session_file("removeme").exists());
+    }
+
+    #[test]
+    fn remove_nonexistent_session_is_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+
+        // Should not error
+        sm.remove_session_state("doesnotexist").unwrap();
+    }
+
+    #[test]
+    fn save_overwrites_existing_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+
+        sm.save_external_session("default", 9222, "ws://old-url")
+            .unwrap();
+        sm.save_external_session("default", 9333, "ws://new-url")
+            .unwrap();
+
+        let state = sm.load_session_state("default").unwrap();
+        assert_eq!(state.cdp_port, 9333);
+        assert_eq!(state.cdp_url, "ws://new-url");
+    }
+
+    #[test]
+    fn multiple_profiles_are_isolated() {
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+
+        sm.save_external_session("work", 9222, "ws://work-browser")
+            .unwrap();
+        sm.save_external_session("personal", 9333, "ws://personal-browser")
+            .unwrap();
+
+        let work = sm.load_session_state("work").unwrap();
+        let personal = sm.load_session_state("personal").unwrap();
+
+        assert_eq!(work.cdp_port, 9222);
+        assert_eq!(personal.cdp_port, 9333);
+        assert_eq!(work.cdp_url, "ws://work-browser");
+        assert_eq!(personal.cdp_url, "ws://personal-browser");
+    }
+
+    #[test]
+    fn session_file_path_uses_profile_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+
+        let path = sm.session_file("my-profile");
+        assert_eq!(path, dir.path().join("my-profile.json"));
+    }
+
+    #[tokio::test]
+    async fn dead_session_reports_not_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+
+        // Save a session pointing to a port nothing is listening on
+        sm.save_external_session("dead", 19999, "ws://127.0.0.1:19999")
+            .unwrap();
+
+        let status = sm.get_status(Some("dead")).await;
+        assert!(matches!(status, SessionStatus::Stale { .. }));
+    }
+
+    #[tokio::test]
+    async fn no_session_reports_not_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+
+        let status = sm.get_status(Some("nonexistent")).await;
+        assert!(matches!(status, SessionStatus::NotRunning { .. }));
     }
 }
 

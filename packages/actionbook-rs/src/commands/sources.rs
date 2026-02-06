@@ -13,7 +13,10 @@ pub async fn run(cli: &Cli, command: &SourcesCommands) -> Result<()> {
 }
 
 async fn list(cli: &Cli) -> Result<()> {
-    let config = Config::load()?;
+    let mut config = Config::load()?;
+    if let Some(ref key) = cli.api_key {
+        config.api.api_key = Some(key.clone());
+    }
     let client = ApiClient::from_config(&config)?;
 
     let response = client.list_sources(Some(50)).await?;
@@ -71,7 +74,10 @@ async fn list(cli: &Cli) -> Result<()> {
 }
 
 async fn search(cli: &Cli, query: &str) -> Result<()> {
-    let config = Config::load()?;
+    let mut config = Config::load()?;
+    if let Some(ref key) = cli.api_key {
+        config.api.api_key = Some(key.clone());
+    }
     let client = ApiClient::from_config(&config)?;
 
     let response = client.search_sources(query, Some(20)).await?;

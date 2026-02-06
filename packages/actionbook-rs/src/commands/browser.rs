@@ -5,10 +5,35 @@ use colored::Colorize;
 use futures::StreamExt;
 use tokio::time::timeout;
 
-use crate::browser::{discover_all_browsers, SessionManager, SessionStatus};
+use crate::browser::{
+    discover_all_browsers, stealth_status, build_stealth_profile,
+    SessionManager, SessionStatus, StealthConfig,
+};
+#[cfg(feature = "stealth")]
+use crate::browser::apply_stealth_to_page;
 use crate::cli::{BrowserCommands, Cli, CookiesCommands};
 use crate::config::Config;
 use crate::error::{ActionbookError, Result};
+
+/// Create a SessionManager with appropriate stealth configuration from CLI flags
+fn create_session_manager(cli: &Cli, config: &Config) -> SessionManager {
+    if cli.stealth {
+        let stealth_profile = build_stealth_profile(
+            cli.stealth_os.as_deref(),
+            cli.stealth_gpu.as_deref(),
+        );
+
+        let stealth_config = StealthConfig {
+            enabled: true,
+            headless: cli.headless,
+            profile: stealth_profile,
+        };
+
+        SessionManager::with_stealth(config.clone(), stealth_config)
+    } else {
+        SessionManager::new(config.clone())
+    }
+}
 
 pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
     let config = Config::load()?;
@@ -47,6 +72,43 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
 }
 
 async fn status(cli: &Cli, config: &Config) -> Result<()> {
+    // Show API key status
+    println!("{}", "API Key:".bold());
+    let api_key = cli.api_key.as_deref().or(config.api.api_key.as_deref());
+    match api_key {
+        Some(key) if key.len() > 8 => {
+            let masked = format!("{}...{}", &key[..4], &key[key.len()-4..]);
+            println!("  {} Configured ({})", "✓".green(), masked.dimmed());
+        }
+        Some(_) => {
+            println!("  {} Configured", "✓".green());
+        }
+        None => {
+            println!("  {} Not configured (set via --api-key or ACTIONBOOK_API_KEY)", "○".dimmed());
+        }
+    }
+    println!();
+
+    // Show stealth mode status
+    println!("{}", "Stealth Mode:".bold());
+    let stealth = stealth_status();
+    if stealth.starts_with("enabled") {
+        println!("  {} {}", "✓".green(), stealth);
+        if cli.stealth {
+            let profile = build_stealth_profile(
+                cli.stealth_os.as_deref(),
+                cli.stealth_gpu.as_deref(),
+            );
+            println!("  {} OS: {:?}", "  ".dimmed(), profile.os);
+            println!("  {} GPU: {:?}", "  ".dimmed(), profile.gpu);
+            println!("  {} Chrome: v{}", "  ".dimmed(), profile.chrome_version);
+            println!("  {} Locale: {}", "  ".dimmed(), profile.locale);
+        }
+    } else {
+        println!("  {} {}", "○".dimmed(), stealth);
+    }
+    println!();
+
     // Show detected browsers
     println!("{}", "Detected Browsers:".bold());
     let browsers = discover_all_browsers();
@@ -71,7 +133,7 @@ async fn status(cli: &Cli, config: &Config) -> Result<()> {
     println!();
 
     // Show session status
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     let profile_name = cli.profile.as_deref();
     let status = session_manager.get_status(profile_name).await;
 
@@ -121,7 +183,7 @@ async fn status(cli: &Cli, config: &Config) -> Result<()> {
 }
 
 async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     let (browser, mut handler) = session_manager
         .get_or_create_session(cli.profile.as_deref())
         .await?;
@@ -131,16 +193,42 @@ async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
         while handler.next().await.is_some() {}
     });
 
-    // Navigate to URL
-    let page = browser.new_page(url).await.map_err(|e| {
-        ActionbookError::Other(format!("Failed to open page: {}", e))
-    })?;
+    // Navigate to URL with timeout (30 seconds for page creation)
+    let page = match timeout(Duration::from_secs(30), browser.new_page(url)).await {
+        Ok(Ok(page)) => page,
+        Ok(Err(e)) => {
+            return Err(ActionbookError::Other(format!("Failed to open page: {}", e)));
+        }
+        Err(_) => {
+            return Err(ActionbookError::Timeout(format!(
+                "Page load timed out after 30 seconds: {}",
+                url
+            )));
+        }
+    };
 
-    // Wait for page to load
+    // Apply stealth profile if enabled
+    #[cfg(feature = "stealth")]
+    if cli.stealth {
+        let stealth_profile = build_stealth_profile(
+            cli.stealth_os.as_deref(),
+            cli.stealth_gpu.as_deref(),
+        );
+        if let Err(e) = apply_stealth_to_page(&page, &stealth_profile).await {
+            tracing::warn!("Failed to apply stealth profile: {}", e);
+        } else {
+            tracing::info!("Applied stealth profile to page");
+        }
+    }
+
+    // Wait for page to fully load (additional 30 seconds)
     let _ = timeout(Duration::from_secs(30), page.wait_for_navigation()).await;
 
-    // Get page title
-    let title = page.get_title().await.ok().flatten().unwrap_or_default();
+    // Get page title with timeout
+    let title = match timeout(Duration::from_secs(5), page.get_title()).await {
+        Ok(Ok(Some(t))) => t,
+        _ => String::new(),
+    };
 
     if cli.json {
         println!(
@@ -160,7 +248,7 @@ async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
 }
 
 async fn goto(cli: &Cli, config: &Config, url: &str, _timeout_ms: u64) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     session_manager.goto(cli.profile.as_deref(), url).await?;
 
     if cli.json {
@@ -179,7 +267,7 @@ async fn goto(cli: &Cli, config: &Config, url: &str, _timeout_ms: u64) -> Result
 }
 
 async fn back(cli: &Cli, config: &Config) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     session_manager.go_back(cli.profile.as_deref()).await?;
 
     if cli.json {
@@ -192,7 +280,7 @@ async fn back(cli: &Cli, config: &Config) -> Result<()> {
 }
 
 async fn forward(cli: &Cli, config: &Config) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     session_manager.go_forward(cli.profile.as_deref()).await?;
 
     if cli.json {
@@ -205,7 +293,7 @@ async fn forward(cli: &Cli, config: &Config) -> Result<()> {
 }
 
 async fn reload(cli: &Cli, config: &Config) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     session_manager.reload(cli.profile.as_deref()).await?;
 
     if cli.json {
@@ -218,7 +306,7 @@ async fn reload(cli: &Cli, config: &Config) -> Result<()> {
 }
 
 async fn pages(cli: &Cli, config: &Config) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     let pages = session_manager.get_pages(cli.profile.as_deref()).await?;
 
     if cli.json {
@@ -265,7 +353,7 @@ async fn switch(_cli: &Cli, _config: &Config, page_id: &str) -> Result<()> {
 }
 
 async fn wait(cli: &Cli, config: &Config, selector: &str, timeout_ms: u64) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     session_manager
         .wait_for_element(cli.profile.as_deref(), selector, timeout_ms)
         .await?;
@@ -286,7 +374,7 @@ async fn wait(cli: &Cli, config: &Config, selector: &str, timeout_ms: u64) -> Re
 }
 
 async fn wait_nav(cli: &Cli, config: &Config, timeout_ms: u64) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     let new_url = session_manager
         .wait_for_navigation(cli.profile.as_deref(), timeout_ms)
         .await?;
@@ -307,7 +395,7 @@ async fn wait_nav(cli: &Cli, config: &Config, timeout_ms: u64) -> Result<()> {
 }
 
 async fn click(cli: &Cli, config: &Config, selector: &str, wait_ms: u64) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
 
     if wait_ms > 0 {
         session_manager
@@ -335,7 +423,7 @@ async fn click(cli: &Cli, config: &Config, selector: &str, wait_ms: u64) -> Resu
 }
 
 async fn type_text(cli: &Cli, config: &Config, selector: &str, text: &str, wait_ms: u64) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
 
     if wait_ms > 0 {
         session_manager
@@ -364,7 +452,7 @@ async fn type_text(cli: &Cli, config: &Config, selector: &str, text: &str, wait_
 }
 
 async fn fill(cli: &Cli, config: &Config, selector: &str, text: &str, wait_ms: u64) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
 
     if wait_ms > 0 {
         session_manager
@@ -393,7 +481,7 @@ async fn fill(cli: &Cli, config: &Config, selector: &str, text: &str, wait_ms: u
 }
 
 async fn select(cli: &Cli, config: &Config, selector: &str, value: &str) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     session_manager
         .select_on_page(cli.profile.as_deref(), selector, value)
         .await?;
@@ -415,7 +503,7 @@ async fn select(cli: &Cli, config: &Config, selector: &str, value: &str) -> Resu
 }
 
 async fn hover(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     session_manager
         .hover_on_page(cli.profile.as_deref(), selector)
         .await?;
@@ -436,7 +524,7 @@ async fn hover(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
 }
 
 async fn focus(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     session_manager
         .focus_on_page(cli.profile.as_deref(), selector)
         .await?;
@@ -457,7 +545,7 @@ async fn focus(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
 }
 
 async fn press(cli: &Cli, config: &Config, key: &str) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     session_manager
         .press_key(cli.profile.as_deref(), key)
         .await?;
@@ -478,7 +566,7 @@ async fn press(cli: &Cli, config: &Config, key: &str) -> Result<()> {
 }
 
 async fn screenshot(cli: &Cli, config: &Config, path: &str, full_page: bool) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
 
     let screenshot_data = if full_page {
         session_manager
@@ -510,7 +598,7 @@ async fn screenshot(cli: &Cli, config: &Config, path: &str, full_page: bool) -> 
 }
 
 async fn pdf(cli: &Cli, config: &Config, path: &str) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     let pdf_data = session_manager
         .pdf_page(cli.profile.as_deref())
         .await?;
@@ -533,7 +621,7 @@ async fn pdf(cli: &Cli, config: &Config, path: &str) -> Result<()> {
 }
 
 async fn eval(cli: &Cli, config: &Config, code: &str) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     let value = session_manager
         .eval_on_page(cli.profile.as_deref(), code)
         .await?;
@@ -548,7 +636,7 @@ async fn eval(cli: &Cli, config: &Config, code: &str) -> Result<()> {
 }
 
 async fn html(cli: &Cli, config: &Config, selector: Option<&str>) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     let html = session_manager
         .get_html(cli.profile.as_deref(), selector)
         .await?;
@@ -563,7 +651,7 @@ async fn html(cli: &Cli, config: &Config, selector: Option<&str>) -> Result<()> 
 }
 
 async fn text(cli: &Cli, config: &Config, selector: Option<&str>) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     let text = session_manager
         .get_text(cli.profile.as_deref(), selector)
         .await?;
@@ -578,39 +666,216 @@ async fn text(cli: &Cli, config: &Config, selector: Option<&str>) -> Result<()> 
 }
 
 async fn snapshot(cli: &Cli, config: &Config) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
 
-    // Get accessibility tree via JavaScript
+    // Build accessibility tree with proper tree structure, filtering, and refs.
+    // Modeled after agent-browser's snapshot.ts output format.
+    // Text nodes are captured as { role: "text", content: "..." } children.
+    // Links include { url: "href" }. Inline tags use their tag name as role.
     let js = r#"
         (function() {
-            function getAccessibleName(el) {
-                return el.getAttribute('aria-label') ||
-                       el.getAttribute('alt') ||
-                       el.getAttribute('title') ||
-                       el.textContent?.trim()?.substring(0, 100) || '';
-            }
+            // Tags to skip entirely
+            const SKIP_TAGS = new Set([
+                'script', 'style', 'noscript', 'template', 'svg',
+                'path', 'defs', 'clippath', 'lineargradient', 'stop',
+                'meta', 'link', 'br', 'wbr'
+            ]);
+
+            // Inline tags - use tag name as role
+            const INLINE_TAGS = new Set([
+                'strong', 'b', 'em', 'i', 'code', 'span', 'small',
+                'sup', 'sub', 'abbr', 'mark', 'u', 's', 'del', 'ins',
+                'time', 'q', 'cite', 'dfn', 'var', 'samp', 'kbd'
+            ]);
+
+            // Interactive roles get [ref=eN]
+            const INTERACTIVE_ROLES = new Set([
+                'button', 'link', 'textbox', 'checkbox', 'radio', 'combobox',
+                'listbox', 'menuitem', 'menuitemcheckbox', 'menuitemradio',
+                'option', 'searchbox', 'slider', 'spinbutton', 'switch',
+                'tab', 'treeitem'
+            ]);
+
+            // Content roles also get refs when they have a name
+            const CONTENT_ROLES = new Set([
+                'heading', 'cell', 'gridcell', 'columnheader', 'rowheader',
+                'listitem', 'article', 'region', 'main', 'navigation', 'img'
+            ]);
+
+            // Map HTML tags to ARIA roles
             function getRole(el) {
-                return el.getAttribute('role') ||
-                       el.tagName.toLowerCase();
+                const explicit = el.getAttribute('role');
+                if (explicit) return explicit.toLowerCase();
+                const tag = el.tagName.toLowerCase();
+                // Inline tags use their tag name as role
+                if (INLINE_TAGS.has(tag)) return tag;
+                const roleMap = {
+                    'a': el.hasAttribute('href') ? 'link' : 'generic',
+                    'button': 'button',
+                    'input': getInputRole(el),
+                    'select': 'combobox',
+                    'textarea': 'textbox',
+                    'img': 'img',
+                    'h1': 'heading', 'h2': 'heading', 'h3': 'heading',
+                    'h4': 'heading', 'h5': 'heading', 'h6': 'heading',
+                    'nav': 'navigation',
+                    'main': 'main',
+                    'header': 'banner',
+                    'footer': 'contentinfo',
+                    'aside': 'complementary',
+                    'form': 'form',
+                    'table': 'table',
+                    'thead': 'rowgroup', 'tbody': 'rowgroup', 'tfoot': 'rowgroup',
+                    'tr': 'row',
+                    'th': 'columnheader',
+                    'td': 'cell',
+                    'ul': 'list', 'ol': 'list',
+                    'li': 'listitem',
+                    'details': 'group',
+                    'summary': 'button',
+                    'dialog': 'dialog',
+                    'section': el.hasAttribute('aria-label') || el.hasAttribute('aria-labelledby') ? 'region' : 'generic',
+                    'article': 'article'
+                };
+                return roleMap[tag] || 'generic';
             }
-            function walk(el, depth = 0) {
-                if (depth > 10) return [];
-                const results = [];
-                const name = getAccessibleName(el);
+
+            function getInputRole(el) {
+                const type = (el.getAttribute('type') || 'text').toLowerCase();
+                const map = {
+                    'text': 'textbox', 'email': 'textbox', 'password': 'textbox',
+                    'search': 'searchbox', 'tel': 'textbox', 'url': 'textbox',
+                    'number': 'spinbutton',
+                    'checkbox': 'checkbox', 'radio': 'radio',
+                    'submit': 'button', 'reset': 'button', 'button': 'button',
+                    'range': 'slider'
+                };
+                return map[type] || 'textbox';
+            }
+
+            function getAccessibleName(el) {
+                const ariaLabel = el.getAttribute('aria-label');
+                if (ariaLabel) return ariaLabel.trim();
+
+                const labelledBy = el.getAttribute('aria-labelledby');
+                if (labelledBy) {
+                    const label = document.getElementById(labelledBy);
+                    if (label) return label.textContent?.trim()?.substring(0, 100) || '';
+                }
+
+                const tag = el.tagName.toLowerCase();
+                if (tag === 'img') return el.getAttribute('alt') || '';
+                if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+                    if (el.id) {
+                        const label = document.querySelector('label[for="' + el.id + '"]');
+                        if (label) return label.textContent?.trim()?.substring(0, 100) || '';
+                    }
+                    return el.getAttribute('placeholder') || el.getAttribute('title') || '';
+                }
+                if (tag === 'a' || tag === 'button' || tag === 'summary') {
+                    // For links/buttons, don't use textContent as name if we'll walk childNodes
+                    // Only use aria-label or explicit label
+                    return '';
+                }
+                if (['h1','h2','h3','h4','h5','h6'].includes(tag)) {
+                    return el.textContent?.trim()?.substring(0, 150) || '';
+                }
+
+                const title = el.getAttribute('title');
+                if (title) return title.trim();
+
+                return '';
+            }
+
+            function isHidden(el) {
+                if (el.hidden) return true;
+                if (el.getAttribute('aria-hidden') === 'true') return true;
+                const style = el.style;
+                if (style.display === 'none' || style.visibility === 'hidden') return true;
+                if (el.offsetParent === null && el.tagName.toLowerCase() !== 'body' &&
+                    getComputedStyle(el).position !== 'fixed' && getComputedStyle(el).position !== 'sticky') {
+                    const cs = getComputedStyle(el);
+                    if (cs.display === 'none' || cs.visibility === 'hidden') return true;
+                }
+                return false;
+            }
+
+            let refCounter = 0;
+
+            function walk(el, depth) {
+                if (depth > 15) return null;
+                const tag = el.tagName.toLowerCase();
+                if (SKIP_TAGS.has(tag)) return null;
+                if (isHidden(el)) return null;
+
                 const role = getRole(el);
-                if (name || ['button', 'a', 'input', 'select', 'textarea'].includes(el.tagName.toLowerCase())) {
-                    results.push({
-                        role: role,
-                        name: name,
-                        tag: el.tagName.toLowerCase()
-                    });
+                const name = getAccessibleName(el);
+                const isInteractive = INTERACTIVE_ROLES.has(role);
+                const isContent = CONTENT_ROLES.has(role);
+                const shouldRef = isInteractive || (isContent && name);
+
+                let ref = null;
+                if (shouldRef) {
+                    refCounter++;
+                    ref = 'e' + refCounter;
                 }
-                for (const child of el.children) {
-                    results.push(...walk(child, depth + 1));
+
+                // Collect children by walking childNodes (captures text nodes)
+                const children = [];
+                for (const child of el.childNodes) {
+                    if (child.nodeType === 1) {
+                        // Element node
+                        const c = walk(child, depth + 1);
+                        if (c) children.push(c);
+                    } else if (child.nodeType === 3) {
+                        // Text node
+                        const t = child.textContent?.trim();
+                        if (t) {
+                            const content = t.length > 200 ? t.substring(0, 200) + '...' : t;
+                            children.push({ role: 'text', content });
+                        }
+                    }
                 }
-                return results;
+
+                // Skip generic elements with no name, no ref, and only one child (pass-through)
+                if (role === 'generic' && !name && !ref && children.length === 1) {
+                    return children[0];
+                }
+
+                // Skip generic elements with no content at all
+                if (role === 'generic' && !name && !ref && children.length === 0) {
+                    return null;
+                }
+
+                // Build node info
+                const node = { role };
+                if (name) node.name = name;
+                if (ref) node.ref = ref;
+                if (children.length > 0) node.children = children;
+
+                // URL for links
+                if (role === 'link') {
+                    const href = el.getAttribute('href');
+                    if (href) node.url = href;
+                }
+
+                // Extra attributes
+                if (role === 'heading') {
+                    const level = tag.match(/^h(\d)$/);
+                    if (level) node.level = parseInt(level[1]);
+                }
+                if (role === 'textbox' || role === 'searchbox') {
+                    node.value = el.value || '';
+                }
+                if (role === 'checkbox' || role === 'radio' || role === 'switch') {
+                    node.checked = el.checked || false;
+                }
+
+                return node;
             }
-            return walk(document.body);
+
+            const tree = walk(document.body, 0);
+            return { tree, refCount: refCounter };
         })()
     "#;
 
@@ -621,23 +886,96 @@ async fn snapshot(cli: &Cli, config: &Config) -> Result<()> {
     if cli.json {
         println!("{}", serde_json::to_string_pretty(&value)?);
     } else {
-        // Pretty print the accessibility tree
-        if let Some(items) = value.as_array() {
-            for item in items {
-                let role = item.get("role").and_then(|v| v.as_str()).unwrap_or("");
-                let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                if !name.is_empty() {
-                    println!("[{}] {}", role.cyan(), name);
-                }
-            }
+        // Render tree as indented text (matching agent-browser format)
+        if let Some(tree) = value.get("tree") {
+            let output = render_snapshot_tree(tree, 0);
+            print!("{}", output);
+        } else {
+            println!("(empty)");
         }
     }
 
     Ok(())
 }
 
+/// Render a snapshot tree node as indented text lines.
+/// Output format matches agent-browser:
+///   - heading "Title" [ref=e1] [level=1]
+///   - button "Submit" [ref=e2]
+///   - link "Home" [ref=e3]:
+///     - /url: https://example.com
+///     - text: Home
+///   - text: Hello world
+fn render_snapshot_tree(node: &serde_json::Value, depth: usize) -> String {
+    let mut output = String::new();
+    let indent = "  ".repeat(depth);
+
+    let role = node.get("role").and_then(|v| v.as_str()).unwrap_or("generic");
+
+    // Text nodes: - text: content
+    if role == "text" {
+        if let Some(content) = node.get("content").and_then(|v| v.as_str()) {
+            if !content.is_empty() {
+                output.push_str(&format!("{}- text: {}\n", indent, content));
+            }
+        }
+        return output;
+    }
+
+    let name = node.get("name").and_then(|v| v.as_str());
+    let ref_id = node.get("ref").and_then(|v| v.as_str());
+    let url = node.get("url").and_then(|v| v.as_str());
+    let children = node.get("children").and_then(|v| v.as_array());
+    let has_children = children.is_some_and(|c| !c.is_empty());
+
+    // Build the line: - role "name" [ref=eN] [extra]
+    let mut line = format!("{}- {}", indent, role);
+
+    if let Some(n) = name {
+        line.push_str(&format!(" \"{}\"", n));
+    }
+
+    if let Some(r) = ref_id {
+        line.push_str(&format!(" [ref={}]", r));
+    }
+
+    // Extra attributes
+    if let Some(level) = node.get("level").and_then(|v| v.as_u64()) {
+        line.push_str(&format!(" [level={}]", level));
+    }
+    if let Some(checked) = node.get("checked").and_then(|v| v.as_bool()) {
+        line.push_str(&format!(" [checked={}]", checked));
+    }
+    if let Some(val) = node.get("value").and_then(|v| v.as_str()) {
+        if !val.is_empty() {
+            line.push_str(&format!(" [value=\"{}\"]", val));
+        }
+    }
+
+    if has_children || url.is_some() {
+        line.push(':');
+    }
+
+    output.push_str(&line);
+    output.push('\n');
+
+    // URL for links
+    if let Some(u) = url {
+        output.push_str(&format!("{}  - /url: {}\n", indent, u));
+    }
+
+    // Children
+    if let Some(kids) = children {
+        for child in kids {
+            output.push_str(&render_snapshot_tree(child, depth + 1));
+        }
+    }
+
+    output
+}
+
 async fn inspect(cli: &Cli, config: &Config, x: f64, y: f64, desc: Option<&str>) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
 
     // Get viewport to validate coordinates
     let (vp_width, vp_height) = session_manager.get_viewport(cli.profile.as_deref()).await?;
@@ -798,7 +1136,7 @@ async fn inspect(cli: &Cli, config: &Config, x: f64, y: f64, desc: Option<&str>)
 }
 
 async fn viewport(cli: &Cli, config: &Config) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     let (width, height) = session_manager.get_viewport(cli.profile.as_deref()).await?;
 
     if cli.json {
@@ -817,7 +1155,7 @@ async fn viewport(cli: &Cli, config: &Config) -> Result<()> {
 }
 
 async fn cookies(cli: &Cli, config: &Config, command: &Option<CookiesCommands>) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
 
     match command {
         None | Some(CookiesCommands::List) => {
@@ -909,7 +1247,7 @@ async fn cookies(cli: &Cli, config: &Config, command: &Option<CookiesCommands>) 
 }
 
 async fn close(cli: &Cli, config: &Config) -> Result<()> {
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     session_manager.close_session(cli.profile.as_deref()).await?;
 
     if cli.json {
@@ -931,7 +1269,7 @@ async fn restart(cli: &Cli, config: &Config) -> Result<()> {
     close(cli, config).await?;
 
     // Open a blank page to restart
-    let session_manager = SessionManager::new(config.clone());
+    let session_manager = create_session_manager(cli, config);
     let (_browser, mut handler) = session_manager
         .get_or_create_session(cli.profile.as_deref())
         .await?;
@@ -954,19 +1292,352 @@ async fn restart(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn connect(_cli: &Cli, _config: &Config, endpoint: &str) -> Result<()> {
-    // For now, just validate the endpoint
-    let url = if endpoint.starts_with("ws://") || endpoint.starts_with("wss://") {
-        endpoint.to_string()
+async fn connect(cli: &Cli, config: &Config, endpoint: &str) -> Result<()> {
+    let profile_name = cli.profile.as_deref().unwrap_or("default");
+
+    // Parse endpoint: either a WebSocket URL or a port number
+    let (cdp_port, cdp_url) = if endpoint.starts_with("ws://") || endpoint.starts_with("wss://") {
+        // Extract port from WebSocket URL for health checks (e.g., ws://127.0.0.1:9222/...)
+        let port = endpoint
+            .split("://")
+            .nth(1)
+            .and_then(|s| s.split('/').next())
+            .and_then(|host_port| host_port.rsplit(':').next())
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(9222);
+        (port, endpoint.to_string())
     } else if let Ok(port) = endpoint.parse::<u16>() {
-        format!("http://127.0.0.1:{}/json/version", port)
+        // Validate that the CDP port is reachable
+        let version_url = format!("http://127.0.0.1:{}/json/version", port);
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
+        let resp = client.get(&version_url).send().await.map_err(|e| {
+            ActionbookError::CdpConnectionFailed(format!(
+                "Cannot reach CDP at port {}. Is the browser running with --remote-debugging-port={}? Error: {}",
+                port, port, e
+            ))
+        })?;
+
+        let version_info: serde_json::Value = resp.json().await.map_err(|e| {
+            ActionbookError::CdpConnectionFailed(format!("Invalid response from CDP endpoint: {}", e))
+        })?;
+
+        // Get the browser WebSocket URL from /json/version
+        let ws_url = version_info
+            .get("webSocketDebuggerUrl")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("ws://127.0.0.1:{}", port));
+
+        (port, ws_url)
     } else {
         return Err(ActionbookError::CdpConnectionFailed(
-            "Invalid endpoint. Use a port number or WebSocket URL.".to_string(),
+            "Invalid endpoint. Use a port number or WebSocket URL (ws://...).".to_string(),
         ));
     };
 
-    println!("{} Connecting to: {}", "✓".green(), url);
-    // TODO: Actually establish and persist the connection
+    // Persist the session so subsequent commands can reuse this browser
+    let session_manager = create_session_manager(cli, config);
+    session_manager.save_external_session(profile_name, cdp_port, &cdp_url)?;
+
+    if cli.json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "success": true,
+                "profile": profile_name,
+                "cdp_port": cdp_port,
+                "cdp_url": cdp_url
+            })
+        );
+    } else {
+        println!("{} Connected to CDP at port {}", "✓".green(), cdp_port);
+        println!("  WebSocket URL: {}", cdp_url);
+        println!("  Profile: {}", profile_name);
+    }
+
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_snapshot_tree;
+    use serde_json::json;
+
+    #[test]
+    fn render_simple_button() {
+        let node = json!({
+            "role": "button",
+            "name": "Submit",
+            "ref": "e1"
+        });
+        let output = render_snapshot_tree(&node, 0);
+        assert_eq!(output, "- button \"Submit\" [ref=e1]\n");
+    }
+
+    #[test]
+    fn render_heading_with_level() {
+        let node = json!({
+            "role": "heading",
+            "name": "Welcome",
+            "ref": "e1",
+            "level": 1
+        });
+        let output = render_snapshot_tree(&node, 0);
+        assert_eq!(output, "- heading \"Welcome\" [ref=e1] [level=1]\n");
+    }
+
+    #[test]
+    fn render_checkbox_with_checked() {
+        let node = json!({
+            "role": "checkbox",
+            "name": "Accept terms",
+            "ref": "e1",
+            "checked": true
+        });
+        let output = render_snapshot_tree(&node, 0);
+        assert_eq!(
+            output,
+            "- checkbox \"Accept terms\" [ref=e1] [checked=true]\n"
+        );
+    }
+
+    #[test]
+    fn render_textbox_with_value() {
+        let node = json!({
+            "role": "textbox",
+            "name": "Email",
+            "ref": "e1",
+            "value": "test@example.com"
+        });
+        let output = render_snapshot_tree(&node, 0);
+        assert_eq!(
+            output,
+            "- textbox \"Email\" [ref=e1] [value=\"test@example.com\"]\n"
+        );
+    }
+
+    #[test]
+    fn render_empty_value_not_shown() {
+        let node = json!({
+            "role": "textbox",
+            "name": "Search",
+            "ref": "e1",
+            "value": ""
+        });
+        let output = render_snapshot_tree(&node, 0);
+        assert_eq!(output, "- textbox \"Search\" [ref=e1]\n");
+    }
+
+    #[test]
+    fn render_text_node() {
+        let node = json!({
+            "role": "text",
+            "content": "Hello world"
+        });
+        let output = render_snapshot_tree(&node, 0);
+        assert_eq!(output, "- text: Hello world\n");
+    }
+
+    #[test]
+    fn render_node_with_text_children() {
+        let node = json!({
+            "role": "generic",
+            "children": [
+                { "role": "text", "content": "Hello world" }
+            ]
+        });
+        let output = render_snapshot_tree(&node, 0);
+        assert_eq!(output, "- generic:\n  - text: Hello world\n");
+    }
+
+    #[test]
+    fn render_nested_tree() {
+        let tree = json!({
+            "role": "navigation",
+            "children": [
+                {
+                    "role": "list",
+                    "children": [
+                        {
+                            "role": "listitem",
+                            "children": [
+                                { "role": "link", "name": "Home", "ref": "e1" }
+                            ]
+                        },
+                        {
+                            "role": "listitem",
+                            "children": [
+                                { "role": "link", "name": "About", "ref": "e2" }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        });
+        let output = render_snapshot_tree(&tree, 0);
+        let expected = "\
+- navigation:
+  - list:
+    - listitem:
+      - link \"Home\" [ref=e1]
+    - listitem:
+      - link \"About\" [ref=e2]
+";
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn render_respects_depth_indentation() {
+        let node = json!({
+            "role": "button",
+            "name": "Deep",
+            "ref": "e5"
+        });
+        let output = render_snapshot_tree(&node, 3);
+        assert_eq!(output, "      - button \"Deep\" [ref=e5]\n");
+    }
+
+    #[test]
+    fn render_no_ref_no_name() {
+        let node = json!({ "role": "generic" });
+        let output = render_snapshot_tree(&node, 0);
+        assert_eq!(output, "- generic\n");
+    }
+
+    #[test]
+    fn render_children_adds_colon() {
+        let node = json!({
+            "role": "form",
+            "children": [
+                { "role": "button", "name": "Go", "ref": "e1" }
+            ]
+        });
+        let output = render_snapshot_tree(&node, 0);
+        assert!(output.starts_with("- form:\n"));
+    }
+
+    #[test]
+    fn render_leaf_no_colon() {
+        let node = json!({
+            "role": "link",
+            "name": "Click me",
+            "ref": "e1"
+        });
+        let output = render_snapshot_tree(&node, 0);
+        assert!(!output.contains(':'));
+    }
+
+    #[test]
+    fn render_link_with_url() {
+        let node = json!({
+            "role": "link",
+            "ref": "e1",
+            "url": "https://example.com",
+            "children": [
+                { "role": "text", "content": "Example" }
+            ]
+        });
+        let output = render_snapshot_tree(&node, 0);
+        let expected = "\
+- link [ref=e1]:
+  - /url: https://example.com
+  - text: Example
+";
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn render_link_with_name_and_url() {
+        let node = json!({
+            "role": "link",
+            "name": "Home",
+            "ref": "e1",
+            "url": "https://example.com/home",
+            "children": [
+                { "role": "text", "content": "Home" }
+            ]
+        });
+        let output = render_snapshot_tree(&node, 0);
+        assert!(output.starts_with("- link \"Home\" [ref=e1]:"));
+        assert!(output.contains("- /url: https://example.com/home"));
+        assert!(output.contains("- text: Home"));
+    }
+
+    #[test]
+    fn render_inline_strong() {
+        let node = json!({
+            "role": "strong",
+            "children": [
+                { "role": "text", "content": "bold text" }
+            ]
+        });
+        let output = render_snapshot_tree(&node, 0);
+        assert_eq!(output, "- strong:\n  - text: bold text\n");
+    }
+
+    #[test]
+    fn render_url_adds_colon() {
+        let node = json!({
+            "role": "link",
+            "name": "Click",
+            "ref": "e1",
+            "url": "https://example.com"
+        });
+        let output = render_snapshot_tree(&node, 0);
+        assert!(output.contains("- link \"Click\" [ref=e1]:"));
+        assert!(output.contains("- /url: https://example.com"));
+    }
+
+    #[test]
+    fn render_realistic_page() {
+        let tree = json!({
+            "role": "generic",
+            "children": [
+                {
+                    "role": "banner",
+                    "children": [
+                        {
+                            "role": "navigation",
+                            "name": "Main",
+                            "ref": "e1",
+                            "children": [
+                                { "role": "link", "name": "Home", "ref": "e2" },
+                                { "role": "link", "name": "Products", "ref": "e3" }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "role": "main",
+                    "children": [
+                        { "role": "heading", "name": "Welcome", "ref": "e4", "level": 1 },
+                        {
+                            "role": "form",
+                            "children": [
+                                { "role": "textbox", "name": "Email", "ref": "e5", "value": "" },
+                                { "role": "button", "name": "Subscribe", "ref": "e6" }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        });
+        let output = render_snapshot_tree(&tree, 0);
+
+        // Verify key structural elements
+        assert!(output.contains("- navigation \"Main\" [ref=e1]:"));
+        assert!(output.contains("  - link \"Home\" [ref=e2]"));
+        assert!(output.contains("- heading \"Welcome\" [ref=e4] [level=1]"));
+        assert!(output.contains("- textbox \"Email\" [ref=e5]"));
+        assert!(output.contains("- button \"Subscribe\" [ref=e6]"));
+
+        // Verify nesting depth
+        let lines: Vec<&str> = output.lines().collect();
+        assert!(lines[0].starts_with("- generic:"));
+        assert!(lines[1].starts_with("  - banner:"));
+    }
 }

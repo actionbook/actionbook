@@ -11,6 +11,8 @@ A high-performance CLI for browser automation with zero installation. Built in R
 | **Config Flexibility** | Override at any level | CLI > env > config file > auto-discovery |
 | **Multi-Profile** | Isolated browser sessions | Profile-based user data dirs |
 | **Session Persistence** | Maintain state across commands | Disk-based session storage |
+| **Stealth Mode** | Anti-detection browser automation | Fingerprint spoofing, navigator override |
+| **API Key Auth** | Authenticated API access | `--api-key` / `ACTIONBOOK_API_KEY` |
 
 ### Why These Principles?
 
@@ -44,6 +46,8 @@ A high-performance CLI for browser automation with zero installation. Built in R
 | **Actionbook API** | Built-in | Built-in | - |
 | **Multi-Profile** | Yes | Yes | Yes |
 | **Session Persistence** | Disk-based | Disk-based | Memory |
+| **Stealth Mode** | Yes (built-in) | - | - |
+| **API Key Auth** | Yes | - | - |
 | **Headless Mode** | Yes | Yes | Yes |
 | **Cookie Management** | Yes | Yes | Yes |
 | **PDF Export** | Yes | Yes | Yes |
@@ -66,6 +70,9 @@ A high-performance CLI for browser automation with zero installation. Built in R
 - **CDP-First** - Direct Chrome DevTools Protocol control via WebSocket
 - **Actionbook Integration** - Search and retrieve pre-recorded website selectors
 - **Multi-Profile** - Isolated browser sessions with persistent state
+- **Stealth Mode** - Anti-detection with OS/GPU fingerprint spoofing, navigator override, WebGL emulation
+- **API Key Auth** - Authenticated API access via `--api-key` flag or `ACTIONBOOK_API_KEY` env var
+- **Accessibility Snapshot** - Agent-browser compatible snapshot with refs, text nodes, and `/url:` for links
 - **Flexible Configuration** - CLI args > env vars > config file > auto-discovery
 
 ## Architecture
@@ -114,7 +121,8 @@ src/
 │   ├── mod.rs           # Browser module exports
 │   ├── discovery.rs     # Auto-detect installed browsers
 │   ├── launcher.rs      # Launch browser with CDP
-│   └── session.rs       # Session state management
+│   ├── session.rs       # Session state management
+│   └── stealth.rs       # Stealth mode (anti-detection profiles)
 ├── config/
 │   ├── mod.rs           # Configuration loading
 │   └── profile.rs       # Profile management
@@ -251,17 +259,21 @@ actionbook --profile work browser open "https://example.com"
 ### Example Config
 
 ```toml
-# API configuration
-api_url = "https://api.actionbook.dev"
+[api]
+base_url = "https://api.actionbook.dev"
+api_key = "sk-your-api-key"    # Optional, for authenticated access
 
-# Browser settings
 [browser]
 headless = false
-cdp_port = 9222
+default_profile = "default"
 
-# Default profile
-[profile.default]
-browser_type = "chrome"
+[profiles.default]
+cdp_port = 9222
+headless = false
+
+[profiles.headless]
+cdp_port = 9223
+headless = true
 ```
 
 ### Environment Variables
@@ -269,9 +281,17 @@ browser_type = "chrome"
 All config values can be overridden via environment variables:
 
 ```bash
-ACTIONBOOK_API_URL=https://api.actionbook.dev
+# API
+ACTIONBOOK_API_KEY=sk-your-api-key
+
+# Browser
 ACTIONBOOK_HEADLESS=true
-ACTIONBOOK_CDP_PORT=9222
+ACTIONBOOK_BROWSER_PATH=/usr/bin/google-chrome
+
+# Stealth
+ACTIONBOOK_STEALTH=true
+ACTIONBOOK_STEALTH_OS=macos-arm
+ACTIONBOOK_STEALTH_GPU=apple-m4-max
 ```
 
 ### Configuration Priority
@@ -282,14 +302,18 @@ CLI args > Environment variables > Config file > Auto-discovery
 
 ## Global Flags
 
-| Flag | Description |
-|------|-------------|
-| `--json` | Output in JSON format |
-| `--verbose` | Enable verbose logging |
-| `--headless` | Run browser in headless mode |
-| `--profile <NAME>` | Use specific profile |
-| `--browser-path <PATH>` | Custom browser executable path |
-| `--cdp <PORT>` | Connect to existing CDP port |
+| Flag | Env Var | Description |
+|------|---------|-------------|
+| `--json` | | Output in JSON format |
+| `--verbose` | | Enable verbose logging |
+| `--headless` | `ACTIONBOOK_HEADLESS` | Run browser in headless mode |
+| `--profile <NAME>` | `ACTIONBOOK_PROFILE` | Use specific profile |
+| `--browser-path <PATH>` | `ACTIONBOOK_BROWSER_PATH` | Custom browser executable path |
+| `--cdp <PORT>` | `ACTIONBOOK_CDP` | Connect to existing CDP port |
+| `--api-key <KEY>` | `ACTIONBOOK_API_KEY` | API key for authenticated access |
+| `--stealth` | `ACTIONBOOK_STEALTH` | Enable stealth mode (anti-detection) |
+| `--stealth-os <OS>` | `ACTIONBOOK_STEALTH_OS` | Stealth OS: windows, macos-arm, macos-intel, linux |
+| `--stealth-gpu <GPU>` | `ACTIONBOOK_STEALTH_GPU` | Stealth GPU: rtx4080, apple-m4-max, intel-uhd630, etc. |
 
 ## Commands Reference
 
@@ -340,7 +364,12 @@ actionbook browser wait <SELECTOR>  # Wait for element
 actionbook browser screenshot [PATH]       # Take screenshot
 actionbook browser pdf <PATH>       # Save as PDF
 actionbook browser eval <CODE>      # Execute JavaScript
+actionbook browser snapshot          # Accessibility tree snapshot
+actionbook browser inspect <X> <Y>  # Inspect element at coordinates
+actionbook browser viewport         # Show viewport size
+actionbook browser connect <PORT>   # Connect to existing browser
 actionbook browser close            # Close browser
+actionbook browser restart          # Restart browser
 actionbook browser cookies list     # List cookies
 actionbook browser cookies get <NAME>      # Get cookie
 actionbook browser cookies set <NAME> <VALUE>  # Set cookie
@@ -364,6 +393,40 @@ actionbook profile list             # List all profiles
 actionbook profile create <NAME>    # Create new profile
 actionbook profile delete <NAME>    # Delete profile
 ```
+
+## Stealth Mode
+
+Stealth mode applies anti-detection measures to avoid bot detection:
+
+```bash
+# Enable stealth with default profile (macOS ARM + Apple M4 Max)
+actionbook --stealth browser open "https://example.com"
+
+# Custom OS/GPU fingerprint
+actionbook --stealth --stealth-os windows --stealth-gpu rtx4080 browser open "https://example.com"
+
+# Via environment variables
+export ACTIONBOOK_STEALTH=true
+export ACTIONBOOK_STEALTH_OS=macos-arm
+export ACTIONBOOK_STEALTH_GPU=apple-m4-max
+actionbook browser open "https://example.com"
+```
+
+### What Stealth Mode Does
+
+| Feature | Description |
+|---------|-------------|
+| **Navigator Override** | Spoofs `navigator.webdriver`, `platform`, `hardwareConcurrency`, `deviceMemory` |
+| **WebGL Emulation** | Overrides WebGL renderer/vendor to match selected GPU |
+| **Plugin Spoofing** | Injects fake Chrome plugins (PDF, Native Client) |
+| **Chrome Flags** | `--disable-blink-features=AutomationControlled`, `--disable-infobars` |
+| **Persistent Injection** | Uses `Page.addScriptToEvaluateOnNewDocument` for cross-navigation persistence |
+
+### Available Profiles
+
+**OS**: `windows`, `macos-intel`, `macos-arm`, `linux`
+
+**GPU**: `rtx4080`, `rtx3080`, `gtx1660`, `rx6800`, `uhd630`, `iris-xe`, `m1-pro`, `m2-max`, `m4-max`
 
 ## Supported Browsers
 
@@ -396,8 +459,8 @@ cargo test --test integration_test  # Integration tests only
 
 ### Test Coverage
 
-- **49 tests** total
-  - 37 CLI argument parsing tests
+- **54 tests** total
+  - 42 CLI + unit tests (argument parsing, snapshot rendering)
   - 12 integration tests (API + CLI)
 
 ## License

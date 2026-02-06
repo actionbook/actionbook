@@ -13,6 +13,7 @@ pub struct BrowserLauncher {
     browser_info: BrowserInfo,
     cdp_port: u16,
     headless: bool,
+    stealth: bool,
     user_data_dir: PathBuf,
     extra_args: Vec<String>,
 }
@@ -31,6 +32,7 @@ impl BrowserLauncher {
             browser_info,
             cdp_port: 9222,
             headless: false,
+            stealth: false,
             user_data_dir: data_dir,
             extra_args: Vec::new(),
         })
@@ -60,6 +62,7 @@ impl BrowserLauncher {
             browser_info,
             cdp_port: 9222,
             headless: false,
+            stealth: false,
             user_data_dir: data_dir,
             extra_args: Vec::new(),
         })
@@ -81,6 +84,12 @@ impl BrowserLauncher {
         }
 
         Ok(launcher)
+    }
+
+    /// Enable stealth mode (anti-detection Chrome flags)
+    pub fn with_stealth(mut self, stealth: bool) -> Self {
+        self.stealth = stealth;
+        self
     }
 
     /// Set CDP port
@@ -115,6 +124,13 @@ impl BrowserLauncher {
             "--no-first-run".to_string(),
             "--no-default-browser-check".to_string(),
         ];
+
+        // Always apply anti-detection flags
+        args.push("--disable-blink-features=AutomationControlled".to_string());
+        args.push("--disable-infobars".to_string());
+        args.push("--window-size=1920,1080".to_string());
+        args.push("--disable-save-password-bubble".to_string());
+        args.push("--disable-translate".to_string());
 
         if self.headless {
             args.push("--headless=new".to_string());

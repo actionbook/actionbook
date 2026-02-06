@@ -243,6 +243,54 @@ mod browser_command {
     }
 
     #[test]
+    fn browser_connect_requires_endpoint() {
+        actionbook()
+            .args(["browser", "connect"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("ENDPOINT"));
+    }
+
+    #[test]
+    fn browser_connect_help() {
+        actionbook()
+            .args(["browser", "connect", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Connect"));
+    }
+
+    #[test]
+    fn browser_connect_invalid_endpoint_fails() {
+        // "not-a-port" is neither a number nor ws:// URL
+        actionbook()
+            .args(["browser", "connect", "not-a-port"])
+            .timeout(std::time::Duration::from_secs(5))
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("Invalid endpoint"));
+    }
+
+    #[test]
+    fn browser_connect_unreachable_port_fails() {
+        // Port 19999 should have nothing listening
+        actionbook()
+            .args(["browser", "connect", "19999"])
+            .timeout(std::time::Duration::from_secs(10))
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn browser_snapshot_help() {
+        actionbook()
+            .args(["browser", "snapshot", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("snapshot"));
+    }
+
+    #[test]
     fn browser_cookies_subcommands() {
         actionbook()
             .args(["browser", "cookies", "--help"])

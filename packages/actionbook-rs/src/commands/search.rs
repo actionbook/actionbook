@@ -6,14 +6,17 @@ use crate::config::Config;
 use crate::error::Result;
 
 pub async fn run(
-    _cli: &Cli,
+    cli: &Cli,
     query: &str,
     domain: Option<&str>,
     url: Option<&str>,
     page: u32,
     page_size: u32,
 ) -> Result<()> {
-    let config = Config::load()?;
+    let mut config = Config::load()?;
+    if let Some(ref key) = cli.api_key {
+        config.api.api_key = Some(key.clone());
+    }
     let client = ApiClient::from_config(&config)?;
 
     let params = SearchActionsParams {

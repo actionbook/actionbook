@@ -24,6 +24,22 @@ pub struct Cli {
     #[arg(long, env = "ACTIONBOOK_HEADLESS", global = true)]
     pub headless: bool,
 
+    /// Enable stealth mode (requires --features stealth)
+    #[arg(long, env = "ACTIONBOOK_STEALTH", global = true)]
+    pub stealth: bool,
+
+    /// Stealth OS profile: windows, macos-intel, macos-arm, linux
+    #[arg(long, env = "ACTIONBOOK_STEALTH_OS", global = true)]
+    pub stealth_os: Option<String>,
+
+    /// Stealth GPU profile (e.g., nvidia-rtx4080, apple-m4-max, intel-uhd630)
+    #[arg(long, env = "ACTIONBOOK_STEALTH_GPU", global = true)]
+    pub stealth_gpu: Option<String>,
+
+    /// API key for authenticated access
+    #[arg(long, env = "ACTIONBOOK_API_KEY", global = true)]
+    pub api_key: Option<String>,
+
     /// Output in JSON format
     #[arg(long, global = true)]
     pub json: bool,
