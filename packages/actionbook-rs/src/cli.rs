@@ -5,7 +5,7 @@ use crate::error::Result;
 
 /// Actionbook CLI - Browser automation with zero installation
 #[derive(Parser)]
-#[command(name = "actionbook")]
+#[command(name = "actionbook", bin_name = "actionbook")]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
     /// Browser executable path (overrides auto-discovery)
