@@ -58,10 +58,9 @@ Get started with Actionbook in under 2 minutes:
 
 ```bash
 npm install -g @actionbookdev/cli
-
-# Install browser (Chromium) for automation
-actionbook browser install
 ```
+
+The Rust-based CLI uses your existing system browser (Chrome, Brave, Edge, Arc, Chromium), so no extra browser install step is required.
 
 **Step 2: Use with any AI Agent**
 
