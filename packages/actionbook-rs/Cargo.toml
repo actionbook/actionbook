@@ -17,7 +17,7 @@ path = "src/main.rs"
 clap = { version = "4", features = ["derive", "env"] }
 
 # Async runtime
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 
 # CDP client
 chromiumoxide = { version = "0.8", features = ["tokio-runtime"], default-features = false }
@@ -60,6 +60,8 @@ predicates = "3"
 tempfile = "3"
 
 [profile.release]
+opt-level = "z"
 lto = true
 codegen-units = 1
 strip = true
+panic = "abort"
