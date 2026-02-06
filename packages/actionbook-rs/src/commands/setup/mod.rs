@@ -53,7 +53,7 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
     detect::print_environment_report(&env, cli.json);
 
     // Steps 2–5: configure → recap → save (with restart loop)
-    let (config, results) = loop {
+    let (config, targets) = loop {
         // Step 2: API Key
         if !cli.json {
             print_divider();
@@ -81,8 +81,6 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
             print_step_header(4, "Integration");
         }
         let targets = mode::select_modes(cli, &env, args.mode, args.non_interactive)?;
-        let results =
-            mode::generate_integration_files(cli, &targets, args.force, args.non_interactive)?;
 
         // Step 5: Save configuration
         if !cli.json {
@@ -108,9 +106,9 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
             } else {
                 "visible"
             };
-            let mode_names: Vec<&str> = results
+            let mode_names: Vec<&str> = targets
                 .iter()
-                .map(|r| mode::target_display_name(&r.target))
+                .map(|t| mode::target_display_name(t))
                 .collect();
             let modes_display = if mode_names.is_empty() {
                 "Standalone".to_string()
@@ -141,7 +139,7 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
                 .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
 
             match selection {
-                0 => break (config, results), // Save
+                0 => break (config, targets), // Save
                 1 => {
                     // Restart: reset config and loop
                     config = Config::default();
@@ -161,7 +159,7 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
         }
 
         // Non-interactive / JSON: save directly
-        break (config, results);
+        break (config, targets);
     };
 
     config.save()?;
@@ -172,6 +170,10 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
             Config::config_path().display()
         );
     }
+
+    // Generate integration files (after save so "Discard" leaves no orphans)
+    let results =
+        mode::generate_integration_files(cli, &targets, args.force, args.non_interactive)?;
 
     // Step 6: Health check (API connectivity)
     if !cli.json {
@@ -184,7 +186,7 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
     if !cli.json {
         print_divider();
     }
-    print_completion(cli, &config, &results);
+    print_completion(cli, &config, &targets, &results);
 
     Ok(())
 }
@@ -471,7 +473,7 @@ async fn run_health_check(cli: &Cli, config: &Config, non_interactive: bool) {
 }
 
 /// Print the completion summary with next steps.
-fn print_completion(cli: &Cli, config: &Config, results: &[mode::TargetResult]) {
+fn print_completion(cli: &Cli, config: &Config, targets: &[SetupTarget], results: &[mode::TargetResult]) {
     if cli.json {
         let file_results: Vec<serde_json::Value> = results
             .iter()
@@ -484,9 +486,9 @@ fn print_completion(cli: &Cli, config: &Config, results: &[mode::TargetResult]) 
             })
             .collect();
 
-        let mode_names: Vec<&str> = results
+        let mode_names: Vec<&str> = targets
             .iter()
-            .map(|r| mode::target_display_name(&r.target))
+            .map(|t| mode::target_display_name(t))
             .collect();
 
         println!(
@@ -532,9 +534,9 @@ fn print_completion(cli: &Cli, config: &Config, results: &[mode::TargetResult]) 
         "visible"
     };
 
-    let mode_names: Vec<&str> = results
+    let mode_names: Vec<&str> = targets
         .iter()
-        .map(|r| mode::target_display_name(&r.target))
+        .map(|t| mode::target_display_name(t))
         .collect();
     let modes_str = if mode_names.is_empty() {
         "Standalone".to_string()

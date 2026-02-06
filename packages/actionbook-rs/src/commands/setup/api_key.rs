@@ -62,6 +62,9 @@ pub async fn configure_api_key(
             config.api.api_key = existing_key;
             return Ok(());
         }
+
+        // User rejected the key — clear it so it won't persist if they skip
+        config.api.api_key = None;
     } else if non_interactive {
         // No key in non-interactive mode — skip gracefully
         if cli.json {
