@@ -1,11 +1,17 @@
 # @actionbookdev/cli
 
-CLI for Actionbook - Get website action manuals for AI agents.
+CLI for Actionbook - Browser automation and action manuals for AI agents. Powered by a native Rust binary for fast startup and zero runtime dependencies.
 
 ## Installation
 
 ```bash
 npm install -g @actionbookdev/cli
+```
+
+Or use directly with npx:
+
+```bash
+npx @actionbookdev/cli search "airbnb search"
 ```
 
 ## Quick Start
@@ -17,9 +23,10 @@ actionbook search "airbnb search"
 # Get action details by area_id
 actionbook get "airbnb.com:/:default"
 
-# Browser automation (requires agent-browser)
-actionbook browser open example.com
-actionbook browser snapshot -i
+# Browser automation
+actionbook browser open https://example.com
+actionbook browser snapshot
+actionbook browser click "button.submit"
 ```
 
 ## Commands
@@ -40,8 +47,6 @@ actionbook search "login" --page 2 --page-size 20
 - `-p, --page <number>` - Page number (default: `1`)
 - `-s, --page-size <number>` - Results per page 1-100 (default: `10`)
 
-**Alias:** `actionbook s`
-
 ### `actionbook get <area_id>`
 
 Get complete action details by area ID.
@@ -51,121 +56,122 @@ actionbook get "airbnb.com:/:default"
 actionbook get "github.com:/login:default"
 ```
 
-**Alias:** `actionbook g`
+### `actionbook browser <command>`
 
-### `actionbook browser [command]`
+Browser automation via Chrome DevTools Protocol. Uses your existing system browser (Chrome, Brave, Edge, Arc, Chromium) - no browser download required.
 
-Execute browser automation commands. This command forwards all arguments to `agent-browser` CLI.
+**Navigation:**
+- `open <url>` - Open URL in new tab
+- `goto <url>` - Navigate current page
+- `back` / `forward` / `reload` - History navigation
+- `pages` / `switch` - Manage tabs
 
-```bash
-# Open a website
-actionbook browser open example.com
+**Interaction:**
+- `click <selector>` - Click element
+- `type <selector> <text>` - Type text (append)
+- `fill <selector> <text>` - Clear and type text
+- `select <selector> <value>` - Select dropdown option
+- `hover <selector>` / `focus <selector>` - Hover/focus element
+- `press <key>` - Press keyboard key
 
-# Take interactive snapshot
-actionbook browser snapshot -i
+**Waiting:**
+- `wait <selector>` - Wait for element (default 30s)
+- `wait-nav` - Wait for navigation
 
-# Click element by reference
-actionbook browser click @e1
-
-# Fill input field
-actionbook browser fill @e3 "test@example.com"
-
-# Check current session
-actionbook browser session
-
-# Close browser
-actionbook browser close
-```
-
-**Setup:**
-
-```bash
-# npm (recommended)
-# Download Chromium
-actionbook browser install
-
-# Linux users - include system dependencies
-actionbook browser install --with-deps
-# or manually: npx playwright install-deps chromium
-```
-
-**Common Commands:**
-- `open <url>` - Navigate to URL
-- `snapshot -i` - Get interactive elements with references
-- `click <selector>` - Click element (or @ref)
-- `fill <selector> <text>` - Fill input field
-- `type <selector> <text>` - Type into element
-- `wait <selector|ms>` - Wait for element or time
+**Page Inspection:**
 - `screenshot [path]` - Take screenshot
-- `close` - Close browser
+- `pdf <path>` - Export as PDF
+- `html [selector]` - Get page/element HTML
+- `text [selector]` - Get page/element text
+- `eval <code>` - Execute JavaScript
+- `snapshot` - Get accessibility snapshot
+- `viewport` - Get viewport dimensions
 
-**For full command list:**
+**Cookies:**
+- `cookies list` / `get` / `set` / `delete` / `clear` - Cookie management
 
-```bash
-actionbook browser --help
-actionbook browser  # Shows full agent-browser help
-```
+**Session:**
+- `status` - Show detected browsers & session info
+- `close` / `restart` / `connect` - Session control
 
-**Learn more:** [agent-browser on GitHub](https://github.com/vercel-labs/agent-browser)
+### `actionbook sources`
 
-## Authentication
-
-Set your API key via environment variable:
-
-```bash
-export ACTIONBOOK_API_KEY=your_api_key
-```
-
-Or pass it as an option:
+List and search available action sources.
 
 ```bash
-actionbook --api-key your_api_key search "query"
+actionbook sources list
+actionbook sources search "github"
 ```
 
-## Output Format
+### `actionbook config`
 
-The CLI outputs plain text results optimized for both human readability and AI agent consumption.
-
-## Examples
-
-### Typical Workflow
+Manage CLI configuration.
 
 ```bash
-# 1. Search for actions
-actionbook search "airbnb search"
-
-# 2. Get details for a specific action using area_id from search results
-actionbook get "airbnb.com:/:default"
-
-# 3. Use the selectors in your automation script
+actionbook config show
+actionbook config get api.base_url
+actionbook config set api.api_key "your_key"
 ```
 
-### Filter by Domain
+### `actionbook profile`
+
+Manage browser profiles for isolated sessions.
 
 ```bash
-# Search within a specific domain
-actionbook search "login" --domain github.com
+actionbook profile list
+actionbook profile create work
+actionbook profile delete work
 ```
 
-### Browser Automation Workflow
+## Global Options
 
 ```bash
-# 1. Get action details with verified selectors
-actionbook get "github.com:/login:default"
-
-# 2. Use browser command to automate
-actionbook browser open "https://github.com/login"
-actionbook browser snapshot -i
-actionbook browser fill @e1 "username"
-actionbook browser fill @e2 "password"
-actionbook browser click @e3
+--browser-path <path>    # Custom browser executable
+--cdp <port|url>         # Connect to existing CDP port
+--profile <name>         # Use specific browser profile
+--headless               # Run in headless mode
+--json                   # JSON output format
+--verbose, -v            # Verbose logging
 ```
+
+## Configuration
+
+Config file location: `~/.config/actionbook/config.toml`
+
+```toml
+[api]
+base_url = "https://api.actionbook.dev"
+api_key = "your_key"
+
+[browser]
+executable = "/path/to/chrome"
+default_profile = "default"
+headless = false
+```
+
+**Priority:** CLI args > Environment vars > Config file > Auto-discovery
+
+## Environment Variables
+
+- `ACTIONBOOK_API_KEY` - API key for Actionbook service
+- `ACTIONBOOK_BINARY_PATH` - Override binary path (for development)
+
+## Supported Browsers
+
+| Browser | macOS | Linux | Windows |
+|---------|-------|-------|---------|
+| Google Chrome | Yes | Yes | Yes |
+| Brave | Yes | Yes | Yes |
+| Microsoft Edge | Yes | Yes | Yes |
+| Arc | Yes | - | - |
+| Chromium | Yes | Yes | Yes |
 
 ## Related Packages
 
 - [`@actionbookdev/sdk`](https://www.npmjs.com/package/@actionbookdev/sdk) - JavaScript/TypeScript SDK
 - [`@actionbookdev/mcp`](https://www.npmjs.com/package/@actionbookdev/mcp) - MCP Server for AI agents
+- [`@actionbookdev/tools-ai-sdk`](https://www.npmjs.com/package/@actionbookdev/tools-ai-sdk) - Vercel AI SDK tools
 
 ## License
 
-MIT
+Apache-2.0

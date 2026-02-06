@@ -1,39 +1,20 @@
 {
   "name": "@actionbookdev/cli",
-  "version": "0.3.0",
-  "description": "CLI for Actionbook - Get website action manuals for AI agents",
+  "version": "0.3.1",
+  "description": "CLI for Actionbook - Browser automation and action manuals for AI agents",
   "private": false,
-  "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
   "bin": {
-    "actionbook": "dist/index.js"
+    "actionbook": "./bin/actionbook.js"
   },
   "files": [
-    "dist"
+    "bin",
+    "scripts"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "dev": "tsc -p tsconfig.build.json --watch",
-    "test": "vitest run",
-    "lint": "eslint . --ext .ts",
-    "clean": "rimraf dist",
-    "prepublishOnly": "npm run build"
-  },
-  "dependencies": {
-    "@actionbookdev/sdk": "workspace:*",
-    "agent-browser": "^0.8.3",
-    "chalk": "^5.3.0",
-    "commander": "^12.1.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.14.0",
-    "typescript": "^5.6.3",
-    "vitest": "^1.6.0",
-    "rimraf": "^5.0.5"
+    "postinstall": "node scripts/postinstall.js"
   },
   "engines": {
     "node": ">=18"
