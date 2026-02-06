@@ -10,7 +10,7 @@
 "use strict";
 
 const { spawn } = require("child_process");
-const { existsSync } = require("fs");
+const { existsSync, readFileSync } = require("fs");
 const path = require("path");
 
 const PLATFORMS = {
@@ -23,6 +23,14 @@ const PLATFORMS = {
 };
 
 function main() {
+  // Keep CLI version aligned with npm package version.
+  if (isVersionOnlyFlag(process.argv.slice(2))) {
+    const pkgPath = path.join(__dirname, "..", "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+    console.log(`actionbook ${pkg.version}`);
+    process.exit(0);
+  }
+
   // Allow env var override for development
   const envPath = process.env.ACTIONBOOK_BINARY_PATH;
   if (envPath) {
@@ -54,6 +62,10 @@ function main() {
   }
 
   run(binaryPath);
+}
+
+function isVersionOnlyFlag(args) {
+  return args.length === 1 && (args[0] === "--version" || args[0] === "-V");
 }
 
 function run(binaryPath) {
