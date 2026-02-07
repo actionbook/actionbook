@@ -1,0 +1,26 @@
+{
+  "name": "@actionbookdev/cli-darwin-arm64",
+  "version": "0.3.1",
+  "description": "Actionbook CLI native binary for macOS ARM64",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "bin": {
+    "actionbook": "bin/actionbook"
+  },
+  "files": [
+    "bin/actionbook"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/actionbook/actionbook.git",
+    "directory": "packages/cli-darwin-arm64"
+  }
+}

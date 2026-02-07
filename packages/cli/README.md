@@ -14,6 +14,16 @@ Or use directly with npx:
 npx @actionbookdev/cli search "airbnb search"
 ```
 
+## Platform Binaries
+
+`@actionbookdev/cli` is the single public install package.
+Platform-specific native binaries are shipped through internal optional dependencies
+(`@actionbookdev/cli-*`), and npm automatically installs the matching package for
+your OS/CPU.
+
+If you install with `--omit=optional`, the native binary package may be skipped and
+the CLI will not run until you reinstall without that flag.
+
 ## Quick Start
 
 ```bash

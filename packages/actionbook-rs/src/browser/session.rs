@@ -565,38 +565,116 @@ impl SessionManager {
         Err(ActionbookError::Other("No response received".to_string()))
     }
 
+    /// Returns JavaScript that defines `__findElement(selector)` function.
+    /// Supports CSS selectors, XPath (starts with //), and @eN snapshot references.
+    fn find_element_js() -> &'static str {
+        r#"
+        function __findElement(selector) {
+            if (/^@e\d+$/.test(selector)) {
+                const targetNum = parseInt(selector.slice(2));
+                const SKIP_TAGS = new Set(['script','style','noscript','template','svg','path','defs','clippath','lineargradient','stop','meta','link','br','wbr']);
+                const INLINE_TAGS = new Set(['strong','b','em','i','code','span','small','sup','sub','abbr','mark','u','s','del','ins','time','q','cite','dfn','var','samp','kbd']);
+                const INTERACTIVE_ROLES = new Set(['button','link','textbox','checkbox','radio','combobox','listbox','menuitem','menuitemcheckbox','menuitemradio','option','searchbox','slider','spinbutton','switch','tab','treeitem']);
+                const CONTENT_ROLES = new Set(['heading','cell','gridcell','columnheader','rowheader','listitem','article','region','main','navigation','img']);
+                function getRole(el) {
+                    const explicit = el.getAttribute('role');
+                    if (explicit) return explicit.toLowerCase();
+                    const tag = el.tagName.toLowerCase();
+                    if (INLINE_TAGS.has(tag)) return tag;
+                    const roleMap = {
+                        'a': el.hasAttribute('href') ? 'link' : 'generic',
+                        'button': 'button', 'input': getInputRole(el), 'select': 'combobox', 'textarea': 'textbox', 'img': 'img',
+                        'h1':'heading','h2':'heading','h3':'heading','h4':'heading','h5':'heading','h6':'heading',
+                        'nav':'navigation','main':'main','header':'banner','footer':'contentinfo','aside':'complementary',
+                        'form':'form','table':'table','thead':'rowgroup','tbody':'rowgroup','tfoot':'rowgroup',
+                        'tr':'row','th':'columnheader','td':'cell','ul':'list','ol':'list','li':'listitem',
+                        'details':'group','summary':'button','dialog':'dialog',
+                        'section': el.hasAttribute('aria-label') || el.hasAttribute('aria-labelledby') ? 'region' : 'generic',
+                        'article':'article'
+                    };
+                    return roleMap[tag] || 'generic';
+                }
+                function getInputRole(el) {
+                    const type = (el.getAttribute('type') || 'text').toLowerCase();
+                    const map = {'text':'textbox','email':'textbox','password':'textbox','search':'searchbox','tel':'textbox','url':'textbox','number':'spinbutton','checkbox':'checkbox','radio':'radio','submit':'button','reset':'button','button':'button','range':'slider'};
+                    return map[type] || 'textbox';
+                }
+                function getAccessibleName(el) {
+                    const ariaLabel = el.getAttribute('aria-label');
+                    if (ariaLabel) return ariaLabel.trim();
+                    const labelledBy = el.getAttribute('aria-labelledby');
+                    if (labelledBy) { const label = document.getElementById(labelledBy); if (label) return label.textContent?.trim()?.substring(0, 100) || ''; }
+                    const tag = el.tagName.toLowerCase();
+                    if (tag === 'img') return el.getAttribute('alt') || '';
+                    if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+                        if (el.id) { const label = document.querySelector('label[for="' + el.id + '"]'); if (label) return label.textContent?.trim()?.substring(0, 100) || ''; }
+                        return el.getAttribute('placeholder') || el.getAttribute('title') || '';
+                    }
+                    if (tag === 'a' || tag === 'button' || tag === 'summary') return '';
+                    if (['h1','h2','h3','h4','h5','h6'].includes(tag)) return el.textContent?.trim()?.substring(0, 150) || '';
+                    const title = el.getAttribute('title');
+                    if (title) return title.trim();
+                    return '';
+                }
+                function isHidden(el) {
+                    if (el.hidden) return true;
+                    if (el.getAttribute('aria-hidden') === 'true') return true;
+                    const style = el.style;
+                    if (style.display === 'none' || style.visibility === 'hidden') return true;
+                    if (el.offsetParent === null && el.tagName.toLowerCase() !== 'body' && getComputedStyle(el).position !== 'fixed' && getComputedStyle(el).position !== 'sticky') {
+                        const cs = getComputedStyle(el);
+                        if (cs.display === 'none' || cs.visibility === 'hidden') return true;
+                    }
+                    return false;
+                }
+                let refCounter = 0;
+                function walkFind(el, depth) {
+                    if (depth > 15) return null;
+                    const tag = el.tagName.toLowerCase();
+                    if (SKIP_TAGS.has(tag)) return null;
+                    if (isHidden(el)) return null;
+                    const role = getRole(el);
+                    const name = getAccessibleName(el);
+                    const isInteractive = INTERACTIVE_ROLES.has(role);
+                    const isContent = CONTENT_ROLES.has(role);
+                    const shouldRef = isInteractive || (isContent && name);
+                    if (shouldRef) {
+                        refCounter++;
+                        if (refCounter === targetNum) return el;
+                    }
+                    for (const child of el.children) {
+                        const found = walkFind(child, depth + 1);
+                        if (found) return found;
+                    }
+                    return null;
+                }
+                return walkFind(document.body, 0);
+            }
+            if (selector.startsWith('//') || selector.startsWith('(//')) {
+                const result = document.evaluate(selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+                return result.singleNodeValue;
+            }
+            return document.querySelector(selector);
+        }
+        "#
+    }
+
     /// Click an element on the active page
     pub async fn click_on_page(&self, profile_name: Option<&str>, selector: &str) -> Result<()> {
-        // First, find the element, scroll it into view, and get its center coordinates
-        // Support both CSS selectors and XPath (starts with //)
-        let js = format!(
-            r#"
-            (function() {{
-                const selector = {};
-                let el;
-                if (selector.startsWith('//') || selector.startsWith('(//')) {{
-                    // XPath selector
-                    const result = document.evaluate(selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-                    el = result.singleNodeValue;
-                }} else {{
-                    // CSS selector
-                    el = document.querySelector(selector);
-                }}
-                if (!el) return null;
-
-                // Scroll element into view first
-                el.scrollIntoView({{ behavior: 'instant', block: 'center', inline: 'center' }});
-
-                // Small delay for scroll to complete, then get coordinates
-                const rect = el.getBoundingClientRect();
-                return {{
-                    x: rect.left + rect.width / 2,
-                    y: rect.top + rect.height / 2
-                }};
-            }})()
-            "#,
-            serde_json::to_string(selector)?
-        );
+        // Find the element, scroll it into view, and get its center coordinates
+        // Supports CSS selectors, XPath (starts with //), and @eN snapshot references
+        let selector_json = serde_json::to_string(selector)?;
+        let js = [
+            "(function() {",
+            Self::find_element_js(),
+            &format!("const el = __findElement({selector_json});"),
+            "if (!el) return null;",
+            "el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });",
+            "const rect = el.getBoundingClientRect();",
+            "return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };",
+            "})()",
+        ]
+        .join("\n");
 
         let coords = self.eval_on_page(profile_name, &js).await?;
 
@@ -644,31 +722,19 @@ impl SessionManager {
     }
 
     /// Type text into an element on the active page
-    pub async fn type_on_page(
-        &self,
-        profile_name: Option<&str>,
-        selector: &str,
-        text: &str,
-    ) -> Result<()> {
-        // Focus the element first (supports both CSS and XPath)
-        let js = format!(
-            r#"
-            (function() {{
-                const selector = {};
-                let el;
-                if (selector.startsWith('//') || selector.startsWith('(//')) {{
-                    const result = document.evaluate(selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-                    el = result.singleNodeValue;
-                }} else {{
-                    el = document.querySelector(selector);
-                }}
-                if (!el) return false;
-                el.focus();
-                return true;
-            }})()
-            "#,
-            serde_json::to_string(selector)?
-        );
+    pub async fn type_on_page(&self, profile_name: Option<&str>, selector: &str, text: &str) -> Result<()> {
+        // Focus the element first (supports CSS, XPath, and @eN refs)
+        let selector_json = serde_json::to_string(selector)?;
+        let js = [
+            "(function() {",
+            Self::find_element_js(),
+            &format!("const el = __findElement({selector_json});"),
+            "if (!el) return false;",
+            "el.focus();",
+            "return true;",
+            "})()",
+        ]
+        .join("\n");
 
         let focused = self.eval_on_page(profile_name, &js).await?;
         if !focused.as_bool().unwrap_or(false) {
@@ -702,35 +768,23 @@ impl SessionManager {
     }
 
     /// Fill an input element (clear and type)
-    pub async fn fill_on_page(
-        &self,
-        profile_name: Option<&str>,
-        selector: &str,
-        text: &str,
-    ) -> Result<()> {
-        // Clear and set value directly via JS, then dispatch input event (supports both CSS and XPath)
-        let js = format!(
-            r#"
-            (function() {{
-                const selector = {};
-                let el;
-                if (selector.startsWith('//') || selector.startsWith('(//')) {{
-                    const result = document.evaluate(selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-                    el = result.singleNodeValue;
-                }} else {{
-                    el = document.querySelector(selector);
-                }}
-                if (!el) return false;
-                el.focus();
-                el.value = {};
-                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                return true;
-            }})()
-            "#,
-            serde_json::to_string(selector)?,
-            serde_json::to_string(text)?
-        );
+    pub async fn fill_on_page(&self, profile_name: Option<&str>, selector: &str, text: &str) -> Result<()> {
+        // Clear and set value directly via JS, then dispatch input event (supports CSS, XPath, and @eN refs)
+        let selector_json = serde_json::to_string(selector)?;
+        let text_json = serde_json::to_string(text)?;
+        let js = [
+            "(function() {",
+            Self::find_element_js(),
+            &format!("const el = __findElement({selector_json});"),
+            "if (!el) return false;",
+            "el.focus();",
+            &format!("el.value = {text_json};"),
+            "el.dispatchEvent(new Event('input', { bubbles: true }));",
+            "el.dispatchEvent(new Event('change', { bubbles: true }));",
+            "return true;",
+            "})()",
+        ]
+        .join("\n");
 
         let filled = self.eval_on_page(profile_name, &js).await?;
         if !filled.as_bool().unwrap_or(false) {
@@ -918,12 +972,16 @@ impl SessionManager {
     ) -> Result<()> {
         let start = std::time::Instant::now();
         let timeout = std::time::Duration::from_millis(timeout_ms);
+        let selector_json = serde_json::to_string(selector)?;
 
         loop {
-            let js = format!(
-                "document.querySelector({}) !== null",
-                serde_json::to_string(selector)?
-            );
+            let js = [
+                "(function() {",
+                Self::find_element_js(),
+                &format!("return __findElement({selector_json}) !== null;"),
+                "})()",
+            ]
+            .join("\n");
             let found = self.eval_on_page(profile_name, &js).await?;
 
             if found.as_bool().unwrap_or(false) {
@@ -984,25 +1042,20 @@ impl SessionManager {
     }
 
     /// Select an option from dropdown
-    pub async fn select_on_page(
-        &self,
-        profile_name: Option<&str>,
-        selector: &str,
-        value: &str,
-    ) -> Result<()> {
-        let js = format!(
-            r#"
-            (function() {{
-                const el = document.querySelector({});
-                if (!el || el.tagName !== 'SELECT') return false;
-                el.value = {};
-                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                return true;
-            }})()
-            "#,
-            serde_json::to_string(selector)?,
-            serde_json::to_string(value)?
-        );
+    pub async fn select_on_page(&self, profile_name: Option<&str>, selector: &str, value: &str) -> Result<()> {
+        let selector_json = serde_json::to_string(selector)?;
+        let value_json = serde_json::to_string(value)?;
+        let js = [
+            "(function() {",
+            Self::find_element_js(),
+            &format!("const el = __findElement({selector_json});"),
+            "if (!el || el.tagName !== 'SELECT') return false;",
+            &format!("el.value = {value_json};"),
+            "el.dispatchEvent(new Event('change', { bubbles: true }));",
+            "return true;",
+            "})()",
+        ]
+        .join("\n");
 
         let selected = self.eval_on_page(profile_name, &js).await?;
         if !selected.as_bool().unwrap_or(false) {
@@ -1013,21 +1066,18 @@ impl SessionManager {
 
     /// Hover over an element
     pub async fn hover_on_page(&self, profile_name: Option<&str>, selector: &str) -> Result<()> {
-        // Get element coordinates
-        let js = format!(
-            r#"
-            (function() {{
-                const el = document.querySelector({});
-                if (!el) return null;
-                const rect = el.getBoundingClientRect();
-                return {{
-                    x: rect.left + rect.width / 2,
-                    y: rect.top + rect.height / 2
-                }};
-            }})()
-            "#,
-            serde_json::to_string(selector)?
-        );
+        // Get element coordinates (supports CSS, XPath, and @eN refs)
+        let selector_json = serde_json::to_string(selector)?;
+        let js = [
+            "(function() {",
+            Self::find_element_js(),
+            &format!("const el = __findElement({selector_json});"),
+            "if (!el) return null;",
+            "const rect = el.getBoundingClientRect();",
+            "return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };",
+            "})()",
+        ]
+        .join("\n");
 
         let coords = self.eval_on_page(profile_name, &js).await?;
         if coords.is_null() {
@@ -1053,17 +1103,17 @@ impl SessionManager {
 
     /// Focus on an element
     pub async fn focus_on_page(&self, profile_name: Option<&str>, selector: &str) -> Result<()> {
-        let js = format!(
-            r#"
-            (function() {{
-                const el = document.querySelector({});
-                if (!el) return false;
-                el.focus();
-                return true;
-            }})()
-            "#,
-            serde_json::to_string(selector)?
-        );
+        let selector_json = serde_json::to_string(selector)?;
+        let js = [
+            "(function() {",
+            Self::find_element_js(),
+            &format!("const el = __findElement({selector_json});"),
+            "if (!el) return false;",
+            "el.focus();",
+            "return true;",
+            "})()",
+        ]
+        .join("\n");
 
         let focused = self.eval_on_page(profile_name, &js).await?;
         if !focused.as_bool().unwrap_or(false) {
@@ -1124,15 +1174,17 @@ impl SessionManager {
         selector: Option<&str>,
     ) -> Result<String> {
         let js = match selector {
-            Some(sel) => format!(
-                r#"
-                (function() {{
-                    const el = document.querySelector({});
-                    return el ? el.outerHTML : null;
-                }})()
-                "#,
-                serde_json::to_string(sel)?
-            ),
+            Some(sel) => {
+                let sel_json = serde_json::to_string(sel)?;
+                [
+                    "(function() {",
+                    Self::find_element_js(),
+                    &format!("const el = __findElement({sel_json});"),
+                    "return el ? el.outerHTML : null;",
+                    "})()",
+                ]
+                .join("\n")
+            }
             None => "document.documentElement.outerHTML".to_string(),
         };
 
@@ -1153,15 +1205,17 @@ impl SessionManager {
         selector: Option<&str>,
     ) -> Result<String> {
         let js = match selector {
-            Some(sel) => format!(
-                r#"
-                (function() {{
-                    const el = document.querySelector({});
-                    return el ? el.innerText : null;
-                }})()
-                "#,
-                serde_json::to_string(sel)?
-            ),
+            Some(sel) => {
+                let sel_json = serde_json::to_string(sel)?;
+                [
+                    "(function() {",
+                    Self::find_element_js(),
+                    &format!("const el = __findElement({sel_json});"),
+                    "return el ? el.innerText : null;",
+                    "})()",
+                ]
+                .join("\n")
+            }
             None => "document.body.innerText".to_string(),
         };
 

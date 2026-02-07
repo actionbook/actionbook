@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 
 /**
- * Postinstall script for @actionbookdev/cli
+ * Postinstall script for @actionbookdev/cli.
  *
- * Ensures the platform binary has executable permissions.
- * (npm doesn't always preserve the execute bit)
+ * Ensures the installed platform binary keeps executable permissions.
  */
 
 "use strict";
@@ -12,25 +11,52 @@
 const fs = require("fs");
 const path = require("path");
 
-const binDir = path.join(__dirname, "..", "bin");
+const PLATFORM_PACKAGES = {
+  "darwin-arm64": "@actionbookdev/cli-darwin-arm64",
+  "darwin-x64": "@actionbookdev/cli-darwin-x64",
+  "linux-x64": "@actionbookdev/cli-linux-x64-gnu",
+  "linux-arm64": "@actionbookdev/cli-linux-arm64-gnu",
+  "win32-x64": "@actionbookdev/cli-win32-x64",
+  "win32-arm64": "@actionbookdev/cli-win32-arm64",
+};
 
-function getBinaryName() {
+function getBinaryPath() {
   const platformKey = `${process.platform}-${process.arch}`;
-  const map = {
-    "darwin-arm64": "actionbook-darwin-arm64",
-    "darwin-x64": "actionbook-darwin-x64",
-    "linux-x64": "actionbook-linux-x64",
-    "linux-arm64": "actionbook-linux-arm64",
-    "win32-x64": "actionbook-win32-x64.exe",
-    "win32-arm64": "actionbook-win32-arm64.exe",
-  };
-  return map[platformKey] || null;
+  const packageName = PLATFORM_PACKAGES[platformKey];
+
+  if (!packageName) {
+    return null;
+  }
+
+  const binaryName = process.platform === "win32" ? "actionbook.exe" : "actionbook";
+
+  const packageDir = resolvePackageDir(packageName);
+  if (!packageDir) {
+    return null;
+  }
+
+  return path.join(packageDir, "bin", binaryName);
 }
 
-const binaryName = getBinaryName();
-if (!binaryName) process.exit(0);
+function resolvePackageDir(packageName) {
+  try {
+    const packageJsonPath = require.resolve(`${packageName}/package.json`);
+    return path.dirname(packageJsonPath);
+  } catch {
+    const unscoped = packageName.split("/")[1];
+    const packageDir = path.join(__dirname, "..", "..", unscoped);
+    const packageJsonPath = path.join(packageDir, "package.json");
+    if (fs.existsSync(packageJsonPath)) {
+      return packageDir;
+    }
+    return null;
+  }
+}
 
-const binaryPath = path.join(binDir, binaryName);
+const binaryPath = getBinaryPath();
+if (!binaryPath) {
+  process.exit(0);
+}
 
 if (fs.existsSync(binaryPath) && process.platform !== "win32") {
   fs.chmodSync(binaryPath, 0o755);

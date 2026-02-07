@@ -1,0 +1,27 @@
+{
+  "name": "@actionbookdev/cli-linux-arm64-gnu",
+  "version": "0.3.1",
+  "description": "Actionbook CLI native binary for Linux ARM64 (glibc)",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "libc": "glibc",
+  "bin": {
+    "actionbook": "bin/actionbook"
+  },
+  "files": [
+    "bin/actionbook"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/actionbook/actionbook.git",
+    "directory": "packages/cli-linux-arm64-gnu"
+  }
+}
