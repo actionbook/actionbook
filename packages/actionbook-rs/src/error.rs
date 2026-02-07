@@ -36,6 +36,9 @@ pub enum ActionbookError {
     #[error("Setup error: {0}")]
     SetupError(String),
 
+    #[error("Extension error: {0}")]
+    ExtensionError(String),
+
     #[error("Timeout: {0}")]
     Timeout(String),
 

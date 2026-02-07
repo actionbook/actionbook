@@ -9,12 +9,30 @@ use tokio::time::timeout;
 #[cfg(feature = "stealth")]
 use crate::browser::apply_stealth_to_page;
 use crate::browser::{
-    build_stealth_profile, discover_all_browsers, stealth_status, SessionManager, SessionStatus,
-    StealthConfig,
+    build_stealth_profile, discover_all_browsers, extension_bridge, stealth_status,
+    SessionManager, SessionStatus, StealthConfig,
 };
 use crate::cli::{BrowserCommands, Cli, CookiesCommands};
 use crate::config::Config;
 use crate::error::{ActionbookError, Result};
+
+/// Send a CDP command through the extension bridge
+async fn extension_send_cdp(
+    cli: &Cli,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value> {
+    extension_bridge::send_command(cli.extension_port, method, params).await
+}
+
+/// Send an Extension.* command through the bridge
+async fn extension_send(
+    cli: &Cli,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value> {
+    extension_bridge::send_command(cli.extension_port, method, params).await
+}
 
 /// Create a SessionManager with appropriate stealth configuration from CLI flags
 fn create_session_manager(cli: &Cli, config: &Config) -> SessionManager {
@@ -391,6 +409,42 @@ async fn reload(cli: &Cli, config: &Config) -> Result<()> {
 }
 
 async fn pages(cli: &Cli, config: &Config) -> Result<()> {
+    if cli.extension {
+        let result = extension_send(
+            cli,
+            "Extension.listTabs",
+            serde_json::json!({}),
+        )
+        .await?;
+
+        let tabs = result
+            .get("tabs")
+            .and_then(|t| t.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        if cli.json {
+            println!("{}", serde_json::to_string_pretty(&tabs)?);
+        } else if tabs.is_empty() {
+            println!("{} No tabs found", "!".yellow());
+        } else {
+            println!("{} {} tabs open (extension mode)\n", "✓".green(), tabs.len());
+            for (i, tab) in tabs.iter().enumerate() {
+                let title = tab.get("title").and_then(|t| t.as_str()).unwrap_or("(no title)");
+                let url = tab.get("url").and_then(|u| u.as_str()).unwrap_or("");
+                let id = tab.get("id").and_then(|i| i.as_u64()).unwrap_or(0);
+                println!(
+                    "{}. {} {}",
+                    (i + 1).to_string().cyan(),
+                    title.bold(),
+                    format!("(tab:{})", id).dimmed()
+                );
+                println!("   {}", url.dimmed());
+            }
+        }
+        return Ok(());
+    }
+
     let session_manager = create_session_manager(cli, config);
     let pages = session_manager.get_pages(cli.profile.as_deref()).await?;
 
@@ -720,10 +774,34 @@ async fn pdf(cli: &Cli, config: &Config, path: &str) -> Result<()> {
 }
 
 async fn eval(cli: &Cli, config: &Config, code: &str) -> Result<()> {
-    let session_manager = create_session_manager(cli, config);
-    let value = session_manager
-        .eval_on_page(cli.profile.as_deref(), code)
+    let value = if cli.extension {
+        let result = extension_send_cdp(
+            cli,
+            "Runtime.evaluate",
+            serde_json::json!({
+                "expression": code,
+                "returnByValue": true,
+            }),
+        )
         .await?;
+
+        // Extract the value from CDP response
+        result
+            .get("result")
+            .and_then(|r| r.get("value"))
+            .cloned()
+            .unwrap_or_else(|| {
+                result
+                    .get("result")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null)
+            })
+    } else {
+        let session_manager = create_session_manager(cli, config);
+        session_manager
+            .eval_on_page(cli.profile.as_deref(), code)
+            .await?
+    };
 
     if cli.json {
         println!("{}", serde_json::to_string_pretty(&value)?);
