@@ -19,7 +19,9 @@ impl ApiClient {
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
-            .map_err(|e| ActionbookError::ApiError(format!("Failed to create HTTP client: {}", e)))?;
+            .map_err(|e| {
+                ActionbookError::ApiError(format!("Failed to create HTTP client: {}", e))
+            })?;
 
         Ok(Self {
             client,
@@ -108,7 +110,11 @@ impl ApiClient {
 
     /// Search for actions (legacy JSON API)
     #[deprecated(note = "Use search_actions() instead")]
-    pub async fn search_actions_legacy(&self, params: SearchActionsLegacyParams) -> Result<SearchActionsResponse> {
+    #[allow(dead_code)]
+    pub async fn search_actions_legacy(
+        &self,
+        params: SearchActionsLegacyParams,
+    ) -> Result<SearchActionsResponse> {
         let mut query_params = vec![("q", params.query)];
 
         if let Some(search_type) = params.search_type {
@@ -139,6 +145,7 @@ impl ApiClient {
 
     /// Get action by ID (legacy JSON API)
     #[deprecated(note = "Use get_action_by_area_id() instead")]
+    #[allow(dead_code)]
     pub async fn get_action(&self, id: &str) -> Result<ActionDetail> {
         let response = self
             .request(reqwest::Method::GET, "/api/actions")
@@ -170,7 +177,11 @@ impl ApiClient {
     }
 
     /// Search sources
-    pub async fn search_sources(&self, query: &str, limit: Option<u32>) -> Result<SearchSourcesResponse> {
+    pub async fn search_sources(
+        &self,
+        query: &str,
+        limit: Option<u32>,
+    ) -> Result<SearchSourcesResponse> {
         let mut query_params = vec![("q", query.to_string())];
 
         if let Some(limit) = limit {
@@ -188,7 +199,10 @@ impl ApiClient {
     }
 
     /// Handle API response (JSON)
-    async fn handle_response<T: serde::de::DeserializeOwned>(&self, response: reqwest::Response) -> Result<T> {
+    async fn handle_response<T: serde::de::DeserializeOwned>(
+        &self,
+        response: reqwest::Response,
+    ) -> Result<T> {
         let status = response.status();
 
         if status.is_success() {
@@ -199,7 +213,9 @@ impl ApiClient {
         } else {
             let error_msg = match status {
                 StatusCode::NOT_FOUND => "Resource not found".to_string(),
-                StatusCode::TOO_MANY_REQUESTS => "Rate limited. Please try again later.".to_string(),
+                StatusCode::TOO_MANY_REQUESTS => {
+                    "Rate limited. Please try again later.".to_string()
+                }
                 StatusCode::UNAUTHORIZED => "Invalid or missing API key".to_string(),
                 _ => {
                     // Try to parse error response
@@ -225,7 +241,9 @@ impl ApiClient {
         } else {
             let error_msg = match status {
                 StatusCode::NOT_FOUND => "Resource not found".to_string(),
-                StatusCode::TOO_MANY_REQUESTS => "Rate limited. Please try again later.".to_string(),
+                StatusCode::TOO_MANY_REQUESTS => {
+                    "Rate limited. Please try again later.".to_string()
+                }
                 StatusCode::UNAUTHORIZED => "Invalid or missing API key".to_string(),
                 _ => {
                     // Try to read error text

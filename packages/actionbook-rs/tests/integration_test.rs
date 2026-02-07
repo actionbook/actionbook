@@ -6,6 +6,8 @@
 //! Run with: cargo test --test integration_test
 //! Or with custom API URL: ACTIONBOOK_API_URL=http://localhost:3100 cargo test --test integration_test
 
+#![allow(deprecated)]
+
 use std::env;
 use std::time::Duration;
 
@@ -17,7 +19,12 @@ fn get_api_url() -> String {
 
 async fn is_api_available(client: &reqwest::Client, base_url: &str) -> bool {
     let url = format!("{}/health", base_url);
-    match client.get(&url).timeout(Duration::from_secs(3)).send().await {
+    match client
+        .get(&url)
+        .timeout(Duration::from_secs(3))
+        .send()
+        .await
+    {
         Ok(response) => response.status().is_success(),
         Err(_) => {
             // Try the search endpoint as health check alternative
@@ -141,7 +148,12 @@ mod real_api_integration {
 
         // Now get the action by ID
         let get_url = format!("{}/api/actions", api_url);
-        let get_response = match client.get(&get_url).query(&[("id", action_id)]).send().await {
+        let get_response = match client
+            .get(&get_url)
+            .query(&[("id", action_id)])
+            .send()
+            .await
+        {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("Skipping test: Get request failed - {}", e);
@@ -155,7 +167,10 @@ mod real_api_integration {
             get_response.status()
         );
 
-        let body: Value = get_response.json().await.expect("Should parse JSON response");
+        let body: Value = get_response
+            .json()
+            .await
+            .expect("Should parse JSON response");
 
         assert_eq!(body["action_id"].as_str(), Some(action_id));
         assert!(body["content"].is_string());
@@ -344,7 +359,9 @@ mod cli_integration {
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     // Verify it contains expected text
                     assert!(
-                        stdout.contains("Next step") || stdout.contains("area_id") || stdout.is_empty(),
+                        stdout.contains("Next step")
+                            || stdout.contains("area_id")
+                            || stdout.is_empty(),
                         "Output should contain guidance or be empty: {}",
                         stdout
                     );
@@ -369,10 +386,7 @@ mod cli_integration {
     #[test]
     fn cli_config_show_runs() {
         // Config show should always work (local operation)
-        actionbook()
-            .args(["config", "show"])
-            .assert()
-            .success();
+        actionbook().args(["config", "show"]).assert().success();
     }
 
     #[test]
@@ -388,10 +402,7 @@ mod cli_integration {
     #[test]
     fn cli_profile_list_runs() {
         // Profile list should always work (local operation)
-        actionbook()
-            .args(["profile", "list"])
-            .assert()
-            .success();
+        actionbook().args(["profile", "list"]).assert().success();
     }
 
     #[test]

@@ -52,6 +52,7 @@ impl ProfileConfig {
     }
 
     /// Create a profile for remote connection
+    #[allow(dead_code)]
     pub fn remote(cdp_url: String) -> Self {
         Self {
             cdp_url: Some(cdp_url),

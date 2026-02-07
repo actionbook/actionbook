@@ -93,24 +93,28 @@ impl BrowserLauncher {
     }
 
     /// Set CDP port
+    #[allow(dead_code)]
     pub fn cdp_port(mut self, port: u16) -> Self {
         self.cdp_port = port;
         self
     }
 
     /// Set headless mode
+    #[allow(dead_code)]
     pub fn headless(mut self, headless: bool) -> Self {
         self.headless = headless;
         self
     }
 
     /// Set user data directory
+    #[allow(dead_code)]
     pub fn user_data_dir(mut self, dir: PathBuf) -> Self {
         self.user_data_dir = dir;
         self
     }
 
     /// Add extra browser arguments
+    #[allow(dead_code)]
     pub fn extra_args(mut self, args: Vec<String>) -> Self {
         self.extra_args = args;
         self
@@ -225,6 +229,7 @@ impl BrowserLauncher {
     }
 
     /// Get the CDP WebSocket URL for an already running browser
+    #[allow(dead_code)]
     pub async fn get_cdp_url(&self) -> Result<String> {
         let url = format!("http://127.0.0.1:{}/json/version", self.cdp_port);
 
@@ -255,6 +260,7 @@ impl BrowserLauncher {
     }
 
     /// Get browser info
+    #[allow(dead_code)]
     pub fn browser_info(&self) -> &BrowserInfo {
         &self.browser_info
     }

@@ -14,6 +14,7 @@ use crate::error::{ActionbookError, Result};
 
 /// Stealth profile configuration
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct StealthProfile {
     /// Operating system to emulate
     pub os: StealthOs,
@@ -143,9 +144,9 @@ pub async fn apply_stealth_to_page(
         &profile.locale,
     );
 
-    page.evaluate(navigator_override)
-        .await
-        .map_err(|e| ActionbookError::Other(format!("Failed to apply navigator override: {}", e)))?;
+    page.evaluate(navigator_override).await.map_err(|e| {
+        ActionbookError::Other(format!("Failed to apply navigator override: {}", e))
+    })?;
 
     // 2. Override WebGL renderer
     let webgl_override = format!(
@@ -158,10 +159,12 @@ pub async fn apply_stealth_to_page(
         }};
         "#,
         match profile.gpu {
-            StealthGpu::NvidiaRtx4080 | StealthGpu::NvidiaRtx3080 | StealthGpu::NvidiaGtx1660 => "NVIDIA Corporation",
+            StealthGpu::NvidiaRtx4080 | StealthGpu::NvidiaRtx3080 | StealthGpu::NvidiaGtx1660 =>
+                "NVIDIA Corporation",
             StealthGpu::AmdRadeonRx6800 => "AMD",
             StealthGpu::IntelUhd630 | StealthGpu::IntelIrisXe => "Intel Inc.",
-            StealthGpu::AppleM1Pro | StealthGpu::AppleM2Max | StealthGpu::AppleM4Max => "Apple Inc.",
+            StealthGpu::AppleM1Pro | StealthGpu::AppleM2Max | StealthGpu::AppleM4Max =>
+                "Apple Inc.",
         },
         match profile.gpu {
             StealthGpu::NvidiaRtx4080 => "NVIDIA GeForce RTX 4080",
@@ -212,11 +215,6 @@ pub async fn apply_stealth_to_page(
 
     tracing::debug!("Applied stealth profile to page: {:?}", profile.os);
     Ok(())
-}
-
-/// Check if stealth mode is enabled
-pub fn is_stealth_enabled() -> bool {
-    cfg!(feature = "stealth")
 }
 
 /// Get stealth mode status string

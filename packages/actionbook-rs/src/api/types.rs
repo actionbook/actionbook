@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -99,7 +101,9 @@ pub struct ActionDetail {
 }
 
 /// Deserialize elements from JSON string
-fn deserialize_elements<'de, D>(deserializer: D) -> Result<Option<HashMap<String, ElementInfo>>, D::Error>
+fn deserialize_elements<'de, D>(
+    deserializer: D,
+) -> Result<Option<HashMap<String, ElementInfo>>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {

@@ -27,10 +27,14 @@ pub enum ActionbookError {
     ProfileNotFound(String),
 
     #[error("Profile already exists: {0}")]
+    #[allow(dead_code)]
     ProfileExists(String),
 
     #[error("API error: {0}")]
     ApiError(String),
+
+    #[error("Setup error: {0}")]
+    SetupError(String),
 
     #[error("Timeout: {0}")]
     Timeout(String),

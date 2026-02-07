@@ -1,4 +1,5 @@
 use colored::Colorize;
+use dialoguer::Confirm;
 
 use crate::cli::{Cli, ConfigCommands};
 use crate::config::Config;
@@ -11,6 +12,7 @@ pub async fn run(cli: &Cli, command: &ConfigCommands) -> Result<()> {
         ConfigCommands::Get { key } => get(cli, key).await,
         ConfigCommands::Edit => edit(cli).await,
         ConfigCommands::Path => path(cli).await,
+        ConfigCommands::Reset => reset(cli).await,
     }
 }
 
@@ -20,8 +22,8 @@ async fn show(cli: &Cli) -> Result<()> {
     if cli.json {
         println!("{}", serde_json::to_string_pretty(&config)?);
     } else {
-        let toml_str =
-            toml::to_string_pretty(&config).map_err(|e| ActionbookError::ConfigError(e.to_string()))?;
+        let toml_str = toml::to_string_pretty(&config)
+            .map_err(|e| ActionbookError::ConfigError(e.to_string()))?;
         println!("{}", toml_str);
     }
 
@@ -109,6 +111,52 @@ async fn edit(_cli: &Cli) -> Result<()> {
         .arg(&path)
         .status()
         .map_err(|e| ActionbookError::Other(format!("Failed to open editor: {}", e)))?;
+
+    Ok(())
+}
+
+async fn reset(cli: &Cli) -> Result<()> {
+    let path = Config::config_path();
+
+    if !path.exists() {
+        if cli.json {
+            println!(
+                "{}",
+                serde_json::json!({ "status": "no_config", "path": path.display().to_string() })
+            );
+        } else {
+            println!("{} No config file to remove.", "✓".green());
+        }
+        return Ok(());
+    }
+
+    if !cli.json {
+        let confirm = Confirm::new()
+            .with_prompt(format!("Delete {}?", path.display()))
+            .default(false)
+            .interact()
+            .map_err(|e| ActionbookError::Other(format!("Prompt failed: {}", e)))?;
+
+        if !confirm {
+            println!("  Cancelled.");
+            return Ok(());
+        }
+    }
+
+    std::fs::remove_file(&path)?;
+
+    if cli.json {
+        println!(
+            "{}",
+            serde_json::json!({ "status": "removed", "path": path.display().to_string() })
+        );
+    } else {
+        println!(
+            "{} Config removed: {}",
+            "✓".green(),
+            path.display().to_string().dimmed()
+        );
+    }
 
     Ok(())
 }

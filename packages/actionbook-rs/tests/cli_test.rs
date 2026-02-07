@@ -3,6 +3,8 @@
 //! These tests verify that CLI arguments are parsed correctly,
 //! matching the behavior of the original TypeScript CLI.
 
+#![allow(deprecated)]
+
 use assert_cmd::Command;
 use predicates::prelude::*;
 
