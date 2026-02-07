@@ -1,0 +1,26 @@
+{
+  "name": "@actionbookdev/dify-plugin",
+  "version": "0.1.0",
+  "description": "Actionbook plugin for Dify - Browser automation manuals",
+  "type": "module",
+  "keywords": [
+    "dify",
+    "plugin",
+    "browser-automation",
+    "web-scraping"
+  ],
+  "author": "Actionbook Team <support@actionbook.dev>",
+  "license": "MIT",
+  "homepage": "https://actionbook.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/actionbook/actionbook.git",
+    "directory": "packages/dify-plugin"
+  },
+  "scripts": {
+    "test": "uv run pytest",
+    "lint": "uv run ruff check .",
+    "format": "uv run ruff format .",
+    "package": "uv run dify plugin package ."
+  }
+}

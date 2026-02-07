@@ -1,0 +1,32 @@
+identity:
+  author: Actionbook Team
+  name: actionbook
+  label:
+    en_US: Actionbook
+    zh_CN: Actionbook
+  description:
+    en_US: Access verified website operation manuals for browser automation
+    zh_CN: 获取验证过的网站操作手册，用于浏览器自动化
+  icon: ./_assets/icon.svg
+  tags:
+    - automation
+    - web-scraping
+    - testing
+
+credentials_for_provider:
+  actionbook_api_key:
+    type: secret-input
+    required: true
+    label:
+      en_US: Actionbook API Key
+      zh_CN: Actionbook API 密钥
+    placeholder:
+      en_US: Enter your API key from https://actionbook.dev
+      zh_CN: 从 https://actionbook.dev 获取 API 密钥
+    help:
+      en_US: Get your free API key at https://actionbook.dev/dashboard/api-keys
+      zh_CN: 在 https://actionbook.dev/dashboard/api-keys 获取免费 API 密钥
+
+tools:
+  - ./tools/search_actions.yaml
+  - ./tools/get_action_by_area_id.yaml
