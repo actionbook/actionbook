@@ -2,11 +2,37 @@
 // Connects to the CLI bridge server via WebSocket and executes browser commands
 
 const BRIDGE_URL = "ws://localhost:19222";
-const RECONNECT_INTERVAL_MS = 5000;
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 30000;
 
 let ws = null;
 let attachedTabId = null;
 let connectionState = "disconnected"; // disconnected | connecting | connected
+let reconnectDelay = RECONNECT_BASE_MS;
+let reconnectTimer = null;
+
+// --- Offscreen Document for SW Keep-alive ---
+
+async function ensureOffscreenDocument() {
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ["OFFSCREEN_DOCUMENT"],
+  });
+  if (existingContexts.length > 0) return;
+
+  try {
+    await chrome.offscreen.createDocument({
+      url: "offscreen.html",
+      reasons: ["BLOBS"], // MV3 requires a reason; BLOBS is accepted for keep-alive patterns
+      justification: "Keep service worker alive for persistent WebSocket connection",
+    });
+    console.log("[actionbook] Offscreen document created for keep-alive");
+  } catch (err) {
+    // Document may already exist from a race condition
+    if (!err.message?.includes("Only a single offscreen")) {
+      console.error("[actionbook] Failed to create offscreen document:", err);
+    }
+  }
+}
 
 // --- WebSocket Connection Management ---
 
@@ -30,6 +56,7 @@ function connect() {
   ws.onopen = () => {
     console.log("[actionbook] Connected to bridge server");
     connectionState = "connected";
+    reconnectDelay = RECONNECT_BASE_MS; // Reset backoff on successful connection
     broadcastState();
 
     // Identify as extension client
@@ -73,8 +100,31 @@ function wsSend(data) {
 }
 
 function scheduleReconnect() {
-  setTimeout(connect, RECONNECT_INTERVAL_MS);
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+  }
+
+  console.log(`[actionbook] Reconnecting in ${reconnectDelay}ms...`);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connect();
+  }, reconnectDelay);
+
+  // Exponential backoff: double delay, cap at max
+  reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
 }
+
+// --- CDP Event Forwarding ---
+
+chrome.debugger.onEvent.addListener((source, method, params) => {
+  if (source.tabId === attachedTabId) {
+    // Forward CDP event to bridge (no id field = event, not response)
+    wsSend({
+      method: method,
+      params: params || {},
+    });
+  }
+});
 
 // --- Command Handler ---
 
@@ -167,6 +217,26 @@ async function handleExtensionCommand(id, method, params) {
       return { id, result: { attached: true, tabId: tab.id, title: tab.title, url: tab.url } };
     }
 
+    case "Extension.createTab": {
+      const url = params.url || "about:blank";
+      const tab = await chrome.tabs.create({ url });
+      return { id, result: { tabId: tab.id, title: tab.title || "", url: tab.url || url } };
+    }
+
+    case "Extension.activateTab": {
+      const tabId = params.tabId;
+      if (!tabId || typeof tabId !== "number") {
+        return { id, error: { code: -32602, message: "Missing or invalid tabId" } };
+      }
+      try {
+        await chrome.tabs.update(tabId, { active: true });
+        const tab = await chrome.tabs.get(tabId);
+        return { id, result: { success: true, tabId, title: tab.title, url: tab.url } };
+      } catch (err) {
+        return { id, error: { code: -32000, message: `Failed to activate tab ${tabId}: ${err.message}` } };
+      }
+    }
+
     case "Extension.detachTab": {
       if (attachedTabId === null) {
         return { id, result: { detached: true } };
@@ -201,22 +271,68 @@ async function handleExtensionCommand(id, method, params) {
 
 async function handleCdpCommand(id, method, params) {
   if (attachedTabId === null) {
-    return {
-      id,
-      error: {
-        code: -32000,
-        message: "No tab attached. Call Extension.attachTab or Extension.attachActiveTab first.",
-      },
-    };
+    // Auto-attach to active tab if none attached
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!activeTab) {
+      return {
+        id,
+        error: {
+          code: -32000,
+          message: "No tab attached and no active tab available. Call Extension.attachTab or Extension.attachActiveTab first.",
+        },
+      };
+    }
+
+    try {
+      await chrome.debugger.attach({ tabId: activeTab.id }, "1.3");
+      attachedTabId = activeTab.id;
+      console.log(`[actionbook] Auto-attached to active tab ${activeTab.id}: ${activeTab.title}`);
+      broadcastState();
+    } catch (attachErr) {
+      return {
+        id,
+        error: {
+          code: -32000,
+          message: `Failed to auto-attach to active tab: ${attachErr.message || String(attachErr)}`,
+        },
+      };
+    }
   }
 
-  const result = await chrome.debugger.sendCommand(
-    { tabId: attachedTabId },
-    method,
-    params
-  );
+  try {
+    const result = await chrome.debugger.sendCommand(
+      { tabId: attachedTabId },
+      method,
+      params
+    );
+    return { id, result: result || {} };
+  } catch (err) {
+    const errorMessage = err.message || String(err);
 
-  return { id, result: result || {} };
+    // Detect debugger detachment (user closed debug banner, tab crashed, etc.)
+    if (
+      errorMessage.includes("Debugger is not attached") ||
+      errorMessage.includes("No tab with given id") ||
+      errorMessage.includes("Cannot access") ||
+      errorMessage.includes("Target closed")
+    ) {
+      const previousTabId = attachedTabId;
+      attachedTabId = null;
+      broadcastState();
+      return {
+        id,
+        error: {
+          code: -32000,
+          message: `Debugger detached from tab ${previousTabId}: ${errorMessage}. Call Extension.attachTab to re-attach.`,
+        },
+      };
+    }
+
+    return {
+      id,
+      error: { code: -32000, message: errorMessage },
+    };
+  }
 }
 
 // --- State Broadcasting to Popup ---
@@ -233,7 +349,7 @@ function broadcastState() {
     });
 }
 
-// Listen for messages from popup
+// Listen for messages from popup and offscreen document
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "getState") {
     sendResponse({
@@ -241,6 +357,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       attachedTabId,
     });
     return true;
+  }
+  if (message.type === "keepalive") {
+    // Offscreen document keep-alive ping - just acknowledge
+    return false;
   }
   return false;
 });
@@ -264,5 +384,6 @@ chrome.debugger.onDetach.addListener((source, reason) => {
 
 // --- Start ---
 
+ensureOffscreenDocument();
 connect();
 console.log("[actionbook] Background service worker started");
