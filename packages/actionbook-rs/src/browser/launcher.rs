@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
+use serde_json::{json, Value};
 use tokio::time::sleep;
 
 use super::discovery::{discover_browser, BrowserInfo};
@@ -11,6 +12,7 @@ use crate::error::{ActionbookError, Result};
 /// Browser launcher that starts a browser with CDP enabled
 pub struct BrowserLauncher {
     browser_info: BrowserInfo,
+    profile_name: String,
     cdp_port: u16,
     headless: bool,
     stealth: bool,
@@ -19,6 +21,9 @@ pub struct BrowserLauncher {
 }
 
 impl BrowserLauncher {
+    const ACTIONBOOK_PROFILE_NAME: &'static str = "actionbook";
+    const DEFAULT_CHROME_PROFILE_NAME: &'static str = "Your Chrome";
+
     fn default_user_data_dir(profile_name: &str) -> PathBuf {
         dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
@@ -36,10 +41,11 @@ impl BrowserLauncher {
     /// Create a new launcher with default settings
     pub fn new() -> Result<Self> {
         let browser_info = discover_browser()?;
-        let data_dir = Self::default_user_data_dir("actionbook");
+        let data_dir = Self::default_user_data_dir(Self::ACTIONBOOK_PROFILE_NAME);
 
         Ok(Self {
             browser_info,
+            profile_name: Self::ACTIONBOOK_PROFILE_NAME.to_string(),
             cdp_port: 9222,
             headless: false,
             stealth: false,
@@ -62,10 +68,11 @@ impl BrowserLauncher {
             path,
         );
 
-        let data_dir = Self::default_user_data_dir("actionbook");
+        let data_dir = Self::default_user_data_dir(Self::ACTIONBOOK_PROFILE_NAME);
 
         Ok(Self {
             browser_info,
+            profile_name: Self::ACTIONBOOK_PROFILE_NAME.to_string(),
             cdp_port: 9222,
             headless: false,
             stealth: false,
@@ -82,6 +89,7 @@ impl BrowserLauncher {
             Self::new()?
         };
 
+        launcher.profile_name = profile_name.to_string();
         launcher.cdp_port = profile.cdp_port;
         launcher.headless = profile.headless;
         launcher.user_data_dir =
@@ -150,10 +158,124 @@ impl BrowserLauncher {
         args
     }
 
+    fn read_json_or_default(path: &std::path::Path) -> Result<Value> {
+        if !path.exists() {
+            return Ok(json!({}));
+        }
+
+        let content = std::fs::read_to_string(path)?;
+        serde_json::from_str(&content).map_err(|e| {
+            ActionbookError::Other(format!(
+                "Failed to parse JSON file {}: {}",
+                path.display(),
+                e
+            ))
+        })
+    }
+
+    fn write_json(path: &std::path::Path, value: &Value) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let content = serde_json::to_string_pretty(value)
+            .map_err(|e| ActionbookError::Other(format!("Failed to serialize JSON: {}", e)))?;
+        std::fs::write(path, content)?;
+        Ok(())
+    }
+
+    fn is_customized_profile_name(name: &str) -> bool {
+        let normalized = name.trim();
+        !normalized.is_empty()
+            && normalized != Self::ACTIONBOOK_PROFILE_NAME
+            && normalized != Self::DEFAULT_CHROME_PROFILE_NAME
+    }
+
+    fn extract_local_state_profile_name(local_state: &Value) -> Option<&str> {
+        local_state
+            .get("profile")
+            .and_then(|p| p.get("info_cache"))
+            .and_then(|c| c.get("Default"))
+            .and_then(|d| d.get("name"))
+            .and_then(Value::as_str)
+    }
+
+    fn extract_preferences_profile_name(preferences: &Value) -> Option<&str> {
+        preferences
+            .get("profile")
+            .and_then(|p| p.get("name"))
+            .and_then(Value::as_str)
+    }
+
+    fn should_preserve_existing_profile_name(local_state: &Value, preferences: &Value) -> bool {
+        let local_name = Self::extract_local_state_profile_name(local_state);
+        let prefs_name = Self::extract_preferences_profile_name(preferences);
+
+        [local_name, prefs_name]
+            .into_iter()
+            .flatten()
+            .any(Self::is_customized_profile_name)
+    }
+
+    fn ensure_object(value: &mut Value) -> &mut serde_json::Map<String, Value> {
+        if !value.is_object() {
+            *value = json!({});
+        }
+        value.as_object_mut().expect("object ensured")
+    }
+
+    fn apply_actionbook_profile_name(local_state: &mut Value, preferences: &mut Value) {
+        let root = Self::ensure_object(local_state);
+        let profile = root
+            .entry("profile".to_string())
+            .or_insert_with(|| json!({}));
+        let profile_obj = Self::ensure_object(profile);
+        let info_cache = profile_obj
+            .entry("info_cache".to_string())
+            .or_insert_with(|| json!({}));
+        let info_cache_obj = Self::ensure_object(info_cache);
+        let default_profile = info_cache_obj
+            .entry("Default".to_string())
+            .or_insert_with(|| json!({}));
+        let default_profile_obj = Self::ensure_object(default_profile);
+        default_profile_obj.insert("name".to_string(), json!(Self::ACTIONBOOK_PROFILE_NAME));
+        default_profile_obj.insert("is_using_default_name".to_string(), json!(false));
+
+        let prefs_root = Self::ensure_object(preferences);
+        let prefs_profile = prefs_root
+            .entry("profile".to_string())
+            .or_insert_with(|| json!({}));
+        let prefs_profile_obj = Self::ensure_object(prefs_profile);
+        prefs_profile_obj.insert("name".to_string(), json!(Self::ACTIONBOOK_PROFILE_NAME));
+    }
+
+    fn ensure_actionbook_profile_display_name(&self) -> Result<()> {
+        if self.profile_name != Self::ACTIONBOOK_PROFILE_NAME {
+            return Ok(());
+        }
+
+        let local_state_path = self.user_data_dir.join("Local State");
+        let preferences_path = self.user_data_dir.join("Default").join("Preferences");
+
+        let mut local_state = Self::read_json_or_default(&local_state_path)?;
+        let mut preferences = Self::read_json_or_default(&preferences_path)?;
+
+        if Self::should_preserve_existing_profile_name(&local_state, &preferences) {
+            return Ok(());
+        }
+
+        Self::apply_actionbook_profile_name(&mut local_state, &mut preferences);
+        Self::write_json(&local_state_path, &local_state)?;
+        Self::write_json(&preferences_path, &preferences)?;
+        Ok(())
+    }
+
     /// Launch the browser and return the process handle
     pub fn launch(&self) -> Result<Child> {
         // Ensure user data directory exists
         std::fs::create_dir_all(&self.user_data_dir)?;
+        if let Err(e) = self.ensure_actionbook_profile_display_name() {
+            tracing::warn!("Failed to set actionbook profile display name: {}", e);
+        }
 
         let args = self.build_args();
 
@@ -290,6 +412,7 @@ mod tests {
     fn test_launcher_with_user_data_dir(dir: PathBuf) -> BrowserLauncher {
         BrowserLauncher {
             browser_info: BrowserInfo::new(BrowserType::Chrome, PathBuf::new()),
+            profile_name: BrowserLauncher::ACTIONBOOK_PROFILE_NAME.to_string(),
             cdp_port: 9222,
             headless: false,
             stealth: false,
@@ -317,5 +440,89 @@ mod tests {
 
         assert_eq!(dir, PathBuf::from(".custom-profile"));
         assert!(args.contains(&format!("--user-data-dir={}", dir.display())));
+    }
+
+    #[test]
+    fn ensure_actionbook_profile_display_name_sets_name_for_default_profile() {
+        let tmp = tempfile::tempdir().unwrap();
+        let launcher = test_launcher_with_user_data_dir(tmp.path().to_path_buf());
+        launcher.ensure_actionbook_profile_display_name().unwrap();
+
+        let local_state_path = tmp.path().join("Local State");
+        let preferences_path = tmp.path().join("Default").join("Preferences");
+
+        let local_state: Value =
+            serde_json::from_str(&std::fs::read_to_string(local_state_path).unwrap()).unwrap();
+        let preferences: Value =
+            serde_json::from_str(&std::fs::read_to_string(preferences_path).unwrap()).unwrap();
+
+        assert_eq!(
+            BrowserLauncher::extract_local_state_profile_name(&local_state),
+            Some("actionbook")
+        );
+        assert_eq!(
+            BrowserLauncher::extract_preferences_profile_name(&preferences),
+            Some("actionbook")
+        );
+    }
+
+    #[test]
+    fn ensure_actionbook_profile_display_name_preserves_customized_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let launcher = test_launcher_with_user_data_dir(tmp.path().to_path_buf());
+
+        let local_state_path = tmp.path().join("Local State");
+        let preferences_path = tmp.path().join("Default").join("Preferences");
+        std::fs::create_dir_all(preferences_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &local_state_path,
+            serde_json::to_string_pretty(&json!({
+                "profile": {
+                    "info_cache": {
+                        "Default": {
+                            "name": "My Browser"
+                        }
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            &preferences_path,
+            serde_json::to_string_pretty(&json!({
+                "profile": {
+                    "name": "My Browser"
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        launcher.ensure_actionbook_profile_display_name().unwrap();
+
+        let local_state_after: Value =
+            serde_json::from_str(&std::fs::read_to_string(local_state_path).unwrap()).unwrap();
+        let preferences_after: Value =
+            serde_json::from_str(&std::fs::read_to_string(preferences_path).unwrap()).unwrap();
+        assert_eq!(
+            BrowserLauncher::extract_local_state_profile_name(&local_state_after),
+            Some("My Browser")
+        );
+        assert_eq!(
+            BrowserLauncher::extract_preferences_profile_name(&preferences_after),
+            Some("My Browser")
+        );
+    }
+
+    #[test]
+    fn ensure_actionbook_profile_display_name_does_not_change_non_actionbook_profiles() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut launcher = test_launcher_with_user_data_dir(tmp.path().to_path_buf());
+        launcher.profile_name = "work".to_string();
+        launcher.ensure_actionbook_profile_display_name().unwrap();
+
+        assert!(!tmp.path().join("Local State").exists());
+        assert!(!tmp.path().join("Default").join("Preferences").exists());
     }
 }
