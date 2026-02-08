@@ -75,13 +75,22 @@ impl Default for BrowserConfig {
 }
 
 fn default_profile_name() -> String {
-    "default".to_string()
+    "actionbook".to_string()
+}
+
+fn normalize_default_profile_name(name: &str) -> String {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        default_profile_name()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 impl Default for Config {
     fn default() -> Self {
         let mut profiles = HashMap::new();
-        profiles.insert("default".to_string(), ProfileConfig::default());
+        profiles.insert(default_profile_name(), ProfileConfig::default());
 
         Self {
             api: ApiConfig::default(),
@@ -92,6 +101,10 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn effective_default_profile_name(&self) -> String {
+        normalize_default_profile_name(&self.browser.default_profile)
+    }
+
     /// Load configuration from all sources (file, env, defaults)
     pub fn load() -> Result<Self> {
         let config_path = Self::config_path();
@@ -135,13 +148,15 @@ impl Config {
 
     /// Get a profile by name, falling back to default
     pub fn get_profile(&self, name: &str) -> Result<ProfileConfig> {
+        let normalized_name = name.trim();
+
         // First check named profiles
-        if let Some(profile) = self.profiles.get(name) {
+        if let Some(profile) = self.profiles.get(normalized_name) {
             return Ok(profile.clone());
         }
 
-        // If asking for "default" and it doesn't exist, create one
-        if name == "default" {
+        // If asking for configured default profile and it doesn't exist, create an implicit one.
+        if normalized_name == self.effective_default_profile_name() {
             let mut profile = ProfileConfig::default();
 
             // Apply browser config defaults
@@ -153,7 +168,9 @@ impl Config {
             return Ok(profile);
         }
 
-        Err(ActionbookError::ProfileNotFound(name.to_string()))
+        Err(ActionbookError::ProfileNotFound(
+            normalized_name.to_string(),
+        ))
     }
 
     /// Add or update a profile
@@ -163,16 +180,97 @@ impl Config {
 
     /// Remove a profile
     pub fn remove_profile(&mut self, name: &str) -> Result<()> {
-        if name == "default" {
+        let normalized_name = name.trim();
+
+        if normalized_name == self.effective_default_profile_name() {
             return Err(ActionbookError::ConfigError(
                 "Cannot remove the default profile".to_string(),
             ));
         }
 
         self.profiles
-            .remove(name)
-            .ok_or_else(|| ActionbookError::ProfileNotFound(name.to_string()))?;
+            .remove(normalized_name)
+            .ok_or_else(|| ActionbookError::ProfileNotFound(normalized_name.to_string()))?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_uses_actionbook_profile() {
+        let config = Config::default();
+
+        assert_eq!(config.browser.default_profile, "actionbook");
+        assert!(config.profiles.contains_key("actionbook"));
+    }
+
+    #[test]
+    fn get_profile_returns_implicit_configured_default_profile() {
+        let config = Config {
+            api: ApiConfig::default(),
+            browser: BrowserConfig {
+                executable: Some("/Applications/Google Chrome.app".to_string()),
+                default_profile: "team".to_string(),
+                headless: true,
+            },
+            profiles: HashMap::new(),
+        };
+
+        let profile = config.get_profile("team").unwrap();
+        assert_eq!(
+            profile.browser_path.as_deref(),
+            Some("/Applications/Google Chrome.app")
+        );
+        assert!(profile.headless);
+    }
+
+    #[test]
+    fn get_profile_returns_error_for_non_default_missing_profile() {
+        let config = Config::default();
+        let result = config.get_profile("missing-profile");
+
+        assert!(matches!(
+            result,
+            Err(ActionbookError::ProfileNotFound(name)) if name == "missing-profile"
+        ));
+    }
+
+    #[test]
+    fn get_profile_uses_actionbook_when_config_default_is_blank() {
+        let config = Config {
+            api: ApiConfig::default(),
+            browser: BrowserConfig {
+                executable: None,
+                default_profile: "   ".to_string(),
+                headless: false,
+            },
+            profiles: HashMap::new(),
+        };
+
+        assert!(config.get_profile("actionbook").is_ok());
+    }
+
+    #[test]
+    fn remove_profile_blocks_configured_default_profile() {
+        let mut config = Config::default();
+        config.browser.default_profile = "team".to_string();
+        config.set_profile("team", ProfileConfig::default());
+
+        let result = config.remove_profile("team");
+        assert!(matches!(result, Err(ActionbookError::ConfigError(_))));
+    }
+
+    #[test]
+    fn remove_profile_blocks_actionbook_when_config_default_is_blank() {
+        let mut config = Config::default();
+        config.browser.default_profile = "  ".to_string();
+        config.set_profile("actionbook", ProfileConfig::default());
+
+        let result = config.remove_profile("actionbook");
+        assert!(matches!(result, Err(ActionbookError::ConfigError(_))));
     }
 }

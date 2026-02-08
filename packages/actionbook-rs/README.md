@@ -265,9 +265,9 @@ api_key = "sk-your-api-key"    # Optional, for authenticated access
 
 [browser]
 headless = false
-default_profile = "default"
+default_profile = "actionbook"
 
-[profiles.default]
+[profiles.actionbook]
 cdp_port = 9222
 headless = false
 
@@ -275,6 +275,9 @@ headless = false
 cdp_port = 9223
 headless = true
 ```
+
+By default, each profile uses an isolated browser data directory:
+`<data_dir>/actionbook/profiles/<profile>`.
 
 ### Environment Variables
 
@@ -376,6 +379,9 @@ actionbook browser cookies set <NAME> <VALUE>  # Set cookie
 actionbook browser cookies delete <NAME>   # Delete cookie
 actionbook browser cookies clear    # Clear all cookies
 ```
+
+`actionbook browser` no longer auto-attaches to local CDP ports (9222/9223/9224).
+Use `actionbook browser connect <PORT|WS_URL>` explicitly when you want to reuse an existing browser.
 
 ### `config` - Configuration
 

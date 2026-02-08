@@ -87,6 +87,13 @@ impl SessionManager {
             .unwrap_or(false)
     }
 
+    fn resolve_profile_name(&self, profile_name: Option<&str>) -> String {
+        match profile_name.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(name) => name.to_string(),
+            None => self.config.effective_default_profile_name(),
+        }
+    }
+
     /// Get the session state file path for a profile
     fn session_file(&self, profile_name: &str) -> PathBuf {
         self.sessions_dir.join(format!("{}.json", profile_name))
@@ -153,34 +160,17 @@ impl SessionManager {
         &self,
         profile_name: Option<&str>,
     ) -> Result<(Browser, Handler)> {
-        let profile_name = profile_name.unwrap_or("default");
-        let profile = self.config.get_profile(profile_name)?;
+        let profile_name = self.resolve_profile_name(profile_name);
+        let profile = self.config.get_profile(&profile_name)?;
 
         // Check for existing session state
-        if let Some(state) = self.load_session_state(profile_name) {
+        if let Some(state) = self.load_session_state(&profile_name) {
             if self.is_session_alive(&state).await {
                 tracing::debug!("Reusing existing session for profile: {}", profile_name);
                 return self.connect_to_session(&state).await;
             } else {
                 tracing::debug!("Session for profile {} is dead, removing", profile_name);
-                self.remove_session_state(profile_name)?;
-            }
-        }
-
-        // Try to connect to already running browser on common CDP ports
-        // This handles the case where browser was started manually with --remote-debugging-port
-        for port in [9222, 9223, 9224] {
-            if let Some((browser, handler, cdp_url)) = self.try_connect_to_port(port).await {
-                tracing::info!("Connected to existing browser on port {}", port);
-                // Save session state for future reuse
-                let state = SessionState {
-                    profile_name: profile_name.to_string(),
-                    cdp_port: port,
-                    pid: None,
-                    cdp_url,
-                };
-                self.save_session_state(&state)?;
-                return Ok((browser, handler));
+                self.remove_session_state(&profile_name)?;
             }
         }
 
@@ -189,47 +179,7 @@ impl SessionManager {
             "No existing browser found, creating new session for profile: {}",
             profile_name
         );
-        self.create_session(profile_name, &profile).await
-    }
-
-    /// Try to connect to a browser on a specific CDP port
-    async fn try_connect_to_port(&self, port: u16) -> Option<(Browser, Handler, String)> {
-        let version_url = format!("http://127.0.0.1:{}/json/version", port);
-        let client = reqwest::Client::builder()
-            .no_proxy()
-            .timeout(std::time::Duration::from_secs(2))
-            .build()
-            .ok()?;
-
-        // Check if browser is listening
-        let response = client.get(&version_url).send().await.ok()?;
-        if !response.status().is_success() {
-            return None;
-        }
-
-        // Get WebSocket URL
-        let version_info: serde_json::Value = response.json().await.ok()?;
-
-        // Skip non-Chrome browsers (e.g., Arc) to avoid hijacking user's browser
-        if let Some(browser_name) = version_info.get("Browser").and_then(|v| v.as_str()) {
-            let browser_lower = browser_name.to_lowercase();
-            if browser_lower.contains("arc") {
-                tracing::debug!("Skipping Arc browser on port {} (want Chrome)", port);
-                return None;
-            }
-            tracing::debug!("Found browser on port {}: {}", port, browser_name);
-        }
-
-        let ws_url = version_info
-            .get("webSocketDebuggerUrl")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())?;
-
-        tracing::debug!("Connecting to browser on port {}: {}", port, ws_url);
-
-        // Connect to browser
-        let (browser, handler) = Browser::connect(&ws_url).await.ok()?;
-        Some((browser, handler, ws_url))
+        self.create_session(&profile_name, &profile).await
     }
 
     /// Create a new browser session
@@ -240,7 +190,8 @@ impl SessionManager {
     ) -> Result<(Browser, Handler)> {
         let stealth_enabled = self.is_stealth_enabled();
 
-        let launcher = BrowserLauncher::from_profile(profile)?.with_stealth(stealth_enabled);
+        let launcher =
+            BrowserLauncher::from_profile(profile_name, profile)?.with_stealth(stealth_enabled);
 
         let (_child, cdp_url) = launcher.launch_and_wait().await?;
 
@@ -392,9 +343,9 @@ impl SessionManager {
 
     /// Close a browser session
     pub async fn close_session(&self, profile_name: Option<&str>) -> Result<()> {
-        let profile_name = profile_name.unwrap_or("default");
+        let profile_name = self.resolve_profile_name(profile_name);
 
-        if let Some(state) = self.load_session_state(profile_name) {
+        if let Some(state) = self.load_session_state(&profile_name) {
             // Try to close the browser gracefully
             if let Ok((mut browser, mut handler)) = self.connect_to_session(&state).await {
                 // Spawn handler to process events
@@ -405,7 +356,7 @@ impl SessionManager {
             }
 
             // Remove session state
-            self.remove_session_state(profile_name)?;
+            self.remove_session_state(&profile_name)?;
         }
 
         Ok(())
@@ -413,9 +364,9 @@ impl SessionManager {
 
     /// Get list of pages from the browser
     pub async fn get_pages(&self, profile_name: Option<&str>) -> Result<Vec<PageInfo>> {
-        let profile_name = profile_name.unwrap_or("default");
+        let profile_name = self.resolve_profile_name(profile_name);
         let state = self
-            .load_session_state(profile_name)
+            .load_session_state(&profile_name)
             .ok_or(ActionbookError::BrowserNotRunning)?;
 
         let url = format!("http://127.0.0.1:{}/json/list", state.cdp_port);
@@ -738,7 +689,12 @@ impl SessionManager {
     }
 
     /// Type text into an element on the active page
-    pub async fn type_on_page(&self, profile_name: Option<&str>, selector: &str, text: &str) -> Result<()> {
+    pub async fn type_on_page(
+        &self,
+        profile_name: Option<&str>,
+        selector: &str,
+        text: &str,
+    ) -> Result<()> {
         // Focus the element first (supports CSS, XPath, and @eN refs)
         let selector_json = serde_json::to_string(selector)?;
         let js = [
@@ -784,7 +740,12 @@ impl SessionManager {
     }
 
     /// Fill an input element (clear and type)
-    pub async fn fill_on_page(&self, profile_name: Option<&str>, selector: &str, text: &str) -> Result<()> {
+    pub async fn fill_on_page(
+        &self,
+        profile_name: Option<&str>,
+        selector: &str,
+        text: &str,
+    ) -> Result<()> {
         // Clear and set value directly via JS, then dispatch input event (supports CSS, XPath, and @eN refs)
         let selector_json = serde_json::to_string(selector)?;
         let text_json = serde_json::to_string(text)?;
@@ -1058,7 +1019,12 @@ impl SessionManager {
     }
 
     /// Select an option from dropdown
-    pub async fn select_on_page(&self, profile_name: Option<&str>, selector: &str, value: &str) -> Result<()> {
+    pub async fn select_on_page(
+        &self,
+        profile_name: Option<&str>,
+        selector: &str,
+        value: &str,
+    ) -> Result<()> {
         let selector_json = serde_json::to_string(selector)?;
         let value_json = serde_json::to_string(value)?;
         let js = [
@@ -1455,23 +1421,23 @@ impl SessionManager {
 
     /// Get browser status for a profile
     pub async fn get_status(&self, profile_name: Option<&str>) -> SessionStatus {
-        let profile_name = profile_name.unwrap_or("default");
+        let profile_name = self.resolve_profile_name(profile_name);
 
-        if let Some(state) = self.load_session_state(profile_name) {
+        if let Some(state) = self.load_session_state(&profile_name) {
             if self.is_session_alive(&state).await {
                 SessionStatus::Running {
-                    profile: profile_name.to_string(),
+                    profile: profile_name.clone(),
                     cdp_port: state.cdp_port,
                     cdp_url: state.cdp_url,
                 }
             } else {
                 SessionStatus::Stale {
-                    profile: profile_name.to_string(),
+                    profile: profile_name.clone(),
                 }
             }
         } else {
             SessionStatus::NotRunning {
-                profile: profile_name.to_string(),
+                profile: profile_name,
             }
         }
     }
@@ -1623,6 +1589,24 @@ mod tests {
 
         let status = sm.get_status(Some("nonexistent")).await;
         assert!(matches!(status, SessionStatus::NotRunning { .. }));
+    }
+
+    #[tokio::test]
+    async fn none_profile_uses_configured_default_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = Config::default();
+        config.browser.default_profile = "team-default".to_string();
+        let sm = SessionManager {
+            config,
+            sessions_dir: dir.path().to_path_buf(),
+            stealth_config: None,
+        };
+
+        let status = sm.get_status(None).await;
+        assert!(matches!(
+            status,
+            SessionStatus::NotRunning { profile } if profile == "team-default"
+        ));
     }
 }
 

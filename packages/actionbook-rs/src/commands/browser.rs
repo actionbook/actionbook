@@ -135,6 +135,26 @@ fn create_session_manager(cli: &Cli, config: &Config) -> SessionManager {
     }
 }
 
+fn effective_profile_name<'a>(cli: &'a Cli, config: &'a Config) -> &'a str {
+    cli.profile
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            let default_profile = config.browser.default_profile.trim();
+            if default_profile.is_empty() {
+                None
+            } else {
+                Some(default_profile)
+            }
+        })
+        .unwrap_or("actionbook")
+}
+
+fn effective_profile_arg<'a>(cli: &'a Cli, config: &'a Config) -> Option<&'a str> {
+    Some(effective_profile_name(cli, config))
+}
+
 fn normalize_navigation_url(raw: &str) -> Result<String> {
     let trimmed = raw.trim();
 
@@ -164,9 +184,7 @@ fn normalize_navigation_url(raw: &str) -> Result<String> {
 }
 
 fn is_host_port_with_optional_path(input: &str) -> bool {
-    let boundary = input
-        .find(['/', '?', '#'])
-        .unwrap_or(input.len());
+    let boundary = input.find(['/', '?', '#']).unwrap_or(input.len());
     let authority = &input[..boundary];
 
     if authority.is_empty() {
@@ -174,7 +192,9 @@ fn is_host_port_with_optional_path(input: &str) -> bool {
     }
 
     match authority.rsplit_once(':') {
-        Some((host, port)) => !host.is_empty() && !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()),
+        Some((host, port)) => {
+            !host.is_empty() && !port.is_empty() && port.chars().all(|c| c.is_ascii_digit())
+        }
         None => false,
     }
 }
@@ -317,7 +337,7 @@ async fn status(cli: &Cli, config: &Config) -> Result<()> {
 
     // Show session status
     let session_manager = create_session_manager(cli, config);
-    let profile_name = cli.profile.as_deref();
+    let profile_name = effective_profile_arg(cli, config);
     let status = session_manager.get_status(profile_name).await;
 
     println!("{}", "Session Status:".bold());
@@ -400,7 +420,7 @@ async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
 
     let session_manager = create_session_manager(cli, config);
     let (browser, mut handler) = session_manager
-        .get_or_create_session(cli.profile.as_deref())
+        .get_or_create_session(effective_profile_arg(cli, config))
         .await?;
 
     // Spawn handler in background
@@ -489,7 +509,7 @@ async fn goto(cli: &Cli, config: &Config, url: &str, _timeout_ms: u64) -> Result
 
     let session_manager = create_session_manager(cli, config);
     session_manager
-        .goto(cli.profile.as_deref(), &normalized_url)
+        .goto(effective_profile_arg(cli, config), &normalized_url)
         .await?;
 
     if cli.json {
@@ -520,7 +540,9 @@ async fn back(cli: &Cli, config: &Config) -> Result<()> {
     }
 
     let session_manager = create_session_manager(cli, config);
-    session_manager.go_back(cli.profile.as_deref()).await?;
+    session_manager
+        .go_back(effective_profile_arg(cli, config))
+        .await?;
 
     if cli.json {
         println!("{}", serde_json::json!({ "success": true }));
@@ -544,7 +566,9 @@ async fn forward(cli: &Cli, config: &Config) -> Result<()> {
     }
 
     let session_manager = create_session_manager(cli, config);
-    session_manager.go_forward(cli.profile.as_deref()).await?;
+    session_manager
+        .go_forward(effective_profile_arg(cli, config))
+        .await?;
 
     if cli.json {
         println!("{}", serde_json::json!({ "success": true }));
@@ -568,7 +592,9 @@ async fn reload(cli: &Cli, config: &Config) -> Result<()> {
     }
 
     let session_manager = create_session_manager(cli, config);
-    session_manager.reload(cli.profile.as_deref()).await?;
+    session_manager
+        .reload(effective_profile_arg(cli, config))
+        .await?;
 
     if cli.json {
         println!("{}", serde_json::json!({ "success": true }));
@@ -617,7 +643,9 @@ async fn pages(cli: &Cli, config: &Config) -> Result<()> {
     }
 
     let session_manager = create_session_manager(cli, config);
-    let pages = session_manager.get_pages(cli.profile.as_deref()).await?;
+    let pages = session_manager
+        .get_pages(effective_profile_arg(cli, config))
+        .await?;
 
     if cli.json {
         let pages_json: Vec<_> = pages
@@ -729,7 +757,7 @@ async fn wait(cli: &Cli, config: &Config, selector: &str, timeout_ms: u64) -> Re
 
     let session_manager = create_session_manager(cli, config);
     session_manager
-        .wait_for_element(cli.profile.as_deref(), selector, timeout_ms)
+        .wait_for_element(effective_profile_arg(cli, config), selector, timeout_ms)
         .await?;
 
     if cli.json {
@@ -788,7 +816,7 @@ async fn wait_nav(cli: &Cli, config: &Config, timeout_ms: u64) -> Result<()> {
 
     let session_manager = create_session_manager(cli, config);
     let new_url = session_manager
-        .wait_for_navigation(cli.profile.as_deref(), timeout_ms)
+        .wait_for_navigation(effective_profile_arg(cli, config), timeout_ms)
         .await?;
 
     if cli.json {
@@ -870,12 +898,12 @@ async fn click(cli: &Cli, config: &Config, selector: &str, wait_ms: u64) -> Resu
 
     if wait_ms > 0 {
         session_manager
-            .wait_for_element(cli.profile.as_deref(), selector, wait_ms)
+            .wait_for_element(effective_profile_arg(cli, config), selector, wait_ms)
             .await?;
     }
 
     session_manager
-        .click_on_page(cli.profile.as_deref(), selector)
+        .click_on_page(effective_profile_arg(cli, config), selector)
         .await?;
 
     if cli.json {
@@ -975,12 +1003,12 @@ async fn type_text(
 
     if wait_ms > 0 {
         session_manager
-            .wait_for_element(cli.profile.as_deref(), selector, wait_ms)
+            .wait_for_element(effective_profile_arg(cli, config), selector, wait_ms)
             .await?;
     }
 
     session_manager
-        .type_on_page(cli.profile.as_deref(), selector, text)
+        .type_on_page(effective_profile_arg(cli, config), selector, text)
         .await?;
 
     if cli.json {
@@ -1079,12 +1107,12 @@ async fn fill(cli: &Cli, config: &Config, selector: &str, text: &str, wait_ms: u
 
     if wait_ms > 0 {
         session_manager
-            .wait_for_element(cli.profile.as_deref(), selector, wait_ms)
+            .wait_for_element(effective_profile_arg(cli, config), selector, wait_ms)
             .await?;
     }
 
     session_manager
-        .fill_on_page(cli.profile.as_deref(), selector, text)
+        .fill_on_page(effective_profile_arg(cli, config), selector, text)
         .await?;
 
     if cli.json {
@@ -1150,7 +1178,7 @@ async fn select(cli: &Cli, config: &Config, selector: &str, value: &str) -> Resu
 
     let session_manager = create_session_manager(cli, config);
     session_manager
-        .select_on_page(cli.profile.as_deref(), selector, value)
+        .select_on_page(effective_profile_arg(cli, config), selector, value)
         .await?;
 
     if cli.json {
@@ -1209,7 +1237,7 @@ async fn hover(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
 
     let session_manager = create_session_manager(cli, config);
     session_manager
-        .hover_on_page(cli.profile.as_deref(), selector)
+        .hover_on_page(effective_profile_arg(cli, config), selector)
         .await?;
 
     if cli.json {
@@ -1265,7 +1293,7 @@ async fn focus(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
 
     let session_manager = create_session_manager(cli, config);
     session_manager
-        .focus_on_page(cli.profile.as_deref(), selector)
+        .focus_on_page(effective_profile_arg(cli, config), selector)
         .await?;
 
     if cli.json {
@@ -1340,7 +1368,7 @@ async fn press(cli: &Cli, config: &Config, key: &str) -> Result<()> {
 
     let session_manager = create_session_manager(cli, config);
     session_manager
-        .press_key(cli.profile.as_deref(), key)
+        .press_key(effective_profile_arg(cli, config), key)
         .await?;
 
     if cli.json {
@@ -1412,11 +1440,11 @@ async fn screenshot(cli: &Cli, config: &Config, path: &str, full_page: bool) -> 
 
     let screenshot_data = if full_page {
         session_manager
-            .screenshot_full_page(cli.profile.as_deref())
+            .screenshot_full_page(effective_profile_arg(cli, config))
             .await?
     } else {
         session_manager
-            .screenshot_page(cli.profile.as_deref())
+            .screenshot_page(effective_profile_arg(cli, config))
             .await?
     };
 
@@ -1484,7 +1512,9 @@ async fn pdf(cli: &Cli, config: &Config, path: &str) -> Result<()> {
     }
 
     let session_manager = create_session_manager(cli, config);
-    let pdf_data = session_manager.pdf_page(cli.profile.as_deref()).await?;
+    let pdf_data = session_manager
+        .pdf_page(effective_profile_arg(cli, config))
+        .await?;
 
     if let Some(parent) = Path::new(path).parent() {
         if !parent.as_os_str().is_empty() {
@@ -1534,7 +1564,7 @@ async fn eval(cli: &Cli, config: &Config, code: &str) -> Result<()> {
     } else {
         let session_manager = create_session_manager(cli, config);
         session_manager
-            .eval_on_page(cli.profile.as_deref(), code)
+            .eval_on_page(effective_profile_arg(cli, config), code)
             .await?
     };
 
@@ -1583,7 +1613,7 @@ async fn html(cli: &Cli, config: &Config, selector: Option<&str>) -> Result<()> 
 
     let session_manager = create_session_manager(cli, config);
     let html = session_manager
-        .get_html(cli.profile.as_deref(), selector)
+        .get_html(effective_profile_arg(cli, config), selector)
         .await?;
 
     if cli.json {
@@ -1631,7 +1661,7 @@ async fn text(cli: &Cli, config: &Config, selector: Option<&str>) -> Result<()> 
 
     let session_manager = create_session_manager(cli, config);
     let text = session_manager
-        .get_text(cli.profile.as_deref(), selector)
+        .get_text(effective_profile_arg(cli, config), selector)
         .await?;
 
     if cli.json {
@@ -1860,7 +1890,7 @@ async fn snapshot(cli: &Cli, config: &Config) -> Result<()> {
     } else {
         let session_manager = create_session_manager(cli, config);
         session_manager
-            .eval_on_page(cli.profile.as_deref(), js)
+            .eval_on_page(effective_profile_arg(cli, config), js)
             .await?
     };
 
@@ -2079,7 +2109,9 @@ async fn inspect(cli: &Cli, config: &Config, x: f64, y: f64, desc: Option<&str>)
     let session_manager = create_session_manager(cli, config);
 
     // Get viewport to validate coordinates
-    let (vp_width, vp_height) = session_manager.get_viewport(cli.profile.as_deref()).await?;
+    let (vp_width, vp_height) = session_manager
+        .get_viewport(effective_profile_arg(cli, config))
+        .await?;
 
     if x < 0.0 || x > vp_width || y < 0.0 || y > vp_height {
         if cli.json {
@@ -2104,7 +2136,7 @@ async fn inspect(cli: &Cli, config: &Config, x: f64, y: f64, desc: Option<&str>)
     }
 
     let result = session_manager
-        .inspect_at(cli.profile.as_deref(), x, y)
+        .inspect_at(effective_profile_arg(cli, config), x, y)
         .await?;
 
     if cli.json {
@@ -2309,7 +2341,9 @@ async fn viewport(cli: &Cli, config: &Config) -> Result<()> {
     }
 
     let session_manager = create_session_manager(cli, config);
-    let (width, height) = session_manager.get_viewport(cli.profile.as_deref()).await?;
+    let (width, height) = session_manager
+        .get_viewport(effective_profile_arg(cli, config))
+        .await?;
 
     if cli.json {
         println!(
@@ -2335,7 +2369,9 @@ async fn cookies(cli: &Cli, config: &Config, command: &Option<CookiesCommands>) 
 
     match command {
         None | Some(CookiesCommands::List) => {
-            let cookies = session_manager.get_cookies(cli.profile.as_deref()).await?;
+            let cookies = session_manager
+                .get_cookies(effective_profile_arg(cli, config))
+                .await?;
 
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&cookies)?);
@@ -2359,7 +2395,9 @@ async fn cookies(cli: &Cli, config: &Config, command: &Option<CookiesCommands>) 
             }
         }
         Some(CookiesCommands::Get { name }) => {
-            let cookies = session_manager.get_cookies(cli.profile.as_deref()).await?;
+            let cookies = session_manager
+                .get_cookies(effective_profile_arg(cli, config))
+                .await?;
             let cookie = cookies
                 .iter()
                 .find(|c| c.get("name").and_then(|v| v.as_str()) == Some(name));
@@ -2382,7 +2420,12 @@ async fn cookies(cli: &Cli, config: &Config, command: &Option<CookiesCommands>) 
             domain,
         }) => {
             session_manager
-                .set_cookie(cli.profile.as_deref(), name, value, domain.as_deref())
+                .set_cookie(
+                    effective_profile_arg(cli, config),
+                    name,
+                    value,
+                    domain.as_deref(),
+                )
                 .await?;
 
             if cli.json {
@@ -2400,7 +2443,7 @@ async fn cookies(cli: &Cli, config: &Config, command: &Option<CookiesCommands>) 
         }
         Some(CookiesCommands::Delete { name }) => {
             session_manager
-                .delete_cookie(cli.profile.as_deref(), name)
+                .delete_cookie(effective_profile_arg(cli, config), name)
                 .await?;
 
             if cli.json {
@@ -2417,7 +2460,7 @@ async fn cookies(cli: &Cli, config: &Config, command: &Option<CookiesCommands>) 
         }
         Some(CookiesCommands::Clear) => {
             session_manager
-                .clear_cookies(cli.profile.as_deref())
+                .clear_cookies(effective_profile_arg(cli, config))
                 .await?;
 
             if cli.json {
@@ -2588,7 +2631,7 @@ async fn close(cli: &Cli, config: &Config) -> Result<()> {
 
     let session_manager = create_session_manager(cli, config);
     session_manager
-        .close_session(cli.profile.as_deref())
+        .close_session(effective_profile_arg(cli, config))
         .await?;
 
     if cli.json {
@@ -2624,7 +2667,7 @@ async fn restart(cli: &Cli, config: &Config) -> Result<()> {
     // Open a blank page to restart
     let session_manager = create_session_manager(cli, config);
     let (_browser, mut handler) = session_manager
-        .get_or_create_session(cli.profile.as_deref())
+        .get_or_create_session(effective_profile_arg(cli, config))
         .await?;
 
     tokio::spawn(async move { while handler.next().await.is_some() {} });
@@ -2644,7 +2687,7 @@ async fn restart(cli: &Cli, config: &Config) -> Result<()> {
 }
 
 async fn connect(cli: &Cli, config: &Config, endpoint: &str) -> Result<()> {
-    let profile_name = cli.profile.as_deref().unwrap_or("default");
+    let profile_name = effective_profile_name(cli, config);
 
     // Parse endpoint: either a WebSocket URL or a port number
     let (cdp_port, cdp_url) = if endpoint.starts_with("ws://") || endpoint.starts_with("wss://") {
@@ -2718,8 +2761,26 @@ async fn connect(cli: &Cli, config: &Config, endpoint: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_navigation_url, render_snapshot_tree};
+    use super::{effective_profile_name, normalize_navigation_url, render_snapshot_tree};
+    use crate::cli::{BrowserCommands, Cli, Commands};
+    use crate::config::Config;
     use serde_json::json;
+
+    fn test_cli(profile: Option<&str>, command: BrowserCommands) -> Cli {
+        Cli {
+            browser_path: None,
+            cdp: None,
+            profile: profile.map(ToString::to_string),
+            headless: false,
+            stealth: false,
+            stealth_os: None,
+            stealth_gpu: None,
+            api_key: None,
+            json: false,
+            verbose: false,
+            command: Commands::Browser { command },
+        }
+    }
 
     #[test]
     fn normalize_domain_without_scheme() {
@@ -2797,6 +2858,47 @@ mod tests {
     fn normalize_empty_input_returns_error() {
         assert!(normalize_navigation_url("").is_err());
         assert!(normalize_navigation_url("   ").is_err());
+    }
+
+    #[test]
+    fn effective_profile_name_prefers_cli_profile() {
+        let cli = test_cli(Some("work"), BrowserCommands::Status);
+        let mut config = Config::default();
+        config.browser.default_profile = "team".to_string();
+
+        assert_eq!(effective_profile_name(&cli, &config), "work");
+    }
+
+    #[test]
+    fn effective_profile_name_uses_config_default_profile() {
+        let cli = test_cli(None, BrowserCommands::Status);
+        let mut config = Config::default();
+        config.browser.default_profile = "team".to_string();
+
+        assert_eq!(effective_profile_name(&cli, &config), "team");
+    }
+
+    #[test]
+    fn effective_profile_name_falls_back_to_actionbook() {
+        let cli = test_cli(None, BrowserCommands::Status);
+        let mut config = Config::default();
+        config.browser.default_profile = "   ".to_string();
+
+        assert_eq!(effective_profile_name(&cli, &config), "actionbook");
+    }
+
+    #[test]
+    fn connect_uses_same_effective_profile_resolution() {
+        let cli = test_cli(
+            None,
+            BrowserCommands::Connect {
+                endpoint: "ws://127.0.0.1:9222".to_string(),
+            },
+        );
+        let mut config = Config::default();
+        config.browser.default_profile = "team-connect".to_string();
+
+        assert_eq!(effective_profile_name(&cli, &config), "team-connect");
     }
 
     #[test]

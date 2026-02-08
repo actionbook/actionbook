@@ -57,10 +57,15 @@ async fn list(cli: &Cli) -> Result<()> {
             println!();
         }
 
-        // Always show default if not in profiles
-        if !config.profiles.contains_key("default") {
-            println!("  {} {} (implicit)", "●".cyan(), "default".bold());
-            println!("    CDP Port: 9222");
+        // Always show configured default profile if it's implicit.
+        let default_name = &config.browser.default_profile;
+        if !config.profiles.contains_key(default_name) {
+            let default_port = config
+                .get_profile(default_name)
+                .map(|p| p.cdp_port)
+                .unwrap_or(9222);
+            println!("  {} {} (implicit)", "●".cyan(), default_name.bold());
+            println!("    CDP Port: {}", default_port);
             println!();
         }
     }
