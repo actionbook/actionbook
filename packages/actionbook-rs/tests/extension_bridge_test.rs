@@ -2,7 +2,7 @@
 //!
 //! These tests spin up a real bridge server on a random port,
 //! connect mock extension/CLI clients via WebSocket, and verify
-//! end-to-end message routing.
+//! end-to-end message routing with the hello handshake protocol.
 //!
 //! Run with: cargo test --test extension_bridge_test
 
@@ -76,33 +76,185 @@ async fn recv_json_timeout(
     }
 }
 
+/// Try to read one text message. Returns None on close, error, or stream end.
+/// Unlike recv_json, this does not panic on connection close/error.
+async fn try_recv_json(
+    ws: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+) -> Option<serde_json::Value> {
+    loop {
+        match ws.next().await {
+            Some(Ok(Message::Text(text))) => {
+                return serde_json::from_str(text.as_str()).ok();
+            }
+            Some(Ok(Message::Ping(_))) | Some(Ok(Message::Pong(_))) => continue,
+            _ => return None, // Close, error, or stream end
+        }
+    }
+}
+
+/// Try to read with a timeout. Returns None on timeout, close, or error.
+async fn try_recv_json_timeout(
+    ws: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    timeout_ms: u64,
+) -> Option<serde_json::Value> {
+    match tokio::time::timeout(Duration::from_millis(timeout_ms), try_recv_json(ws)).await {
+        Ok(val) => val,
+        Err(_) => None,
+    }
+}
+
+/// Send the hello handshake as extension and wait for hello_ack.
+async fn hello_extension(
+    ws: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    token: &str,
+) {
+    send_json(
+        ws,
+        serde_json::json!({
+            "type": "hello",
+            "role": "extension",
+            "token": token,
+            "version": "0.2.0"
+        }),
+    )
+    .await;
+
+    // Wait for hello_ack from server
+    let ack = recv_json_timeout(ws, 3000)
+        .await
+        .expect("Should receive hello_ack");
+    assert_eq!(ack["type"].as_str(), Some("hello_ack"), "Expected hello_ack");
+}
+
+/// Send the hello handshake as CLI and wait for hello_ack.
+async fn hello_cli(
+    ws: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    token: &str,
+) {
+    send_json(
+        ws,
+        serde_json::json!({
+            "type": "hello",
+            "role": "cli",
+            "token": token,
+            "version": "0.2.0"
+        }),
+    )
+    .await;
+
+    // Wait for hello_ack from server
+    let ack = recv_json_timeout(ws, 3000)
+        .await
+        .expect("Should receive hello_ack");
+    assert_eq!(ack["type"].as_str(), Some("hello_ack"), "Expected hello_ack");
+}
+
+/// Start a bridge server with a known token and return the token.
+fn start_bridge(port: u16) -> (tokio::task::JoinHandle<()>, String) {
+    let token = actionbook::browser::extension_bridge::generate_token();
+    let t = token.clone();
+    let handle = tokio::spawn(async move {
+        let _ = actionbook::browser::extension_bridge::serve(port, t).await;
+    });
+    (handle, token)
+}
+
 mod bridge_tests {
     use super::*;
     use assert_cmd::Command;
+
+    /// Test: generate_token produces valid format.
+    #[test]
+    fn generate_token_format() {
+        let token = actionbook::browser::extension_bridge::generate_token();
+        assert!(token.starts_with("abk_"), "Token should start with abk_");
+        assert_eq!(token.len(), 4 + 32, "Token should be abk_ + 32 hex chars");
+        // Verify all chars after prefix are hex
+        assert!(token[4..].chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    /// Test: generate_token produces unique tokens.
+    #[test]
+    fn generate_token_uniqueness() {
+        let t1 = actionbook::browser::extension_bridge::generate_token();
+        let t2 = actionbook::browser::extension_bridge::generate_token();
+        assert_ne!(t1, t2, "Tokens should be unique");
+    }
+
+    /// Test: Connection with invalid token is closed.
+    #[tokio::test]
+    async fn invalid_token_closes_connection() {
+        let port = free_port().await;
+        let (server_handle, _token) = start_bridge(port);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let mut ws = ws_connect(port).await;
+
+        // Send hello with wrong token
+        send_json(
+            &mut ws,
+            serde_json::json!({
+                "type": "hello",
+                "role": "extension",
+                "token": "abk_wrong_token_value_00000000000",
+                "version": "0.2.0"
+            }),
+        )
+        .await;
+
+        // The server should close the connection - next read should fail or return close
+        let result = try_recv_json_timeout(&mut ws, 2000).await;
+        assert!(result.is_none(), "Connection should be closed after invalid token");
+
+        server_handle.abort();
+    }
+
+    /// Test: Connection without hello message is closed.
+    #[tokio::test]
+    async fn no_hello_closes_connection() {
+        let port = free_port().await;
+        let (server_handle, _token) = start_bridge(port);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let mut ws = ws_connect(port).await;
+
+        // Send a non-hello message (old-style extension identification)
+        send_json(
+            &mut ws,
+            serde_json::json!({ "type": "extension" }),
+        )
+        .await;
+
+        // Should be closed
+        let result = try_recv_json_timeout(&mut ws, 2000).await;
+        assert!(result.is_none(), "Connection should be closed without hello");
+
+        server_handle.abort();
+    }
 
     /// Test: CLI command sent without extension connected gets an error response.
     #[tokio::test]
     async fn cli_without_extension_gets_error() {
         let port = free_port().await;
-
-        // Start bridge server in background
-        let server_handle = tokio::spawn(async move {
-            // We use the library function directly
-            // The serve function blocks, so we run it as a background task
-            let _ = actionbook::browser::extension_bridge::serve(port).await;
-        });
-
-        // Give server time to bind
+        let (server_handle, token) = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // Connect as CLI (no extension connected)
+        // Connect as CLI with valid token
         let mut cli_ws = ws_connect(port).await;
+        hello_cli(&mut cli_ws, &token).await;
 
         // Send a CLI command
         send_json(
             &mut cli_ws,
             serde_json::json!({
-                "type": "cli",
                 "id": 1,
                 "method": "Page.navigate",
                 "params": { "url": "https://example.com" }
@@ -132,31 +284,22 @@ mod bridge_tests {
     #[tokio::test]
     async fn full_roundtrip_extension_to_cli() {
         let port = free_port().await;
-
-        // Start bridge server
-        let server_handle = tokio::spawn(async move {
-            let _ = actionbook::browser::extension_bridge::serve(port).await;
-        });
-
+        let (server_handle, token) = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // 1. Connect as extension
+        // 1. Connect as extension with hello handshake
         let mut ext_ws = ws_connect(port).await;
-        send_json(
-            &mut ext_ws,
-            serde_json::json!({ "type": "extension" }),
-        )
-        .await;
+        hello_extension(&mut ext_ws, &token).await;
 
         // Give bridge time to register extension
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        // 2. Connect as CLI and send command
+        // 2. Connect as CLI with hello handshake and send command
         let mut cli_ws = ws_connect(port).await;
+        hello_cli(&mut cli_ws, &token).await;
         send_json(
             &mut cli_ws,
             serde_json::json!({
-                "type": "cli",
                 "id": 42,
                 "method": "Runtime.evaluate",
                 "params": { "expression": "1+1" }
@@ -164,7 +307,7 @@ mod bridge_tests {
         )
         .await;
 
-        // 3. Extension should receive the forwarded command
+        // 3. Extension should receive the forwarded command with risk_level
         let ext_msg = recv_json_timeout(&mut ext_ws, 3000)
             .await
             .expect("Extension should receive command");
@@ -174,6 +317,11 @@ mod bridge_tests {
             "Runtime.evaluate"
         );
         assert!(ext_msg["id"].is_number(), "Should have a bridge-assigned id");
+        assert_eq!(
+            ext_msg["risk_level"].as_str(),
+            Some("L2"),
+            "Runtime.evaluate should have L2 risk level"
+        );
         let bridge_id = ext_msg["id"].as_u64().unwrap();
 
         // 4. Extension sends back a response with the bridge-assigned id
@@ -210,28 +358,20 @@ mod bridge_tests {
     #[tokio::test]
     async fn extension_error_forwarded_to_cli() {
         let port = free_port().await;
-
-        let server_handle = tokio::spawn(async move {
-            let _ = actionbook::browser::extension_bridge::serve(port).await;
-        });
-
+        let (server_handle, token) = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // Connect extension
+        // Connect extension with hello
         let mut ext_ws = ws_connect(port).await;
-        send_json(
-            &mut ext_ws,
-            serde_json::json!({ "type": "extension" }),
-        )
-        .await;
+        hello_extension(&mut ext_ws, &token).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        // Connect CLI and send command
+        // Connect CLI with hello and send command
         let mut cli_ws = ws_connect(port).await;
+        hello_cli(&mut cli_ws, &token).await;
         send_json(
             &mut cli_ws,
             serde_json::json!({
-                "type": "cli",
                 "id": 7,
                 "method": "Page.navigate",
                 "params": { "url": "chrome://invalid" }
@@ -279,28 +419,20 @@ mod bridge_tests {
     #[tokio::test]
     async fn multiple_cli_commands_get_unique_ids() {
         let port = free_port().await;
-
-        let server_handle = tokio::spawn(async move {
-            let _ = actionbook::browser::extension_bridge::serve(port).await;
-        });
-
+        let (server_handle, token) = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // Connect extension
+        // Connect extension with hello
         let mut ext_ws = ws_connect(port).await;
-        send_json(
-            &mut ext_ws,
-            serde_json::json!({ "type": "extension" }),
-        )
-        .await;
+        hello_extension(&mut ext_ws, &token).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        // Send first CLI command
+        // Send first CLI command with hello
         let mut cli1 = ws_connect(port).await;
+        hello_cli(&mut cli1, &token).await;
         send_json(
             &mut cli1,
             serde_json::json!({
-                "type": "cli",
                 "id": 1,
                 "method": "Page.navigate",
                 "params": { "url": "https://a.com" }
@@ -313,12 +445,12 @@ mod bridge_tests {
             .expect("Should get first command");
         let id1 = msg1["id"].as_u64().unwrap();
 
-        // Send second CLI command (different connection)
+        // Send second CLI command (different connection) with hello
         let mut cli2 = ws_connect(port).await;
+        hello_cli(&mut cli2, &token).await;
         send_json(
             &mut cli2,
             serde_json::json!({
-                "type": "cli",
                 "id": 1,
                 "method": "Page.navigate",
                 "params": { "url": "https://b.com" }
@@ -366,15 +498,210 @@ mod bridge_tests {
         server_handle.abort();
     }
 
+    /// Test: Unknown CDP method is rejected at the bridge level.
+    #[tokio::test]
+    async fn unknown_method_rejected() {
+        let port = free_port().await;
+        let (server_handle, token) = start_bridge(port);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Connect extension
+        let mut ext_ws = ws_connect(port).await;
+        hello_extension(&mut ext_ws, &token).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Connect CLI and send unknown method
+        let mut cli_ws = ws_connect(port).await;
+        hello_cli(&mut cli_ws, &token).await;
+        send_json(
+            &mut cli_ws,
+            serde_json::json!({
+                "id": 1,
+                "method": "Debugger.enable",
+                "params": {}
+            }),
+        )
+        .await;
+
+        // Should get error response immediately (not forwarded to extension)
+        let response = recv_json_timeout(&mut cli_ws, 3000)
+            .await
+            .expect("Should receive error response");
+
+        assert!(response.get("error").is_some(), "Should have error field");
+        let error_msg = response["error"]["message"].as_str().unwrap_or("");
+        assert!(
+            error_msg.contains("not allowed"),
+            "Error should mention method not allowed: {}",
+            error_msg
+        );
+        assert_eq!(
+            response["error"]["code"].as_i64(),
+            Some(-32601),
+            "Should use JSON-RPC method not found code"
+        );
+
+        // Extension should NOT have received anything
+        let ext_msg = try_recv_json_timeout(&mut ext_ws, 500).await;
+        assert!(ext_msg.is_none(), "Extension should not receive rejected commands");
+
+        server_handle.abort();
+    }
+
+    /// Test: L2 methods include risk_level in forwarded message.
+    #[tokio::test]
+    async fn l2_method_includes_risk_level() {
+        let port = free_port().await;
+        let (server_handle, token) = start_bridge(port);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let mut ext_ws = ws_connect(port).await;
+        hello_extension(&mut ext_ws, &token).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let mut cli_ws = ws_connect(port).await;
+        hello_cli(&mut cli_ws, &token).await;
+        send_json(
+            &mut cli_ws,
+            serde_json::json!({
+                "id": 1,
+                "method": "Page.navigate",
+                "params": { "url": "https://example.com" }
+            }),
+        )
+        .await;
+
+        let ext_msg = recv_json_timeout(&mut ext_ws, 3000)
+            .await
+            .expect("Extension should receive command");
+
+        assert_eq!(ext_msg["method"].as_str(), Some("Page.navigate"));
+        assert_eq!(
+            ext_msg["risk_level"].as_str(),
+            Some("L2"),
+            "Page.navigate should have L2 risk level"
+        );
+
+        server_handle.abort();
+    }
+
+    /// Test: L3 methods include risk_level in forwarded message.
+    #[tokio::test]
+    async fn l3_method_includes_risk_level() {
+        let port = free_port().await;
+        let (server_handle, token) = start_bridge(port);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let mut ext_ws = ws_connect(port).await;
+        hello_extension(&mut ext_ws, &token).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let mut cli_ws = ws_connect(port).await;
+        hello_cli(&mut cli_ws, &token).await;
+        send_json(
+            &mut cli_ws,
+            serde_json::json!({
+                "id": 1,
+                "method": "Network.setCookie",
+                "params": { "name": "test", "value": "val" }
+            }),
+        )
+        .await;
+
+        let ext_msg = recv_json_timeout(&mut ext_ws, 3000)
+            .await
+            .expect("Extension should receive command");
+
+        assert_eq!(ext_msg["method"].as_str(), Some("Network.setCookie"));
+        assert_eq!(
+            ext_msg["risk_level"].as_str(),
+            Some("L3"),
+            "Network.setCookie should have L3 risk level"
+        );
+
+        server_handle.abort();
+    }
+
+    /// Test: Extension.* methods are allowed (L1).
+    #[tokio::test]
+    async fn extension_internal_methods_allowed() {
+        let port = free_port().await;
+        let (server_handle, token) = start_bridge(port);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let mut ext_ws = ws_connect(port).await;
+        hello_extension(&mut ext_ws, &token).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let mut cli_ws = ws_connect(port).await;
+        hello_cli(&mut cli_ws, &token).await;
+        send_json(
+            &mut cli_ws,
+            serde_json::json!({
+                "id": 1,
+                "method": "Extension.ping",
+                "params": {}
+            }),
+        )
+        .await;
+
+        let ext_msg = recv_json_timeout(&mut ext_ws, 3000)
+            .await
+            .expect("Extension should receive Extension.ping");
+
+        assert_eq!(ext_msg["method"].as_str(), Some("Extension.ping"));
+        assert_eq!(
+            ext_msg["risk_level"].as_str(),
+            Some("L1"),
+            "Extension.* methods should have L1 risk level"
+        );
+
+        server_handle.abort();
+    }
+
+    /// Test: get_risk_level returns correct levels for all categories.
+    #[test]
+    fn risk_level_categorization() {
+        use actionbook::browser::extension_bridge::{get_risk_level, RiskLevel};
+
+        // L1 - Read only
+        assert_eq!(get_risk_level("Page.captureScreenshot"), Some(RiskLevel::L1));
+        assert_eq!(get_risk_level("DOM.getDocument"), Some(RiskLevel::L1));
+        assert_eq!(get_risk_level("DOM.querySelector"), Some(RiskLevel::L1));
+        assert_eq!(get_risk_level("DOM.querySelectorAll"), Some(RiskLevel::L1));
+        assert_eq!(get_risk_level("DOM.getOuterHTML"), Some(RiskLevel::L1));
+
+        // L2 - Page modification (includes Runtime.evaluate)
+        assert_eq!(get_risk_level("Runtime.evaluate"), Some(RiskLevel::L2));
+        assert_eq!(get_risk_level("Page.navigate"), Some(RiskLevel::L2));
+        assert_eq!(get_risk_level("Page.reload"), Some(RiskLevel::L2));
+        assert_eq!(get_risk_level("Input.dispatchMouseEvent"), Some(RiskLevel::L2));
+        assert_eq!(get_risk_level("Input.dispatchKeyEvent"), Some(RiskLevel::L2));
+        assert_eq!(get_risk_level("Emulation.setDeviceMetricsOverride"), Some(RiskLevel::L2));
+        assert_eq!(get_risk_level("Page.printToPDF"), Some(RiskLevel::L2));
+
+        // L3 - High risk
+        assert_eq!(get_risk_level("Network.setCookie"), Some(RiskLevel::L3));
+        assert_eq!(get_risk_level("Network.deleteCookies"), Some(RiskLevel::L3));
+        assert_eq!(get_risk_level("Network.clearBrowserCookies"), Some(RiskLevel::L3));
+        assert_eq!(get_risk_level("Page.setDownloadBehavior"), Some(RiskLevel::L3));
+        assert_eq!(get_risk_level("Storage.clearDataForOrigin"), Some(RiskLevel::L3));
+
+        // Extension.* methods - L1
+        assert_eq!(get_risk_level("Extension.ping"), Some(RiskLevel::L1));
+        assert_eq!(get_risk_level("Extension.createTab"), Some(RiskLevel::L1));
+
+        // Unknown - None
+        assert_eq!(get_risk_level("Debugger.enable"), None);
+        assert_eq!(get_risk_level("Target.createTarget"), None);
+        assert_eq!(get_risk_level("Browser.close"), None);
+    }
+
     /// Test: is_bridge_running returns true when server is up.
     #[tokio::test]
     async fn is_bridge_running_returns_true() {
         let port = free_port().await;
-
-        let server_handle = tokio::spawn(async move {
-            let _ = actionbook::browser::extension_bridge::serve(port).await;
-        });
-
+        let (server_handle, _token) = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let running = actionbook::browser::extension_bridge::is_bridge_running(port).await;
@@ -392,16 +719,17 @@ mod bridge_tests {
         assert!(!running, "Bridge should not be detected as running");
     }
 
-    /// Test: send_command returns error when bridge is not running.
+    /// Test: send_command_with_token returns error when bridge is not running.
     #[tokio::test]
     async fn send_command_fails_when_bridge_not_running() {
         let port = free_port().await;
         // Don't start any server
 
-        let result = actionbook::browser::extension_bridge::send_command(
+        let result = actionbook::browser::extension_bridge::send_command_with_token(
             port,
             "Runtime.evaluate",
             serde_json::json!({ "expression": "1" }),
+            "abk_fake_token_for_test_00000000",
         )
         .await;
 
@@ -428,7 +756,9 @@ mod bridge_tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         // The command may succeed (exit 0) but print a failure message
         assert!(
-            stdout.contains("failed") || stdout.contains("Cannot connect") || !output.status.success(),
+            stdout.contains("failed") || stdout.contains("Cannot connect")
+                || stdout.contains("No bridge token")
+                || !output.status.success(),
             "Should indicate ping failed: {}",
             stdout
         );

@@ -43,9 +43,123 @@
     .dot.green { background: #22c55e; }
     .dot.yellow { background: #eab308; }
     .dot.red { background: #ef4444; }
+    .dot.orange { background: #f97316; }
     .dot.gray { background: #d1d5db; }
     .label { color: #666; min-width: 60px; }
     .value { font-weight: 500; }
+    .retry-info {
+      font-size: 11px;
+      color: #888;
+      margin-left: auto;
+    }
+    .action-row {
+      padding: 10px 0 4px;
+    }
+    .action-btn {
+      width: 100%;
+      padding: 6px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 500;
+      color: #1a1a1a;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .action-btn:hover {
+      background: #f5f5f5;
+      border-color: #aaa;
+    }
+    .action-btn:active {
+      background: #eee;
+    }
+    .action-btn.hidden { display: none; }
+    .token-section {
+      padding: 8px 0 4px;
+    }
+    .token-section.hidden { display: none; }
+    .token-label {
+      font-size: 11px;
+      color: #666;
+      margin-bottom: 4px;
+    }
+    .token-row {
+      display: flex;
+      gap: 6px;
+    }
+    .token-input {
+      flex: 1;
+      padding: 5px 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: monospace;
+      outline: none;
+    }
+    .token-input:focus {
+      border-color: #888;
+    }
+    .token-save-btn {
+      padding: 5px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      background: #fff;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .token-save-btn:hover {
+      background: #f5f5f5;
+      border-color: #aaa;
+    }
+    .confirm-section {
+      padding: 10px 0 4px;
+    }
+    .confirm-section.hidden { display: none; }
+    .confirm-header {
+      font-size: 12px;
+      font-weight: 600;
+      color: #ef4444;
+      margin-bottom: 6px;
+    }
+    .confirm-detail {
+      font-size: 11px;
+      color: #444;
+      margin-bottom: 4px;
+    }
+    .confirm-detail code {
+      background: #f3f4f6;
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-size: 11px;
+    }
+    .confirm-buttons {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .confirm-btn {
+      flex: 1;
+      padding: 5px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .confirm-btn.allow {
+      background: #22c55e;
+      border-color: #16a34a;
+      color: #fff;
+    }
+    .confirm-btn.allow:hover { background: #16a34a; }
+    .confirm-btn.deny {
+      background: #fff;
+      color: #ef4444;
+      border-color: #ef4444;
+    }
+    .confirm-btn.deny:hover { background: #fef2f2; }
     .footer {
       margin-top: 12px;
       padding-top: 12px;
@@ -57,19 +171,42 @@
 </head>
 <body>
   <div class="header">
-    <h1>Actionbook <span class="version">v0.1.0</span></h1>
+    <h1>Actionbook <span class="version">v0.2.0</span></h1>
   </div>
 
   <div class="status-row">
     <span class="dot" id="bridgeDot"></span>
     <span class="label">Bridge</span>
     <span class="value" id="bridgeStatus">--</span>
+    <span class="retry-info" id="retryInfo"></span>
   </div>
 
   <div class="status-row">
     <span class="dot" id="tabDot"></span>
     <span class="label">Tab</span>
     <span class="value" id="tabStatus">--</span>
+  </div>
+
+  <div class="token-section hidden" id="tokenSection">
+    <div class="token-label">Paste token from CLI output:</div>
+    <div class="token-row">
+      <input type="password" class="token-input" id="tokenInput" placeholder="abk_..." spellcheck="false" autocomplete="off">
+      <button class="token-save-btn" id="tokenSaveBtn">Save</button>
+    </div>
+  </div>
+
+  <div class="action-row">
+    <button class="action-btn hidden" id="actionBtn">Connect</button>
+  </div>
+
+  <div class="confirm-section hidden" id="confirmSection">
+    <div class="confirm-header">L3 Command Confirmation</div>
+    <div class="confirm-detail">Method: <code id="confirmMethod">--</code></div>
+    <div class="confirm-detail">Domain: <code id="confirmDomain">--</code></div>
+    <div class="confirm-buttons">
+      <button class="confirm-btn deny" id="confirmDeny">Deny</button>
+      <button class="confirm-btn allow" id="confirmAllow">Allow</button>
+    </div>
   </div>
 
   <div class="footer">

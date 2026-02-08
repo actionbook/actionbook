@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::error::{ActionbookError, Result};
 
 /// Embedded extension version - must match manifest.json version
-pub const EXTENSION_VERSION: &str = "0.1.0";
+pub const EXTENSION_VERSION: &str = "0.2.0";
 
 // --- Embedded extension files (text) ---
 const MANIFEST_JSON: &str =
