@@ -8,6 +8,10 @@ repository = "https://github.com/anthropics/actionbook"
 keywords = ["browser", "automation", "cdp", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 
+[lib]
+name = "actionbook"
+path = "src/lib.rs"
+
 [[bin]]
 name = "actionbook"
 path = "src/main.rs"
