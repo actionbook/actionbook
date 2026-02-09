@@ -501,7 +501,13 @@ async function handleExtensionCommand(id, method, params) {
         return { id, error: { code: -32602, message: "Missing or invalid 'url' parameter (must be http/https URL)" } };
       }
       try {
-        const cookies = await chrome.cookies.getAll({ url: params.url });
+        // When a domain filter is provided, use { domain } to get cookies for
+        // ALL paths under that domain. { url } only returns cookies whose path
+        // matches the URL path, missing cookies scoped to /app, /account, etc.
+        const query = (params.domain && typeof params.domain === 'string')
+          ? { domain: params.domain }
+          : { url: params.url };
+        const cookies = await chrome.cookies.getAll(query);
         return { id, result: { cookies } };
       } catch (err) {
         return { id, error: { code: -32000, message: `getCookies failed: ${err.message}` } };
@@ -574,13 +580,20 @@ async function handleExtensionCommand(id, method, params) {
         return { id, error: { code: -32602, message: "Missing or invalid 'url' parameter (must be http/https URL). Cannot clear cookies without a URL scope." } };
       }
       // L3 gate on sensitive domains
-      const clearCookieDomain = extractDomain(params.url);
+      const clearCookieDomain = (params.domain && typeof params.domain === 'string')
+        ? params.domain.replace(/^\./, "")
+        : extractDomain(params.url);
       if (isSensitiveDomain(clearCookieDomain)) {
         const denial = await requestL3Confirmation(id, "Extension.clearCookies", clearCookieDomain);
         if (denial) return denial;
       }
       try {
-        const cookies = await chrome.cookies.getAll({ url: params.url });
+        // When a domain filter is provided, use { domain } to find cookies for
+        // ALL paths, not just the root path that { url } would match.
+        const query = (params.domain && typeof params.domain === 'string')
+          ? { domain: params.domain }
+          : { url: params.url };
+        const cookies = await chrome.cookies.getAll(query);
         const removals = cookies.map((c) => {
           const proto = c.secure ? "https" : "http";
           const cookieUrl = `${proto}://${c.domain.replace(/^\./, "")}${c.path}`;

@@ -2672,11 +2672,18 @@ async fn cookies_extension(cli: &Cli, command: &Option<CookiesCommands>) -> Resu
         Some(CookiesCommands::Clear { domain, dry_run, yes }) => {
             let url = resolve_cookie_url(&current_url, domain.as_deref())?;
 
-            // Fetch cookies to preview count
+            // Fetch cookies to preview count.
+            // When --domain is specified, pass it so the extension can use
+            // chrome.cookies.getAll({ domain }) which returns cookies for ALL
+            // paths, not just the root path that { url } would match.
+            let mut get_params = serde_json::json!({ "url": url });
+            if let Some(d) = domain.as_deref() {
+                get_params["domain"] = serde_json::json!(d.trim_start_matches('.'));
+            }
             let preview = extension_send(
                 cli,
                 "Extension.getCookies",
-                serde_json::json!({ "url": url }),
+                get_params,
             )
             .await?;
             let cookies = preview
@@ -2753,10 +2760,14 @@ async fn cookies_extension(cli: &Cli, command: &Option<CookiesCommands>) -> Resu
                 return Ok(());
             }
 
+            let mut clear_params = serde_json::json!({ "url": url });
+            if let Some(d) = domain.as_deref() {
+                clear_params["domain"] = serde_json::json!(d.trim_start_matches('.'));
+            }
             extension_send(
                 cli,
                 "Extension.clearCookies",
-                serde_json::json!({ "url": url }),
+                clear_params,
             )
             .await?;
 
