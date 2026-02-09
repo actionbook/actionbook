@@ -45,14 +45,20 @@ Extension mode is ideal when your automation needs access to pages that require 
   </Step>
 
   <Step title="Start the bridge server">
-    The bridge is the WebSocket relay between CLI and extension. Open a dedicated terminal:
+    The bridge is the WebSocket relay between CLI and extension:
 
     ```bash
     actionbook extension serve
     ```
 
+    To stop the bridge when you're done:
+
+    ```bash
+    actionbook extension stop
+    ```
+
     <Note>
-      This command runs in the foreground. Keep this terminal open while using extension mode.
+      `serve` runs in the foreground. You can stop it with Ctrl+C in the same terminal, or use `extension stop` from any other terminal.
     </Note>
   </Step>
 
@@ -148,6 +154,25 @@ actionbook --extension browser fill "#query-builder-test" "actionbook"
 actionbook --extension browser click "button[type='submit']"
 ```
 
+## Shutdown
+
+When you're done with extension mode, follow this cleanup order:
+
+```bash
+# 1. Release the debug connection (detaches from Chrome)
+actionbook --extension browser close
+
+# 2. Stop the bridge server
+actionbook extension stop
+
+# 3. (Optional) Verify
+actionbook extension status    # should show "not running"
+```
+
+<Warning>
+  Always release the debug connection **before** stopping the bridge. Skipping step 1 may leave Chrome showing an "Actionbook is debugging this browser" banner.
+</Warning>
+
 ## Security
 
 Extension mode includes multiple security layers to protect your browser.
@@ -179,14 +204,15 @@ L3 operations on sensitive domains trigger a confirmation popup in the extension
 
 <AccordionGroup>
   <Accordion title="Ping failed / bridge not running">
-    - Ensure `actionbook extension serve` is running in a separate terminal
+    - Ensure `actionbook extension serve` is running
     - Confirm the extension is loaded and enabled in `chrome://extensions`
     - Check that no other process is using port 19222
+    - To restart the bridge: `actionbook extension stop` then `actionbook extension serve`
   </Accordion>
 
   <Accordion title="Token required / pairing_required">
     - Open the extension popup and paste the latest token from the `serve` output
-    - Tokens expire after 30 minutes of inactivity — restart `serve` to generate a fresh token
+    - Tokens expire after 30 minutes of inactivity — restart the bridge with `actionbook extension stop` then `actionbook extension serve`
   </Accordion>
 
   <Accordion title="No tab attached">
