@@ -17,13 +17,30 @@ use crate::cli::{BrowserCommands, Cli, CookiesCommands};
 use crate::config::Config;
 use crate::error::{ActionbookError, Result};
 
-/// Send a command (CDP or Extension.*) through the extension bridge
+/// Send a command (CDP or Extension.*) through the extension bridge.
+/// For CDP methods, auto-attaches the active tab if no tab is currently attached.
 async fn extension_send(
     cli: &Cli,
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value> {
-    extension_bridge::send_command(cli.extension_port, method, params).await
+    let result = extension_bridge::send_command(cli.extension_port, method, params.clone()).await;
+
+    // Auto-attach: if a CDP method fails because no tab is attached, attach the active tab and retry
+    if let Err(ActionbookError::ExtensionError(ref msg)) = result {
+        if msg.contains("No tab attached") && !method.starts_with("Extension.") {
+            tracing::debug!("Auto-attaching active tab for {}", method);
+            extension_bridge::send_command(
+                cli.extension_port,
+                "Extension.attachActiveTab",
+                serde_json::json!({}),
+            )
+            .await?;
+            return extension_bridge::send_command(cli.extension_port, method, params).await;
+        }
+    }
+
+    result
 }
 
 /// Evaluate JS via the extension bridge and return the result value
@@ -2475,9 +2492,38 @@ async fn cookies(cli: &Cli, config: &Config, command: &Option<CookiesCommands>) 
 }
 
 async fn cookies_extension(cli: &Cli, command: &Option<CookiesCommands>) -> Result<()> {
+    // Get current page URL for cookie operations.
+    // chrome.cookies API requires a valid http(s) URL to scope all operations —
+    // we never allow cross-domain wildcard reads/writes.
+    let current_url = extension_eval(cli, "window.location.href")
+        .await
+        .ok()
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .filter(|u| u.starts_with("http://") || u.starts_with("https://"))
+        .unwrap_or_default();
+
+    /// Build a URL for cookie operations: prefer current_url, fall back to domain.
+    fn resolve_cookie_url(current_url: &str, domain: Option<&str>) -> std::result::Result<String, ActionbookError> {
+        if !current_url.is_empty() {
+            return Ok(current_url.to_string());
+        }
+        if let Some(d) = domain {
+            return Ok(format!("https://{}/", d));
+        }
+        Err(ActionbookError::ExtensionError(
+            "Cannot perform cookie operation: no valid page URL (navigate to an http(s) page first)".to_string(),
+        ))
+    }
+
     match command {
         None | Some(CookiesCommands::List) => {
-            let result = extension_send(cli, "Network.getCookies", serde_json::json!({})).await?;
+            let url = resolve_cookie_url(&current_url, None)?;
+            let result = extension_send(
+                cli,
+                "Extension.getCookies",
+                serde_json::json!({ "url": url }),
+            )
+            .await?;
             let cookies = result
                 .get("cookies")
                 .and_then(|c| c.as_array())
@@ -2511,7 +2557,13 @@ async fn cookies_extension(cli: &Cli, command: &Option<CookiesCommands>) -> Resu
             }
         }
         Some(CookiesCommands::Get { name }) => {
-            let result = extension_send(cli, "Network.getCookies", serde_json::json!({})).await?;
+            let url = resolve_cookie_url(&current_url, None)?;
+            let result = extension_send(
+                cli,
+                "Extension.getCookies",
+                serde_json::json!({ "url": url }),
+            )
+            .await?;
             let cookies = result
                 .get("cookies")
                 .and_then(|c| c.as_array())
@@ -2538,27 +2590,17 @@ async fn cookies_extension(cli: &Cli, command: &Option<CookiesCommands>) -> Resu
             value,
             domain,
         }) => {
+            let url = resolve_cookie_url(&current_url, domain.as_deref())?;
             let mut params = serde_json::json!({
                 "name": name,
                 "value": value,
+                "url": url,
             });
             if let Some(d) = domain {
                 params["domain"] = serde_json::json!(d);
-            } else {
-                // Get current URL domain as fallback
-                let url_val = extension_eval(cli, "window.location.href").await?;
-                let url = url_val.as_str().unwrap_or("");
-                if let Some(host) = url
-                    .split("://")
-                    .nth(1)
-                    .and_then(|s| s.split('/').next())
-                {
-                    params["domain"] = serde_json::json!(host);
-                }
-                params["url"] = serde_json::json!(url);
             }
 
-            extension_send(cli, "Network.setCookie", params).await?;
+            extension_send(cli, "Extension.setCookie", params).await?;
 
             if cli.json {
                 println!(
@@ -2575,16 +2617,13 @@ async fn cookies_extension(cli: &Cli, command: &Option<CookiesCommands>) -> Resu
             }
         }
         Some(CookiesCommands::Delete { name }) => {
-            // Need the domain to delete
-            let url_val = extension_eval(cli, "window.location.href").await?;
-            let url = url_val.as_str().unwrap_or("").to_string();
+            let url = resolve_cookie_url(&current_url, None)?;
+            let params = serde_json::json!({
+                "name": name,
+                "url": url,
+            });
 
-            extension_send(
-                cli,
-                "Network.deleteCookies",
-                serde_json::json!({ "name": name, "url": url }),
-            )
-            .await?;
+            extension_send(cli, "Extension.removeCookie", params).await?;
 
             if cli.json {
                 println!(
@@ -2600,10 +2639,12 @@ async fn cookies_extension(cli: &Cli, command: &Option<CookiesCommands>) -> Resu
             }
         }
         Some(CookiesCommands::Clear) => {
+            let url = resolve_cookie_url(&current_url, None)?;
+
             extension_send(
                 cli,
-                "Network.clearBrowserCookies",
-                serde_json::json!({}),
+                "Extension.clearCookies",
+                serde_json::json!({ "url": url }),
             )
             .await?;
 
@@ -2777,6 +2818,8 @@ mod tests {
             stealth_gpu: None,
             api_key: None,
             json: false,
+            extension: false,
+            extension_port: 19222,
             verbose: false,
             command: Commands::Browser { command },
         }

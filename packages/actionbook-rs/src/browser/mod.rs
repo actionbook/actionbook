@@ -2,6 +2,7 @@ mod discovery;
 pub mod embedded_extension;
 pub mod extension_bridge;
 mod launcher;
+pub mod native_messaging;
 mod session;
 pub mod stealth;
 

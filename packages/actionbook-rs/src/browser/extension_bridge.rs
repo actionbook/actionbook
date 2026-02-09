@@ -42,7 +42,8 @@ pub fn get_risk_level(method: &str) -> Option<RiskLevel> {
         | "DOM.getDocument"
         | "DOM.querySelector"
         | "DOM.querySelectorAll"
-        | "DOM.getOuterHTML" => Some(RiskLevel::L1),
+        | "DOM.getOuterHTML"
+        | "Network.getCookies" => Some(RiskLevel::L1),
 
         // L2 - Page modification (includes Runtime.evaluate which executes arbitrary JS)
         "Runtime.evaluate"

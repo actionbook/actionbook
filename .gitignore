@@ -72,3 +72,5 @@ handbooks/
 
 # Browser Profile (Sensitive Session Data)
 .browser-profile/
+
+.docs/

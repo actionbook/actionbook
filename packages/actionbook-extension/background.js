@@ -18,6 +18,7 @@ const CDP_ALLOWLIST = {
   'DOM.querySelector': 'L1',
   'DOM.querySelectorAll': 'L1',
   'DOM.getOuterHTML': 'L1',
+  'Network.getCookies': 'L1',
 
   // L2 - Page modification (auto-approved with logging)
   'Runtime.evaluate': 'L2',
@@ -200,6 +201,7 @@ async function connect() {
       connectionState = "connected";
       retryCount = 0;
       reconnectDelay = RECONNECT_BASE_MS;
+      stopNativePolling();
       logStateTransition("connected");
       broadcastState();
       return;
@@ -228,19 +230,26 @@ async function connect() {
         broadcastState();
         scheduleReconnect();
       } else {
-        // Connection opened but handshake rejected - auth failure
-        connectionState = "pairing_required";
-        logStateTransition("pairing_required", "handshake failed (bad token?)");
-        broadcastState();
-        // Don't auto-reconnect for auth failures
+        // Connection opened but handshake rejected - auth failure, token may have rotated
+        // Clear stored token and restart native messaging polling to get new token
+        chrome.storage.local.remove("bridgeToken", () => {
+          connectionState = "pairing_required";
+          logStateTransition("pairing_required", "handshake failed (bad token?), cleared stored token");
+          broadcastState();
+          startNativePolling();
+        });
       }
       return;
     }
 
-    connectionState = "disconnected";
-    logStateTransition("disconnected");
-    broadcastState();
-    scheduleReconnect();
+    // Was connected, now disconnected - bridge may have stopped
+    // Restart native polling to auto-reconnect when bridge comes back with new token
+    chrome.storage.local.remove("bridgeToken", () => {
+      connectionState = "disconnected";
+      logStateTransition("disconnected", "bridge connection lost");
+      broadcastState();
+      startNativePolling();
+    });
   };
 
   ws.onerror = () => {
@@ -425,6 +434,104 @@ async function handleExtensionCommand(id, method, params) {
       };
     }
 
+    case "Extension.getCookies": {
+      // Require a URL to scope cookies — never return cross-domain cookies
+      if (!params.url || typeof params.url !== 'string' || !params.url.startsWith('http')) {
+        return { id, error: { code: -32602, message: "Missing or invalid 'url' parameter (must be http/https URL)" } };
+      }
+      try {
+        const cookies = await chrome.cookies.getAll({ url: params.url });
+        return { id, result: { cookies } };
+      } catch (err) {
+        return { id, error: { code: -32000, message: `getCookies failed: ${err.message}` } };
+      }
+    }
+
+    case "Extension.setCookie": {
+      // Validate required parameters
+      if (!params.url || typeof params.url !== 'string' || !params.url.startsWith('http')) {
+        return { id, error: { code: -32602, message: "Missing or invalid 'url' parameter (must be http/https URL)" } };
+      }
+      if (!params.name || typeof params.name !== 'string') {
+        return { id, error: { code: -32602, message: "Missing or invalid 'name' parameter" } };
+      }
+      if (typeof params.value !== 'string') {
+        return { id, error: { code: -32602, message: "Missing or invalid 'value' parameter" } };
+      }
+      // L3 gate: require user confirmation on sensitive domains
+      const setCookieDomain = extractDomain(params.url);
+      if (isSensitiveDomain(setCookieDomain)) {
+        const denial = await requestL3Confirmation(id, "Extension.setCookie", setCookieDomain);
+        if (denial) return denial;
+      }
+      const details = {
+        url: params.url,
+        name: params.name,
+        value: params.value,
+      };
+      if (params.domain) details.domain = params.domain;
+      if (params.path) details.path = params.path;
+      try {
+        const cookie = await chrome.cookies.set(details);
+        if (!cookie) {
+          return { id, error: { code: -32000, message: "setCookie returned null (invalid parameters or blocked by browser)" } };
+        }
+        return { id, result: { success: true, cookie } };
+      } catch (err) {
+        return { id, error: { code: -32000, message: `setCookie failed: ${err.message}` } };
+      }
+    }
+
+    case "Extension.removeCookie": {
+      // Validate required parameters
+      if (!params.url || typeof params.url !== 'string' || !params.url.startsWith('http')) {
+        return { id, error: { code: -32602, message: "Missing or invalid 'url' parameter (must be http/https URL)" } };
+      }
+      if (!params.name || typeof params.name !== 'string') {
+        return { id, error: { code: -32602, message: "Missing or invalid 'name' parameter" } };
+      }
+      // L3 gate on sensitive domains
+      const removeCookieDomain = extractDomain(params.url);
+      if (isSensitiveDomain(removeCookieDomain)) {
+        const denial = await requestL3Confirmation(id, "Extension.removeCookie", removeCookieDomain);
+        if (denial) return denial;
+      }
+      try {
+        const details = await chrome.cookies.remove({
+          url: params.url,
+          name: params.name,
+        });
+        return { id, result: { success: true, details } };
+      } catch (err) {
+        return { id, error: { code: -32000, message: `removeCookie failed: ${err.message}` } };
+      }
+    }
+
+    case "Extension.clearCookies": {
+      // Require a URL to scope — never allow cross-domain cookie wipe
+      if (!params.url || typeof params.url !== 'string' || !params.url.startsWith('http')) {
+        return { id, error: { code: -32602, message: "Missing or invalid 'url' parameter (must be http/https URL). Cannot clear cookies without a URL scope." } };
+      }
+      // L3 gate on sensitive domains
+      const clearCookieDomain = extractDomain(params.url);
+      if (isSensitiveDomain(clearCookieDomain)) {
+        const denial = await requestL3Confirmation(id, "Extension.clearCookies", clearCookieDomain);
+        if (denial) return denial;
+      }
+      try {
+        const cookies = await chrome.cookies.getAll({ url: params.url });
+        const removals = cookies.map((c) => {
+          const proto = c.secure ? "https" : "http";
+          const cookieUrl = `${proto}://${c.domain.replace(/^\./, "")}${c.path}`;
+          return chrome.cookies.remove({ url: cookieUrl, name: c.name });
+        });
+        await Promise.allSettled(removals);
+        return { id, result: { success: true, cleared: cookies.length } };
+      } catch (err) {
+        return { id, error: { code: -32000, message: `clearCookies failed: ${err.message}` } };
+      }
+    }
+
     default:
       return {
         id,
@@ -449,6 +556,14 @@ async function getAttachedTabDomain() {
 function isSensitiveDomain(domain) {
   if (!domain) return false;
   return SENSITIVE_DOMAIN_PATTERNS.some((pattern) => pattern.test(domain));
+}
+
+function extractDomain(url) {
+  try {
+    return new URL(url).hostname;
+  } catch (_) {
+    return null;
+  }
 }
 
 function getEffectiveRiskLevel(method, domain) {
@@ -622,7 +737,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (connectionState === "idle" || connectionState === "disconnected" || connectionState === "failed" || connectionState === "pairing_required") {
       retryCount = 0;
       reconnectDelay = RECONNECT_BASE_MS;
-      connect();
+      // Try native messaging first, then start polling if needed
+      tryNativeMessagingConnect();
+      startNativePolling();
     }
     return false;
   }
@@ -688,8 +805,102 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   }
 });
 
+// --- Native Messaging: Auto-connect ---
+
+const NATIVE_HOST_NAME = "com.actionbook.bridge";
+
+// How often to poll native messaging when not connected (ms)
+const NATIVE_POLL_INTERVAL_MS = 5000;
+let nativePollTimer = null;
+let nativeMessagingAvailable = true; // assume available until proven otherwise
+
+/**
+ * Attempt to read the bridge session token from the CLI via Chrome Native Messaging.
+ * If successful, stores the token and initiates connection automatically.
+ * Falls back silently to manual token entry if the native host is not installed.
+ */
+async function tryNativeMessagingConnect() {
+  // Skip if already connected or connecting
+  if (connectionState === "connected" || connectionState === "connecting") return;
+
+  // If native messaging was determined to be unavailable, don't retry
+  if (!nativeMessagingAvailable) return;
+
+  const existingToken = await getStoredToken();
+  if (existingToken) {
+    // Already have a token - just connect directly
+    connect();
+    return;
+  }
+
+  try {
+    chrome.runtime.sendNativeMessage(
+      NATIVE_HOST_NAME,
+      { type: "get_token" },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          const errMsg = chrome.runtime.lastError.message || "";
+          // "Specified native messaging host not found" means host not installed
+          if (errMsg.includes("not found") || errMsg.includes("not registered")) {
+            debugLog("[actionbook] Native messaging host not installed, disabling polling");
+            nativeMessagingAvailable = false;
+            stopNativePolling();
+          } else {
+            debugLog("[actionbook] Native messaging error:", errMsg);
+          }
+          return;
+        }
+
+        if (response && response.type === "token" && response.token && response.bridge_running) {
+          debugLog("[actionbook] Token received via native messaging");
+          if (!isValidTokenFormat(response.token)) {
+            debugLog("[actionbook] Rejected invalid token from native host");
+            return;
+          }
+          chrome.storage.local.set({ bridgeToken: response.token }, () => {
+            retryCount = 0;
+            reconnectDelay = RECONNECT_BASE_MS;
+            stopNativePolling();
+            connect();
+          });
+        } else if (response && response.type === "error" && response.error === "no_token") {
+          // Bridge not running yet - keep polling
+          debugLog("[actionbook] Bridge not running, will retry...");
+        }
+      }
+    );
+  } catch (err) {
+    debugLog("[actionbook] Native messaging error:", err);
+  }
+}
+
+/**
+ * Start polling native messaging for token when bridge is not yet running.
+ * Polls every NATIVE_POLL_INTERVAL_MS until connected or native host unavailable.
+ */
+function startNativePolling() {
+  if (nativePollTimer) return;
+  nativePollTimer = setInterval(() => {
+    if (connectionState === "connected" || connectionState === "connecting") {
+      stopNativePolling();
+      return;
+    }
+    tryNativeMessagingConnect();
+  }, NATIVE_POLL_INTERVAL_MS);
+}
+
+function stopNativePolling() {
+  if (nativePollTimer) {
+    clearInterval(nativePollTimer);
+    nativePollTimer = null;
+  }
+}
+
 // --- Start ---
 
 ensureOffscreenDocument();
 lastLoggedState = "idle";
-debugLog("[actionbook] Background service worker started (idle, waiting for user connect)");
+debugLog("[actionbook] Background service worker started");
+// Try immediate connect, then start polling if bridge not yet running
+tryNativeMessagingConnect();
+startNativePolling();

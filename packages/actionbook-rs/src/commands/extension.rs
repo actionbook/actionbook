@@ -2,6 +2,7 @@ use colored::Colorize;
 
 use crate::browser::embedded_extension;
 use crate::browser::extension_bridge;
+use crate::browser::native_messaging;
 use crate::cli::{Cli, ExtensionCommands};
 use crate::error::Result;
 
@@ -201,15 +202,24 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
 
     let path = embedded_extension::extract(force)?;
 
+    // Register native messaging host for automatic token exchange
+    let native_host_result = native_messaging::install_manifest();
+
     if cli.json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "status": "installed",
-                "version": embedded_extension::EXTENSION_VERSION,
-                "path": path.display().to_string()
-            })
-        );
+        let mut result = serde_json::json!({
+            "status": "installed",
+            "version": embedded_extension::EXTENSION_VERSION,
+            "path": path.display().to_string()
+        });
+        match &native_host_result {
+            Ok(p) => {
+                result["native_messaging_host"] = serde_json::json!(p.display().to_string());
+            }
+            Err(e) => {
+                result["native_messaging_host_error"] = serde_json::json!(e.to_string());
+            }
+        }
+        println!("{}", result);
     } else {
         println!();
         println!(
@@ -218,6 +228,28 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
             embedded_extension::EXTENSION_VERSION
         );
         println!("  {}  Path: {}", "◆".cyan(), path.display());
+
+        match &native_host_result {
+            Ok(p) => {
+                println!(
+                    "  {} Native messaging host registered",
+                    "✓".green()
+                );
+                println!("  {}  Manifest: {}", "◆".cyan(), p.display().to_string().dimmed());
+            }
+            Err(e) => {
+                println!(
+                    "  {} Failed to register native messaging host: {}",
+                    "!".yellow(),
+                    e
+                );
+                println!(
+                    "  {}  Token auto-pairing will not work; manual token entry required",
+                    "ℹ".dimmed()
+                );
+            }
+        }
+
         println!();
         println!("  {}", "Next steps:".bold());
         println!("  1. Open {} in Chrome", "chrome://extensions".cyan());
@@ -230,6 +262,10 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
         println!(
             "  4. Run {}",
             "actionbook extension serve".cyan()
+        );
+        println!(
+            "  5. Extension {} via native messaging",
+            "auto-connects".green().bold()
         );
         println!();
     }
@@ -275,6 +311,9 @@ async fn uninstall(cli: &Cli) -> Result<()> {
     let dir = embedded_extension::extension_dir()?;
     embedded_extension::uninstall()?;
 
+    // Also remove native messaging host manifest
+    let _ = native_messaging::uninstall_manifest();
+
     if cli.json {
         println!(
             "{}",
@@ -288,6 +327,10 @@ async fn uninstall(cli: &Cli) -> Result<()> {
             "  {} Extension removed from {}",
             "✓".green(),
             dir.display()
+        );
+        println!(
+            "  {} Native messaging host unregistered",
+            "✓".green()
         );
     }
 
