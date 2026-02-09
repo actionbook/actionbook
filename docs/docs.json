@@ -25,6 +25,7 @@
             "pages": [
               "guides/installation",
               "guides/cli-and-skills",
+              "guides/browser-extension",
               "guides/mcp-server",
               "guides/sdk-integration"
             ]
