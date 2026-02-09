@@ -170,6 +170,7 @@ fn start_bridge(port: u16) -> (tokio::task::JoinHandle<()>, String) {
 mod bridge_tests {
     use super::*;
     use assert_cmd::Command;
+    use predicates::prelude::*;
 
     /// Test: generate_token produces valid format.
     #[test]
@@ -774,5 +775,242 @@ mod bridge_tests {
             .assert();
         // Should complete without panic (may report not running)
         let _ = result;
+    }
+
+    // --- Issue 1: createTab/activateTab auto-attach tests ---
+    // Note: The bridge handles one command per CLI connection. Each command
+    // must use a separate WebSocket connection (which is how the real CLI works).
+
+    /// Test: Extension.createTab is forwarded and response includes attached: true.
+    /// Then a subsequent CDP command (new CLI connection) is also forwarded successfully.
+    #[tokio::test]
+    async fn create_tab_then_cdp_succeeds() {
+        let port = free_port().await;
+        let (server_handle, token) = start_bridge(port);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Connect extension
+        let mut ext_ws = ws_connect(port).await;
+        hello_extension(&mut ext_ws, &token).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // CLI connection 1: send Extension.createTab
+        let mut cli1 = ws_connect(port).await;
+        hello_cli(&mut cli1, &token).await;
+        send_json(
+            &mut cli1,
+            serde_json::json!({
+                "id": 1,
+                "method": "Extension.createTab",
+                "params": { "url": "https://example.com" }
+            }),
+        )
+        .await;
+
+        // Extension receives createTab
+        let ext_msg = recv_json_timeout(&mut ext_ws, 3000)
+            .await
+            .expect("Extension should receive createTab");
+        assert_eq!(ext_msg["method"].as_str(), Some("Extension.createTab"));
+        let bridge_id = ext_msg["id"].as_u64().unwrap();
+
+        // Extension responds with attached: true (simulating the fixed behavior)
+        send_json(
+            &mut ext_ws,
+            serde_json::json!({
+                "id": bridge_id,
+                "result": { "tabId": 123, "title": "Example", "url": "https://example.com", "attached": true }
+            }),
+        )
+        .await;
+
+        // CLI receives response
+        let cli_resp = recv_json_timeout(&mut cli1, 3000)
+            .await
+            .expect("CLI should receive createTab response");
+        assert_eq!(cli_resp["id"].as_u64(), Some(1));
+        assert_eq!(cli_resp["result"]["attached"].as_bool(), Some(true));
+        assert_eq!(cli_resp["result"]["tabId"].as_u64(), Some(123));
+
+        // CLI connection 2: send a CDP command — should be forwarded to extension
+        let mut cli2 = ws_connect(port).await;
+        hello_cli(&mut cli2, &token).await;
+        send_json(
+            &mut cli2,
+            serde_json::json!({
+                "id": 2,
+                "method": "Runtime.evaluate",
+                "params": { "expression": "document.title" }
+            }),
+        )
+        .await;
+
+        let ext_cdp = recv_json_timeout(&mut ext_ws, 3000)
+            .await
+            .expect("Extension should receive CDP command after createTab");
+        assert_eq!(ext_cdp["method"].as_str(), Some("Runtime.evaluate"));
+
+        server_handle.abort();
+    }
+
+    /// Test: Extension.activateTab is forwarded and subsequent CDP works.
+    #[tokio::test]
+    async fn activate_tab_then_cdp_succeeds() {
+        let port = free_port().await;
+        let (server_handle, token) = start_bridge(port);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let mut ext_ws = ws_connect(port).await;
+        hello_extension(&mut ext_ws, &token).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // CLI connection 1: send Extension.activateTab
+        let mut cli1 = ws_connect(port).await;
+        hello_cli(&mut cli1, &token).await;
+        send_json(
+            &mut cli1,
+            serde_json::json!({
+                "id": 10,
+                "method": "Extension.activateTab",
+                "params": { "tabId": 456 }
+            }),
+        )
+        .await;
+
+        let ext_msg = recv_json_timeout(&mut ext_ws, 3000)
+            .await
+            .expect("Extension should receive activateTab");
+        assert_eq!(ext_msg["method"].as_str(), Some("Extension.activateTab"));
+        let bridge_id = ext_msg["id"].as_u64().unwrap();
+
+        // Extension responds with attached: true
+        send_json(
+            &mut ext_ws,
+            serde_json::json!({
+                "id": bridge_id,
+                "result": { "success": true, "tabId": 456, "title": "Tab B", "url": "https://b.com", "attached": true }
+            }),
+        )
+        .await;
+
+        let cli_resp = recv_json_timeout(&mut cli1, 3000)
+            .await
+            .expect("CLI should receive activateTab response");
+        assert_eq!(cli_resp["id"].as_u64(), Some(10));
+        assert_eq!(cli_resp["result"]["attached"].as_bool(), Some(true));
+
+        // CLI connection 2: send CDP command — should be forwarded
+        let mut cli2 = ws_connect(port).await;
+        hello_cli(&mut cli2, &token).await;
+        send_json(
+            &mut cli2,
+            serde_json::json!({
+                "id": 11,
+                "method": "Runtime.evaluate",
+                "params": { "expression": "location.href" }
+            }),
+        )
+        .await;
+
+        let ext_cdp = recv_json_timeout(&mut ext_ws, 3000)
+            .await
+            .expect("Extension should receive CDP command after activateTab");
+        assert_eq!(ext_cdp["method"].as_str(), Some("Runtime.evaluate"));
+
+        server_handle.abort();
+    }
+
+    /// Test: open tab A (createTab), switch to tab B (activateTab) — subsequent CDP goes to extension.
+    /// Each command uses a separate CLI connection (bridge handles one command per connection).
+    #[tokio::test]
+    async fn switch_tab_changes_cdp_target() {
+        let port = free_port().await;
+        let (server_handle, token) = start_bridge(port);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let mut ext_ws = ws_connect(port).await;
+        hello_extension(&mut ext_ws, &token).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // CLI connection 1: Create tab A
+        let mut cli1 = ws_connect(port).await;
+        hello_cli(&mut cli1, &token).await;
+        send_json(
+            &mut cli1,
+            serde_json::json!({ "id": 1, "method": "Extension.createTab", "params": { "url": "https://a.com" } }),
+        )
+        .await;
+        let ext_msg = recv_json_timeout(&mut ext_ws, 3000).await.unwrap();
+        let bid = ext_msg["id"].as_u64().unwrap();
+        send_json(&mut ext_ws, serde_json::json!({ "id": bid, "result": { "tabId": 100, "attached": true } })).await;
+        let _ = recv_json_timeout(&mut cli1, 3000).await;
+
+        // CLI connection 2: Switch to tab B (activateTab)
+        let mut cli2 = ws_connect(port).await;
+        hello_cli(&mut cli2, &token).await;
+        send_json(
+            &mut cli2,
+            serde_json::json!({ "id": 2, "method": "Extension.activateTab", "params": { "tabId": 200 } }),
+        )
+        .await;
+        let ext_msg2 = recv_json_timeout(&mut ext_ws, 3000).await.unwrap();
+        let bid2 = ext_msg2["id"].as_u64().unwrap();
+        send_json(&mut ext_ws, serde_json::json!({ "id": bid2, "result": { "success": true, "tabId": 200, "attached": true } })).await;
+        let _ = recv_json_timeout(&mut cli2, 3000).await;
+
+        // CLI connection 3: CDP command — should be forwarded to extension (which targets tab B now)
+        let mut cli3 = ws_connect(port).await;
+        hello_cli(&mut cli3, &token).await;
+        send_json(
+            &mut cli3,
+            serde_json::json!({ "id": 3, "method": "Runtime.evaluate", "params": { "expression": "1+1" } }),
+        )
+        .await;
+
+        let ext_cdp = recv_json_timeout(&mut ext_ws, 3000)
+            .await
+            .expect("CDP should be forwarded after tab switch");
+        assert_eq!(ext_cdp["method"].as_str(), Some("Runtime.evaluate"));
+
+        server_handle.abort();
+    }
+
+    // --- Issue 2: --profile + --extension rejected ---
+
+    /// Test: --profile flag combined with --extension produces an error.
+    #[test]
+    fn profile_flag_rejected_in_extension_mode() {
+        let mut cmd = Command::cargo_bin("actionbook").unwrap();
+        cmd.args(["--profile", "myprofile", "--extension", "browser", "status"])
+            .timeout(Duration::from_secs(5))
+            .assert()
+            .failure()
+            .stderr(
+                predicates::str::contains("--profile is not supported in extension mode")
+                    .or(predicates::str::contains("not supported in extension"))
+            );
+    }
+
+    // --- Issue 3: cookies clear with --domain flag ---
+
+    /// Test: cookies clear --dry-run flag is accepted by CLI parser.
+    #[test]
+    fn cookies_clear_dry_run_accepted() {
+        let mut cmd = Command::cargo_bin("actionbook").unwrap();
+        cmd.args(["browser", "cookies", "clear", "--dry-run", "--help"])
+            .assert()
+            .success()
+            .stdout(predicates::str::contains("dry-run"));
+    }
+
+    /// Test: cookies clear --domain flag is accepted by CLI parser.
+    #[test]
+    fn cookies_clear_domain_accepted() {
+        let mut cmd = Command::cargo_bin("actionbook").unwrap();
+        cmd.args(["browser", "cookies", "clear", "--help"])
+            .assert()
+            .success()
+            .stdout(predicates::str::contains("--domain"))
+            .stdout(predicates::str::contains("--yes"));
     }
 }

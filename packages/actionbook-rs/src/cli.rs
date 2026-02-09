@@ -372,8 +372,18 @@ pub enum CookiesCommands {
         /// Cookie name
         name: String,
     },
-    /// Clear all cookies
-    Clear,
+    /// Clear all cookies for the current page (or specified domain)
+    Clear {
+        /// Explicit domain to clear (e.g., "example.com")
+        #[arg(long)]
+        domain: Option<String>,
+        /// Preview which cookies would be cleared without deleting
+        #[arg(long)]
+        dry_run: bool,
+        /// Skip confirmation — required to actually clear
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand)]

@@ -430,7 +430,21 @@ async function handleExtensionCommand(id, method, params) {
     case "Extension.createTab": {
       const url = params.url || "about:blank";
       const tab = await chrome.tabs.create({ url });
-      return { id, result: { tabId: tab.id, title: tab.title || "", url: tab.url || url } };
+
+      // Auto-attach debugger to the new tab so subsequent CDP commands target it
+      try {
+        if (attachedTabId !== null && attachedTabId !== tab.id) {
+          try { await chrome.debugger.detach({ tabId: attachedTabId }); } catch (_) {}
+        }
+        if (attachedTabId !== tab.id) {
+          await chrome.debugger.attach({ tabId: tab.id }, "1.3");
+          attachedTabId = tab.id;
+        }
+        return { id, result: { tabId: tab.id, title: tab.title || "", url: tab.url || url, attached: true } };
+      } catch (err) {
+        // Tab created but debugger attach failed — return tab info with attached: false
+        return { id, result: { tabId: tab.id, title: tab.title || "", url: tab.url || url, attached: false, attachError: err.message } };
+      }
     }
 
     case "Extension.activateTab": {
@@ -441,7 +455,17 @@ async function handleExtensionCommand(id, method, params) {
       try {
         await chrome.tabs.update(tabId, { active: true });
         const tab = await chrome.tabs.get(tabId);
-        return { id, result: { success: true, tabId, title: tab.title, url: tab.url } };
+
+        // Auto-attach debugger to the activated tab so subsequent CDP commands target it
+        if (attachedTabId !== null && attachedTabId !== tabId) {
+          try { await chrome.debugger.detach({ tabId: attachedTabId }); } catch (_) {}
+        }
+        if (attachedTabId !== tabId) {
+          await chrome.debugger.attach({ tabId }, "1.3");
+          attachedTabId = tabId;
+        }
+
+        return { id, result: { success: true, tabId, title: tab.title, url: tab.url, attached: true } };
       } catch (err) {
         return { id, error: { code: -32000, message: `Failed to activate tab ${tabId}: ${err.message}` } };
       }

@@ -253,6 +253,14 @@ fn has_explicit_scheme(input: &str) -> bool {
 }
 
 pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
+    // --profile is not supported in extension mode: extension operates on the live Chrome profile
+    if cli.extension && cli.profile.is_some() {
+        return Err(ActionbookError::Other(
+            "--profile is not supported in extension mode. Extension operates on your live Chrome profile. \
+             Remove --profile or remove --extension to use isolated profiles.".to_string()
+        ));
+    }
+
     let config = Config::load()?;
 
     match command {
@@ -2488,7 +2496,14 @@ async fn cookies(cli: &Cli, config: &Config, command: &Option<CookiesCommands>) 
                 println!("{} Cookie deleted: {}", "✓".green(), name);
             }
         }
-        Some(CookiesCommands::Clear) => {
+        Some(CookiesCommands::Clear { domain, dry_run, .. }) => {
+            if domain.is_some() || *dry_run {
+                return Err(ActionbookError::Other(
+                    "--domain and --dry-run are only supported in extension mode (--extension). \
+                     In CDP mode, 'cookies clear' clears all cookies for the session.".to_string()
+                ));
+            }
+
             session_manager
                 .clear_cookies(effective_profile_arg(cli, config))
                 .await?;
@@ -2654,8 +2669,89 @@ async fn cookies_extension(cli: &Cli, command: &Option<CookiesCommands>) -> Resu
                 );
             }
         }
-        Some(CookiesCommands::Clear) => {
-            let url = resolve_cookie_url(&current_url, None)?;
+        Some(CookiesCommands::Clear { domain, dry_run, yes }) => {
+            let url = resolve_cookie_url(&current_url, domain.as_deref())?;
+
+            // Fetch cookies to preview count
+            let preview = extension_send(
+                cli,
+                "Extension.getCookies",
+                serde_json::json!({ "url": url }),
+            )
+            .await?;
+            let cookies = preview
+                .get("cookies")
+                .and_then(|c| c.as_array())
+                .cloned()
+                .unwrap_or_default();
+
+            let target_domain = domain.as_deref().unwrap_or_else(|| {
+                url.split("://")
+                    .nth(1)
+                    .and_then(|s| s.split('/').next())
+                    .unwrap_or("unknown")
+            });
+
+            if *dry_run {
+                // Preview mode: show cookies without deleting
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "dry_run": true,
+                            "domain": target_domain,
+                            "count": cookies.len(),
+                            "cookies": cookies.iter().map(|c| {
+                                serde_json::json!({
+                                    "name": c.get("name").and_then(|v| v.as_str()).unwrap_or(""),
+                                    "domain": c.get("domain").and_then(|v| v.as_str()).unwrap_or(""),
+                                })
+                            }).collect::<Vec<_>>()
+                        })
+                    );
+                } else {
+                    println!(
+                        "{} Dry run: {} cookies would be cleared for {}",
+                        "!".yellow(),
+                        cookies.len(),
+                        target_domain
+                    );
+                    for cookie in &cookies {
+                        let name = cookie.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        let cdomain = cookie.get("domain").and_then(|v| v.as_str()).unwrap_or("");
+                        println!("  {} {}", name.bold(), format!("({})", cdomain).dimmed());
+                    }
+                }
+                return Ok(());
+            }
+
+            // Require --yes to actually clear (both interactive and JSON modes)
+            if !yes {
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "error": "confirmation_required",
+                            "message": "Pass --yes to confirm clearing cookies",
+                            "count": cookies.len(),
+                            "domain": target_domain
+                        })
+                    );
+                } else {
+                    println!(
+                        "{} About to clear {} cookies for {}",
+                        "!".yellow(),
+                        cookies.len(),
+                        target_domain
+                    );
+                    println!(
+                        "  Re-run with {} to confirm, or use {} to preview details",
+                        "--yes".bold(),
+                        "--dry-run".bold()
+                    );
+                }
+                return Ok(());
+            }
 
             extension_send(
                 cli,
@@ -2665,9 +2761,17 @@ async fn cookies_extension(cli: &Cli, command: &Option<CookiesCommands>) -> Resu
             .await?;
 
             if cli.json {
-                println!("{}", serde_json::json!({ "success": true }));
+                println!(
+                    "{}",
+                    serde_json::json!({ "success": true, "cleared": cookies.len() })
+                );
             } else {
-                println!("{} All cookies cleared (extension)", "✓".green());
+                println!(
+                    "{} Cleared {} cookies for {} (extension)",
+                    "✓".green(),
+                    cookies.len(),
+                    target_domain
+                );
             }
         }
     }
