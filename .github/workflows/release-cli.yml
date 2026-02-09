@@ -53,7 +53,8 @@ jobs:
 
       - name: Build (cross)
         if: matrix.use-cross
-        run: cross build --release --target ${{ matrix.target }}
+        working-directory: .
+        run: cross build --release --target ${{ matrix.target }} --manifest-path packages/actionbook-rs/Cargo.toml
 
       - name: Build (native)
         if: ${{ !matrix.use-cross }}
@@ -72,7 +73,23 @@ jobs:
       - name: Rename binary for platform
         shell: bash
         run: |
-          SRC="target/${{ matrix.target }}/release/${{ steps.binary.outputs.name }}"
+          CANDIDATES=(
+            "target/${{ matrix.target }}/release/${{ steps.binary.outputs.name }}"
+            "../target/${{ matrix.target }}/release/${{ steps.binary.outputs.name }}"
+          )
+          SRC=""
+          for candidate in "${CANDIDATES[@]}"; do
+            if [[ -f "$candidate" ]]; then
+              SRC="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$SRC" ]]; then
+            echo "ERROR: Built binary not found in expected target directories."
+            printf 'Checked:\n  - %s\n' "${CANDIDATES[@]}"
+            exit 1
+          fi
+
           ARTIFACT_DIR="${RUNNER_TEMP}/actionbook-binaries"
           mkdir -p "$ARTIFACT_DIR"
 
