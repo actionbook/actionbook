@@ -1,0 +1,76 @@
+name: Release Extension
+
+on:
+  push:
+    tags:
+      - "actionbook-extension-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/actionbook-extension
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#actionbook-extension-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify manifest.json version matches tag
+        run: |
+          MANIFEST_VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('manifest.json','utf8')).version)")
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+          if [ "$MANIFEST_VERSION" != "$TAG_VERSION" ]; then
+            echo "ERROR: manifest.json version ($MANIFEST_VERSION) does not match tag version ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "Version verified: $TAG_VERSION"
+
+      - name: Package extension
+        run: |
+          ZIP_NAME="actionbook-extension-v${{ steps.version.outputs.version }}.zip"
+          mkdir -p dist
+
+          zip -r9 "dist/${ZIP_NAME}" \
+            manifest.json \
+            background.js \
+            popup.html \
+            popup.js \
+            offscreen.html \
+            offscreen.js \
+            icons/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Actionbook Extension v${{ steps.version.outputs.version }}
+          files: packages/actionbook-extension/dist/actionbook-extension-v${{ steps.version.outputs.version }}.zip
+          body: |
+            ## Actionbook Chrome Extension v${{ steps.version.outputs.version }}
+
+            ### Install
+
+            **Option 1: CLI (recommended)**
+            ```bash
+            actionbook extension install
+            ```
+
+            **Option 2: Manual**
+            1. Download `actionbook-extension-v${{ steps.version.outputs.version }}.zip` below
+            2. Unzip to a local folder
+            3. Open `chrome://extensions` in Chrome
+            4. Enable **Developer mode**
+            5. Click **Load unpacked** and select the unzipped folder
+
+            ### After installing
+            ```bash
+            actionbook extension serve
+            ```
+            The extension auto-connects via native messaging.
