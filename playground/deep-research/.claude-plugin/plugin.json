@@ -1,0 +1,27 @@
+{
+  "name": "deep-research",
+  "description": "Deep research report generator. Analyze any topic, domain, or paper using Actionbook browser automation and generate beautiful HTML reports via json-ui.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Actionbook",
+    "url": "https://github.com/actionbook/actionbook"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/actionbook/actionbook",
+    "directory": "playground/deep-research"
+  },
+  "skills": "./skills/",
+  "commands": "./commands/",
+  "agents": "./agents/",
+  "mcpServers": "./.mcp.json",
+  "keywords": [
+    "research",
+    "report",
+    "deep-research",
+    "analysis",
+    "html-report",
+    "json-ui",
+    "actionbook"
+  ]
+}

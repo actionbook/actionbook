@@ -27,6 +27,12 @@
       "source": "./playground/actionbook-scraper",
       "description": "Generate accurate web scraper code using Actionbook's verified selectors. Achieves 7.76x better data extraction accuracy compared to AI-guessed selectors.",
       "version": "0.1.0"
+    },
+    {
+      "name": "deep-research",
+      "source": "./playground/deep-research",
+      "description": "Deep research report generator. Analyze any topic using Actionbook browser and generate beautiful HTML reports via json-ui.",
+      "version": "0.1.0"
     }
   ]
 }
