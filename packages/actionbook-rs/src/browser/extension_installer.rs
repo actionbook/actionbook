@@ -113,7 +113,56 @@ pub async fn download_and_install(force: bool) -> Result<String> {
     // Download the zip asset
     let zip_bytes = download_asset(&asset_url).await?;
 
-    // Clean existing install if present
+    // Extract to a temporary directory first (atomic: don't destroy existing install
+    // until we've verified the new one is valid)
+    let parent = dir.parent().ok_or_else(|| {
+        ActionbookError::ExtensionError("Cannot determine parent of extension dir".to_string())
+    })?;
+    fs::create_dir_all(parent).map_err(|e| {
+        ActionbookError::ExtensionError(format!(
+            "Failed to create directory {}: {}",
+            parent.display(),
+            e
+        ))
+    })?;
+    let tmp_dir = tempfile::tempdir_in(parent).map_err(|e| {
+        ActionbookError::ExtensionError(format!(
+            "Failed to create temp directory: {}",
+            e
+        ))
+    })?;
+
+    extract_zip(&zip_bytes, tmp_dir.path())?;
+
+    // Verify extracted manifest version matches the release
+    let tmp_manifest = tmp_dir.path().join("manifest.json");
+    let manifest_content = fs::read_to_string(&tmp_manifest).map_err(|_| {
+        ActionbookError::ExtensionError(
+            "Extraction succeeded but manifest.json is missing or unreadable".to_string(),
+        )
+    })?;
+    let parsed: serde_json::Value = serde_json::from_str(&manifest_content).map_err(|e| {
+        ActionbookError::ExtensionError(format!(
+            "Extracted manifest.json is invalid JSON: {}",
+            e
+        ))
+    })?;
+    let extracted_version = parsed
+        .get("version")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            ActionbookError::ExtensionError(
+                "Extracted manifest.json is missing 'version' field".to_string(),
+            )
+        })?;
+    if extracted_version != version {
+        return Err(ActionbookError::ExtensionError(format!(
+            "Version mismatch after extraction: expected v{}, got v{}. Release may be corrupted",
+            version, extracted_version
+        )));
+    }
+
+    // Verification passed — now swap: remove old dir, move new into place
     match fs::remove_dir_all(&dir) {
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -126,21 +175,15 @@ pub async fn download_and_install(force: bool) -> Result<String> {
         }
     }
 
-    // Extract zip to extension dir
-    extract_zip(&zip_bytes, &dir)?;
-
-    // Verify extracted manifest version matches the release
-    let extracted_version = installed_version().ok_or_else(|| {
-        ActionbookError::ExtensionError(
-            "Extraction succeeded but manifest.json is missing or unreadable".to_string(),
-        )
+    // Persist the temp dir (prevent auto-cleanup) and rename into place
+    let tmp_path = tmp_dir.keep();
+    fs::rename(&tmp_path, &dir).map_err(|e| {
+        ActionbookError::ExtensionError(format!(
+            "Failed to move extracted extension to {}: {}",
+            dir.display(),
+            e
+        ))
     })?;
-    if extracted_version != version {
-        return Err(ActionbookError::ExtensionError(format!(
-            "Version mismatch after extraction: expected v{}, got v{}. Release may be corrupted",
-            version, extracted_version
-        )));
-    }
 
     Ok(version)
 }
@@ -503,6 +546,52 @@ mod tests {
 
         let result = extract_zip(b"this is not a zip", &target);
         assert!(result.is_err(), "should reject corrupted data");
+    }
+
+    #[test]
+    fn test_extract_real_extension_zip() {
+        // Use the real packaged extension zip to test the full extract + verify flow
+        let zip_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../actionbook-extension/dist/actionbook-extension-v0.2.0.zip");
+        if !zip_path.exists() {
+            eprintln!(
+                "Skipping test: {} not found (run `node scripts/package.js` in actionbook-extension first)",
+                zip_path.display()
+            );
+            return;
+        }
+
+        let zip_bytes = fs::read(&zip_path).expect("should read zip file");
+        let tmp = tempfile::tempdir().expect("should create temp dir");
+        let target = tmp.path().join("ext");
+
+        // Extract
+        extract_zip(&zip_bytes, &target).expect("extract should succeed");
+
+        // Verify all expected files
+        assert!(target.join("manifest.json").exists(), "manifest.json missing");
+        assert!(target.join("background.js").exists(), "background.js missing");
+        assert!(target.join("popup.html").exists(), "popup.html missing");
+        assert!(target.join("popup.js").exists(), "popup.js missing");
+        assert!(target.join("offscreen.html").exists(), "offscreen.html missing");
+        assert!(target.join("offscreen.js").exists(), "offscreen.js missing");
+        assert!(target.join("icons/icon-16.png").exists(), "icon-16.png missing");
+        assert!(target.join("icons/icon-48.png").exists(), "icon-48.png missing");
+        assert!(target.join("icons/icon-128.png").exists(), "icon-128.png missing");
+
+        // Verify manifest version
+        let manifest = fs::read_to_string(target.join("manifest.json")).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&manifest).unwrap();
+        assert_eq!(
+            parsed["version"].as_str().unwrap(),
+            "0.2.0",
+            "manifest version should be 0.2.0"
+        );
+        assert_eq!(
+            parsed["manifest_version"].as_u64().unwrap(),
+            3,
+            "should be manifest v3"
+        );
     }
 
     #[test]

@@ -60,6 +60,7 @@ semver = "1"
 
 # Zip extraction
 zip = { version = "2", default-features = false, features = ["deflate"] }
+tempfile = "3"
 
 # Utils
 dirs = "6"
@@ -76,7 +77,6 @@ stealth = []
 tokio-test = "0.4"
 assert_cmd = "2"
 predicates = "3"
-tempfile = "3"
 
 [profile.release]
 opt-level = "z"
