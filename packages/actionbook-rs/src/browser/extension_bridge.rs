@@ -202,6 +202,43 @@ impl BridgeState {
 /// Start the bridge WebSocket server on the given port with the given session token.
 /// This function blocks until the server is shut down.
 pub async fn serve(port: u16, token: String) -> Result<()> {
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+
+    // Handle SIGINT/SIGTERM by sending on the oneshot
+    tokio::spawn(async move {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{signal, SignalKind};
+            let mut sigint =
+                signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
+            let mut sigterm =
+                signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
+            tokio::select! {
+                _ = sigint.recv() => tracing::info!("Received SIGINT"),
+                _ = sigterm.recv() => tracing::info!("Received SIGTERM"),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            tokio::signal::ctrl_c().await.ok();
+        }
+        let _ = shutdown_tx.send(());
+    });
+
+    serve_with_shutdown(port, token, shutdown_rx).await
+}
+
+/// Start the bridge WebSocket server with an externally-controlled shutdown channel.
+///
+/// This is the core server loop, identical to [`serve`] except the caller provides
+/// a `oneshot::Receiver` that, when resolved, triggers graceful shutdown. This allows
+/// higher-level orchestrators (e.g. the isolated-extension launcher) to shut the bridge
+/// down programmatically.
+pub async fn serve_with_shutdown(
+    port: u16,
+    token: String,
+    shutdown_rx: tokio::sync::oneshot::Receiver<()>,
+) -> Result<()> {
     // Clean up any stale files from a previous ungraceful shutdown before starting
     delete_port_file().await;
 
@@ -263,24 +300,6 @@ pub async fn serve(port: u16, token: String) -> Result<()> {
         }
     });
 
-    // Handle SIGINT/SIGTERM for graceful shutdown with file cleanup
-    let shutdown = async {
-        #[cfg(unix)]
-        {
-            use tokio::signal::unix::{signal, SignalKind};
-            let mut sigint = signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
-            let mut sigterm = signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
-            tokio::select! {
-                _ = sigint.recv() => tracing::info!("Received SIGINT"),
-                _ = sigterm.recv() => tracing::info!("Received SIGTERM"),
-            }
-        }
-        #[cfg(not(unix))]
-        {
-            tokio::signal::ctrl_c().await.ok();
-        }
-    };
-
     let accept_loop = async {
         loop {
             let (stream, peer) = listener.accept().await.map_err(|e| {
@@ -305,7 +324,7 @@ pub async fn serve(port: u16, token: String) -> Result<()> {
 
     let result: Result<()> = tokio::select! {
         r = accept_loop => r,
-        _ = shutdown => {
+        _ = shutdown_rx => {
             tracing::info!("Shutting down bridge server...");
             Ok(())
         }

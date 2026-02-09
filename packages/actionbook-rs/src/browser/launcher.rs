@@ -18,13 +18,14 @@ pub struct BrowserLauncher {
     stealth: bool,
     user_data_dir: PathBuf,
     extra_args: Vec<String>,
+    load_extension_path: Option<PathBuf>,
 }
 
 impl BrowserLauncher {
     const ACTIONBOOK_PROFILE_NAME: &'static str = "actionbook";
     const DEFAULT_CHROME_PROFILE_NAME: &'static str = "Your Chrome";
 
-    fn default_user_data_dir(profile_name: &str) -> PathBuf {
+    pub fn default_user_data_dir(profile_name: &str) -> PathBuf {
         dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("actionbook")
@@ -51,6 +52,7 @@ impl BrowserLauncher {
             stealth: false,
             user_data_dir: data_dir,
             extra_args: Vec::new(),
+            load_extension_path: None,
         })
     }
 
@@ -78,6 +80,7 @@ impl BrowserLauncher {
             stealth: false,
             user_data_dir: data_dir,
             extra_args: Vec::new(),
+            load_extension_path: None,
         })
     }
 
@@ -101,6 +104,12 @@ impl BrowserLauncher {
     /// Enable stealth mode (anti-detection Chrome flags)
     pub fn with_stealth(mut self, stealth: bool) -> Self {
         self.stealth = stealth;
+        self
+    }
+
+    /// Load a Chrome extension from the given directory on launch
+    pub fn with_load_extension(mut self, path: PathBuf) -> Self {
+        self.load_extension_path = Some(path);
         self
     }
 
@@ -150,6 +159,12 @@ impl BrowserLauncher {
 
         if self.headless {
             args.push("--headless=new".to_string());
+        }
+
+        // Load extension if specified
+        if let Some(ref ext_path) = self.load_extension_path {
+            args.push(format!("--load-extension={}", ext_path.display()));
+            args.push(format!("--disable-extensions-except={}", ext_path.display()));
         }
 
         // Add extra args
@@ -418,6 +433,7 @@ mod tests {
             stealth: false,
             user_data_dir: dir,
             extra_args: Vec::new(),
+            load_extension_path: None,
         }
     }
 
@@ -524,5 +540,38 @@ mod tests {
 
         assert!(!tmp.path().join("Local State").exists());
         assert!(!tmp.path().join("Default").join("Preferences").exists());
+    }
+
+    #[test]
+    fn build_args_includes_load_extension_flags() {
+        let dir = PathBuf::from("/tmp/test-profile");
+        let ext_path = PathBuf::from("/opt/actionbook/extension");
+        let launcher = BrowserLauncher {
+            browser_info: BrowserInfo::new(BrowserType::Chrome, PathBuf::new()),
+            profile_name: "test".to_string(),
+            cdp_port: 9222,
+            headless: false,
+            stealth: false,
+            user_data_dir: dir,
+            extra_args: Vec::new(),
+            load_extension_path: Some(ext_path.clone()),
+        };
+        let args = launcher.build_args();
+        assert!(args.contains(&format!("--load-extension={}", ext_path.display())));
+        assert!(args.contains(&format!(
+            "--disable-extensions-except={}",
+            ext_path.display()
+        )));
+    }
+
+    #[test]
+    fn build_args_omits_extension_flags_when_none() {
+        let dir = PathBuf::from("/tmp/test-profile");
+        let launcher = test_launcher_with_user_data_dir(dir);
+        let args = launcher.build_args();
+        assert!(!args.iter().any(|a| a.starts_with("--load-extension")));
+        assert!(!args
+            .iter()
+            .any(|a| a.starts_with("--disable-extensions-except")));
     }
 }

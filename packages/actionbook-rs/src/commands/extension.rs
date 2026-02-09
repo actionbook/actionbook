@@ -8,7 +8,15 @@ use crate::error::Result;
 
 pub async fn run(cli: &Cli, command: &ExtensionCommands) -> Result<()> {
     match command {
-        ExtensionCommands::Serve { port } => serve(cli, *port).await,
+        ExtensionCommands::Serve { port, isolated } => {
+            let config = crate::config::Config::load()?;
+            let use_isolated = *isolated || config.browser.extension_isolated_profile;
+            if use_isolated {
+                crate::browser::isolated_extension::serve_isolated(&config, *port).await
+            } else {
+                serve(cli, *port).await
+            }
+        }
         ExtensionCommands::Status { port } => status(cli, *port).await,
         ExtensionCommands::Ping { port } => ping(cli, *port).await,
         ExtensionCommands::Install { force } => install(cli, *force).await,

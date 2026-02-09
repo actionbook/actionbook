@@ -1,7 +1,8 @@
 mod discovery;
 pub mod extension_installer;
 pub mod extension_bridge;
-mod launcher;
+pub mod isolated_extension;
+pub mod launcher;
 pub mod native_messaging;
 mod session;
 pub mod stealth;
