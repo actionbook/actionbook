@@ -29,10 +29,11 @@ Or simply tell Claude: "帮我深度研究 XXX 并生成报告" / "Research XXX 
 
 | Pattern | Type | Strategy |
 |---------|------|----------|
-| `arxiv:XXXX.XXXXX` | Paper | Fetch from ar5iv, analyze paper |
-| `doi:10.XXX/...` | Paper | Resolve DOI, fetch paper |
+| `arxiv:XXXX.XXXXX` | Paper | **arXiv Advanced Search** (Step 2b) + ar5iv deep read |
+| `doi:10.XXX/...` | Paper | Resolve DOI, then **arXiv Advanced Search** for related work |
+| Academic keywords (paper, research, model, algorithm) | Academic topic | **arXiv Advanced Search** (Step 2b) + Google for non-academic sources |
 | URL | Specific page | Fetch and analyze the page |
-| General text | Topic research | Multi-source web research |
+| General text | Topic research | Google search + arXiv Advanced Search if relevant |
 
 ## Architecture
 
@@ -42,16 +43,34 @@ Or simply tell Claude: "帮我深度研究 XXX 并生成报告" / "Research XXX 
 │  Code     │     │  Browser CLI │     │  (multiple)  │     │ Content  │
 └──────────┘     └──────────────┘     └──────────────┘     └─────┬────┘
       │                                                           │
-      │          ┌──────────────┐                                 │
-      └─────────▶│  Actionbook  │  Query indexed selectors        │
-                 │  search/get  │  BEFORE browsing known sites    │
-                 └──────────────┘                                 │
-                                                                  │
+      │          ┌──────────────┐     ┌──────────────┐           │
+      ├─────────▶│  Actionbook  │     │ arXiv Adv.   │           │
+      │          │  search/get  │────▶│ Search Form  │──────────▶│
+      │          │  (selectors) │     │ (40+ fields) │           │
+      │          └──────────────┘     └──────────────┘           │
+      │                                                           │
+      │    Actionbook indexes arXiv form selectors,               │
+      │    enabling field-specific, filtered academic              │
+      │    searches that WebFetch/WebSearch CANNOT do.             │
+      │                                                           │
 ┌──────────┐     ┌──────────────┐     ┌──────────────┐           │
 │  Open in │◀────│   json-ui    │◀────│  Write JSON  │◀──────────┘
 │  Browser │     │   render     │     │  Report      │  Synthesize
 └──────────┘     └──────────────┘     └──────────────┘
 ```
+
+### Why Actionbook, Not WebFetch/WebSearch?
+
+| Capability | Actionbook | WebFetch/WebSearch |
+|------------|-----------|-------------------|
+| Operate complex web forms (dropdowns, checkboxes, date pickers) | Yes — uses indexed selectors | No |
+| arXiv: search by Author, Title, Abstract separately | Yes — `#terms-0-field` select | No — keyword only |
+| arXiv: filter by subject (CS, Physics, Math, ...) | Yes — category checkboxes | No |
+| arXiv: filter by date range or specific year | Yes — date inputs | No |
+| Read pages with verified selectors (no guessing) | Yes — `actionbook get` | No — raw HTML parse |
+| Interact with any indexed site's UI | Yes — click, type, select | No — read-only |
+
+**This is the core value of Actionbook for research: it turns web forms into structured, programmable interfaces for AI agents.**
 
 ## MUST USE Actionbook CLI
 
@@ -77,6 +96,18 @@ Based on the topic, generate 5-8 search queries from different angles:
 - Comparisons / alternatives
 - Expert opinions / analysis
 - Use cases / applications
+
+**Decide your search method:**
+
+| Topic type | Primary search | Secondary search |
+|------------|---------------|-----------------|
+| Academic paper / ML model / algorithm | **arXiv Advanced Search** (Step 2b) | Google for blogs, code, discussions |
+| Specific author's recent work | **arXiv Advanced Search** by author field | Google Scholar |
+| Papers in a subject + time range | **arXiv Advanced Search** with filters | — |
+| Technology / product / general topic | Google Search (Step 2) | arXiv Advanced Search if research papers exist |
+| News / trends / opinions | Google Search (Step 2) | — |
+
+**IMPORTANT:** For any topic related to research, papers, models, or algorithms, you MUST use arXiv Advanced Search (Step 2b). This is Actionbook's key advantage — it can operate the arXiv search form with 40+ indexed selectors (field selection, category filters, date ranges) that no other tool can do.
 
 ### Step 2: Search the Web
 
