@@ -1,6 +1,6 @@
 use colored::Colorize;
 
-use crate::browser::embedded_extension;
+use crate::browser::extension_installer;
 use crate::browser::extension_bridge;
 use crate::browser::native_messaging;
 use crate::cli::{Cli, ExtensionCommands};
@@ -23,18 +23,12 @@ async fn serve(_cli: &Cli, port: u16) -> Result<()> {
     extension_bridge::delete_port_file().await;
     extension_bridge::delete_token_file().await;
 
-    let extension_path = if embedded_extension::is_installed() {
-        let dir = embedded_extension::extension_dir()?;
-        let path_str = dir.display().to_string();
-        if embedded_extension::is_outdated() {
-            format!(
-                "{} {}",
-                path_str,
-                "(outdated - run 'actionbook extension install --force')".yellow()
-            )
-        } else {
-            path_str
-        }
+    let extension_path = if extension_installer::is_installed() {
+        let dir = extension_installer::extension_dir()?;
+        let version = extension_installer::installed_version()
+            .map(|v| format!(" (v{})", v))
+            .unwrap_or_default();
+        format!("{}{}", dir.display(), version)
     } else {
         "(not installed - run 'actionbook extension install')".dimmed().to_string()
     };
@@ -147,11 +141,25 @@ async fn ping(_cli: &Cli, port: u16) -> Result<()> {
 }
 
 async fn install(cli: &Cli, force: bool) -> Result<()> {
-    let dir = embedded_extension::extension_dir()?;
+    let dir = extension_installer::extension_dir()?;
 
-    if embedded_extension::is_installed() && !force {
-        let current = embedded_extension::installed_version().unwrap_or_default();
-        if current == embedded_extension::EXTENSION_VERSION {
+    // Download from GitHub (handles version comparison internally —
+    // returns AlreadyUpToDate when installed version >= latest)
+    if !cli.json {
+        println!(
+            "  {} Checking for latest extension release...",
+            "◆".cyan()
+        );
+    }
+
+    let result = extension_installer::download_and_install(force).await;
+
+    // Handle "already up to date" as a success case, not an error
+    match &result {
+        Err(crate::error::ActionbookError::ExtensionAlreadyUpToDate {
+            current,
+            latest: _,
+        }) => {
             if cli.json {
                 println!(
                     "{}",
@@ -163,10 +171,9 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
                 );
             } else {
                 println!(
-                    "  {} Extension v{} is already installed at {}",
+                    "  {} Extension v{} is already up to date",
                     "✓".green(),
                     current,
-                    dir.display()
                 );
                 println!(
                     "  {}  Use {} to force reinstall",
@@ -176,36 +183,10 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
             }
             return Ok(());
         }
-
-        if !force {
-            if cli.json {
-                println!(
-                    "{}",
-                    serde_json::json!({
-                        "status": "outdated",
-                        "installed_version": current,
-                        "embedded_version": embedded_extension::EXTENSION_VERSION,
-                        "path": dir.display().to_string()
-                    })
-                );
-            } else {
-                println!(
-                    "  {} Extension is outdated (installed: v{}, embedded: v{})",
-                    "!".yellow(),
-                    current,
-                    embedded_extension::EXTENSION_VERSION
-                );
-                println!(
-                    "  {}  Use {} to upgrade",
-                    "ℹ".dimmed(),
-                    "actionbook extension install --force".dimmed()
-                );
-            }
-            return Ok(());
-        }
+        _ => {}
     }
 
-    let path = embedded_extension::extract(force)?;
+    let version = result?;
 
     // Register native messaging host for automatic token exchange
     let native_host_result = native_messaging::install_manifest();
@@ -213,8 +194,8 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
     if cli.json {
         let mut result = serde_json::json!({
             "status": "installed",
-            "version": embedded_extension::EXTENSION_VERSION,
-            "path": path.display().to_string()
+            "version": version,
+            "path": dir.display().to_string()
         });
         match &native_host_result {
             Ok(p) => {
@@ -230,9 +211,9 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
         println!(
             "  {} Extension v{} installed successfully",
             "✓".green(),
-            embedded_extension::EXTENSION_VERSION
+            version
         );
-        println!("  {}  Path: {}", "◆".cyan(), path.display());
+        println!("  {}  Path: {}", "◆".cyan(), dir.display());
 
         match &native_host_result {
             Ok(p) => {
@@ -263,7 +244,7 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
             "  3. Click {} and select:",
             "Load unpacked".bold()
         );
-        println!("     {}", path.display().to_string().dimmed());
+        println!("     {}", dir.display().to_string().dimmed());
         println!(
             "  4. Run {}",
             "actionbook extension serve".cyan()
@@ -279,15 +260,15 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
 }
 
 async fn path(cli: &Cli) -> Result<()> {
-    let dir = embedded_extension::extension_dir()?;
+    let dir = extension_installer::extension_dir()?;
 
     if cli.json {
         println!(
             "{}",
             serde_json::json!({
                 "path": dir.display().to_string(),
-                "installed": embedded_extension::is_installed(),
-                "version": embedded_extension::installed_version(),
+                "installed": extension_installer::is_installed(),
+                "version": extension_installer::installed_version(),
             })
         );
     } else {
@@ -298,7 +279,7 @@ async fn path(cli: &Cli) -> Result<()> {
 }
 
 async fn uninstall(cli: &Cli) -> Result<()> {
-    if !embedded_extension::is_installed() {
+    if !extension_installer::is_installed() {
         if cli.json {
             println!(
                 "{}",
@@ -313,8 +294,8 @@ async fn uninstall(cli: &Cli) -> Result<()> {
         return Ok(());
     }
 
-    let dir = embedded_extension::extension_dir()?;
-    embedded_extension::uninstall()?;
+    let dir = extension_installer::extension_dir()?;
+    extension_installer::uninstall()?;
 
     // Also remove native messaging host manifest
     let _ = native_messaging::uninstall_manifest();
