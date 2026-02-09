@@ -70,6 +70,9 @@ which = "7"
 shellexpand = "3"
 base64 = "0.22"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [features]
 stealth = []
 

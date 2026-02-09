@@ -118,6 +118,8 @@ pub fn configure_browser(
         }
     } else {
         config.browser.executable = None;
+        // Built-in browser does not support extension isolation; clear any stale flag
+        config.browser.extension_isolated_profile = false;
         if !cli.json {
             println!("  {}  Browser: Built-in", "◇".green());
         }
@@ -272,6 +274,8 @@ fn apply_browser_mode(
         }
         BrowserMode::Builtin => {
             config.browser.executable = None;
+            // Built-in browser does not support extension isolation; clear any stale flag
+            config.browser.extension_isolated_profile = false;
             if !cli.json {
                 println!("  {}  Using built-in browser", "◇".green());
             }
@@ -403,5 +407,37 @@ mod tests {
             Some("/usr/bin/chrome".to_string())
         );
         assert!(config.browser.headless);
+    }
+
+    #[test]
+    fn test_apply_builtin_mode_clears_isolated_profile_flag() {
+        let cli = Cli {
+            browser_path: None,
+            cdp: None,
+            profile: None,
+            headless: false,
+            stealth: false,
+            stealth_os: None,
+            stealth_gpu: None,
+            api_key: None,
+            json: false,
+            extension: false,
+            extension_port: 19222,
+            verbose: false,
+            command: crate::cli::Commands::Config {
+                command: crate::cli::ConfigCommands::Show,
+            },
+        };
+        let env = make_env_with_browsers(vec![]);
+        let mut config = Config::default();
+        // Simulate a previous setup that enabled isolated profile
+        config.browser.extension_isolated_profile = true;
+
+        let result = apply_browser_mode(&cli, &env, BrowserMode::Builtin, &mut config);
+        assert!(result.is_ok());
+        assert!(
+            !config.browser.extension_isolated_profile,
+            "Built-in mode must clear extension_isolated_profile"
+        );
     }
 }

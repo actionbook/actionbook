@@ -10,6 +10,16 @@ use crate::error::{ActionbookError, Result};
 /// Distinct from the default 9222 to avoid conflicts.
 const ISOLATED_CDP_PORT: u16 = 9333;
 
+/// Why the main event loop exited.
+enum ShutdownReason {
+    /// Bridge server exited on its own (includes result).
+    BridgeExited(std::result::Result<Result<()>, tokio::task::JoinError>),
+    /// The Chrome process we launched terminated.
+    ChromeExited,
+    /// User sent SIGINT / SIGTERM.
+    Signal,
+}
+
 /// Start an isolated Chrome instance with the extension pre-loaded and run the bridge server.
 ///
 /// This orchestrates:
@@ -38,8 +48,9 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
     let launcher =
         BrowserLauncher::from_profile("extension", &profile)?.with_load_extension(ext_dir.clone());
 
-    // 4. Check if Chrome is already running on the isolated CDP port
-    let already_running = is_cdp_running(ISOLATED_CDP_PORT).await;
+    // 4. Check if *our* isolated Chrome is already running (profile lock + CDP)
+    let profile_dir = BrowserLauncher::default_user_data_dir("extension");
+    let already_running = is_isolated_chrome_running(ISOLATED_CDP_PORT, &profile_dir).await;
 
     // 5. Launch Chrome if not already running
     let child = if already_running {
@@ -92,10 +103,7 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
     println!(
         "  {}  Profile: {} (isolated)",
         "◆".cyan(),
-        BrowserLauncher::default_user_data_dir("extension")
-            .display()
-            .to_string()
-            .dimmed()
+        profile_dir.display().to_string().dimmed()
     );
     println!();
     println!("  \u{1f511}  Session token: {}", token.bold());
@@ -157,24 +165,24 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
         extension_bridge::serve_with_shutdown(bridge_port, token, shutdown_rx).await
     });
 
-    // 14. Select between bridge, Chrome exit, and signal
-    tokio::select! {
+    // 14. Select between bridge, Chrome exit, and signal — track reason
+    let reason = tokio::select! {
         result = bridge_handle => {
             tracing::info!("Bridge server stopped");
-            if let Ok(Err(e)) = result {
-                tracing::error!("Bridge server error: {}", e);
-            }
+            ShutdownReason::BridgeExited(result)
         }
         _ = async { chrome_exit_rx.await.ok(); } => {
             tracing::info!("Chrome exited, shutting down bridge...");
             println!("\n  {} Chrome exited", "!".yellow());
             let _ = shutdown_tx.send(());
+            ShutdownReason::ChromeExited
         }
         _ = signal_handler => {
             tracing::info!("Signal received, shutting down...");
             let _ = shutdown_tx.send(());
+            ShutdownReason::Signal
         }
-    }
+    };
 
     // 15. Cleanup
     println!("\n  {}  Cleaning up...", "◆".cyan());
@@ -183,36 +191,77 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
     extension_bridge::delete_token_file().await;
     extension_bridge::delete_port_file().await;
 
-    // Terminate Chrome if we launched it (use saved PID)
-    if let Some(pid) = chrome_pid {
-        #[cfg(unix)]
-        {
-            // Send SIGTERM for graceful shutdown via kill command
-            let _ = std::process::Command::new("kill")
-                .args(["-TERM", &pid.to_string()])
-                .status();
-            // Give it a moment to shut down
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            // Force kill if still running
-            let _ = std::process::Command::new("kill")
-                .args(["-9", &pid.to_string()])
-                .status();
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = std::process::Command::new("taskkill")
-                .args(["/PID", &pid.to_string(), "/F"])
-                .status();
+    // Terminate Chrome only if we launched it AND it hasn't already exited.
+    // Skipping when ChromeExited avoids sending signals to a potentially
+    // recycled PID.
+    if !matches!(reason, ShutdownReason::ChromeExited) {
+        if let Some(pid) = chrome_pid {
+            terminate_chrome(pid).await;
         }
     }
 
     println!("  {}  Shutdown complete", "✓".green());
 
+    // Propagate bridge errors so callers see a non-zero exit code
+    if let ShutdownReason::BridgeExited(result) = reason {
+        return match result {
+            Ok(inner) => inner,
+            Err(join_err) => Err(ActionbookError::Other(format!(
+                "Bridge task panicked: {}",
+                join_err
+            ))),
+        };
+    }
+
     Ok(())
 }
 
-/// Check if a CDP endpoint is responding on the given port.
-async fn is_cdp_running(port: u16) -> bool {
+/// Terminate a Chrome process by PID using direct syscalls (unix) or taskkill (windows).
+///
+/// Uses `libc::kill` instead of shelling out to `/bin/kill` to avoid PATH-hijacking
+/// risks. Sends SIGTERM first, then SIGKILL only if the process is still alive.
+async fn terminate_chrome(pid: u32) {
+    #[cfg(unix)]
+    {
+        let pid = pid as libc::pid_t;
+        // SAFETY: Sending signals to a PID we obtained from our own Child.
+        // The caller already verified Chrome hasn't exited (ShutdownReason check),
+        // so PID reuse risk is minimal.
+        unsafe {
+            libc::kill(pid, libc::SIGTERM);
+        }
+        // Give Chrome time to shut down gracefully
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        // Force kill only if still running (kill(pid, 0) probes without sending a signal)
+        unsafe {
+            if libc::kill(pid, 0) == 0 {
+                libc::kill(pid, libc::SIGKILL);
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .status();
+    }
+}
+
+/// Check if an isolated Chrome instance is likely running.
+///
+/// Verifies both the Chrome profile lock file (proving a Chrome instance
+/// is using *our* isolated profile directory) and the CDP endpoint (proving
+/// it is accepting debugging connections). This avoids mistakenly reusing
+/// a different Chrome instance that happens to listen on the same port.
+async fn is_isolated_chrome_running(port: u16, profile_dir: &std::path::Path) -> bool {
+    // Check profile lock file first (cheap filesystem check).
+    // Chrome creates SingletonLock in the user-data-dir while running.
+    let lock_file = profile_dir.join("SingletonLock");
+    if !lock_file.exists() {
+        return false;
+    }
+
+    // Then verify CDP endpoint responds
     let url = format!("http://127.0.0.1:{}/json/version", port);
     let client = reqwest::Client::builder()
         .no_proxy()
