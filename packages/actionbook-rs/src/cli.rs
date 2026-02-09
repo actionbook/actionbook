@@ -409,7 +409,7 @@ pub enum ExtensionCommands {
         port: u16,
     },
 
-    /// Install the embedded Chrome extension to config directory
+    /// Download and install the Chrome extension from GitHub
     Install {
         /// Force reinstall even if already installed at same version
         #[arg(long)]

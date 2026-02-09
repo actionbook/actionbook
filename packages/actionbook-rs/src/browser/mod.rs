@@ -1,5 +1,5 @@
 mod discovery;
-pub mod embedded_extension;
+pub mod extension_installer;
 pub mod extension_bridge;
 mod launcher;
 pub mod native_messaging;

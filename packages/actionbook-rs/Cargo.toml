@@ -58,6 +58,9 @@ subtle = "2"
 # Versioning
 semver = "1"
 
+# Zip extraction
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
 # Utils
 dirs = "6"
 console = "0.15"
