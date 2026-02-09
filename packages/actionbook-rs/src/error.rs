@@ -39,6 +39,9 @@ pub enum ActionbookError {
     #[error("Extension error: {0}")]
     ExtensionError(String),
 
+    #[error("Extension v{current} is already up to date (latest: v{latest})")]
+    ExtensionAlreadyUpToDate { current: String, latest: String },
+
     #[error("Timeout: {0}")]
     Timeout(String),
 

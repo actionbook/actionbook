@@ -45,20 +45,7 @@ if (fs.existsSync(zipPath)) {
   fs.unlinkSync(zipPath)
 }
 
-// Build file list for zip command
-const fileArgs = includeFiles.map((f) => `"${f}"`).join(' ')
-
-execSync(`zip -j9 "${zipPath}" ${fileArgs.replace(/icons\//g, '')}`, {
-  cwd: ROOT,
-  stdio: 'pipe',
-})
-
-// zip -j flattens paths, so we need a different approach for icons/
-// Use zip with stored paths instead
-if (fs.existsSync(zipPath)) {
-  fs.unlinkSync(zipPath)
-}
-
+// Build zip with relative paths preserved (important for icons/ subdirectory)
 execSync(`zip -r9 "${zipPath}" ${includeFiles.join(' ')}`, {
   cwd: ROOT,
   stdio: 'inherit',

@@ -143,42 +143,50 @@ async fn ping(_cli: &Cli, port: u16) -> Result<()> {
 async fn install(cli: &Cli, force: bool) -> Result<()> {
     let dir = extension_installer::extension_dir()?;
 
-    if extension_installer::is_installed() && !force {
-        let current = extension_installer::installed_version().unwrap_or_default();
-        if cli.json {
-            println!(
-                "{}",
-                serde_json::json!({
-                    "status": "already_installed",
-                    "version": current,
-                    "path": dir.display().to_string()
-                })
-            );
-        } else {
-            println!(
-                "  {} Extension v{} is already installed at {}",
-                "✓".green(),
-                current,
-                dir.display()
-            );
-            println!(
-                "  {}  Use {} to force reinstall",
-                "ℹ".dimmed(),
-                "--force".dimmed()
-            );
-        }
-        return Ok(());
-    }
-
-    // Download from GitHub
+    // Download from GitHub (handles version comparison internally —
+    // returns AlreadyUpToDate when installed version >= latest)
     if !cli.json {
         println!(
-            "  {} Downloading extension from GitHub...",
+            "  {} Checking for latest extension release...",
             "◆".cyan()
         );
     }
 
-    let version = extension_installer::download_and_install(force).await?;
+    let result = extension_installer::download_and_install(force).await;
+
+    // Handle "already up to date" as a success case, not an error
+    match &result {
+        Err(crate::error::ActionbookError::ExtensionAlreadyUpToDate {
+            current,
+            latest: _,
+        }) => {
+            if cli.json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "status": "already_installed",
+                        "version": current,
+                        "path": dir.display().to_string()
+                    })
+                );
+            } else {
+                println!(
+                    "  {} Extension v{} is already up to date",
+                    "✓".green(),
+                    current,
+                );
+                println!(
+                    "  {}  Use {} to force reinstall",
+                    "ℹ".dimmed(),
+                    "--force".dimmed()
+                );
+            }
+            return Ok(());
+        }
+        _ => {}
+    }
+
+    let version = result?;
 
     // Register native messaging host for automatic token exchange
     let native_host_result = native_messaging::install_manifest();

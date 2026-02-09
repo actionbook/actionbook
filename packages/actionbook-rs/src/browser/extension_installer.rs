@@ -101,12 +101,10 @@ pub async fn download_and_install(force: bool) -> Result<String> {
         })?;
 
         if current_semver >= latest_semver {
-            return Err(ActionbookError::ExtensionError(format!(
-                "Extension v{} is already installed at {} (latest: v{}). Use --force to reinstall",
+            return Err(ActionbookError::ExtensionAlreadyUpToDate {
                 current,
-                dir.display(),
-                version
-            )));
+                latest: version,
+            });
         }
     }
 
@@ -191,6 +189,10 @@ pub async fn download_and_install(force: bool) -> Result<String> {
 /// Fetch the latest actionbook-extension release from GitHub API.
 ///
 /// Returns (version, asset_download_url).
+///
+/// NOTE: Only fetches the first page of releases (20 items). This is sufficient
+/// because extension releases are recent, but if the repo accumulates many
+/// non-extension releases, pagination may be needed (Link header).
 async fn fetch_latest_release() -> Result<(String, String)> {
     let url = format!(
         "https://api.github.com/repos/{}/releases?per_page=20",
@@ -550,9 +552,21 @@ mod tests {
 
     #[test]
     fn test_extract_real_extension_zip() {
-        // Use the real packaged extension zip to test the full extract + verify flow
-        let zip_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../actionbook-extension/dist/actionbook-extension-v0.2.0.zip");
+        // Read version from manifest.json so this test doesn't break on version bumps
+        let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../actionbook-extension/manifest.json");
+        let manifest_content =
+            fs::read_to_string(&manifest_path).expect("should read manifest.json");
+        let manifest_parsed: serde_json::Value =
+            serde_json::from_str(&manifest_content).expect("should parse manifest.json");
+        let version = manifest_parsed["version"]
+            .as_str()
+            .expect("manifest.json should have version field");
+
+        let zip_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../actionbook-extension/dist/actionbook-extension-v{}.zip",
+            version
+        ));
         if !zip_path.exists() {
             eprintln!(
                 "Skipping test: {} not found (run `node scripts/package.js` in actionbook-extension first)",
@@ -579,16 +593,17 @@ mod tests {
         assert!(target.join("icons/icon-48.png").exists(), "icon-48.png missing");
         assert!(target.join("icons/icon-128.png").exists(), "icon-128.png missing");
 
-        // Verify manifest version
-        let manifest = fs::read_to_string(target.join("manifest.json")).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&manifest).unwrap();
+        // Verify manifest version matches what we read from source
+        let extracted_manifest = fs::read_to_string(target.join("manifest.json")).unwrap();
+        let extracted_parsed: serde_json::Value =
+            serde_json::from_str(&extracted_manifest).unwrap();
         assert_eq!(
-            parsed["version"].as_str().unwrap(),
-            "0.2.0",
-            "manifest version should be 0.2.0"
+            extracted_parsed["version"].as_str().unwrap(),
+            version,
+            "extracted manifest version should match source"
         );
         assert_eq!(
-            parsed["manifest_version"].as_u64().unwrap(),
+            extracted_parsed["manifest_version"].as_u64().unwrap(),
             3,
             "should be manifest v3"
         );
