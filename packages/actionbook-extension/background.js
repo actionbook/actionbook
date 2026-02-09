@@ -1001,6 +1001,20 @@ function stopNativePolling() {
   }
 }
 
+// --- CDP-injected token listener (isolated mode) ---
+// When the CLI injects bridgeToken via chrome.storage.local.set() over CDP,
+// this listener fires and triggers an immediate connect(), bypassing native messaging.
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local") return;
+  if (!changes.bridgeToken?.newValue) return;
+  if (!isValidTokenFormat(changes.bridgeToken.newValue)) return;
+  debugLog("[actionbook] Token injected via storage, connecting...");
+  stopNativePolling();
+  retryCount = 0;
+  reconnectDelay = RECONNECT_BASE_MS;
+  connect();
+});
+
 // --- Start ---
 
 ensureOffscreenDocument();

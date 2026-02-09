@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use chromiumoxide::browser::Browser;
 use chromiumoxide::handler::Handler;
@@ -150,9 +151,26 @@ impl SessionManager {
         let url = format!("http://127.0.0.1:{}/json/version", state.cdp_port);
         let client = reqwest::Client::builder()
             .no_proxy()
+            .timeout(Duration::from_secs(5))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
         client.get(&url).send().await.is_ok()
+    }
+
+    /// Fetch the current browser WebSocket URL from a CDP port via /json/version.
+    /// Returns `None` if the port is unreachable or the response is malformed.
+    async fn fetch_browser_ws_url(&self, cdp_port: u16) -> Option<String> {
+        let url = format!("http://127.0.0.1:{}/json/version", cdp_port);
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+        let resp = client.get(&url).send().await.ok()?;
+        let info: serde_json::Value = resp.json().await.ok()?;
+        info.get("webSocketDebuggerUrl")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
     }
 
     /// Get or create a browser session for the given profile
@@ -164,8 +182,17 @@ impl SessionManager {
         let profile = self.config.get_profile(&profile_name)?;
 
         // Check for existing session state
-        if let Some(state) = self.load_session_state(&profile_name) {
+        if let Some(mut state) = self.load_session_state(&profile_name) {
             if self.is_session_alive(&state).await {
+                // Refresh WebSocket URL — the browser may have restarted on the same port,
+                // which generates a new session ID and invalidates the cached URL.
+                if let Some(fresh_url) = self.fetch_browser_ws_url(state.cdp_port).await {
+                    if fresh_url != state.cdp_url {
+                        tracing::debug!("CDP WebSocket URL changed, updating session");
+                        state.cdp_url = fresh_url;
+                        self.save_session_state(&state)?;
+                    }
+                }
                 tracing::debug!("Reusing existing session for profile: {}", profile_name);
                 return self.connect_to_session(&state).await;
             } else {
@@ -193,7 +220,7 @@ impl SessionManager {
         let launcher =
             BrowserLauncher::from_profile(profile_name, profile)?.with_stealth(stealth_enabled);
 
-        let (_child, cdp_url) = launcher.launch_and_wait().await?;
+        let (_launch_result, cdp_url) = launcher.launch_and_wait().await?;
 
         // Save session state
         let state = SessionState {
@@ -1589,6 +1616,41 @@ mod tests {
 
         let status = sm.get_status(Some("nonexistent")).await;
         assert!(matches!(status, SessionStatus::NotRunning { .. }));
+    }
+
+    #[tokio::test]
+    async fn fetch_browser_ws_url_returns_none_for_unreachable_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+
+        // Port 19998 is not listening — should return None, not panic
+        let result = sm.fetch_browser_ws_url(19998).await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn stale_ws_url_is_detected_via_session_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+
+        // Simulate a stale session with an old WebSocket URL
+        sm.save_external_session(
+            "stale-test",
+            19997,
+            "ws://127.0.0.1:19997/devtools/browser/old-session-id",
+        )
+        .unwrap();
+
+        let state = sm.load_session_state("stale-test").unwrap();
+        assert_eq!(
+            state.cdp_url,
+            "ws://127.0.0.1:19997/devtools/browser/old-session-id"
+        );
+
+        // fetch_browser_ws_url returns None since port is not listening,
+        // so the URL remains unchanged (no crash)
+        let fresh = sm.fetch_browser_ws_url(state.cdp_port).await;
+        assert!(fresh.is_none());
     }
 
     #[tokio::test]

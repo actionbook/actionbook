@@ -5,9 +5,17 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tokio::time::sleep;
 
+use super::cdp_pipe::CdpPipe;
 use super::discovery::{discover_browser, BrowserInfo};
 use crate::config::ProfileConfig;
 use crate::error::{ActionbookError, Result};
+
+/// Result of launching a browser, optionally including a CDP pipe
+/// for post-launch extension loading (Chrome 137+).
+pub struct LaunchResult {
+    pub child: Child,
+    pub cdp_pipe: Option<CdpPipe>,
+}
 
 /// Browser launcher that starts a browser with CDP enabled
 pub struct BrowserLauncher {
@@ -150,9 +158,14 @@ impl BrowserLauncher {
             "--no-default-browser-check".to_string(),
         ];
 
-        // Always apply anti-detection flags
-        args.push("--disable-blink-features=AutomationControlled".to_string());
-        args.push("--disable-infobars".to_string());
+        // Anti-detection flags — skip when loading extensions because they
+        // interfere with the extension runtime and trigger Chrome's
+        // "unsupported command-line flag" warning bar.
+        if self.load_extension_path.is_none() {
+            args.push("--disable-blink-features=AutomationControlled".to_string());
+            args.push("--disable-infobars".to_string());
+        }
+
         args.push("--window-size=1920,1080".to_string());
         args.push("--disable-save-password-bubble".to_string());
         args.push("--disable-translate".to_string());
@@ -161,10 +174,14 @@ impl BrowserLauncher {
             args.push("--headless=new".to_string());
         }
 
-        // Load extension if specified
-        if let Some(ref ext_path) = self.load_extension_path {
-            args.push(format!("--load-extension={}", ext_path.display()));
-            args.push(format!("--disable-extensions-except={}", ext_path.display()));
+        // Chrome 137+ removed --load-extension from branded builds.
+        // Use CDP pipe transport to load extensions post-launch instead.
+        // Pipe transport requires Unix (pre_exec + dup2), so only add
+        // these flags on supported platforms.
+        #[cfg(unix)]
+        if self.load_extension_path.is_some() {
+            args.push("--remote-debugging-pipe".to_string());
+            args.push("--enable-unsafe-extension-debugging".to_string());
         }
 
         // Add extra args
@@ -284,8 +301,8 @@ impl BrowserLauncher {
         Ok(())
     }
 
-    /// Launch the browser and return the process handle
-    pub fn launch(&self) -> Result<Child> {
+    /// Launch the browser and return the process handle with optional CDP pipe.
+    pub fn launch(&self) -> Result<LaunchResult> {
         // Ensure user data directory exists
         std::fs::create_dir_all(&self.user_data_dir)?;
         if let Err(e) = self.ensure_actionbook_profile_display_name() {
@@ -300,8 +317,17 @@ impl BrowserLauncher {
             args
         );
 
+        if self.load_extension_path.is_some() {
+            self.launch_with_pipe(&args)
+        } else {
+            self.launch_simple(&args)
+        }
+    }
+
+    /// Launch without CDP pipe (normal mode).
+    fn launch_simple(&self, args: &[String]) -> Result<LaunchResult> {
         let child = Command::new(&self.browser_info.path)
-            .args(&args)
+            .args(args)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -313,17 +339,126 @@ impl BrowserLauncher {
                 ))
             })?;
 
-        Ok(child)
+        Ok(LaunchResult {
+            child,
+            cdp_pipe: None,
+        })
+    }
+
+    /// Launch with CDP pipe for extension loading (Unix only).
+    ///
+    /// Sets up fd 3/4 pipes via `pre_exec` + `dup2` so Chrome can
+    /// receive CDP commands over the pipe transport.
+    #[cfg(unix)]
+    fn launch_with_pipe(&self, args: &[String]) -> Result<LaunchResult> {
+        use std::os::unix::process::CommandExt;
+
+        let pipe_pair = super::cdp_pipe::create_pipe_pair()?;
+        let child_read_fd = pipe_pair.child_read_fd;
+        let child_write_fd = pipe_pair.child_write_fd;
+
+        let mut cmd = Command::new(&self.browser_info.path);
+        cmd.args(args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+
+        // SAFETY: dup2, fcntl, close are all async-signal-safe and these fds are valid.
+        // We dup2 the child pipe ends to fd 3 (Chrome reads) and fd 4 (Chrome writes),
+        // then close the originals if they differ.
+        //
+        // When the fd already IS the target (e.g. child_read_fd == 3), we skip dup2
+        // but must clear FD_CLOEXEC — os_pipe creates non-inheritable (CLOEXEC) fds,
+        // so without this the fd would be closed on exec and Chrome would never
+        // receive pipe commands.
+        unsafe {
+            cmd.pre_exec(move || {
+                if child_read_fd != 3 {
+                    if libc::dup2(child_read_fd, 3) == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    libc::close(child_read_fd);
+                } else {
+                    // fd is already 3 — clear CLOEXEC so it survives exec
+                    let flags = libc::fcntl(3, libc::F_GETFD);
+                    if flags == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    if libc::fcntl(3, libc::F_SETFD, flags & !libc::FD_CLOEXEC) == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
+                if child_write_fd != 4 {
+                    if libc::dup2(child_write_fd, 4) == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    libc::close(child_write_fd);
+                } else {
+                    // fd is already 4 — clear CLOEXEC so it survives exec
+                    let flags = libc::fcntl(4, libc::F_GETFD);
+                    if flags == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    if libc::fcntl(4, libc::F_SETFD, flags & !libc::FD_CLOEXEC) == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
+                Ok(())
+            });
+        }
+
+        let child = cmd.spawn().map_err(|e| {
+            // Clean up child fds on spawn failure
+            unsafe {
+                libc::close(child_read_fd);
+                libc::close(child_write_fd);
+            }
+            ActionbookError::BrowserLaunchFailed(format!(
+                "Failed to launch {} with CDP pipe: {}",
+                self.browser_info.browser_type.name(),
+                e
+            ))
+        })?;
+
+        // Child process inherited the child-side fds via dup2.
+        // Close parent's copies of the child fds (they were dup2'd, not the originals).
+        // Actually, after fork+exec the child-side fds in the parent are still open.
+        // We need to close them so Chrome sees EOF when we're done.
+        unsafe {
+            libc::close(child_read_fd);
+            libc::close(child_write_fd);
+        }
+
+        let cdp_pipe = CdpPipe::from_pipe_pair(pipe_pair);
+
+        Ok(LaunchResult {
+            child,
+            cdp_pipe: Some(cdp_pipe),
+        })
+    }
+
+    /// Non-unix: extension pipe loading is not supported.
+    ///
+    /// Returns an explicit error instead of silently falling back to `launch_simple`,
+    /// because without CDP pipe the extension cannot be loaded post-launch and the
+    /// isolated mode would appear to start but the extension would never connect.
+    #[cfg(not(unix))]
+    fn launch_with_pipe(&self, _args: &[String]) -> Result<LaunchResult> {
+        Err(ActionbookError::ExtensionError(
+            "Isolated extension mode requires Unix (macOS/Linux). \
+             CDP pipe transport (needed for Chrome 137+ extension loading) \
+             is not available on this platform."
+                .to_string(),
+        ))
     }
 
     /// Launch the browser and wait for CDP to be ready
-    pub async fn launch_and_wait(&self) -> Result<(Child, String)> {
-        let child = self.launch()?;
+    pub async fn launch_and_wait(&self) -> Result<(LaunchResult, String)> {
+        let result = self.launch()?;
 
         // Wait for CDP to be ready
         let cdp_url = self.wait_for_cdp().await?;
 
-        Ok((child, cdp_url))
+        Ok((result, cdp_url))
     }
 
     /// Wait for CDP endpoint to be ready
@@ -543,7 +678,8 @@ mod tests {
     }
 
     #[test]
-    fn build_args_includes_load_extension_flags() {
+    #[cfg(unix)]
+    fn build_args_includes_pipe_flags_for_extension_mode() {
         let dir = PathBuf::from("/tmp/test-profile");
         let ext_path = PathBuf::from("/opt/actionbook/extension");
         let launcher = BrowserLauncher {
@@ -554,14 +690,48 @@ mod tests {
             stealth: false,
             user_data_dir: dir,
             extra_args: Vec::new(),
-            load_extension_path: Some(ext_path.clone()),
+            load_extension_path: Some(ext_path),
         };
         let args = launcher.build_args();
-        assert!(args.contains(&format!("--load-extension={}", ext_path.display())));
-        assert!(args.contains(&format!(
-            "--disable-extensions-except={}",
-            ext_path.display()
-        )));
+
+        // Chrome 137+: must use CDP pipe transport instead of --load-extension
+        assert!(
+            args.contains(&"--remote-debugging-pipe".to_string()),
+            "Must include --remote-debugging-pipe for extension loading"
+        );
+        assert!(
+            args.contains(&"--enable-unsafe-extension-debugging".to_string()),
+            "Must include --enable-unsafe-extension-debugging for extension loading"
+        );
+
+        // --load-extension and --disable-extensions-except must NOT be present
+        assert!(
+            !args.iter().any(|a| a.starts_with("--load-extension")),
+            "--load-extension must not be used (removed in Chrome 137+)"
+        );
+        assert!(
+            !args
+                .iter()
+                .any(|a| a.starts_with("--disable-extensions-except")),
+            "--disable-extensions-except must not be used (removed in Chrome 137+)"
+        );
+
+        // Anti-detection flags must be omitted in extension mode
+        assert!(
+            !args.iter().any(|a| a.contains("AutomationControlled")),
+            "AutomationControlled flag must not be set when loading extensions"
+        );
+        assert!(
+            !args.contains(&"--disable-infobars".to_string()),
+            "disable-infobars must not be set when loading extensions"
+        );
+
+        // --remote-debugging-port must still be present for WS-based CDP
+        assert!(
+            args.iter()
+                .any(|a| a.starts_with("--remote-debugging-port=")),
+            "Must still include --remote-debugging-port for WS CDP"
+        );
     }
 
     #[test]
@@ -569,9 +739,29 @@ mod tests {
         let dir = PathBuf::from("/tmp/test-profile");
         let launcher = test_launcher_with_user_data_dir(dir);
         let args = launcher.build_args();
+
+        // No extension-related flags in normal mode
         assert!(!args.iter().any(|a| a.starts_with("--load-extension")));
         assert!(!args
             .iter()
             .any(|a| a.starts_with("--disable-extensions-except")));
+        assert!(
+            !args.contains(&"--remote-debugging-pipe".to_string()),
+            "Pipe flag should only be present in extension mode"
+        );
+        assert!(
+            !args.contains(&"--enable-unsafe-extension-debugging".to_string()),
+            "Unsafe extension debugging flag should only be present in extension mode"
+        );
+
+        // Anti-detection flags should be present in normal mode
+        assert!(
+            args.iter().any(|a| a.contains("AutomationControlled")),
+            "AutomationControlled flag should be set in normal mode"
+        );
+        assert!(
+            args.contains(&"--disable-infobars".to_string()),
+            "disable-infobars should be set in normal mode"
+        );
     }
 }

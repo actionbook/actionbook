@@ -169,6 +169,90 @@ pub async fn read_token_file() -> Option<String> {
     tokio::fs::read_to_string(&path).await.ok().map(|s| s.trim().to_string())
 }
 
+// --- Isolated-mode file helpers ---
+
+/// Path to the isolated bridge token file: `~/.local/share/actionbook/bridge-token.isolated`
+pub fn isolated_token_file_path() -> Result<PathBuf> {
+    let data_dir = dirs::data_local_dir().ok_or_else(|| {
+        ActionbookError::Other("Cannot determine local data directory".to_string())
+    })?;
+    Ok(data_dir.join("actionbook").join("bridge-token.isolated"))
+}
+
+/// Write the isolated session token to disk with mode 0600.
+/// Uses the same atomic write pattern as [`write_token_file`].
+pub async fn write_isolated_token_file(token: &str) -> Result<()> {
+    let path = isolated_token_file_path()?;
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+
+    #[cfg(unix)]
+    {
+        let tmp_path = path.with_extension("tmp");
+        let mut opts = tokio::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true).mode(0o600);
+        let mut file = opts.open(&tmp_path).await?;
+        tokio::io::AsyncWriteExt::write_all(&mut file, token.as_bytes()).await?;
+        tokio::io::AsyncWriteExt::flush(&mut file).await?;
+        drop(file);
+        tokio::fs::rename(&tmp_path, &path).await?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        tokio::fs::write(&path, token).await?;
+    }
+
+    Ok(())
+}
+
+/// Read the isolated token from file. Returns None if file doesn't exist.
+pub async fn read_isolated_token_file() -> Option<String> {
+    let path = isolated_token_file_path().ok()?;
+    tokio::fs::read_to_string(&path).await.ok().map(|s| s.trim().to_string())
+}
+
+/// Delete the isolated token file if it exists.
+pub async fn delete_isolated_token_file() {
+    if let Ok(path) = isolated_token_file_path() {
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+}
+
+/// Path to the isolated bridge port file: `~/.local/share/actionbook/bridge-port.isolated`
+pub fn isolated_port_file_path() -> Result<PathBuf> {
+    let data_dir = dirs::data_local_dir().ok_or_else(|| {
+        ActionbookError::Other("Cannot determine local data directory".to_string())
+    })?;
+    Ok(data_dir.join("actionbook").join("bridge-port.isolated"))
+}
+
+/// Write the isolated bridge port to disk so CLI commands can discover it.
+pub async fn write_isolated_port_file(port: u16) -> Result<()> {
+    let path = isolated_port_file_path()?;
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::write(&path, port.to_string()).await?;
+    Ok(())
+}
+
+/// Read the isolated bridge port from file. Returns None if file doesn't exist or is invalid.
+#[allow(dead_code)]
+pub async fn read_isolated_port_file() -> Option<u16> {
+    let path = isolated_port_file_path().ok()?;
+    let content = tokio::fs::read_to_string(&path).await.ok()?;
+    content.trim().parse().ok()
+}
+
+/// Delete the isolated port file if it exists.
+pub async fn delete_isolated_port_file() {
+    if let Ok(path) = isolated_port_file_path() {
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+}
+
 /// Shared state for the bridge server
 struct BridgeState {
     /// Session token that clients must present in the hello handshake
@@ -225,7 +309,7 @@ pub async fn serve(port: u16, token: String) -> Result<()> {
         let _ = shutdown_tx.send(());
     });
 
-    serve_with_shutdown(port, token, shutdown_rx).await
+    serve_with_shutdown(port, token, shutdown_rx, false).await
 }
 
 /// Start the bridge WebSocket server with an externally-controlled shutdown channel.
@@ -234,10 +318,15 @@ pub async fn serve(port: u16, token: String) -> Result<()> {
 /// a `oneshot::Receiver` that, when resolved, triggers graceful shutdown. This allows
 /// higher-level orchestrators (e.g. the isolated-extension launcher) to shut the bridge
 /// down programmatically.
+///
+/// When `isolated` is true, global file writes (token file, port file) are skipped.
+/// In isolated mode, the token is injected directly via CDP so no global files should
+/// be created that could be read by other Chrome instances.
 pub async fn serve_with_shutdown(
     port: u16,
     token: String,
     shutdown_rx: tokio::sync::oneshot::Receiver<()>,
+    isolated: bool,
 ) -> Result<()> {
     // Clean up any stale files from a previous ungraceful shutdown before starting
     delete_port_file().await;
@@ -252,13 +341,20 @@ pub async fn serve_with_shutdown(
     println!("Bridge server listening on ws://127.0.0.1:{}", port);
     println!("Waiting for extension connection...");
 
-    // Write port file so native messaging can discover the actual port
-    if let Err(e) = write_port_file(port).await {
-        tracing::warn!("Failed to write port file: {}. Native messaging auto-pairing may not work.", e);
-        eprintln!(
-            "  Warning: Failed to write port file: {}. Auto-pairing may not work.",
-            e
-        );
+    // Write port file so native messaging can discover the actual port.
+    // In isolated mode, write to .isolated file instead of global file.
+    if isolated {
+        if let Err(e) = write_isolated_port_file(port).await {
+            tracing::warn!("Failed to write isolated port file: {}", e);
+        }
+    } else {
+        if let Err(e) = write_port_file(port).await {
+            tracing::warn!("Failed to write port file: {}. Native messaging auto-pairing may not work.", e);
+            eprintln!(
+                "  Warning: Failed to write port file: {}. Auto-pairing may not work.",
+                e
+            );
+        }
     }
 
     // Spawn TTL watchdog
@@ -292,8 +388,12 @@ pub async fn serve_with_shutdown(
                     colored::Colorize::yellow("!"),
                     new_token
                 );
-                // Write new token file
-                let _ = write_token_file(&new_token).await;
+                // Write new token file to the appropriate location
+                if isolated {
+                    let _ = write_isolated_token_file(&new_token).await;
+                } else {
+                    let _ = write_token_file(&new_token).await;
+                }
                 s.token = new_token;
                 s.last_activity = Instant::now();
             }
@@ -330,8 +430,15 @@ pub async fn serve_with_shutdown(
         }
     };
 
-    // Cleanup always runs, whether shutdown was graceful or the loop exited
-    delete_port_file().await;
+    // Cleanup always runs, whether shutdown was graceful or the loop exited.
+    // Only delete files owned by this mode to avoid interfering with a
+    // concurrently-running bridge in the other mode.
+    if isolated {
+        delete_isolated_port_file().await;
+        delete_isolated_token_file().await;
+    } else {
+        delete_port_file().await;
+    }
     ttl_handle.abort();
     result
 }
@@ -799,14 +906,15 @@ pub async fn send_command(
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value> {
-    // Auto-read token from file
-    let token = read_token_file().await.ok_or_else(|| {
-        ActionbookError::ExtensionError(
-            "No bridge token found. Is `actionbook extension serve` running? \
-             Token file not found at ~/.local/share/actionbook/bridge-token"
-                .to_string(),
-        )
-    })?;
+    // Try global token file first, then isolated token file
+    let token = read_token_file().await
+        .or(read_isolated_token_file().await)
+        .ok_or_else(|| {
+            ActionbookError::ExtensionError(
+                "No bridge token found. Is `actionbook extension serve` running?"
+                    .to_string(),
+            )
+        })?;
 
     send_command_with_token(port, method, params, &token).await
 }

@@ -165,6 +165,79 @@ fn create_session_manager(cli: &Cli, config: &Config) -> SessionManager {
     }
 }
 
+/// Resolve a CDP endpoint string (port number or ws:// URL) into a (port, ws_url) pair.
+/// When given a numeric port, queries `http://127.0.0.1:{port}/json/version` to discover
+/// the current browser WebSocket URL.
+async fn resolve_cdp_endpoint(endpoint: &str) -> Result<(u16, String)> {
+    if endpoint.starts_with("ws://") || endpoint.starts_with("wss://") {
+        let port = endpoint
+            .split("://")
+            .nth(1)
+            .and_then(|s| s.split('/').next())
+            .and_then(|host_port| host_port.rsplit(':').next())
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(9222);
+        Ok((port, endpoint.to_string()))
+    } else if let Ok(port) = endpoint.parse::<u16>() {
+        let version_url = format!("http://127.0.0.1:{}/json/version", port);
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
+        let resp = client.get(&version_url).send().await.map_err(|e| {
+            ActionbookError::CdpConnectionFailed(format!(
+                "Cannot reach CDP at port {}. Is the browser running with --remote-debugging-port={}? Error: {}",
+                port, port, e
+            ))
+        })?;
+
+        let version_info: serde_json::Value = resp.json().await.map_err(|e| {
+            ActionbookError::CdpConnectionFailed(format!(
+                "Invalid response from CDP endpoint: {}",
+                e
+            ))
+        })?;
+
+        let ws_url = version_info
+            .get("webSocketDebuggerUrl")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("ws://127.0.0.1:{}", port));
+
+        Ok((port, ws_url))
+    } else {
+        Err(ActionbookError::CdpConnectionFailed(
+            "Invalid endpoint. Use a port number or WebSocket URL (ws://...).".to_string(),
+        ))
+    }
+}
+
+/// If the user passed `--cdp <port_or_url>`, resolve it to a fresh WebSocket URL
+/// and persist it as the active session so that `get_or_create_session` picks it up.
+/// This is a no-op when `--cdp` is not set.
+async fn ensure_cdp_override(cli: &Cli, config: &Config) -> Result<()> {
+    let cdp = match &cli.cdp {
+        Some(c) => c.as_str(),
+        None => return Ok(()),
+    };
+
+    let profile_name = effective_profile_name(cli, config);
+    let (cdp_port, cdp_url) = resolve_cdp_endpoint(cdp).await?;
+
+    let session_manager = create_session_manager(cli, config);
+    session_manager.save_external_session(profile_name, cdp_port, &cdp_url)?;
+    tracing::debug!(
+        "CDP override applied: port={}, url={}, profile={}",
+        cdp_port,
+        cdp_url,
+        profile_name
+    );
+
+    Ok(())
+}
+
 fn effective_profile_name<'a>(cli: &'a Cli, config: &'a Config) -> &'a str {
     cli.profile
         .as_deref()
@@ -262,6 +335,13 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
     }
 
     let config = Config::load()?;
+
+    // When --cdp is set, resolve it to a fresh WebSocket URL and persist it
+    // as the active session *before* any command runs. Skip for `connect`
+    // which has its own CDP resolution logic.
+    if !matches!(command, BrowserCommands::Connect { .. }) {
+        ensure_cdp_override(cli, &config).await?;
+    }
 
     match command {
         BrowserCommands::Status => status(cli, &config).await,
@@ -2860,53 +2940,7 @@ async fn restart(cli: &Cli, config: &Config) -> Result<()> {
 
 async fn connect(cli: &Cli, config: &Config, endpoint: &str) -> Result<()> {
     let profile_name = effective_profile_name(cli, config);
-
-    // Parse endpoint: either a WebSocket URL or a port number
-    let (cdp_port, cdp_url) = if endpoint.starts_with("ws://") || endpoint.starts_with("wss://") {
-        // Extract port from WebSocket URL for health checks (e.g., ws://127.0.0.1:9222/...)
-        let port = endpoint
-            .split("://")
-            .nth(1)
-            .and_then(|s| s.split('/').next())
-            .and_then(|host_port| host_port.rsplit(':').next())
-            .and_then(|p| p.parse::<u16>().ok())
-            .unwrap_or(9222);
-        (port, endpoint.to_string())
-    } else if let Ok(port) = endpoint.parse::<u16>() {
-        // Validate that the CDP port is reachable
-        let version_url = format!("http://127.0.0.1:{}/json/version", port);
-        let client = reqwest::Client::builder()
-            .no_proxy()
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
-
-        let resp = client.get(&version_url).send().await.map_err(|e| {
-            ActionbookError::CdpConnectionFailed(format!(
-                "Cannot reach CDP at port {}. Is the browser running with --remote-debugging-port={}? Error: {}",
-                port, port, e
-            ))
-        })?;
-
-        let version_info: serde_json::Value = resp.json().await.map_err(|e| {
-            ActionbookError::CdpConnectionFailed(format!(
-                "Invalid response from CDP endpoint: {}",
-                e
-            ))
-        })?;
-
-        // Get the browser WebSocket URL from /json/version
-        let ws_url = version_info
-            .get("webSocketDebuggerUrl")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| format!("ws://127.0.0.1:{}", port));
-
-        (port, ws_url)
-    } else {
-        return Err(ActionbookError::CdpConnectionFailed(
-            "Invalid endpoint. Use a port number or WebSocket URL (ws://...).".to_string(),
-        ));
-    };
+    let (cdp_port, cdp_url) = resolve_cdp_endpoint(endpoint).await?;
 
     // Persist the session so subsequent commands can reuse this browser
     let session_manager = create_session_manager(cli, config);

@@ -228,12 +228,6 @@ pub fn uninstall_manifest() -> crate::error::Result<()> {
     Ok(())
 }
 
-/// Check if the native messaging host manifest is installed.
-pub fn is_manifest_installed() -> bool {
-    native_host_manifest_path()
-        .map(|p| p.exists())
-        .unwrap_or(false)
-}
 
 #[cfg(test)]
 mod tests {

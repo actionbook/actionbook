@@ -1,4 +1,6 @@
 mod discovery;
+pub(crate) mod cdp_http;
+pub(crate) mod cdp_pipe;
 pub mod extension_installer;
 pub mod extension_bridge;
 pub mod isolated_extension;

@@ -1,5 +1,7 @@
 use colored::Colorize;
 
+use crate::browser::cdp_http;
+use crate::browser::cdp_pipe::PipeKeepAlive;
 use crate::browser::extension_bridge;
 use crate::browser::extension_installer;
 use crate::browser::launcher::BrowserLauncher;
@@ -24,9 +26,11 @@ enum ShutdownReason {
 ///
 /// This orchestrates:
 /// 1. Extension installation check
-/// 2. Chrome launch with isolated profile + extension loaded
-/// 3. Bridge server lifecycle
-/// 4. Cleanup on exit
+/// 2. Chrome launch with isolated profile
+/// 3. Bridge server startup (before extension loading so the extension can auto-connect)
+/// 4. Extension loading via CDP pipe
+/// 5. Bridge lifecycle management
+/// 6. Cleanup on exit
 pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
     // 1. Pre-check: extension must be installed
     if !extension_installer::is_installed() {
@@ -52,7 +56,13 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
     let profile_dir = BrowserLauncher::default_user_data_dir("extension");
     let already_running = is_isolated_chrome_running(ISOLATED_CDP_PORT, &profile_dir).await;
 
-    // 5. Launch Chrome if not already running
+    // 5. Launch Chrome (but don't load extension yet — bridge must be ready first).
+    //    _pipe_keepalive must live until shutdown — Chrome exits when the pipe closes.
+    let mut _pipe_keepalive: Option<PipeKeepAlive> = None;
+    let mut cdp_pipe_for_ext = None;
+
+    let mut ext_id_for_injection: Option<String> = None;
+
     let child = if already_running {
         println!(
             "  {}  Isolated Chrome already running on CDP port {}",
@@ -66,22 +76,112 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
             "◆".cyan(),
             ISOLATED_CDP_PORT
         );
-        let (child, cdp_url) = launcher.launch_and_wait().await?;
+        let (mut launch_result, cdp_url) = launcher.launch_and_wait().await?;
         println!("  {}  Chrome ready: {}", "✓".green(), cdp_url.dimmed());
-        Some(child)
+
+        // Stash the CDP pipe for later — we'll load the extension after the bridge is up
+        cdp_pipe_for_ext = launch_result.cdp_pipe.take();
+
+        Some(launch_result.child)
     };
 
-    // 6. Clean up stale files from previous runs
-    extension_bridge::delete_port_file().await;
-    extension_bridge::delete_token_file().await;
+    // 6. Clean up stale *isolated* files from previous runs.
+    //    Only touch isolated files — never delete global bridge-token / bridge-port,
+    //    as a personal-Chrome bridge may be running concurrently.
+    extension_bridge::delete_isolated_port_file().await;
+    extension_bridge::delete_isolated_token_file().await;
 
-    // 7. Generate session token and write files
     let token = extension_bridge::generate_token();
-    if let Err(e) = extension_bridge::write_token_file(&token).await {
-        eprintln!("  {} Failed to write token file: {}", "!".yellow(), e);
+
+    // 6b. Write isolated token file so CLI commands (ping, browser open, etc.) can discover it.
+    //     This is safe because the file is at bridge-token.isolated, not the global bridge-token,
+    //     so personal Chrome instances won't see it.
+    extension_bridge::write_isolated_token_file(&token).await?;
+
+    // 7. Create shutdown channel and start bridge server BEFORE loading extension.
+    //    This ensures the bridge is listening when the extension's service worker
+    //    fires its first native-messaging discovery request.
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    let token_for_bridge = token.clone();
+    let bridge_handle = tokio::spawn(async move {
+        extension_bridge::serve_with_shutdown(bridge_port, token_for_bridge, shutdown_rx, true).await
+    });
+
+    // 8. Wait for the bridge to be ready (accepting connections) before loading
+    //    the extension, so the extension's first connect attempt succeeds.
+    wait_for_bridge(bridge_port).await?;
+
+    // 9. NOW load extension via CDP pipe — bridge + token are ready.
+    if let Some(cdp_pipe) = cdp_pipe_for_ext {
+        println!(
+            "  {}  Loading extension via CDP pipe...",
+            "◆".cyan(),
+        );
+        let ext_dir_owned = ext_dir.clone();
+        let load_result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            tokio::task::spawn_blocking(move || cdp_pipe.load_extension(&ext_dir_owned)),
+        )
+        .await;
+
+        let (ext_id, keepalive) = match load_result {
+            Ok(Ok(Ok(pair))) => pair,
+            Ok(Ok(Err(e))) => {
+                return Err(ActionbookError::ExtensionError(format!(
+                    "Failed to load extension via CDP pipe: {}", e
+                )));
+            }
+            Ok(Err(join_err)) => {
+                return Err(ActionbookError::ExtensionError(format!(
+                    "Extension loading task panicked: {}", join_err
+                )));
+            }
+            Err(_) => {
+                return Err(ActionbookError::ExtensionError(
+                    "Timed out loading extension via CDP pipe (30s)".to_string(),
+                ));
+            }
+        };
+        _pipe_keepalive = Some(keepalive);
+        println!(
+            "  {}  Extension loaded (ID: {})",
+            "✓".green(),
+            ext_id.dimmed()
+        );
+        ext_id_for_injection = Some(ext_id);
     }
 
-    // 8. Print bridge info
+    // 10. Inject token directly into extension via CDP (isolated mode only).
+    //     This bypasses global files entirely — only the isolated Chrome receives the token.
+    if let Some(ref ext_id) = ext_id_for_injection {
+        println!(
+            "  {}  Injecting token via CDP...",
+            "◆".cyan(),
+        );
+        if let Err(e) = cdp_http::inject_token_via_cdp(
+            ISOLATED_CDP_PORT, ext_id, &token, bridge_port,
+        ).await {
+            eprintln!("  {} CDP token injection failed: {}", "!".yellow(), e);
+            // Non-fatal: user can still enter token manually via popup
+        } else {
+            println!("  {}  Token injected via CDP", "✓".green());
+        }
+    } else if already_running {
+        // Chrome is already running — find the extension's SW without knowing ext_id
+        println!(
+            "  {}  Injecting token into existing extension via CDP...",
+            "◆".cyan(),
+        );
+        if let Err(e) = cdp_http::inject_token_existing(
+            ISOLATED_CDP_PORT, &token, bridge_port,
+        ).await {
+            eprintln!("  {} CDP token injection failed: {}", "!".yellow(), e);
+        } else {
+            println!("  {}  Token injected via CDP", "✓".green());
+        }
+    }
+
+    // 11. Print bridge info
     let extension_path = format!(
         "{}{}",
         ext_dir.display(),
@@ -108,12 +208,9 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
     println!();
     println!("  \u{1f511}  Session token: {}", token.bold());
     println!(
-        "  {}  Token file: {}",
+        "  {}  Token delivery: {}",
         "◆".cyan(),
-        extension_bridge::token_file_path()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| "unknown".to_string())
-            .dimmed()
+        "CDP injection (no global files)".dimmed()
     );
     println!();
     println!(
@@ -124,13 +221,10 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
     println!("  {}  Press Ctrl+C to stop", "ℹ".dimmed());
     println!();
 
-    // 9. Create shutdown channel for the bridge
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-
-    // 10. Save Chrome PID before moving child into monitor task
+    // 12. Save Chrome PID before moving child into monitor task
     let chrome_pid = child.as_ref().map(|c| c.id());
 
-    // 11. Monitor Chrome process exit in background
+    // 13. Monitor Chrome process exit in background
     let (chrome_exit_tx, chrome_exit_rx) = tokio::sync::oneshot::channel::<()>();
 
     if let Some(mut proc) = child {
@@ -140,7 +234,7 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
         });
     }
 
-    // 12. Set up signal handler
+    // 14. Set up signal handler
     let signal_handler = async {
         #[cfg(unix)]
         {
@@ -160,12 +254,7 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
         }
     };
 
-    // 13. Run bridge server with lifecycle management
-    let bridge_handle = tokio::spawn(async move {
-        extension_bridge::serve_with_shutdown(bridge_port, token, shutdown_rx).await
-    });
-
-    // 14. Select between bridge, Chrome exit, and signal — track reason
+    // 15. Select between bridge, Chrome exit, and signal — track reason
     let reason = tokio::select! {
         result = bridge_handle => {
             tracing::info!("Bridge server stopped");
@@ -184,12 +273,13 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
         }
     };
 
-    // 15. Cleanup
+    // 16. Cleanup
     println!("\n  {}  Cleaning up...", "◆".cyan());
 
-    // Delete token and port files
-    extension_bridge::delete_token_file().await;
-    extension_bridge::delete_port_file().await;
+    // Delete only isolated token and port files — leave global files untouched
+    // so a concurrently-running personal-Chrome bridge is not affected.
+    extension_bridge::delete_isolated_token_file().await;
+    extension_bridge::delete_isolated_port_file().await;
 
     // Terminate Chrome only if we launched it AND it hasn't already exited.
     // Skipping when ChromeExited avoids sending signals to a potentially
@@ -214,6 +304,20 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Wait for the bridge server to start accepting connections.
+/// Polls with short intervals, fails after a timeout.
+async fn wait_for_bridge(port: u16) -> Result<()> {
+    for _ in 0..20 {
+        if extension_bridge::is_bridge_running(port).await {
+            return Ok(());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    Err(ActionbookError::Other(
+        "Timeout waiting for bridge server to start".to_string(),
+    ))
 }
 
 /// Terminate a Chrome process by PID using direct syscalls (unix) or taskkill (windows).
@@ -256,8 +360,10 @@ async fn terminate_chrome(pid: u32) {
 async fn is_isolated_chrome_running(port: u16, profile_dir: &std::path::Path) -> bool {
     // Check profile lock file first (cheap filesystem check).
     // Chrome creates SingletonLock in the user-data-dir while running.
+    // On macOS this is a dangling symlink (target = "hostname-PID"), so
+    // Path::exists() returns false.  Use symlink_metadata() instead.
     let lock_file = profile_dir.join("SingletonLock");
-    if !lock_file.exists() {
+    if lock_file.symlink_metadata().is_err() {
         return false;
     }
 
