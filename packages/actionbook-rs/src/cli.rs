@@ -419,6 +419,13 @@ pub enum ExtensionCommands {
         force: bool,
     },
 
+    /// Stop the running bridge server
+    Stop {
+        /// Bridge server port
+        #[arg(long, default_value = "19222")]
+        port: u16,
+    },
+
     /// Print the extension install directory path
     Path,
 

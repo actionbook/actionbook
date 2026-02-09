@@ -253,6 +253,110 @@ pub async fn delete_isolated_port_file() {
     }
 }
 
+// --- PID file helpers ---
+
+/// Path to the bridge PID file: `~/.local/share/actionbook/bridge-pid`
+pub fn pid_file_path() -> Result<PathBuf> {
+    let data_dir = dirs::data_local_dir().ok_or_else(|| {
+        ActionbookError::Other("Cannot determine local data directory".to_string())
+    })?;
+    Ok(data_dir.join("actionbook").join("bridge-pid"))
+}
+
+/// Write the current process PID to disk so `extension stop` can find it.
+/// Uses atomic write with 0600 permissions to prevent local PID injection.
+pub async fn write_pid_file() -> Result<()> {
+    let path = pid_file_path()?;
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+
+    #[cfg(unix)]
+    {
+        use tokio::io::AsyncWriteExt;
+        let tmp_path = path.with_extension("tmp");
+        let mut opts = tokio::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true).mode(0o600);
+        let mut file = opts.open(&tmp_path).await?;
+        file.write_all(std::process::id().to_string().as_bytes()).await?;
+        file.flush().await?;
+        drop(file);
+        tokio::fs::rename(&tmp_path, &path).await?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        tokio::fs::write(&path, std::process::id().to_string()).await?;
+    }
+
+    Ok(())
+}
+
+/// Read the bridge PID from file. Returns None if file doesn't exist or is invalid.
+pub async fn read_pid_file() -> Option<u32> {
+    let path = pid_file_path().ok()?;
+    let content = tokio::fs::read_to_string(&path).await.ok()?;
+    content.trim().parse().ok()
+}
+
+/// Delete the PID file if it exists.
+pub async fn delete_pid_file() {
+    if let Ok(path) = pid_file_path() {
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+}
+
+/// Path to the isolated bridge PID file: `~/.local/share/actionbook/bridge-pid.isolated`
+pub fn isolated_pid_file_path() -> Result<PathBuf> {
+    let data_dir = dirs::data_local_dir().ok_or_else(|| {
+        ActionbookError::Other("Cannot determine local data directory".to_string())
+    })?;
+    Ok(data_dir.join("actionbook").join("bridge-pid.isolated"))
+}
+
+/// Write the current process PID to the isolated PID file.
+/// Uses atomic write with 0600 permissions to prevent local PID injection.
+pub async fn write_isolated_pid_file() -> Result<()> {
+    let path = isolated_pid_file_path()?;
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+
+    #[cfg(unix)]
+    {
+        use tokio::io::AsyncWriteExt;
+        let tmp_path = path.with_extension("tmp");
+        let mut opts = tokio::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true).mode(0o600);
+        let mut file = opts.open(&tmp_path).await?;
+        file.write_all(std::process::id().to_string().as_bytes()).await?;
+        file.flush().await?;
+        drop(file);
+        tokio::fs::rename(&tmp_path, &path).await?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        tokio::fs::write(&path, std::process::id().to_string()).await?;
+    }
+
+    Ok(())
+}
+
+/// Read the isolated bridge PID from file.
+pub async fn read_isolated_pid_file() -> Option<u32> {
+    let path = isolated_pid_file_path().ok()?;
+    let content = tokio::fs::read_to_string(&path).await.ok()?;
+    content.trim().parse().ok()
+}
+
+/// Delete the isolated PID file if it exists.
+pub async fn delete_isolated_pid_file() {
+    if let Ok(path) = isolated_pid_file_path() {
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+}
+
 /// Shared state for the bridge server
 struct BridgeState {
     /// Session token that clients must present in the hello handshake

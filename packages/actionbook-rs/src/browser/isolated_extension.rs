@@ -85,9 +85,12 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
         Some(launch_result.child)
     };
 
-    // 6. Clean up stale *isolated* files from previous runs.
-    //    Only touch isolated files — never delete global bridge-token / bridge-port,
-    //    as a personal-Chrome bridge may be running concurrently.
+    // 6. Clean up ALL stale bridge files from previous runs.
+    //    Both global and isolated files are removed so that `send_command`,
+    //    which probes global first, never picks up a stale token from
+    //    a previous non-isolated session.
+    extension_bridge::delete_port_file().await;
+    extension_bridge::delete_token_file().await;
     extension_bridge::delete_isolated_port_file().await;
     extension_bridge::delete_isolated_token_file().await;
 
@@ -97,6 +100,15 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
     //     This is safe because the file is at bridge-token.isolated, not the global bridge-token,
     //     so personal Chrome instances won't see it.
     extension_bridge::write_isolated_token_file(&token).await?;
+
+    // 6c. Write isolated PID file so `extension stop` can find this process.
+    if let Err(e) = extension_bridge::write_isolated_pid_file().await {
+        eprintln!(
+            "  {} Failed to write PID file: {}",
+            "!".yellow(),
+            e
+        );
+    }
 
     // 7. Create shutdown channel and start bridge server BEFORE loading extension.
     //    This ensures the bridge is listening when the extension's service worker
@@ -276,10 +288,11 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
     // 16. Cleanup
     println!("\n  {}  Cleaning up...", "◆".cyan());
 
-    // Delete only isolated token and port files — leave global files untouched
+    // Delete only isolated token, port, and PID files — leave global files untouched
     // so a concurrently-running personal-Chrome bridge is not affected.
     extension_bridge::delete_isolated_token_file().await;
     extension_bridge::delete_isolated_port_file().await;
+    extension_bridge::delete_isolated_pid_file().await;
 
     // Terminate Chrome only if we launched it AND it hasn't already exited.
     // Skipping when ChromeExited avoids sending signals to a potentially
