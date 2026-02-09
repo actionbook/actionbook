@@ -1,0 +1,203 @@
+---
+title: "Browser Extension"
+description: "Connect Actionbook to your existing Chrome browser"
+---
+
+Use your existing Chrome browser — with all your login sessions, extensions, and bookmarks — for Actionbook automation.
+
+## Overview
+
+Actionbook supports two browser control modes:
+
+| Mode | How It Works | Best For |
+|------|-------------|----------|
+| **Default (CDP)** | Launches a new browser instance | Clean environments, CI/CD, headless |
+| **Extension** | Connects to your running Chrome | Preserving login sessions, existing tabs |
+
+Extension mode is ideal when your automation needs access to pages that require authentication or session state from your real browser.
+
+## Setup
+
+<Steps>
+  <Step title="Install the extension files">
+    Extract the bundled Chrome extension to your local config directory:
+
+    ```bash
+    actionbook extension install
+    ```
+  </Step>
+
+  <Step title="Load into Chrome">
+    1. Open `chrome://extensions` in Chrome
+    2. Enable **Developer mode** (top-right toggle)
+    3. Click **Load unpacked**
+    4. Select the directory shown by:
+
+    ```bash
+    actionbook extension path
+    ```
+  </Step>
+
+  <Step title="Start the bridge server">
+    The bridge is the WebSocket relay between CLI and extension. Open a dedicated terminal:
+
+    ```bash
+    actionbook extension serve
+    ```
+
+    <Note>
+      This command runs in the foreground. Keep this terminal open while using extension mode.
+    </Note>
+  </Step>
+
+  <Step title="Pair the extension">
+    Native Messaging usually handles pairing automatically. If not:
+
+    1. Click the Actionbook extension icon in Chrome toolbar
+    2. Copy the token (`abk_...`) from the `serve` terminal output
+    3. Paste it into the popup and click **Save**
+  </Step>
+
+  <Step title="Verify the connection">
+    ```bash
+    actionbook extension status
+    actionbook extension ping
+    ```
+
+    You should see `running` and a latency measurement confirming the link is active.
+  </Step>
+</Steps>
+
+## Usage
+
+Add `--extension` to any `actionbook browser` command, or set the environment variable:
+
+```bash
+export ACTIONBOOK_EXTENSION=1
+```
+
+### Navigation
+
+```bash
+actionbook --extension browser open "https://example.com"
+actionbook --extension browser goto "https://example.com/login"
+actionbook --extension browser back
+actionbook --extension browser forward
+actionbook --extension browser reload
+```
+
+### Page Interaction
+
+```bash
+actionbook --extension browser click "button[type='submit']"
+actionbook --extension browser fill "#username" "demo"
+actionbook --extension browser select "#country" "US"
+actionbook --extension browser hover ".menu-item"
+actionbook --extension browser focus "#search-input"
+actionbook --extension browser press "Enter"
+actionbook --extension browser wait "#username" --timeout 10000
+```
+
+### Debug & Export
+
+```bash
+actionbook --extension browser screenshot output.png --full-page
+actionbook --extension browser eval "document.title"
+actionbook --extension browser snapshot
+actionbook --extension browser html
+actionbook --extension browser text
+```
+
+### Cookie Operations
+
+```bash
+actionbook --extension browser cookies list
+actionbook --extension browser cookies get session_id
+actionbook --extension browser cookies set demo_cookie hello
+actionbook --extension browser cookies delete demo_cookie
+actionbook --extension browser cookies clear --domain example.com --yes
+```
+
+### Tab Management
+
+```bash
+actionbook --extension browser pages
+actionbook --extension browser switch tab:123456
+```
+
+## Recommended Workflow with Action Manuals
+
+Combine action manuals with extension mode for the best results:
+
+```bash
+# 1. Find the action manual
+actionbook search "github search repos"
+
+# 2. Get verified selectors
+actionbook get "<area_id>"
+
+# 3. Execute in your browser (with your GitHub login session)
+actionbook --extension browser open "https://github.com"
+actionbook --extension browser fill "#query-builder-test" "actionbook"
+actionbook --extension browser click "button[type='submit']"
+```
+
+## Security
+
+Extension mode includes multiple security layers to protect your browser.
+
+### Risk Levels
+
+| Level | Description | Example Operations |
+|-------|-------------|-------------------|
+| **L1** | Read-only, safe | `eval`, `snapshot`, `screenshot` |
+| **L2** | Page interaction | `click`, `fill`, `select`, navigation |
+| **L3** | Sensitive operations | Cookie writes on banking/payment sites |
+
+L3 operations on sensitive domains trigger a confirmation popup in the extension — you must approve them manually.
+
+### Token Authentication
+
+- Sessions are authenticated with a token (`abk_` prefix)
+- Tokens expire after **30 minutes** of idle time
+- The bridge auto-rotates tokens; restart `serve` if pairing is lost
+- Token comparison uses constant-time algorithms to prevent timing attacks
+
+### Network Isolation
+
+- The bridge server only listens on `127.0.0.1` (loopback)
+- No external network access is possible
+- Origin validation enforces exact host matching
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Ping failed / bridge not running">
+    - Ensure `actionbook extension serve` is running in a separate terminal
+    - Confirm the extension is loaded and enabled in `chrome://extensions`
+    - Check that no other process is using port 19222
+  </Accordion>
+
+  <Accordion title="Token required / pairing_required">
+    - Open the extension popup and paste the latest token from the `serve` output
+    - Tokens expire after 30 minutes of inactivity — restart `serve` to generate a fresh token
+  </Accordion>
+
+  <Accordion title="No tab attached">
+    - Make sure Chrome has at least one visible, active tab
+    - Run `actionbook --extension browser open <url>` first to attach a tab
+    - Avoid `chrome://` pages — the debugger cannot attach to them
+  </Accordion>
+
+  <Accordion title="L3 operation blocked">
+    - Sensitive operations (e.g., cookie writes on banking domains) require manual approval
+    - Check the extension popup for a pending confirmation dialog
+    - Approve or deny the operation from the popup
+  </Accordion>
+
+  <Accordion title="Custom port not working">
+    - The extension defaults to `ws://localhost:19222`
+    - Start the bridge with a matching port: `actionbook extension serve --port <PORT>`
+    - Pass the port to browser commands: `--extension-port <PORT>`
+  </Accordion>
+</AccordionGroup>
