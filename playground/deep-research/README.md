@@ -56,32 +56,27 @@ actionbook browser status
 
 ### Step 3: Add the Deep Research Skill
 
-**Option A: Install as standalone skill (recommended)**
+**Option A: One-command install via `npx skills` (recommended)**
 
-Copy the skill to your Claude Code skills directory:
+```bash
+npx skills add actionbook/actionbook --skill deep-research -g
+```
+
+This installs the skill globally — it works in **any directory** with Claude Code.
+
+**Option B: Install from local clone**
+
+If you've already cloned this repo:
+
+```bash
+npx skills add ./playground/deep-research -g
+```
+
+**Option C: Manual copy**
 
 ```bash
 mkdir -p ~/.claude/skills/deep-research
 cp playground/deep-research/skills/deep-research/SKILL.md ~/.claude/skills/deep-research/SKILL.md
-```
-
-Now the skill works in **any directory** with Claude Code.
-
-**Option B: Use as a project plugin**
-
-Copy the entire `playground/deep-research/` directory into your project:
-
-```bash
-cp -r playground/deep-research/ /path/to/your/project/deep-research/
-```
-
-Then start Claude Code from that directory. It auto-detects `.claude-plugin/plugin.json`.
-
-**Option C: Use directly from this repo**
-
-```bash
-cd playground/deep-research
-claude
 ```
 
 ### Step 4: Run Your First Research
