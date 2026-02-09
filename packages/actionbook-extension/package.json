@@ -1,0 +1,9 @@
+{
+  "name": "@actionbookdev/extension",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Actionbook Chrome Extension - Bridge for CLI-to-browser communication",
+  "scripts": {
+    "package": "node scripts/package.js"
+  }
+}
