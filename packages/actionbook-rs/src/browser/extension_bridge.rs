@@ -486,7 +486,14 @@ async fn handle_connection(stream: TcpStream, state: Arc<Mutex<BridgeState>>) {
         let token_match = client_token.as_bytes().ct_eq(s.token.as_bytes());
         if token_match.unwrap_u8() != 1 {
             tracing::warn!("Invalid token from {} client", client_role);
-            // Close without detailed error
+            let err_msg = serde_json::json!({
+                "type": "hello_error",
+                "error": "invalid_token",
+                "message": "Token mismatch. Reconnect via native messaging to obtain the current token.",
+            });
+            let _ = write
+                .send(Message::Text(err_msg.to_string().into()))
+                .await;
             return;
         }
     }
