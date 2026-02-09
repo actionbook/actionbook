@@ -7,14 +7,15 @@ Use your existing Chrome browser — with all your login sessions, extensions, a
 
 ## Overview
 
-Actionbook supports two browser control modes:
+Actionbook supports three browser control modes:
 
 | Mode | How It Works | Best For |
 |------|-------------|----------|
 | **Default (CDP)** | Launches a new browser instance | Clean environments, CI/CD, headless |
 | **Extension** | Connects to your running Chrome | Preserving login sessions, existing tabs |
+| **Extension (Isolated)** | Launches a dedicated Chrome with the extension pre-loaded | AI agents, clean extension environment, no manual setup |
 
-Extension mode is ideal when your automation needs access to pages that require authentication or session state from your real browser.
+Extension mode is ideal when your automation needs access to pages that require authentication or session state from your real browser. Isolated mode gives the same extension-based control but in a separate Chrome instance — useful when you don't want to touch your main browser.
 
 ## Setup
 
@@ -79,6 +80,70 @@ Extension mode is ideal when your automation needs access to pages that require 
     You should see `running` and a latency measurement confirming the link is active.
   </Step>
 </Steps>
+
+## Isolated Mode
+
+Isolated mode launches a **separate Chrome instance** with the extension automatically loaded — no manual "Load unpacked" or pairing required. It's the recommended mode for AI agents and automation scripts.
+
+### How it differs from standard Extension mode
+
+| | Standard Extension | Isolated Mode |
+|---|---|---|
+| Chrome instance | Your existing browser | Dedicated instance (separate profile) |
+| Login sessions | Uses your real sessions | Fresh profile, no existing sessions |
+| Extension loading | Manual "Load unpacked" | Automatic via CDP |
+| Token pairing | Native Messaging or manual | Injected via CDP (zero config) |
+| Setup steps | 5 steps (install → load → serve → pair → verify) | 1 command |
+
+### Quick start
+
+```bash
+actionbook extension serve --isolated
+```
+
+This single command will:
+1. Launch a dedicated Chrome with its own profile (`~/.local/share/actionbook/profiles/extension/`)
+2. Automatically load the extension into Chrome via CDP
+3. Inject the session token — no manual pairing needed
+4. Start the bridge server
+
+<Note>
+  The extension must be installed first (`actionbook extension install`). Isolated mode uses the same extension files but loads them automatically.
+</Note>
+
+### Persistent config
+
+Instead of passing `--isolated` every time, set it in your config file (`~/.config/actionbook/config.toml`):
+
+```toml
+[browser]
+extension_isolated_profile = true
+```
+
+With this config, `actionbook extension serve` will always use isolated mode.
+
+### Using browser commands
+
+Once the isolated bridge is running, all `--extension` browser commands work the same way:
+
+```bash
+actionbook --extension browser open "https://example.com"
+actionbook --extension browser click "#login-button"
+actionbook --extension browser text
+```
+
+### When to use isolated mode
+
+- **AI agents**: Zero-config setup, no human interaction needed for pairing
+- **Clean environment**: Fresh Chrome profile without existing cookies or extensions interfering
+- **Parallel automation**: Run isolated mode alongside your main Chrome without conflicts
+- **CI/CD**: Reproducible browser environment for extension-based testing
+
+### When to use standard Extension mode
+
+- You need your **existing login sessions** (Gmail, GitHub, banking, etc.)
+- You want to automate actions in your **current tabs**
+- The task requires your browser's **stored passwords, cookies, or extensions**
 
 ## Usage
 
@@ -156,6 +221,8 @@ actionbook --extension browser click "button[type='submit']"
 
 ## Shutdown
 
+### Standard Extension mode
+
 When you're done with extension mode, follow this cleanup order:
 
 ```bash
@@ -172,6 +239,20 @@ actionbook extension status    # should show "not running"
 <Warning>
   Always release the debug connection **before** stopping the bridge. Skipping step 1 may leave Chrome showing an "Actionbook is debugging this browser" banner.
 </Warning>
+
+### Isolated mode
+
+In isolated mode, stopping the bridge also terminates the dedicated Chrome instance:
+
+```bash
+# 1. Release the debug connection
+actionbook --extension browser close
+
+# 2. Stop the bridge — Chrome exits automatically
+actionbook extension stop
+```
+
+`extension stop` works the same for both modes — it detects whether the bridge is running in isolated or standard mode and cleans up accordingly.
 
 ## Security
 
