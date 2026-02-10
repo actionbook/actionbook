@@ -138,6 +138,10 @@ chrome.storage.local.get("bridgeToken", (result) => {
   }
 });
 
+// Set version from manifest
+document.getElementById("versionLabel").textContent =
+  "v" + chrome.runtime.getManifest().version;
+
 // Get initial state
 chrome.runtime.sendMessage({ type: "getState" }, (response) => {
   if (response) updateUI(response);
