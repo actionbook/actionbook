@@ -4,7 +4,7 @@
 
 ### Actionbook
 
-![GitHub last commit](https://img.shields.io/github/last-commit/actionbook/actionbook) ![NPM Downloads](https://img.shields.io/npm/d18m/%40actionbookdev%2Fcli) ![GitHub Repo stars](https://img.shields.io/github/stars/actionbook/actionbook)
+![GitHub last commit](https://img.shields.io/github/last-commit/actionbook/actionbook) ![NPM Downloads](https://img.shields.io/npm/d18m/%40actionbookdev%2Fcli) ![npm version](https://img.shields.io/npm/v/%40actionbookdev%2Fcli)
 
 
 
@@ -166,10 +166,6 @@ pnpm dev
 
 - **[Request a Website](https://actionbook.dev/request-website)** - Suggest websites you want Actionbook to index.
 - **[Join the Waitlist](https://actionbook.dev)** - We are currently in private beta. Join if you are interested in contributing or using Actionbook.
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=actionbook/actionbook&type=date&legend=top-left)](https://www.star-history.com/#actionbook/actionbook&type=date&legend=top-left)
 
 ## License
 
