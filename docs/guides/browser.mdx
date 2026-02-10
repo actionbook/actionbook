@@ -1,0 +1,264 @@
+---
+title: "Browser Automation"
+description: "Control browsers with Actionbook CLI — isolated or via your own Chrome"
+---
+
+The `actionbook browser` command lets AI agents automate any Chromium-based browser. Two modes are available depending on the use case:
+
+## Modes
+
+| Mode | Flag | How It Works | Best For |
+|------|------|-------------|----------|
+| **Isolated** | *(default)* | Launches a new Chrome with a fresh, dedicated profile | Automated tasks, CI/CD, headless, no user data needed |
+| **Extension** | `--extension` | Connects to the user's running Chrome via extension bridge | Tasks requiring existing login sessions, cookies, personal context |
+
+Both modes are designed for AI agents. **Isolated** gives agents a clean, reproducible environment. **Extension** lets agents operate inside the user's real browser — ideal when the task requires existing authentication (e.g., "book my flight", "reply to that email").
+
+## Isolated Mode
+
+Works out of the box — no setup required. The CLI launches a temporary Chrome process with a dedicated profile and connects via CDP.
+
+```bash
+actionbook browser open "https://example.com"
+actionbook browser click "button[type='submit']"
+actionbook browser fill "#search" "actionbook"
+actionbook browser screenshot output.png
+```
+
+When done, close the browser:
+
+```bash
+actionbook browser close
+```
+
+## Extension Mode
+
+Extension mode requires a one-time setup to connect the CLI to your running Chrome.
+
+<Steps>
+  <Step title="Install the extension">
+    ```bash
+    actionbook extension install
+    ```
+
+    This downloads the latest release from GitHub and installs it to `~/.config/actionbook/extension/`.
+
+    <Tip>
+      **Manual download:** If the CLI install fails (e.g., GitHub rate limit), download the `.zip` from [GitHub Releases](https://github.com/actionbook/actionbook/releases), unzip it, and load it manually.
+    </Tip>
+  </Step>
+
+  <Step title="Load into Chrome">
+    1. Open `chrome://extensions` in Chrome
+    2. Enable **Developer mode** (top-right toggle)
+    3. Click **Load unpacked**
+    4. Select the directory printed by:
+
+    ```bash
+    actionbook extension path
+    ```
+  </Step>
+
+  <Step title="Start the bridge server">
+    The bridge is the WebSocket relay between CLI and Chrome:
+
+    ```bash
+    actionbook extension serve
+    ```
+
+    <Note>
+      `serve` runs in the foreground. Stop it with Ctrl+C, or use `actionbook extension stop` from another terminal.
+    </Note>
+  </Step>
+
+  <Step title="Pair the extension">
+    Native Messaging usually handles pairing automatically. If not:
+
+    1. Click the Actionbook extension icon in Chrome toolbar
+    2. Copy the token (`abk_...`) from the `serve` terminal output
+    3. Paste it into the popup and click **Save**
+  </Step>
+
+  <Step title="Verify the connection">
+    ```bash
+    actionbook extension status
+    actionbook extension ping
+    ```
+
+    You should see `running` and a latency measurement confirming the link is active.
+  </Step>
+</Steps>
+
+Once paired, add `--extension` to any browser command, or set the environment variable:
+
+```bash
+export ACTIONBOOK_EXTENSION=1
+```
+
+## Browser Commands
+
+All commands below work in both modes. Add `--extension` to route through the extension bridge.
+
+### Navigation
+
+```bash
+actionbook browser open "https://example.com"
+actionbook browser goto "https://example.com/login"
+actionbook browser back
+actionbook browser forward
+actionbook browser reload
+```
+
+### Page Interaction
+
+```bash
+actionbook browser click "button[type='submit']"
+actionbook browser fill "#username" "demo"
+actionbook browser select "#country" "US"
+actionbook browser hover ".menu-item"
+actionbook browser focus "#search-input"
+actionbook browser press "Enter"
+actionbook browser wait "#username" --timeout 10000
+```
+
+### Debug & Export
+
+```bash
+actionbook browser screenshot output.png --full-page
+actionbook browser eval "document.title"
+actionbook browser snapshot
+actionbook browser html
+actionbook browser text
+```
+
+### Cookie Operations
+
+```bash
+actionbook browser cookies list
+actionbook browser cookies get session_id
+actionbook browser cookies set demo_cookie hello
+actionbook browser cookies delete demo_cookie
+actionbook browser cookies clear --domain example.com --yes
+```
+
+### Tab Management
+
+```bash
+actionbook browser pages
+actionbook browser switch tab:123456
+```
+
+## Recommended Workflow
+
+Combine action manuals with browser automation for the best results:
+
+```bash
+# 1. Find the action manual
+actionbook search "github search repos"
+
+# 2. Get verified selectors
+actionbook get "<area_id>"
+
+# 3. Execute (add --extension to use your own browser)
+actionbook browser open "https://github.com"
+actionbook browser fill "#query-builder-test" "actionbook"
+actionbook browser click "button[type='submit']"
+```
+
+## Shutdown
+
+### Isolated Mode
+
+```bash
+actionbook browser close
+```
+
+### Extension Mode
+
+Follow this cleanup order:
+
+```bash
+# 1. Release the debug connection (detaches from Chrome)
+actionbook --extension browser close
+
+# 2. Stop the bridge server
+actionbook extension stop
+
+# 3. (Optional) Verify
+actionbook extension status    # should show "not running"
+```
+
+<Warning>
+  Always release the debug connection **before** stopping the bridge. Skipping step 1 may leave Chrome showing an "Actionbook is debugging this browser" banner.
+</Warning>
+
+## Extension Security
+
+Extension mode includes multiple security layers to protect your browser.
+
+### Risk Levels
+
+| Level | Description | Example Operations |
+|-------|-------------|-------------------|
+| **L1** | Read-only, safe | `eval`, `snapshot`, `screenshot` |
+| **L2** | Page interaction | `click`, `fill`, `select`, navigation |
+| **L3** | Sensitive operations | Cookie writes on banking/payment sites |
+
+L3 operations on sensitive domains trigger a confirmation popup in the extension — you must approve them manually.
+
+### Token Authentication
+
+- Sessions are authenticated with a token (`abk_` prefix)
+- Tokens expire after **30 minutes** of idle time
+- The bridge auto-rotates tokens; restart `serve` if pairing is lost
+- Token comparison uses constant-time algorithms to prevent timing attacks
+
+### Network Isolation
+
+- The bridge server only listens on `127.0.0.1` (loopback)
+- No external network access is possible
+- Origin validation enforces exact host matching
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Ping failed / bridge not running">
+    - Ensure `actionbook extension serve` is running
+    - Confirm the extension is loaded and enabled in `chrome://extensions`
+    - Check that no other process is using port 19222
+    - To restart: `actionbook extension stop` then `actionbook extension serve`
+  </Accordion>
+
+  <Accordion title="Token required / pairing_required">
+    - Open the extension popup and paste the latest token from the `serve` output
+    - Tokens expire after 30 minutes of inactivity — restart the bridge
+  </Accordion>
+
+  <Accordion title="No tab attached">
+    - Make sure Chrome has at least one visible, active tab
+    - Run `actionbook --extension browser open <url>` first to attach a tab
+    - Avoid `chrome://` pages — the debugger cannot attach to them
+  </Accordion>
+
+  <Accordion title="L3 operation blocked">
+    - Sensitive operations (e.g., cookie writes on banking domains) require manual approval
+    - Check the extension popup for a pending confirmation dialog
+  </Accordion>
+
+  <Accordion title="Custom port not working">
+    - The extension defaults to `ws://localhost:19222`
+    - Start the bridge with: `actionbook extension serve --port <PORT>`
+    - Pass to browser commands: `--extension-port <PORT>`
+  </Accordion>
+
+  <Accordion title="GitHub rate limit on install">
+    - Anonymous GitHub API allows 60 requests/hour
+    - Wait and retry, or download the `.zip` manually from [GitHub Releases](https://github.com/actionbook/actionbook/releases)
+  </Accordion>
+
+  <Accordion title="Offline install">
+    - Download `actionbook-extension-v*.zip` from another machine
+    - Unzip to `~/.config/actionbook/extension/`
+    - Run `actionbook extension install --force` to register native messaging
+  </Accordion>
+</AccordionGroup>

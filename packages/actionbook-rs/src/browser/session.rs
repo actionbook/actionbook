@@ -220,7 +220,7 @@ impl SessionManager {
         let launcher =
             BrowserLauncher::from_profile(profile_name, profile)?.with_stealth(stealth_enabled);
 
-        let (_launch_result, cdp_url) = launcher.launch_and_wait().await?;
+        let (_child, cdp_url) = launcher.launch_and_wait().await?;
 
         // Save session state
         let state = SessionState {

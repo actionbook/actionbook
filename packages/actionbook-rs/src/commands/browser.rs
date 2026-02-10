@@ -330,7 +330,7 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
     if cli.extension && cli.profile.is_some() {
         return Err(ActionbookError::Other(
             "--profile is not supported in extension mode. Extension operates on your live Chrome profile. \
-             Remove --profile or remove --extension to use isolated profiles.".to_string()
+             Remove --profile to use the default profile, or remove --extension to use isolated mode.".to_string()
         ));
     }
 

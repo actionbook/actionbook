@@ -8,15 +8,7 @@ use crate::error::Result;
 
 pub async fn run(cli: &Cli, command: &ExtensionCommands) -> Result<()> {
     match command {
-        ExtensionCommands::Serve { port, isolated } => {
-            let config = crate::config::Config::load()?;
-            let use_isolated = *isolated || config.browser.extension_isolated_profile;
-            if use_isolated {
-                crate::browser::isolated_extension::serve_isolated(&config, *port).await
-            } else {
-                serve(cli, *port).await
-            }
-        }
+        ExtensionCommands::Serve { port } => serve(cli, *port).await,
         ExtensionCommands::Status { port } => status(cli, *port).await,
         ExtensionCommands::Ping { port } => ping(cli, *port).await,
         ExtensionCommands::Stop { port } => stop(cli, *port).await,
@@ -27,21 +19,9 @@ pub async fn run(cli: &Cli, command: &ExtensionCommands) -> Result<()> {
 }
 
 async fn serve(_cli: &Cli, port: u16) -> Result<()> {
-    // Clean up stale standard-mode bridge files from previous ungraceful shutdowns.
+    // Clean up stale bridge files from previous ungraceful shutdowns.
     extension_bridge::delete_port_file().await;
     extension_bridge::delete_token_file().await;
-
-    // Clean up stale isolated-mode files — but only if the isolated bridge
-    // process is confirmed dead. This prevents `send_command` from picking up
-    // an outdated isolated token while preserving files of a running bridge.
-    let isolated_alive = extension_bridge::read_isolated_pid_file()
-        .await
-        .is_some_and(|(pid, _port)| extension_bridge::is_pid_alive(pid));
-    if !isolated_alive {
-        extension_bridge::delete_isolated_port_file().await;
-        extension_bridge::delete_isolated_token_file().await;
-        extension_bridge::delete_isolated_pid_file().await;
-    }
 
     let extension_path = if extension_installer::is_installed() {
         let dir = extension_installer::extension_dir()?;
@@ -170,76 +150,82 @@ async fn ping(_cli: &Cli, port: u16) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PidResolution {
+    Selected(u32),
+    Ambiguous,
+    BothMatchedButDead,
+    NoMatch,
+}
+
+fn resolve_pid_for_port<F>(
+    std: Option<(u32, u16)>,
+    legacy: Option<(u32, u16)>,
+    port: u16,
+    mut is_pid_alive: F,
+) -> PidResolution
+where
+    F: FnMut(u32) -> bool,
+{
+    let std_pid = std.and_then(|(pid, p)| (p == port).then_some(pid));
+    let legacy_pid = legacy.and_then(|(pid, p)| (p == port).then_some(pid));
+
+    match (std_pid, legacy_pid) {
+        (Some(a), Some(b)) if a == b => PidResolution::Selected(a),
+        (Some(a), Some(b)) => match (is_pid_alive(a), is_pid_alive(b)) {
+            (true, false) => PidResolution::Selected(a),
+            (false, true) => PidResolution::Selected(b),
+            (true, true) => PidResolution::Ambiguous,
+            (false, false) => PidResolution::BothMatchedButDead,
+        },
+        (Some(pid), None) | (None, Some(pid)) => PidResolution::Selected(pid),
+        (None, None) => PidResolution::NoMatch,
+    }
+}
+
 async fn stop(cli: &Cli, port: u16) -> Result<()> {
-    // Read both PID files — each now contains PID:PORT for deterministic matching.
-    let iso = extension_bridge::read_isolated_pid_file().await;
+    // Read PID file — contains PID:PORT for deterministic matching.
+    // Also check legacy .isolated PID file from pre-0.7 versions.
     let std = extension_bridge::read_pid_file().await;
+    let legacy = extension_bridge::read_legacy_isolated_pid_file().await;
 
-    // Deterministic PID selection based on embedded port
-    let resolved = match (iso, std) {
-        // Both claim the same port — resolve by PID liveness
-        (Some((p1, pt1)), Some((p2, pt2))) if pt1 == port && pt2 == port => {
-            match (extension_bridge::is_pid_alive(p1), extension_bridge::is_pid_alive(p2)) {
-                (true, false) => Some((p1, true)),
-                (false, true) => Some((p2, false)),
-                (true, true) => {
-                    // Both alive on same port — ambiguous, refuse
-                    if cli.json {
-                        println!(
-                            "{}",
-                            serde_json::json!({
-                                "status": "error",
-                                "error": "Multiple bridges detected on same port. Stop manually with Ctrl+C."
-                            })
-                        );
-                    } else {
-                        println!(
-                            "  {} Multiple bridges detected on port {}",
-                            "!".yellow(),
-                            port
-                        );
-                        println!(
-                            "  {}  Stop the bridge manually with Ctrl+C in its terminal",
-                            "ℹ".dimmed()
-                        );
-                    }
-                    return Ok(());
-                }
-                (false, false) => {
-                    // Both dead — clean up stale PID files
-                    extension_bridge::delete_isolated_pid_file().await;
-                    extension_bridge::delete_pid_file().await;
-                    if cli.json {
-                        println!("{}", serde_json::json!({ "status": "not_running" }));
-                    } else {
-                        println!(
-                            "  {} Bridge is not running (cleaned up stale PID files)",
-                            "ℹ".dimmed()
-                        );
-                    }
-                    return Ok(());
-                }
+    let pid = match resolve_pid_for_port(std, legacy, port, extension_bridge::is_pid_alive) {
+        PidResolution::Selected(p) => p,
+        PidResolution::Ambiguous => {
+            if cli.json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "status": "error",
+                        "error": "Multiple bridges detected on same port. Stop manually with Ctrl+C."
+                    })
+                );
+            } else {
+                println!(
+                    "  {} Multiple bridges detected on port {}",
+                    "!".yellow(),
+                    port
+                );
+                println!(
+                    "  {}  Stop the bridge manually with Ctrl+C in its terminal",
+                    "ℹ".dimmed()
+                );
             }
+            return Ok(());
         }
-        // Isolated PID file matches this port
-        (Some((p, pt)), _) if pt == port => Some((p, true)),
-        // Standard PID file matches this port
-        (_, Some((p, pt))) if pt == port => Some((p, false)),
-        // No PID file matches — fall through to port check
-        _ => None,
-    };
-
-    let delete_pid_file = |is_isolated: bool| async move {
-        if is_isolated {
-            extension_bridge::delete_isolated_pid_file().await;
-        } else {
+        PidResolution::BothMatchedButDead => {
             extension_bridge::delete_pid_file().await;
+            if cli.json {
+                println!("{}", serde_json::json!({ "status": "not_running" }));
+            } else {
+                println!(
+                    "  {} Bridge is not running (cleaned up stale PID files)",
+                    "ℹ".dimmed()
+                );
+            }
+            return Ok(());
         }
-    };
-
-    let (pid, is_isolated) = match resolved {
-        Some(pair) => pair,
-        None => {
+        PidResolution::NoMatch => {
             // No PID file matches this port — fall back to port check
             let running = extension_bridge::is_bridge_running(port).await;
             if running {
@@ -273,7 +259,7 @@ async fn stop(cli: &Cli, port: u16) -> Result<()> {
 
     // Guard against malformed PID files: PID must be positive
     if pid == 0 {
-        delete_pid_file(is_isolated).await;
+        extension_bridge::delete_pid_file().await;
         if cli.json {
             println!("{}", serde_json::json!({ "status": "not_running" }));
         } else {
@@ -292,7 +278,7 @@ async fn stop(cli: &Cli, port: u16) -> Result<()> {
         let process_alive = extension_bridge::is_pid_alive(pid);
 
         if !process_alive {
-            delete_pid_file(is_isolated).await;
+            extension_bridge::delete_pid_file().await;
         }
 
         if cli.json {
@@ -322,7 +308,7 @@ async fn stop(cli: &Cli, port: u16) -> Result<()> {
         if result != 0 {
             let err = std::io::Error::last_os_error();
             if err.raw_os_error() == Some(libc::ESRCH) {
-                delete_pid_file(is_isolated).await;
+                extension_bridge::delete_pid_file().await;
                 if cli.json {
                     println!("{}", serde_json::json!({ "status": "not_running" }));
                 } else {
@@ -362,7 +348,7 @@ async fn stop(cli: &Cli, port: u16) -> Result<()> {
             Ok(_) | Err(_) => {
                 // Only delete PID file if process is confirmed dead
                 if !extension_bridge::is_pid_alive(pid) {
-                    delete_pid_file(is_isolated).await;
+                    extension_bridge::delete_pid_file().await;
                 }
                 if cli.json {
                     println!("{}", serde_json::json!({ "status": "error", "error": "Failed to stop bridge process" }));
@@ -394,7 +380,7 @@ async fn stop(cli: &Cli, port: u16) -> Result<()> {
         }
     }
 
-    delete_pid_file(is_isolated).await;
+    extension_bridge::delete_pid_file().await;
 
     if cli.json {
         println!(
@@ -410,6 +396,61 @@ async fn stop(cli: &Cli, port: u16) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{resolve_pid_for_port, PidResolution};
+
+    #[test]
+    fn resolve_pid_prefers_alive_when_both_match_port() {
+        let result = resolve_pid_for_port(
+            Some((1001, 19222)),
+            Some((2002, 19222)),
+            19222,
+            |pid| pid == 2002,
+        );
+        assert_eq!(result, PidResolution::Selected(2002));
+    }
+
+    #[test]
+    fn resolve_pid_marks_ambiguous_when_both_alive() {
+        let result = resolve_pid_for_port(
+            Some((1001, 19222)),
+            Some((2002, 19222)),
+            19222,
+            |_pid| true,
+        );
+        assert_eq!(result, PidResolution::Ambiguous);
+    }
+
+    #[test]
+    fn resolve_pid_marks_both_dead_when_both_dead() {
+        let result = resolve_pid_for_port(
+            Some((1001, 19222)),
+            Some((2002, 19222)),
+            19222,
+            |_pid| false,
+        );
+        assert_eq!(result, PidResolution::BothMatchedButDead);
+    }
+
+    #[test]
+    fn resolve_pid_falls_back_to_legacy_when_standard_missing() {
+        let result = resolve_pid_for_port(None, Some((2002, 19222)), 19222, |_pid| true);
+        assert_eq!(result, PidResolution::Selected(2002));
+    }
+
+    #[test]
+    fn resolve_pid_returns_no_match_for_other_port() {
+        let result = resolve_pid_for_port(
+            Some((1001, 18080)),
+            Some((2002, 19090)),
+            19222,
+            |_pid| true,
+        );
+        assert_eq!(result, PidResolution::NoMatch);
+    }
 }
 
 async fn install(cli: &Cli, force: bool) -> Result<()> {

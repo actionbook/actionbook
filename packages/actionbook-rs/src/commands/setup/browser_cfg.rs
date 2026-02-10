@@ -3,11 +3,8 @@ use dialoguer::Select;
 
 use super::detect::EnvironmentInfo;
 use super::theme::setup_theme;
-use crate::browser::extension_installer;
-use crate::browser::launcher::BrowserLauncher;
-use crate::browser::native_messaging;
 use crate::cli::{BrowserMode, Cli};
-use crate::config::{Config, ProfileConfig};
+use crate::config::Config;
 use crate::error::{ActionbookError, Result};
 
 /// Configure the browser mode (system vs builtin) and headless preference.
@@ -118,8 +115,6 @@ pub fn configure_browser(
         }
     } else {
         config.browser.executable = None;
-        // Built-in browser does not support extension isolation; clear any stale flag
-        config.browser.extension_isolated_profile = false;
         if !cli.json {
             println!("  {}  Browser: Built-in", "◇".green());
         }
@@ -148,12 +143,6 @@ pub fn configure_browser(
         println!("  {}  Display: {}", "◇".green(), mode_label);
     }
 
-    // Extension bridge profile isolation — only when system browser selected
-    let used_system_browser = selection < env.browsers.len();
-    if used_system_browser {
-        configure_extension_profile(cli, config)?;
-    }
-
     if cli.json {
         println!(
             "{}",
@@ -162,88 +151,8 @@ pub fn configure_browser(
                 "mode": if config.browser.executable.is_some() { "system" } else { "builtin" },
                 "executable": config.browser.executable,
                 "headless": config.browser.headless,
-                "extension_isolated_profile": config.browser.extension_isolated_profile,
             })
         );
-    }
-
-    Ok(())
-}
-
-/// Prompt the user for extension bridge profile isolation.
-fn configure_extension_profile(cli: &Cli, config: &mut Config) -> Result<()> {
-    if cli.json {
-        // JSON mode: no interactive prompt, default to shared
-        return Ok(());
-    }
-
-    let profile_options = vec![
-        "Isolated — dedicated profile, no personal data (recommended)",
-        "Shared — use existing Chrome profiles and extensions",
-    ];
-    let profile_selection = Select::with_theme(&setup_theme())
-        .with_prompt(" Extension bridge profile")
-        .items(&profile_options)
-        .default(0)
-        .report(false)
-        .interact()
-        .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
-
-    let isolated = profile_selection == 0;
-    config.browser.extension_isolated_profile = isolated;
-
-    if isolated {
-        // Create extension profile entry
-        let extension_profile = ProfileConfig {
-            cdp_port: 9333,
-            headless: false,
-            browser_path: config.browser.executable.clone(),
-            ..Default::default()
-        };
-        config.set_profile("extension", extension_profile);
-
-        // Create profile directory
-        let profile_dir = BrowserLauncher::default_user_data_dir("extension");
-        if let Err(e) = std::fs::create_dir_all(&profile_dir) {
-            tracing::warn!("Failed to create extension profile directory: {}", e);
-        }
-
-        // Ensure extension is installed
-        if extension_installer::is_installed() {
-            println!(
-                "  {}  Extension: installed",
-                "◇".green()
-            );
-        } else {
-            println!(
-                "  {}  Extension not installed — run {} after setup",
-                "◇".dimmed(),
-                "actionbook extension install".cyan()
-            );
-        }
-
-        // Register native messaging host
-        match native_messaging::install_manifest() {
-            Ok(_) => {
-                println!(
-                    "  {}  Native messaging host: registered",
-                    "◇".green()
-                );
-            }
-            Err(e) => {
-                tracing::warn!("Failed to register native messaging host: {}", e);
-                println!(
-                    "  {}  Native messaging: {}",
-                    "◇".dimmed(),
-                    "manual token entry required".dimmed()
-                );
-            }
-        }
-
-        println!("  {}  Extension profile: Isolated", "◇".green());
-    } else {
-        config.browser.extension_isolated_profile = false;
-        println!("  {}  Extension profile: Shared", "◇".green());
     }
 
     Ok(())
@@ -274,8 +183,6 @@ fn apply_browser_mode(
         }
         BrowserMode::Builtin => {
             config.browser.executable = None;
-            // Built-in browser does not support extension isolation; clear any stale flag
-            config.browser.extension_isolated_profile = false;
             if !cli.json {
                 println!("  {}  Using built-in browser", "◇".green());
             }
@@ -409,35 +316,4 @@ mod tests {
         assert!(config.browser.headless);
     }
 
-    #[test]
-    fn test_apply_builtin_mode_clears_isolated_profile_flag() {
-        let cli = Cli {
-            browser_path: None,
-            cdp: None,
-            profile: None,
-            headless: false,
-            stealth: false,
-            stealth_os: None,
-            stealth_gpu: None,
-            api_key: None,
-            json: false,
-            extension: false,
-            extension_port: 19222,
-            verbose: false,
-            command: crate::cli::Commands::Config {
-                command: crate::cli::ConfigCommands::Show,
-            },
-        };
-        let env = make_env_with_browsers(vec![]);
-        let mut config = Config::default();
-        // Simulate a previous setup that enabled isolated profile
-        config.browser.extension_isolated_profile = true;
-
-        let result = apply_browser_mode(&cli, &env, BrowserMode::Builtin, &mut config);
-        assert!(result.is_ok());
-        assert!(
-            !config.browser.extension_isolated_profile,
-            "Built-in mode must clear extension_isolated_profile"
-        );
-    }
 }

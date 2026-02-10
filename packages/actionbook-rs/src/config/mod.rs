@@ -62,10 +62,6 @@ pub struct BrowserConfig {
     /// Default headless mode
     #[serde(default)]
     pub headless: bool,
-
-    /// Use an isolated Chrome profile for extension bridge
-    #[serde(default)]
-    pub extension_isolated_profile: bool,
 }
 
 impl Default for BrowserConfig {
@@ -74,7 +70,6 @@ impl Default for BrowserConfig {
             executable: None,
             default_profile: default_profile_name(),
             headless: false,
-            extension_isolated_profile: false,
         }
     }
 }
@@ -221,7 +216,6 @@ mod tests {
                 executable: Some("/Applications/Google Chrome.app".to_string()),
                 default_profile: "team".to_string(),
                 headless: true,
-                extension_isolated_profile: false,
             },
             profiles: HashMap::new(),
         };
@@ -253,7 +247,6 @@ mod tests {
                 executable: None,
                 default_profile: "   ".to_string(),
                 headless: false,
-                extension_isolated_profile: false,
             },
             profiles: HashMap::new(),
         };
@@ -281,26 +274,4 @@ mod tests {
         assert!(matches!(result, Err(ActionbookError::ConfigError(_))));
     }
 
-    #[test]
-    fn extension_isolated_profile_defaults_to_false() {
-        let toml_str = r#"
-default_profile = "actionbook"
-headless = false
-"#;
-        let browser: BrowserConfig = toml::from_str(toml_str).unwrap();
-        assert!(!browser.extension_isolated_profile);
-    }
-
-    #[test]
-    fn extension_isolated_profile_round_trip() {
-        let browser = BrowserConfig {
-            executable: None,
-            default_profile: "actionbook".to_string(),
-            headless: false,
-            extension_isolated_profile: true,
-        };
-        let serialized = toml::to_string(&browser).unwrap();
-        let deserialized: BrowserConfig = toml::from_str(&serialized).unwrap();
-        assert!(deserialized.extension_isolated_profile);
-    }
 }
