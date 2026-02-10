@@ -1019,21 +1019,29 @@ async fn handle_cli_client(
 
 /// Send a single command to the extension via the bridge and wait for the response.
 /// Used by CLI commands when `--extension` mode is active.
-/// If `token` is None, attempts to read from the token file.
+/// Selects the correct token file based on which PID file's embedded port matches
+/// the target port, so parallel bridges (standard + isolated) authenticate correctly.
 pub async fn send_command(
     port: u16,
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value> {
-    // Try global token file first, then isolated token file
-    let token = read_token_file().await
-        .or(read_isolated_token_file().await)
-        .ok_or_else(|| {
-            ActionbookError::ExtensionError(
-                "No bridge token found. Is `actionbook extension serve` running?"
-                    .to_string(),
-            )
-        })?;
+    // Use PID:PORT mapping to select the correct token file for this port.
+    let iso_match = read_isolated_pid_file().await.is_some_and(|(_pid, pt)| pt == port);
+    let std_match = read_pid_file().await.is_some_and(|(_pid, pt)| pt == port);
+
+    let token = match (iso_match, std_match) {
+        (true, false) => read_isolated_token_file().await,
+        (false, true) => read_token_file().await,
+        // Ambiguous or no match — try both (standard first for backwards compat)
+        _ => read_token_file().await.or(read_isolated_token_file().await),
+    }
+    .ok_or_else(|| {
+        ActionbookError::ExtensionError(
+            "No bridge token found. Is `actionbook extension serve` running?"
+                .to_string(),
+        )
+    })?;
 
     send_command_with_token(port, method, params, &token).await
 }
