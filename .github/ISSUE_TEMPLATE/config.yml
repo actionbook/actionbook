@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: 📖 Documentation
-    url: https://github.com/actionbook/actionbook/wiki
+    url: https://actionbook.dev
     about: Check our comprehensive documentation first
   - name: 💬 Discussions
-    url: https://github.com/actionbook/actionbook/discussions
-    about: Ask questions and discuss ideas with the community
+    url: https://discord.gg/actionbook
+    about: Ask questions and discuss ideas with the community on Discord
   - name: 🔒 Security Vulnerability
     url: https://github.com/actionbook/actionbook/security/advisories/new
     about: Report security vulnerabilities privately
