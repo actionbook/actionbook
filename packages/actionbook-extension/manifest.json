@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Actionbook",
-  "version": "0.2.0",
+  "version": "0.1.1",
   "description": "Bridge between Actionbook CLI and your browser for AI-powered automation",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5xhsOXoi029BKiQTCV7UTZd/f/nzgW6JerV8XfbJLOEr+gHAVNU6J+2Yq3DvTE7+Tnx9EW9jQNGtE4ZXXaGpkvpkcP2ch3ggQQFpjOvHdlVGljepRB2gJivGWR5ooQ1QPWAyxwDLeA09/w2oZ54W9RMXeuzfjv1KRceq9FHlmkIIGaaqYfLzrQbbE7GSV1DSeRG1kG0f7Km2wUsuNDCINI6XyBbhM+662Clurs1GdP7S+Gw/+N/97YEY8Ir2smotGTknHmHuUl5N2XXJjhxfaCT85DkaMV0Kn9D9pVczK4xgqGypplCna5I61YjNDMrymA25qLNKQv2nf/mv7Y7l9wIDAQAB",
   "permissions": [
