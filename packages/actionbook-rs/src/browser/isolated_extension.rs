@@ -85,14 +85,21 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
         Some(launch_result.child)
     };
 
-    // 6. Clean up ALL stale bridge files from previous runs.
-    //    Both global and isolated files are removed so that `send_command`,
-    //    which probes global first, never picks up a stale token from
-    //    a previous non-isolated session.
-    extension_bridge::delete_port_file().await;
-    extension_bridge::delete_token_file().await;
+    // 6. Clean up stale isolated-mode bridge files from previous runs.
     extension_bridge::delete_isolated_port_file().await;
     extension_bridge::delete_isolated_token_file().await;
+
+    // Clean up stale standard-mode files — but only if the standard bridge
+    // process is confirmed dead. This prevents `send_command` from picking up
+    // an outdated standard token while preserving files of a running bridge.
+    let standard_alive = extension_bridge::read_pid_file()
+        .await
+        .is_some_and(|pid| extension_bridge::is_pid_alive(pid));
+    if !standard_alive {
+        extension_bridge::delete_port_file().await;
+        extension_bridge::delete_token_file().await;
+        extension_bridge::delete_pid_file().await;
+    }
 
     let token = extension_bridge::generate_token();
 

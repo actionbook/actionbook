@@ -432,8 +432,13 @@ pub async fn serve_with_shutdown(
     shutdown_rx: tokio::sync::oneshot::Receiver<()>,
     isolated: bool,
 ) -> Result<()> {
-    // Clean up any stale files from a previous ungraceful shutdown before starting
-    delete_port_file().await;
+    // Clean up stale port file from a previous ungraceful shutdown before starting.
+    // Only clean the current mode's file to avoid disrupting the other mode.
+    if isolated {
+        delete_isolated_port_file().await;
+    } else {
+        delete_port_file().await;
+    }
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = TcpListener::bind(&addr).await.map_err(|e| {
@@ -1128,6 +1133,25 @@ pub async fn send_command_with_token(
     Err(ActionbookError::ExtensionError(
         "Connection closed without response".to_string(),
     ))
+}
+
+/// Check if a process with the given PID is still alive.
+///
+/// On Unix, uses `kill(pid, 0)` signal probe.
+/// On Windows, uses `tasklist` to query the process table.
+pub fn is_pid_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        unsafe { libc::kill(pid as i32, 0) == 0 }
+    }
+    #[cfg(not(unix))]
+    {
+        std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+            .unwrap_or(false)
+    }
 }
 
 /// Check if the bridge server is running on the given port.
