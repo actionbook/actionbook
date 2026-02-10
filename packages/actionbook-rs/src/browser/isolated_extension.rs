@@ -143,22 +143,33 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
         )
         .await;
 
-        let (ext_id, keepalive) = match load_result {
-            Ok(Ok(Ok(pair))) => pair,
-            Ok(Ok(Err(e))) => {
-                return Err(ActionbookError::ExtensionError(format!(
-                    "Failed to load extension via CDP pipe: {}", e
-                )));
-            }
-            Ok(Err(join_err)) => {
-                return Err(ActionbookError::ExtensionError(format!(
-                    "Extension loading task panicked: {}", join_err
-                )));
-            }
-            Err(_) => {
-                return Err(ActionbookError::ExtensionError(
-                    "Timed out loading extension via CDP pipe (30s)".to_string(),
-                ));
+        let ext_result = match load_result {
+            Ok(Ok(Ok(pair))) => Ok(pair),
+            Ok(Ok(Err(e))) => Err(ActionbookError::ExtensionError(format!(
+                "Failed to load extension via CDP pipe: {}", e
+            ))),
+            Ok(Err(join_err)) => Err(ActionbookError::ExtensionError(format!(
+                "Extension loading task panicked: {}", join_err
+            ))),
+            Err(_) => Err(ActionbookError::ExtensionError(
+                "Timed out loading extension via CDP pipe (30s)".to_string(),
+            )),
+        };
+
+        let (ext_id, keepalive) = match ext_result {
+            Ok(pair) => pair,
+            Err(e) => {
+                // Clean up Chrome + bridge before returning — without this,
+                // a startup failure would leave the child Chrome process
+                // running and stale bridge state files on disk.
+                let _ = shutdown_tx.send(());
+                extension_bridge::delete_isolated_token_file().await;
+                extension_bridge::delete_isolated_port_file().await;
+                extension_bridge::delete_isolated_pid_file().await;
+                if let Some(pid) = child.as_ref().map(|c| c.id()) {
+                    terminate_chrome(pid).await;
+                }
+                return Err(e);
             }
         };
         _pipe_keepalive = Some(keepalive);
