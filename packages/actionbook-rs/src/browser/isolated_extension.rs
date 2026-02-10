@@ -94,7 +94,7 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
     // an outdated standard token while preserving files of a running bridge.
     let standard_alive = extension_bridge::read_pid_file()
         .await
-        .is_some_and(|pid| extension_bridge::is_pid_alive(pid));
+        .is_some_and(|(pid, _port)| extension_bridge::is_pid_alive(pid));
     if !standard_alive {
         extension_bridge::delete_port_file().await;
         extension_bridge::delete_token_file().await;
@@ -109,7 +109,7 @@ pub async fn serve_isolated(config: &Config, bridge_port: u16) -> Result<()> {
     extension_bridge::write_isolated_token_file(&token).await?;
 
     // 6c. Write isolated PID file so `extension stop` can find this process.
-    if let Err(e) = extension_bridge::write_isolated_pid_file().await {
+    if let Err(e) = extension_bridge::write_isolated_pid_file(bridge_port).await {
         eprintln!(
             "  {} Failed to write PID file: {}",
             "!".yellow(),

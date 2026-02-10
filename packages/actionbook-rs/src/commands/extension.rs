@@ -36,7 +36,7 @@ async fn serve(_cli: &Cli, port: u16) -> Result<()> {
     // an outdated isolated token while preserving files of a running bridge.
     let isolated_alive = extension_bridge::read_isolated_pid_file()
         .await
-        .is_some_and(|pid| extension_bridge::is_pid_alive(pid));
+        .is_some_and(|(pid, _port)| extension_bridge::is_pid_alive(pid));
     if !isolated_alive {
         extension_bridge::delete_isolated_port_file().await;
         extension_bridge::delete_isolated_token_file().await;
@@ -100,7 +100,7 @@ async fn serve(_cli: &Cli, port: u16) -> Result<()> {
     println!();
 
     // Write PID file so `extension stop` can find this process
-    if let Err(e) = extension_bridge::write_pid_file().await {
+    if let Err(e) = extension_bridge::write_pid_file(port).await {
         eprintln!(
             "  {} Failed to write PID file: {}",
             "!".yellow(),
@@ -171,63 +171,62 @@ async fn ping(_cli: &Cli, port: u16) -> Result<()> {
 }
 
 async fn stop(cli: &Cli, port: u16) -> Result<()> {
-    // Resolve which PID file to use based on port files, so we don't
-    // accidentally stop the wrong bridge when both isolated and standard
-    // bridges are running on different ports.
-    let isolated_port = extension_bridge::read_isolated_port_file().await;
-    let standard_port = extension_bridge::read_port_file().await;
+    // Read both PID files — each now contains PID:PORT for deterministic matching.
+    let iso = extension_bridge::read_isolated_pid_file().await;
+    let std = extension_bridge::read_pid_file().await;
 
-    let (pid, is_isolated) = if isolated_port == Some(port) {
-        (extension_bridge::read_isolated_pid_file().await, true)
-    } else if standard_port == Some(port) {
-        (extension_bridge::read_pid_file().await, false)
-    } else {
-        // No port file matches the requested port — fall back to trying
-        // both PID files for backwards compatibility (e.g. port files
-        // were cleaned up but PID file remains).
-        let iso_pid = extension_bridge::read_isolated_pid_file().await;
-        let std_pid = extension_bridge::read_pid_file().await;
-        match (iso_pid, std_pid) {
-            (Some(_), Some(_)) => {
-                // Both PID files exist but we can't determine which bridge
-                // owns the requested port. Refuse to auto-kill to avoid
-                // stopping the wrong one.
-                let running = extension_bridge::is_bridge_running(port).await;
-                if cli.json {
-                    if running {
+    // Deterministic PID selection based on embedded port
+    let resolved = match (iso, std) {
+        // Both claim the same port — resolve by PID liveness
+        (Some((p1, pt1)), Some((p2, pt2))) if pt1 == port && pt2 == port => {
+            match (extension_bridge::is_pid_alive(p1), extension_bridge::is_pid_alive(p2)) {
+                (true, false) => Some((p1, true)),
+                (false, true) => Some((p2, false)),
+                (true, true) => {
+                    // Both alive on same port — ambiguous, refuse
+                    if cli.json {
                         println!(
                             "{}",
                             serde_json::json!({
                                 "status": "error",
-                                "error": "Multiple bridges detected but cannot determine which owns this port. Stop it manually."
+                                "error": "Multiple bridges detected on same port. Stop manually with Ctrl+C."
                             })
                         );
                     } else {
-                        println!("{}", serde_json::json!({ "status": "not_running" }));
+                        println!(
+                            "  {} Multiple bridges detected on port {}",
+                            "!".yellow(),
+                            port
+                        );
+                        println!(
+                            "  {}  Stop the bridge manually with Ctrl+C in its terminal",
+                            "ℹ".dimmed()
+                        );
                     }
-                } else if running {
-                    println!(
-                        "  {} Multiple bridges detected but cannot determine which owns port {}",
-                        "!".yellow(),
-                        port
-                    );
-                    println!(
-                        "  {}  Stop the bridge manually with Ctrl+C in its terminal",
-                        "ℹ".dimmed()
-                    );
-                } else {
-                    println!(
-                        "  {} Bridge server is not running on port {}",
-                        "ℹ".dimmed(),
-                        port
-                    );
+                    return Ok(());
                 }
-                return Ok(());
+                (false, false) => {
+                    // Both dead — clean up stale PID files
+                    extension_bridge::delete_isolated_pid_file().await;
+                    extension_bridge::delete_pid_file().await;
+                    if cli.json {
+                        println!("{}", serde_json::json!({ "status": "not_running" }));
+                    } else {
+                        println!(
+                            "  {} Bridge is not running (cleaned up stale PID files)",
+                            "ℹ".dimmed()
+                        );
+                    }
+                    return Ok(());
+                }
             }
-            (Some(p), None) => (Some(p), true),
-            (None, Some(p)) => (Some(p), false),
-            (None, None) => (None, false),
         }
+        // Isolated PID file matches this port
+        (Some((p, pt)), _) if pt == port => Some((p, true)),
+        // Standard PID file matches this port
+        (_, Some((p, pt))) if pt == port => Some((p, false)),
+        // No PID file matches — fall through to port check
+        _ => None,
     };
 
     let delete_pid_file = |is_isolated: bool| async move {
@@ -238,152 +237,10 @@ async fn stop(cli: &Cli, port: u16) -> Result<()> {
         }
     };
 
-    match pid {
-        Some(pid) => {
-            // Guard against malformed PID files: PID must be positive
-            if pid == 0 {
-                delete_pid_file(is_isolated).await;
-                if cli.json {
-                    println!("{}", serde_json::json!({ "status": "not_running" }));
-                } else {
-                    println!(
-                        "  {} Invalid PID file (cleaned up)",
-                        "ℹ".dimmed()
-                    );
-                }
-                return Ok(());
-            }
-
-            // Verify the bridge is actually listening on the expected port before
-            // sending any signal. This prevents sending SIGTERM to an unrelated
-            // process that happens to have the same PID (PID recycling).
-            if !extension_bridge::is_bridge_running(port).await {
-                // Port probe failed, but the process may still be alive on a
-                // different port. Only remove the PID file if the process
-                // itself is gone, so a later `extension stop --port <correct>`
-                // can still find and stop it.
-                let process_alive = extension_bridge::is_pid_alive(pid);
-
-                if !process_alive {
-                    delete_pid_file(is_isolated).await;
-                }
-
-                if cli.json {
-                    println!(
-                        "{}",
-                        serde_json::json!({ "status": "not_running", "stale_pid": pid })
-                    );
-                } else {
-                    println!(
-                        "  {} Bridge is not running on port {}{}",
-                        "ℹ".dimmed(),
-                        port,
-                        if process_alive {
-                            format!(" (process {} may be on a different port)", pid)
-                        } else {
-                            " (cleaned up stale PID file)".to_string()
-                        }
-                    );
-                }
-                return Ok(());
-            }
-
-            // Send SIGTERM for graceful shutdown.
-            // No separate kill(pid, 0) probe — go straight to SIGTERM to avoid TOCTOU race.
-            #[cfg(unix)]
-            let kill_ok = {
-                let result = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
-                if result != 0 {
-                    let err = std::io::Error::last_os_error();
-                    if err.raw_os_error() == Some(libc::ESRCH) {
-                        // Process already gone — stale PID
-                        delete_pid_file(is_isolated).await;
-                        if cli.json {
-                            println!("{}", serde_json::json!({ "status": "not_running" }));
-                        } else {
-                            println!(
-                                "  {} Bridge is not running (cleaned up stale PID file)",
-                                "ℹ".dimmed()
-                            );
-                        }
-                        return Ok(());
-                    }
-                    if cli.json {
-                        println!(
-                            "{}",
-                            serde_json::json!({ "status": "error", "error": err.to_string(), "pid": pid })
-                        );
-                    } else {
-                        println!(
-                            "  {} Failed to stop bridge (PID {}): {}",
-                            "✗".red(),
-                            pid,
-                            err
-                        );
-                    }
-                    false
-                } else {
-                    true
-                }
-            };
-
-            #[cfg(not(unix))]
-            let kill_ok = {
-                let status = std::process::Command::new("taskkill")
-                    .args(["/PID", &pid.to_string()])
-                    .status();
-                match status {
-                    Ok(s) if s.success() => true,
-                    Ok(_) | Err(_) => {
-                        delete_pid_file(is_isolated).await;
-                        if cli.json {
-                            println!("{}", serde_json::json!({ "status": "error", "error": "Failed to stop bridge process" }));
-                        } else {
-                            println!("  {} Failed to stop bridge (PID {})", "✗".red(), pid);
-                        }
-                        false
-                    }
-                }
-            };
-
-            if !kill_ok {
-                return Ok(());
-            }
-
-            // Wait for the process to exit, with SIGKILL escalation
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-            #[cfg(unix)]
-            {
-                let still_running = unsafe { libc::kill(pid as i32, 0) } == 0;
-                if still_running {
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                    let still_running = unsafe { libc::kill(pid as i32, 0) } == 0;
-                    if still_running {
-                        // Escalate to SIGKILL
-                        unsafe { libc::kill(pid as i32, libc::SIGKILL) };
-                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    }
-                }
-            }
-
-            delete_pid_file(is_isolated).await;
-
-            if cli.json {
-                println!(
-                    "{}",
-                    serde_json::json!({ "status": "stopped", "pid": pid })
-                );
-            } else {
-                println!(
-                    "  {} Bridge server stopped (PID {})",
-                    "✓".green(),
-                    pid
-                );
-            }
-        }
+    let (pid, is_isolated) = match resolved {
+        Some(pair) => pair,
         None => {
-            // No PID file — fall back to port check
+            // No PID file matches this port — fall back to port check
             let running = extension_bridge::is_bridge_running(port).await;
             if running {
                 if cli.json {
@@ -410,7 +267,146 @@ async fn stop(cli: &Cli, port: u16) -> Result<()> {
                     "ℹ".dimmed()
                 );
             }
+            return Ok(());
         }
+    };
+
+    // Guard against malformed PID files: PID must be positive
+    if pid == 0 {
+        delete_pid_file(is_isolated).await;
+        if cli.json {
+            println!("{}", serde_json::json!({ "status": "not_running" }));
+        } else {
+            println!(
+                "  {} Invalid PID file (cleaned up)",
+                "ℹ".dimmed()
+            );
+        }
+        return Ok(());
+    }
+
+    // Verify the bridge is actually listening on the expected port before
+    // sending any signal. This prevents sending SIGTERM to an unrelated
+    // process that happens to have the same PID (PID recycling).
+    if !extension_bridge::is_bridge_running(port).await {
+        let process_alive = extension_bridge::is_pid_alive(pid);
+
+        if !process_alive {
+            delete_pid_file(is_isolated).await;
+        }
+
+        if cli.json {
+            println!(
+                "{}",
+                serde_json::json!({ "status": "not_running", "stale_pid": pid })
+            );
+        } else {
+            println!(
+                "  {} Bridge is not running on port {}{}",
+                "ℹ".dimmed(),
+                port,
+                if process_alive {
+                    format!(" (process {} may be on a different port)", pid)
+                } else {
+                    " (cleaned up stale PID file)".to_string()
+                }
+            );
+        }
+        return Ok(());
+    }
+
+    // Send SIGTERM for graceful shutdown.
+    #[cfg(unix)]
+    let kill_ok = {
+        let result = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+        if result != 0 {
+            let err = std::io::Error::last_os_error();
+            if err.raw_os_error() == Some(libc::ESRCH) {
+                delete_pid_file(is_isolated).await;
+                if cli.json {
+                    println!("{}", serde_json::json!({ "status": "not_running" }));
+                } else {
+                    println!(
+                        "  {} Bridge is not running (cleaned up stale PID file)",
+                        "ℹ".dimmed()
+                    );
+                }
+                return Ok(());
+            }
+            if cli.json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "status": "error", "error": err.to_string(), "pid": pid })
+                );
+            } else {
+                println!(
+                    "  {} Failed to stop bridge (PID {}): {}",
+                    "✗".red(),
+                    pid,
+                    err
+                );
+            }
+            false
+        } else {
+            true
+        }
+    };
+
+    #[cfg(not(unix))]
+    let kill_ok = {
+        let status = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string()])
+            .status();
+        match status {
+            Ok(s) if s.success() => true,
+            Ok(_) | Err(_) => {
+                // Only delete PID file if process is confirmed dead
+                if !extension_bridge::is_pid_alive(pid) {
+                    delete_pid_file(is_isolated).await;
+                }
+                if cli.json {
+                    println!("{}", serde_json::json!({ "status": "error", "error": "Failed to stop bridge process" }));
+                } else {
+                    println!("  {} Failed to stop bridge (PID {})", "✗".red(), pid);
+                }
+                false
+            }
+        }
+    };
+
+    if !kill_ok {
+        return Ok(());
+    }
+
+    // Wait for the process to exit, with SIGKILL escalation
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    #[cfg(unix)]
+    {
+        let still_running = unsafe { libc::kill(pid as i32, 0) } == 0;
+        if still_running {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let still_running = unsafe { libc::kill(pid as i32, 0) } == 0;
+            if still_running {
+                unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+        }
+    }
+
+    delete_pid_file(is_isolated).await;
+
+    if cli.json {
+        println!(
+            "{}",
+            serde_json::json!({ "status": "stopped", "pid": pid })
+        );
+    } else {
+        println!(
+            "  {} Bridge server stopped (PID {})",
+            "✓".green(),
+            pid
+        );
     }
 
     Ok(())

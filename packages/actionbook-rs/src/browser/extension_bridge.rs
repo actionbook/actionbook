@@ -263,13 +263,16 @@ pub fn pid_file_path() -> Result<PathBuf> {
     Ok(data_dir.join("actionbook").join("bridge-pid"))
 }
 
-/// Write the current process PID to disk so `extension stop` can find it.
+/// Write the current process PID and port to disk so `extension stop` can find it.
+/// Format: `PID:PORT` (e.g. "12345:9222") — atomic PID-to-port mapping.
 /// Uses atomic write with 0600 permissions to prevent local PID injection.
-pub async fn write_pid_file() -> Result<()> {
+pub async fn write_pid_file(port: u16) -> Result<()> {
     let path = pid_file_path()?;
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
+
+    let content = format!("{}:{}", std::process::id(), port);
 
     #[cfg(unix)]
     {
@@ -278,7 +281,7 @@ pub async fn write_pid_file() -> Result<()> {
         let mut opts = tokio::fs::OpenOptions::new();
         opts.write(true).create(true).truncate(true).mode(0o600);
         let mut file = opts.open(&tmp_path).await?;
-        file.write_all(std::process::id().to_string().as_bytes()).await?;
+        file.write_all(content.as_bytes()).await?;
         file.flush().await?;
         drop(file);
         tokio::fs::rename(&tmp_path, &path).await?;
@@ -286,17 +289,19 @@ pub async fn write_pid_file() -> Result<()> {
 
     #[cfg(not(unix))]
     {
-        tokio::fs::write(&path, std::process::id().to_string()).await?;
+        tokio::fs::write(&path, content).await?;
     }
 
     Ok(())
 }
 
-/// Read the bridge PID from file. Returns None if file doesn't exist or is invalid.
-pub async fn read_pid_file() -> Option<u32> {
+/// Read the bridge PID and port from file. Returns None if file doesn't exist or is invalid.
+/// Parses `PID:PORT` format. Legacy PID-only files return None (treated as stale).
+pub async fn read_pid_file() -> Option<(u32, u16)> {
     let path = pid_file_path().ok()?;
     let content = tokio::fs::read_to_string(&path).await.ok()?;
-    content.trim().parse().ok()
+    let (pid_str, port_str) = content.trim().split_once(':')?;
+    Some((pid_str.parse().ok()?, port_str.parse().ok()?))
 }
 
 /// Delete the PID file if it exists.
@@ -314,13 +319,16 @@ pub fn isolated_pid_file_path() -> Result<PathBuf> {
     Ok(data_dir.join("actionbook").join("bridge-pid.isolated"))
 }
 
-/// Write the current process PID to the isolated PID file.
+/// Write the current process PID and port to the isolated PID file.
+/// Format: `PID:PORT` (e.g. "12345:9333") — atomic PID-to-port mapping.
 /// Uses atomic write with 0600 permissions to prevent local PID injection.
-pub async fn write_isolated_pid_file() -> Result<()> {
+pub async fn write_isolated_pid_file(port: u16) -> Result<()> {
     let path = isolated_pid_file_path()?;
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
+
+    let content = format!("{}:{}", std::process::id(), port);
 
     #[cfg(unix)]
     {
@@ -329,7 +337,7 @@ pub async fn write_isolated_pid_file() -> Result<()> {
         let mut opts = tokio::fs::OpenOptions::new();
         opts.write(true).create(true).truncate(true).mode(0o600);
         let mut file = opts.open(&tmp_path).await?;
-        file.write_all(std::process::id().to_string().as_bytes()).await?;
+        file.write_all(content.as_bytes()).await?;
         file.flush().await?;
         drop(file);
         tokio::fs::rename(&tmp_path, &path).await?;
@@ -337,17 +345,19 @@ pub async fn write_isolated_pid_file() -> Result<()> {
 
     #[cfg(not(unix))]
     {
-        tokio::fs::write(&path, std::process::id().to_string()).await?;
+        tokio::fs::write(&path, content).await?;
     }
 
     Ok(())
 }
 
-/// Read the isolated bridge PID from file.
-pub async fn read_isolated_pid_file() -> Option<u32> {
+/// Read the isolated bridge PID and port from file.
+/// Parses `PID:PORT` format. Legacy PID-only files return None (treated as stale).
+pub async fn read_isolated_pid_file() -> Option<(u32, u16)> {
     let path = isolated_pid_file_path().ok()?;
     let content = tokio::fs::read_to_string(&path).await.ok()?;
-    content.trim().parse().ok()
+    let (pid_str, port_str) = content.trim().split_once(':')?;
+    Some((pid_str.parse().ok()?, port_str.parse().ok()?))
 }
 
 /// Delete the isolated PID file if it exists.
@@ -1146,10 +1156,15 @@ pub fn is_pid_alive(pid: u32) -> bool {
     }
     #[cfg(not(unix))]
     {
+        let pid_str = pid.to_string();
         std::process::Command::new("tasklist")
             .args(["/FI", &format!("PID eq {}", pid), "/NH"])
             .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .lines()
+                    .any(|line| line.split_whitespace().any(|field| field == pid_str))
+            })
             .unwrap_or(false)
     }
 }
