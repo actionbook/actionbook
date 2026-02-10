@@ -96,9 +96,6 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
                 "  {}    Browser   {} ({})",
                 bar, browser_display, headless_display
             );
-            if config.browser.extension_isolated_profile {
-                println!("  {}    Extension  isolated profile", bar);
-            }
             println!(
                 "  {}    Path      {}",
                 bar,
@@ -554,23 +551,9 @@ fn print_completion(cli: &Cli, config: &Config, skills_result: &mode::SkillsResu
         browser_name,
         headless_str
     );
-    if config.browser.extension_isolated_profile {
-        println!(
-            "     {}  isolated",
-            "Extension".dimmed(),
-        );
-    }
-
     // --- Next steps ---
     println!();
     println!("     {}", "Next steps".bold());
-    if config.browser.extension_isolated_profile {
-        println!(
-            "       {} {}",
-            "$".dimmed(),
-            "actionbook extension serve    # starts isolated browser + bridge".cyan()
-        );
-    }
     println!(
         "       {} {}",
         "$".dimmed(),

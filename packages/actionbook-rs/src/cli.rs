@@ -393,9 +393,6 @@ pub enum ExtensionCommands {
         /// Port to listen on
         #[arg(long, default_value = "19222")]
         port: u16,
-        /// Use an isolated Chrome profile for the extension bridge
-        #[arg(long)]
-        isolated: bool,
     },
 
     /// Check if the bridge server is running
