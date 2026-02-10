@@ -163,11 +163,24 @@ async fn ping(_cli: &Cli, port: u16) -> Result<()> {
 }
 
 async fn stop(cli: &Cli, port: u16) -> Result<()> {
-    // Try to find the bridge PID from either isolated or global PID file,
-    // tracking which file it came from so we only clean up the right one.
-    let (pid, is_isolated) = match extension_bridge::read_isolated_pid_file().await {
-        Some(p) => (Some(p), true),
-        None => (extension_bridge::read_pid_file().await, false),
+    // Resolve which PID file to use based on port files, so we don't
+    // accidentally stop the wrong bridge when both isolated and standard
+    // bridges are running on different ports.
+    let isolated_port = extension_bridge::read_isolated_port_file().await;
+    let standard_port = extension_bridge::read_port_file().await;
+
+    let (pid, is_isolated) = if isolated_port == Some(port) {
+        (extension_bridge::read_isolated_pid_file().await, true)
+    } else if standard_port == Some(port) {
+        (extension_bridge::read_pid_file().await, false)
+    } else {
+        // No port file matches the requested port — fall back to trying
+        // both PID files for backwards compatibility (e.g. port files
+        // were cleaned up but PID file remains).
+        match extension_bridge::read_isolated_pid_file().await {
+            Some(p) => (Some(p), true),
+            None => (extension_bridge::read_pid_file().await, false),
+        }
     };
 
     let delete_pid_file = |is_isolated: bool| async move {
@@ -198,7 +211,19 @@ async fn stop(cli: &Cli, port: u16) -> Result<()> {
             // sending any signal. This prevents sending SIGTERM to an unrelated
             // process that happens to have the same PID (PID recycling).
             if !extension_bridge::is_bridge_running(port).await {
-                delete_pid_file(is_isolated).await;
+                // Port probe failed, but the process may still be alive on a
+                // different port. Only remove the PID file if the process
+                // itself is gone, so a later `extension stop --port <correct>`
+                // can still find and stop it.
+                #[cfg(unix)]
+                let process_alive = unsafe { libc::kill(pid as i32, 0) } == 0;
+                #[cfg(not(unix))]
+                let process_alive = false;
+
+                if !process_alive {
+                    delete_pid_file(is_isolated).await;
+                }
+
                 if cli.json {
                     println!(
                         "{}",
@@ -206,8 +231,14 @@ async fn stop(cli: &Cli, port: u16) -> Result<()> {
                     );
                 } else {
                     println!(
-                        "  {} Bridge is not running (cleaned up stale PID file)",
-                        "ℹ".dimmed()
+                        "  {} Bridge is not running on port {}{}",
+                        "ℹ".dimmed(),
+                        port,
+                        if process_alive {
+                            format!(" (process {} may be on a different port)", pid)
+                        } else {
+                            " (cleaned up stale PID file)".to_string()
+                        }
                     );
                 }
                 return Ok(());
