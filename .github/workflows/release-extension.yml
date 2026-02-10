@@ -33,25 +33,16 @@ jobs:
           echo "Version verified: $TAG_VERSION"
 
       - name: Package extension
-        run: |
-          ZIP_NAME="actionbook-extension-v${{ steps.version.outputs.version }}.zip"
-          mkdir -p dist
-
-          zip -r9 "dist/${ZIP_NAME}" \
-            manifest.json \
-            background.js \
-            popup.html \
-            popup.js \
-            offscreen.html \
-            offscreen.js \
-            icons/
+        run: node scripts/package.js
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Actionbook Extension v${{ steps.version.outputs.version }}
-          files: packages/actionbook-extension/dist/actionbook-extension-v${{ steps.version.outputs.version }}.zip
+          files: |
+            packages/actionbook-extension/dist/actionbook-extension-v${{ steps.version.outputs.version }}.zip
+            packages/actionbook-extension/dist/actionbook-extension-v${{ steps.version.outputs.version }}-cws.zip
           body: |
             ## Actionbook Chrome Extension v${{ steps.version.outputs.version }}
 
@@ -68,6 +59,9 @@ jobs:
             3. Open `chrome://extensions` in Chrome
             4. Enable **Developer mode**
             5. Click **Load unpacked** and select the unzipped folder
+
+            **Option 3: Chrome Web Store**
+            Download `actionbook-extension-v${{ steps.version.outputs.version }}-cws.zip` for Chrome Web Store submission (manifest without `key` field).
 
             ### After installing
             ```bash

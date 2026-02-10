@@ -54,6 +54,44 @@ execSync(`zip -r9 "${zipPath}" ${includeFiles.join(' ')}`, {
 const stats = fs.statSync(zipPath)
 const sizeKB = (stats.size / 1024).toFixed(1)
 
+// --- Chrome Web Store variant (without `key` field) ---
+const cwsZipName = `actionbook-extension-v${version}-cws.zip`
+const cwsZipPath = path.join(DIST, cwsZipName)
+
+const cwsManifest = { ...manifest }
+delete cwsManifest.key
+
+// Stage files in a temp directory so manifest.json has no `key`
+const cwsTmp = path.join(DIST, '_cws_tmp')
+fs.mkdirSync(cwsTmp, { recursive: true })
+
+for (const f of includeFiles) {
+  const dest = path.join(cwsTmp, f)
+  fs.mkdirSync(path.dirname(dest), { recursive: true })
+  if (f === 'manifest.json') {
+    fs.writeFileSync(dest, JSON.stringify(cwsManifest, null, 2) + '\n')
+  } else {
+    fs.copyFileSync(path.join(ROOT, f), dest)
+  }
+}
+
+if (fs.existsSync(cwsZipPath)) {
+  fs.unlinkSync(cwsZipPath)
+}
+
+execSync(`zip -r9 "${cwsZipPath}" ${includeFiles.join(' ')}`, {
+  cwd: cwsTmp,
+  stdio: 'inherit',
+})
+
+fs.rmSync(cwsTmp, { recursive: true })
+
+const cwsStats = fs.statSync(cwsZipPath)
+const cwsSizeKB = (cwsStats.size / 1024).toFixed(1)
+
 console.log()
-console.log(`Packaged: ${zipName} (${sizeKB} KB)`)
-console.log(`Output:   ${zipPath}`)
+console.log('Sideloading (GitHub Release):')
+console.log(`  ${zipName} (${sizeKB} KB)`)
+console.log(`Chrome Web Store:`)
+console.log(`  ${cwsZipName} (${cwsSizeKB} KB)`)
+console.log(`Output: ${DIST}`)
