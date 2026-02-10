@@ -1,0 +1,6 @@
+{
+  "actionbook": {
+    "command": "npx",
+    "args": ["-y", "@actionbookdev/mcp@latest"]
+  }
+}

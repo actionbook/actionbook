@@ -229,7 +229,7 @@ async function connect() {
       return;
     }
 
-    // Handle hello_error from server (version mismatch, etc.)
+    // Handle hello_error from server (version mismatch, invalid token, etc.)
     if (msg.type === "hello_error") {
       debugLog("[actionbook] Server rejected handshake:", msg.message);
       handshakeCompleted = false;
@@ -237,10 +237,24 @@ async function connect() {
         clearTimeout(handshakeTimer);
         handshakeTimer = null;
       }
-      connectionState = "failed";
-      logStateTransition("failed", msg.message || "handshake rejected by server");
-      broadcastState();
       if (ws) { ws.close(); ws = null; }
+
+      if (msg.error === "invalid_token") {
+        // Token is stale — clear it and immediately try native messaging to get fresh token
+        chrome.storage.local.remove("bridgeToken", () => {
+          connectionState = "disconnected";
+          logStateTransition("disconnected", "invalid token, refreshing via native messaging");
+          broadcastState();
+          nativeMessagingAvailable = true;
+          nativeMessagingFailCount = 0;
+          tryNativeMessagingConnect();
+          startNativePolling();
+        });
+      } else {
+        connectionState = "failed";
+        logStateTransition("failed", msg.message || "handshake rejected by server");
+        broadcastState();
+      }
       return;
     }
 
@@ -897,6 +911,9 @@ let nativeMessagingFailCount = 0;
 const NATIVE_MESSAGING_MAX_FAILS = 5;
 let nativeRecheckTimer = null;
 
+// Progressive backoff intervals for native messaging recheck (ms)
+const NATIVE_RECHECK_INTERVALS = [3000, 5000, 10000, 30000, 60000];
+
 /**
  * Attempt to read the bridge session token from the CLI via Chrome Native Messaging.
  * If successful, stores the token and initiates connection automatically.
@@ -944,6 +961,8 @@ async function tryNativeMessagingConnect() {
             debugLog("[actionbook] Rejected invalid token from native host");
             return;
           }
+          // Reset fail count on successful native messaging exchange
+          nativeMessagingFailCount = 0;
           const storageData = { bridgeToken: response.token };
           if (response.port) {
             storageData.bridgePort = response.port;
@@ -954,8 +973,8 @@ async function tryNativeMessagingConnect() {
             stopNativePolling();
             connect();
           });
-        } else if (response && response.type === "error" && response.error === "no_token") {
-          // Bridge not running yet - keep polling
+        } else if (response && response.type === "error" && (response.error === "no_token" || response.error === "bridge_not_running")) {
+          // Bridge not running yet — keep polling, don't count as native messaging failure
           debugLog("[actionbook] Bridge not running, will retry...");
         }
       }
@@ -966,17 +985,24 @@ async function tryNativeMessagingConnect() {
 }
 
 /**
- * Schedule a periodic recheck of native messaging availability.
- * After too many failures, we pause polling but recheck every 60s.
+ * Schedule a recheck of native messaging availability with progressive backoff.
+ * Uses increasing intervals: 3s, 5s, 10s, 30s, 60s (then stays at 60s).
+ * Never permanently gives up — the user may install the extension at any time.
  */
 function scheduleNativeRecheck() {
   if (nativeRecheckTimer) return;
+  // Pick delay based on how many times we've already rechecked
+  // nativeMessagingFailCount tracks cumulative failures across rechecks
+  const recheckIndex = Math.max(0, Math.floor(nativeMessagingFailCount / NATIVE_MESSAGING_MAX_FAILS) - 1);
+  const delay = NATIVE_RECHECK_INTERVALS[
+    Math.min(recheckIndex, NATIVE_RECHECK_INTERVALS.length - 1)
+  ];
+  debugLog(`[actionbook] Scheduling native messaging recheck in ${delay}ms`);
   nativeRecheckTimer = setTimeout(() => {
     nativeRecheckTimer = null;
     nativeMessagingAvailable = true;
-    nativeMessagingFailCount = 0;
     startNativePolling();
-  }, 60000);
+  }, delay);
 }
 
 /**

@@ -8,57 +8,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for suggesting a new feature!
-
-        Please check if similar feature requests already exist.
-
-  - type: checkboxes
-    id: prerequisites
-    attributes:
-      label: Prerequisites
-      options:
-        - label: I have searched existing feature requests
-          required: true
-        - label: I have checked the roadmap/milestones
-          required: true
-
-  - type: dropdown
-    id: component
-    attributes:
-      label: Target Component
-      description: Which component should this feature be added to?
-      options:
-        - "SDK (@actionbookdev/sdk)"
-        - "MCP Server (@actionbookdev/mcp)"
-        - "Action Builder"
-        - "Knowledge Builder"
-        - "API Service"
-        - "Database (services/db)"
-        - "Website (apps/website)"
-        - "Documentation"
-        - "Platform-wide"
-        - "Other (please specify in description)"
-    validations:
-      required: true
-
-  - type: dropdown
-    id: feature-type
-    attributes:
-      label: Feature Type
-      description: What type of feature is this?
-      options:
-        - New Tool/Method
-        - Browser Automation Enhancement
-        - MCP Protocol Extension
-        - Action Recording Enhancement
-        - Scenario Knowledge Extraction
-        - API Enhancement
-        - Performance Improvement
-        - Developer Experience (DX)
-        - Documentation
-        - Other
-    validations:
-      required: true
+        Thanks for suggesting a feature.
+        Keep it short; we can refine details during discussion.
 
   - type: textarea
     id: problem
@@ -75,89 +26,47 @@ body:
     id: solution
     attributes:
       label: Proposed Solution
-      description: Describe the solution you'd like to see
+      description: What would you like to happen?
       placeholder: |
         I would like to see a new feature that...
         This would work by...
     validations:
       required: true
 
-  - type: textarea
-    id: alternatives
-    attributes:
-      label: Alternatives Considered
-      description: Have you considered any alternative solutions?
-      placeholder: |
-        I've looked at...
-        But they don't work because...
-    validations:
-      required: false
-
-  - type: textarea
-    id: api-design
-    attributes:
-      label: API Design Proposal (Optional)
-      description: If applicable, propose an API design
-      placeholder: |
-        ```typescript
-        // Proposed API
-        const result = await actionbook.newFeature({
-          option1: 'value',
-          option2: true
-        });
-        ```
-      render: typescript
-    validations:
-      required: false
-
   - type: dropdown
-    id: priority
+    id: component
     attributes:
-      label: Priority
-      description: How important is this feature to you?
+      label: Target Component (Optional)
+      description: Which component should this feature be added to?
       options:
-        - Critical - Blocking my work
-        - High - Significantly impacts productivity
-        - Medium - Would be nice to have
-        - Low - Minor convenience
+        - "SDK (@actionbookdev/sdk)"
+        - "MCP Server (@actionbookdev/mcp)"
+        - "Action Builder"
+        - "Knowledge Builder"
+        - "API Service"
+        - "Database (services/db)"
+        - "Website (apps/website)"
+        - "Documentation"
+        - "Platform-wide"
+        - "Other"
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: use-cases
     attributes:
-      label: Use Cases
-      description: Describe specific scenarios where this feature would be useful
-      placeholder: |
-        Use Case 1: When building action libraries for e-commerce sites...
-        Use Case 2: In high-traffic production environments with AI agents...
-    validations:
-      required: true
-
-  - type: textarea
-    id: benefits
-    attributes:
-      label: Expected Benefits
-      description: What benefits would this feature provide?
-      placeholder: |
-        - Reduce token usage by X%
-        - Improve action accuracy
-        - Simplify developer workflow
-        - Better AI agent integration
+      label: Use Cases (Optional)
+      description: Where would this help the most?
+      placeholder: Describe one or two real scenarios
     validations:
       required: false
 
   - type: textarea
     id: additional-context
     attributes:
-      label: Additional Context
-      description: Any other context, mockups, or examples
-      placeholder: |
-        Links to similar implementations:
-        - https://example.com/similar-feature
-
-        Related issues:
-        - #123
+      label: Additional Context (Optional)
+      description: Any links, screenshots, or examples
+      placeholder: Share anything else useful
     validations:
       required: false
 

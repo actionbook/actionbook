@@ -190,7 +190,7 @@ mod bridge_tests {
         assert_ne!(t1, t2, "Tokens should be unique");
     }
 
-    /// Test: Connection with invalid token is closed.
+    /// Test: Connection with invalid token receives hello_error and is then closed.
     #[tokio::test]
     async fn invalid_token_closes_connection() {
         let port = free_port().await;
@@ -211,9 +211,16 @@ mod bridge_tests {
         )
         .await;
 
-        // The server should close the connection - next read should fail or return close
+        // The server should send a hello_error with invalid_token before closing
         let result = try_recv_json_timeout(&mut ws, 2000).await;
-        assert!(result.is_none(), "Connection should be closed after invalid token");
+        assert!(result.is_some(), "Should receive hello_error before connection close");
+        let msg = result.unwrap();
+        assert_eq!(msg["type"], "hello_error");
+        assert_eq!(msg["error"], "invalid_token");
+
+        // Connection should be closed after the error message
+        let after = try_recv_json_timeout(&mut ws, 2000).await;
+        assert!(after.is_none(), "Connection should be closed after hello_error");
 
         server_handle.abort();
     }

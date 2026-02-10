@@ -8,12 +8,13 @@ body:
   - type: markdown
     attributes:
       value: |
-        Report performance bottlenecks or optimization opportunities in Actionbook.
+        Report performance bottlenecks or optimization opportunities.
+        Share the essentials first; details can be added later.
 
   - type: dropdown
     id: component
     attributes:
-      label: Affected Component
+      label: Affected Component (Optional)
       description: Which component has the performance issue?
       options:
         - "SDK (@actionbookdev/sdk)"
@@ -24,29 +25,9 @@ body:
         - "Database (services/db)"
         - "Website (apps/website)"
         - "Platform-wide"
-        - "Other (please specify in description)"
-    validations:
-      required: true
-
-  - type: dropdown
-    id: performance-area
-    attributes:
-      label: Performance Area
-      description: Which area is affected?
-      options:
-        - Token Usage / Cost Optimization
-        - Browser Automation Speed
-        - Action Recording Performance
-        - Knowledge Extraction Speed
-        - API Response Time
-        - Database Query Performance
-        - Memory Usage
-        - Network Latency
-        - Cold Start Performance
-        - Vector Search Performance
         - Other
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: current-performance
@@ -78,19 +59,19 @@ body:
   - type: textarea
     id: reproduction
     attributes:
-      label: Reproduction Steps
+      label: Reproduction Steps (Optional)
       description: How to reproduce the performance issue
       placeholder: |
         1. Initialize component with...
         2. Perform operation...
         3. Measure using...
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: profiling-data
     attributes:
-      label: Profiling Data
+      label: Profiling Data (Optional)
       description: Include profiling or benchmark results if available
       placeholder: |
         Attach screenshots, flame graphs, or benchmark results
@@ -104,56 +85,13 @@ body:
       required: false
 
   - type: textarea
-    id: environment
-    attributes:
-      label: Environment Details
-      description: Relevant environment information
-      placeholder: |
-        - Component version: x.x.x
-        - Node.js version: x.x.x
-        - Database: PostgreSQL x.x.x
-        - Browser: Chrome x.x.x
-        - OS: macOS/Windows/Linux
-        - Memory: 8GB/16GB/32GB
-    validations:
-      required: false
-
-  - type: textarea
-    id: optimization-ideas
-    attributes:
-      label: Optimization Ideas
-      description: Any ideas for optimization?
-      placeholder: |
-        - Implement caching for frequently accessed actions
-        - Reduce API calls by batching requests
-        - Use streaming instead of full response loading
-        - Optimize database indexes
-        - Implement connection pooling
-    validations:
-      required: false
-
-  - type: textarea
-    id: impact
-    attributes:
-      label: Impact Assessment
-      description: How does this performance issue impact your usage?
-      placeholder: |
-        - Production deployment blocked
-        - Increased costs due to token usage
-        - Poor user experience
-        - Cannot scale to required load
-    validations:
-      required: false
-
-  - type: textarea
     id: additional-context
     attributes:
-      label: Additional Context
+      label: Additional Context (Optional)
       description: Any other relevant information
       placeholder: |
+        - Environment details
         - Workload characteristics
         - Traffic patterns
-        - Data volume
-        - Concurrent operations
     validations:
       required: false
