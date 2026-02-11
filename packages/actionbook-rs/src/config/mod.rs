@@ -108,12 +108,18 @@ impl Config {
     /// Load configuration from all sources (file, env, defaults)
     pub fn load() -> Result<Self> {
         let config_path = Self::config_path();
+        let legacy_config_path = Self::legacy_config_path();
+        let config_file = if config_path.exists() {
+            config_path
+        } else {
+            legacy_config_path
+        };
 
         let config: Config = Figment::new()
             // Start with defaults
             .merge(Serialized::defaults(Config::default()))
             // Merge config file if exists
-            .merge(Toml::file(&config_path))
+            .merge(Toml::file(&config_file))
             // Merge environment variables (ACTIONBOOK_*)
             .merge(Env::prefixed("ACTIONBOOK_").split("_"))
             .extract()
@@ -124,6 +130,17 @@ impl Config {
 
     /// Get the configuration file path
     pub fn config_path() -> PathBuf {
+        Self::config_path_from_home(dirs::home_dir())
+    }
+
+    fn config_path_from_home(home_dir: Option<PathBuf>) -> PathBuf {
+        home_dir
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".actionbook")
+            .join("config.toml")
+    }
+
+    fn legacy_config_path() -> PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("actionbook")
@@ -274,4 +291,18 @@ mod tests {
         assert!(matches!(result, Err(ActionbookError::ConfigError(_))));
     }
 
+    #[test]
+    fn config_path_uses_dot_actionbook_under_home() {
+        let path = Config::config_path_from_home(Some(PathBuf::from("/tmp/actionbook-home")));
+        assert_eq!(
+            path,
+            PathBuf::from("/tmp/actionbook-home/.actionbook/config.toml")
+        );
+    }
+
+    #[test]
+    fn config_path_falls_back_to_current_directory_without_home() {
+        let path = Config::config_path_from_home(None);
+        assert_eq!(path, PathBuf::from("./.actionbook/config.toml"));
+    }
 }

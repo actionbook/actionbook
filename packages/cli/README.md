@@ -146,7 +146,7 @@ actionbook profile delete work
 
 ## Configuration
 
-Config file location: `~/.config/actionbook/config.toml`
+Config file location: `~/.actionbook/config.toml`
 
 ```toml
 [api]

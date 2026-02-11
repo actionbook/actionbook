@@ -252,9 +252,9 @@ actionbook --profile work browser open "https://example.com"
 
 ### Config File Location
 
-- macOS: `~/.config/actionbook/config.toml`
-- Linux: `~/.config/actionbook/config.toml`
-- Windows: `%APPDATA%\actionbook\config.toml`
+- macOS: `~/.actionbook/config.toml`
+- Linux: `~/.actionbook/config.toml`
+- Windows: `%USERPROFILE%\.actionbook\config.toml`
 
 ### Example Config
 
