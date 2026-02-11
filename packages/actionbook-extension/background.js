@@ -374,12 +374,7 @@ async function createOrReuseTab(targetUrl) {
     isReusableInitialEmptyTab(tabsInCurrentWindow[0])
   ) {
     const reusableTab = tabsInCurrentWindow[0];
-    const shouldNavigate = targetUrl && targetUrl !== "about:blank";
-    const updateProps = shouldNavigate
-      ? { url: targetUrl, active: true }
-      : { active: true };
-
-    const tab = await chrome.tabs.update(reusableTab.id, updateProps);
+    const tab = await chrome.tabs.update(reusableTab.id, { url: targetUrl, active: true });
     return { tab, reused: true };
   }
 

@@ -341,11 +341,7 @@ async fn try_open_on_initial_blank_page(
         }
     }
 
-    let _ = timeout(
-        Duration::from_secs(30),
-        session_manager.wait_for_navigation(profile_name, 30_000),
-    )
-    .await;
+    let _ = wait_for_document_complete(session_manager, profile_name, 30_000).await;
 
     let title = match timeout(
         Duration::from_secs(5),
@@ -358,6 +354,34 @@ async fn try_open_on_initial_blank_page(
     };
 
     Ok(Some(title))
+}
+
+async fn wait_for_document_complete(
+    session_manager: &SessionManager,
+    profile_name: Option<&str>,
+    timeout_ms: u64,
+) -> Result<()> {
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_millis(timeout_ms);
+
+    loop {
+        let ready_state = session_manager
+            .eval_on_page(profile_name, "document.readyState")
+            .await?;
+
+        if ready_state.as_str() == Some("complete") {
+            return Ok(());
+        }
+
+        if start.elapsed() > timeout {
+            return Err(ActionbookError::Timeout(format!(
+                "Page did not reach complete state within {}ms",
+                timeout_ms
+            )));
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
 }
 
 fn is_host_port_with_optional_path(input: &str) -> bool {
