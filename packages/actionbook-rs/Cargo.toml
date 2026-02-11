@@ -62,6 +62,9 @@ semver = "1"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tempfile = "3"
 
+# Async trait
+async-trait = "0.1"
+
 # Utils
 dirs = "6"
 console = "0.15"

@@ -1,6 +1,9 @@
+pub mod backend;
 mod discovery;
-pub mod extension_installer;
+pub mod extension_backend;
 pub mod extension_bridge;
+pub mod extension_installer;
+pub mod isolated_backend;
 pub mod launcher;
 pub mod native_messaging;
 mod session;
