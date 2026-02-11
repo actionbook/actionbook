@@ -25,6 +25,10 @@ use crate::error::{ActionbookError, Result};
 /// Priority: --extension flag (deprecated) > --browser-mode flag > config.browser.mode
 fn resolve_mode(cli: &Cli, config: &Config) -> BrowserMode {
     if cli.extension {
+        eprintln!(
+            "Warning: --extension is deprecated. Use --browser-mode=extension instead, \
+             or set mode = \"extension\" in config.toml under [browser]."
+        );
         return BrowserMode::Extension;
     }
     match cli.browser_mode {
@@ -71,6 +75,25 @@ fn effective_profile_arg<'a>(cli: &'a Cli, config: &'a Config) -> Option<&'a str
     Some(effective_profile_name(cli, config))
 }
 
+/// The clap default for `--extension-port`. Must match the `default_value` in cli.rs.
+const CLI_DEFAULT_EXTENSION_PORT: u16 = 19222;
+
+/// Resolve the effective extension bridge port.
+/// Config `browser.extension.port` is the source of truth.
+/// CLI `--extension-port` overrides ONLY if the user explicitly passed a non-default value.
+fn resolve_extension_port(cli: &Cli, config: &Config) -> u16 {
+    // clap always populates extension_port (default = 19222). We can't distinguish
+    // "user passed --extension-port=19222" from "user didn't pass the flag at all".
+    // Compare against the *clap default* (not config) to detect explicit CLI usage.
+    // This means `--extension-port=19222` when config is different will be missed,
+    // but that's an acceptable edge case for a deprecated hidden flag.
+    if cli.extension_port != CLI_DEFAULT_EXTENSION_PORT {
+        cli.extension_port
+    } else {
+        config.browser.extension.port
+    }
+}
+
 /// Create the appropriate backend based on resolved mode.
 /// In extension mode, auto-starts the bridge daemon if not already running.
 ///
@@ -80,17 +103,18 @@ fn effective_profile_arg<'a>(cli: &'a Cli, config: &'a Config) -> Option<&'a str
 async fn create_backend(
     cli: &Cli,
     config: &Config,
+    mode: BrowserMode,
 ) -> Result<(Box<dyn BrowserBackend>, bool)> {
-    match resolve_mode(cli, config) {
+    match mode {
         BrowserMode::Isolated => {
             let sm = create_session_manager(cli, config);
             let profile = effective_profile_name(cli, config).to_string();
             Ok((Box::new(IsolatedBackend::new(sm, profile)), false))
         }
         BrowserMode::Extension => {
-            let auto_started =
-                bridge_lifecycle::ensure_bridge_running(cli.extension_port).await?;
-            Ok((Box::new(ExtensionBackend::new(cli.extension_port)), auto_started))
+            let port = resolve_extension_port(cli, config);
+            let auto_started = bridge_lifecycle::ensure_bridge_running(port).await?;
+            Ok((Box::new(ExtensionBackend::new(port)), auto_started))
         }
     }
 }
@@ -246,9 +270,10 @@ async fn ensure_cdp_override(cli: &Cli, config: &Config) -> Result<()> {
 
 pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
     let config = Config::load()?;
+    let mode = resolve_mode(cli, &config);
 
     // --profile is not supported in extension mode
-    if resolve_mode(cli, &config) == BrowserMode::Extension && cli.profile.is_some() {
+    if mode == BrowserMode::Extension && cli.profile.is_some() {
         return Err(ActionbookError::Other(
             "--profile is not supported in extension mode. Extension operates on your live Chrome profile. \
              Remove --profile to use the default profile, or switch to isolated mode.".to_string()
@@ -256,7 +281,7 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
     }
 
     // CDP override (isolated mode only, skip for connect)
-    if resolve_mode(cli, &config) == BrowserMode::Isolated
+    if mode == BrowserMode::Isolated
         && !matches!(command, BrowserCommands::Connect { .. })
     {
         ensure_cdp_override(cli, &config).await?;
@@ -273,14 +298,12 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
     // This avoids the pathological case where `close` starts a bridge just to
     // send detachTab, then waits 30s for an extension that will never connect,
     // and potentially leaks the auto-started bridge process.
-    if matches!(command, BrowserCommands::Close)
-        && resolve_mode(cli, &config) == BrowserMode::Extension
-    {
-        return close_extension(cli).await;
+    if matches!(command, BrowserCommands::Close) && mode == BrowserMode::Extension {
+        return close_extension(cli, &config).await;
     }
 
     // Create backend for all other commands
-    let (backend, bridge_auto_started) = create_backend(cli, &config).await?;
+    let (backend, bridge_auto_started) = create_backend(cli, &config, mode).await?;
 
     match command {
         BrowserCommands::Open { url } => open(cli, &*backend, url).await,
@@ -327,7 +350,7 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
         }
         BrowserCommands::Viewport => viewport(cli, &*backend).await,
         BrowserCommands::Cookies { command: cmd } => cookies(cli, &*backend, cmd).await,
-        BrowserCommands::Close => close(cli, &config, &*backend, bridge_auto_started).await,
+        BrowserCommands::Close => close(cli, &config, &*backend, bridge_auto_started, mode).await,
         BrowserCommands::Restart => restart(cli, &*backend).await,
         // Status and Connect are handled above
         BrowserCommands::Status | BrowserCommands::Connect { .. } => unreachable!(),
@@ -1266,8 +1289,8 @@ async fn cookies(
 /// If the bridge is running, attempt a single detachTab (no 30s retry).
 /// Detach failure is non-fatal: the user asked to close, so we succeed
 /// regardless (the tab is not "owned" by us in extension mode).
-async fn close_extension(cli: &Cli) -> Result<()> {
-    let port = cli.extension_port;
+async fn close_extension(cli: &Cli, config: &Config) -> Result<()> {
+    let port = resolve_extension_port(cli, config);
 
     if extension_bridge::is_bridge_running(port).await {
         match extension_bridge::send_command(
@@ -1296,14 +1319,15 @@ async fn close(
     config: &Config,
     backend: &dyn BrowserBackend,
     bridge_auto_started: bool,
+    mode: BrowserMode,
 ) -> Result<()> {
     backend.close().await?;
 
     // Only stop the bridge if *this* CLI invocation auto-started it.
     // The bridge is a shared daemon — other CLI sessions or MCP tools may
     // still be using it. Use `actionbook extension stop` for explicit shutdown.
-    if bridge_auto_started && resolve_mode(cli, config) == BrowserMode::Extension {
-        bridge_lifecycle::stop_bridge(cli.extension_port).await?;
+    if bridge_auto_started && mode == BrowserMode::Extension {
+        bridge_lifecycle::stop_bridge(resolve_extension_port(cli, config)).await?;
     }
 
     if cli.json {

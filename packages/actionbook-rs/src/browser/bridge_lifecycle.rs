@@ -31,7 +31,7 @@ pub async fn ensure_bridge_running(port: u16) -> Result<bool> {
         return Err(ActionbookError::ExtensionError(format!(
             "Port {} is already in use but does not appear to be an Actionbook bridge \
              (no matching PID file found). Another application may be using this port. \
-             Try a different port with `--extension-port` or in config.toml under [browser.extension].",
+             Try a different port in config.toml under [browser.extension].",
             port
         )));
     }
@@ -211,4 +211,76 @@ async fn cleanup_files() {
     extension_bridge::delete_pid_file().await;
     extension_bridge::delete_token_file().await;
     extension_bridge::delete_port_file().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: bind a TCP listener on an OS-assigned port and return (listener, port).
+    async fn bind_random_port() -> (tokio::net::TcpListener, u16) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind random port");
+        let port = listener.local_addr().unwrap().port();
+        (listener, port)
+    }
+
+    #[tokio::test]
+    async fn stop_bridge_noop_when_not_running() {
+        // Nothing is listening on this port, no PID file matches → silent no-op
+        let (_listener, port) = bind_random_port().await;
+        drop(_listener); // free the port immediately
+        let result = stop_bridge(port).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn stop_bridge_noop_when_port_has_no_matching_pid() {
+        // Something IS listening (our test TCP server), but PID file won't match
+        // this random port → returns Ok with a tracing::warn
+        let (_listener, port) = bind_random_port().await;
+        let result = stop_bridge(port).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn ensure_bridge_detects_port_conflict() {
+        // Bind a TCP listener to simulate a foreign process occupying the port.
+        // No PID file will match this random port → should return port-conflict error.
+        let (_listener, port) = bind_random_port().await;
+
+        let result = ensure_bridge_running(port).await;
+        assert!(result.is_err(), "Expected port conflict error");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("already in use"),
+            "Expected 'already in use' in error, got: {}",
+            err_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn ensure_bridge_attempts_spawn_when_port_free() {
+        // Free port, nothing listening → ensure_bridge_running will try to spawn
+        // the binary. In test env, the spawned process won't have `extension serve`
+        // subcommand or will fail to start in time → expect timeout/spawn error.
+        let (_listener, port) = bind_random_port().await;
+        drop(_listener); // free the port
+
+        let result = ensure_bridge_running(port).await;
+        // Either spawned successfully (unlikely in test) or timed out
+        match result {
+            Ok(true) => {} // bridge somehow started
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(
+                    msg.contains("did not start") || msg.contains("spawn") || msg.contains("Bridge"),
+                    "Expected bridge start/spawn error, got: {}",
+                    msg
+                );
+            }
+            Ok(false) => panic!("Should not return Ok(false) when bridge was not previously running"),
+        }
+    }
 }

@@ -870,7 +870,7 @@ async fn handle_cli_client(
 }
 
 /// Send a single command to the extension via the bridge and wait for the response.
-/// Used by CLI commands when `--extension` mode is active.
+/// Used by CLI commands when `--browser-mode=extension` is active.
 pub async fn send_command(
     port: u16,
     method: &str,

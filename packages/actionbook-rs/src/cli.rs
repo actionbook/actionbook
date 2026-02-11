@@ -81,8 +81,8 @@ pub struct Cli {
     #[arg(long, env = "ACTIONBOOK_EXTENSION", global = true, hide = true)]
     pub extension: bool,
 
-    /// Extension bridge port
-    #[arg(long, env = "ACTIONBOOK_EXTENSION_PORT", global = true, default_value = "19222")]
+    /// [Deprecated: set port in config.toml under [browser.extension]] Extension bridge port override
+    #[arg(long, env = "ACTIONBOOK_EXTENSION_PORT", global = true, default_value = "19222", hide = true)]
     pub extension_port: u16,
 
     /// Enable verbose output
