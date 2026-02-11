@@ -350,6 +350,43 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   }
 });
 
+const REUSABLE_EMPTY_TAB_URLS = new Set([
+  "about:blank",
+  "about:newtab",
+  "chrome://newtab/",
+  "chrome://new-tab-page/",
+  "edge://newtab/",
+]);
+
+function tabUrlForReuse(tab) {
+  return (tab?.pendingUrl || tab?.url || "").toLowerCase();
+}
+
+function isReusableInitialEmptyTab(tab) {
+  if (!tab || typeof tab.id !== "number") return false;
+  return REUSABLE_EMPTY_TAB_URLS.has(tabUrlForReuse(tab));
+}
+
+async function createOrReuseTab(targetUrl) {
+  const tabsInCurrentWindow = await chrome.tabs.query({ currentWindow: true });
+  if (
+    tabsInCurrentWindow.length === 1 &&
+    isReusableInitialEmptyTab(tabsInCurrentWindow[0])
+  ) {
+    const reusableTab = tabsInCurrentWindow[0];
+    const shouldNavigate = targetUrl && targetUrl !== "about:blank";
+    const updateProps = shouldNavigate
+      ? { url: targetUrl, active: true }
+      : { active: true };
+
+    const tab = await chrome.tabs.update(reusableTab.id, updateProps);
+    return { tab, reused: true };
+  }
+
+  const tab = await chrome.tabs.create({ url: targetUrl });
+  return { tab, reused: false };
+}
+
 // --- Command Handler ---
 
 async function handleCommand(msg) {
@@ -443,9 +480,9 @@ async function handleExtensionCommand(id, method, params) {
 
     case "Extension.createTab": {
       const url = params.url || "about:blank";
-      const tab = await chrome.tabs.create({ url });
+      const { tab, reused } = await createOrReuseTab(url);
 
-      // Auto-attach debugger to the new tab so subsequent CDP commands target it
+      // Auto-attach debugger to the target tab so subsequent CDP commands target it
       try {
         if (attachedTabId !== null && attachedTabId !== tab.id) {
           try { await chrome.debugger.detach({ tabId: attachedTabId }); } catch (_) {}
@@ -454,10 +491,10 @@ async function handleExtensionCommand(id, method, params) {
           await chrome.debugger.attach({ tabId: tab.id }, "1.3");
           attachedTabId = tab.id;
         }
-        return { id, result: { tabId: tab.id, title: tab.title || "", url: tab.url || url, attached: true } };
+        return { id, result: { tabId: tab.id, title: tab.title || "", url: tab.url || url, attached: true, reused } };
       } catch (err) {
         // Tab created but debugger attach failed — return tab info with attached: false
-        return { id, result: { tabId: tab.id, title: tab.title || "", url: tab.url || url, attached: false, attachError: err.message } };
+        return { id, result: { tabId: tab.id, title: tab.title || "", url: tab.url || url, attached: false, attachError: err.message, reused } };
       }
     }
 
