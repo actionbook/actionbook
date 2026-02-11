@@ -21,7 +21,6 @@ pub async fn run(cli: &Cli, command: &ExtensionCommands) -> Result<()> {
 async fn serve(_cli: &Cli, port: u16) -> Result<()> {
     // Clean up stale bridge files from previous ungraceful shutdowns.
     extension_bridge::delete_port_file().await;
-    extension_bridge::delete_token_file().await;
 
     let extension_path = if extension_installer::is_installed() {
         let dir = extension_installer::extension_dir()?;
@@ -32,18 +31,6 @@ async fn serve(_cli: &Cli, port: u16) -> Result<()> {
     } else {
         "(not installed - run 'actionbook extension install')".dimmed().to_string()
     };
-
-    // Generate session token
-    let token = extension_bridge::generate_token();
-
-    // Write token file for CLI auto-read
-    if let Err(e) = extension_bridge::write_token_file(&token).await {
-        eprintln!(
-            "  {} Failed to write token file: {}",
-            "!".yellow(),
-            e
-        );
-    }
 
     println!();
     println!("  {}", "Actionbook Extension Bridge".bold());
@@ -60,22 +47,6 @@ async fn serve(_cli: &Cli, port: u16) -> Result<()> {
         extension_path
     );
     println!();
-    println!(
-        "  {}  Session token: {}",
-        "🔑".to_string().as_str(),
-        token.bold()
-    );
-    println!(
-        "  {}  Token file: {}",
-        "◆".cyan(),
-        extension_bridge::token_file_path()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| "unknown".to_string())
-            .dimmed()
-    );
-    println!();
-    println!("  {}  Configure the extension with this token", "ℹ".dimmed());
-    println!("  {}  Token expires after 30min of inactivity", "ℹ".dimmed());
     println!("  {}  Press Ctrl+C to stop", "ℹ".dimmed());
     println!();
 
@@ -88,11 +59,10 @@ async fn serve(_cli: &Cli, port: u16) -> Result<()> {
         );
     }
 
-    // Run the bridge server, cleaning up token file on shutdown
-    let result = extension_bridge::serve(port, token).await;
+    // Run the bridge server
+    let result = extension_bridge::serve(port).await;
 
-    // Cleanup token + PID files on exit
-    extension_bridge::delete_token_file().await;
+    // Cleanup PID file on exit
     extension_bridge::delete_pid_file().await;
 
     result

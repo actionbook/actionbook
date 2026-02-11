@@ -2,10 +2,8 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
 
 use futures::{SinkExt, StreamExt};
-use rand::Rng;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_tungstenite::tungstenite::http::StatusCode;
@@ -68,69 +66,8 @@ pub fn get_risk_level(method: &str) -> Option<RiskLevel> {
     }
 }
 
-/// Token prefix for all bridge session tokens.
-const TOKEN_PREFIX: &str = "abk_";
-
-/// Token idle timeout in seconds (30 minutes).
-const TOKEN_TTL_SECS: u64 = 30 * 60;
-
 /// Minimum protocol version we accept in hello handshake.
 const PROTOCOL_VERSION: &str = "0.2.0";
-
-/// Generate a new session token: `abk_` + 32 random hex characters.
-pub fn generate_token() -> String {
-    let mut rng = rand::thread_rng();
-    let bytes: [u8; 16] = rng.gen();
-    let hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
-    format!("{}{}", TOKEN_PREFIX, hex)
-}
-
-/// Path to the bridge token file: `~/.local/share/actionbook/bridge-token`
-pub fn token_file_path() -> Result<PathBuf> {
-    let data_dir = dirs::data_local_dir().ok_or_else(|| {
-        ActionbookError::Other("Cannot determine local data directory".to_string())
-    })?;
-    Ok(data_dir.join("actionbook").join("bridge-token"))
-}
-
-/// Write the session token to disk with mode 0600.
-/// Uses atomic write pattern: write to temp file with restricted permissions, then rename.
-pub async fn write_token_file(token: &str) -> Result<()> {
-    let path = token_file_path()?;
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-
-    #[cfg(unix)]
-    {
-        // Create temp file with 0600 permissions atomically (uses tokio's OpenOptionsExt)
-        let tmp_path = path.with_extension("tmp");
-        let mut opts = tokio::fs::OpenOptions::new();
-        opts.write(true).create(true).truncate(true).mode(0o600);
-        let mut file = opts.open(&tmp_path).await?;
-        tokio::io::AsyncWriteExt::write_all(&mut file, token.as_bytes()).await?;
-        tokio::io::AsyncWriteExt::flush(&mut file).await?;
-        drop(file);
-        // Atomic rename
-        tokio::fs::rename(&tmp_path, &path).await?;
-    }
-
-    #[cfg(not(unix))]
-    {
-        tokio::fs::write(&path, token).await?;
-    }
-
-    Ok(())
-}
-
-/// Delete the token file if it exists.
-pub async fn delete_token_file() {
-    if let Ok(path) = token_file_path() {
-        let _ = tokio::fs::remove_file(&path).await;
-        // Clean up legacy .isolated variant from pre-0.7 versions
-        let _ = tokio::fs::remove_file(path.with_extension("isolated")).await;
-    }
-}
 
 /// Path to the bridge port file: `~/.local/share/actionbook/bridge-port`
 pub fn port_file_path() -> Result<PathBuf> {
@@ -164,12 +101,6 @@ pub async fn delete_port_file() {
         // Clean up legacy .isolated variant from pre-0.7 versions
         let _ = tokio::fs::remove_file(path.with_extension("isolated")).await;
     }
-}
-
-/// Read the token from the token file. Returns None if file doesn't exist.
-pub async fn read_token_file() -> Option<String> {
-    let path = token_file_path().ok()?;
-    tokio::fs::read_to_string(&path).await.ok().map(|s| s.trim().to_string())
 }
 
 // --- PID file helpers ---
@@ -243,37 +174,27 @@ pub async fn read_legacy_isolated_pid_file() -> Option<(u32, u16)> {
 
 /// Shared state for the bridge server
 struct BridgeState {
-    /// Session token that clients must present in the hello handshake
-    token: String,
     /// Channel to send commands to the connected extension
     extension_tx: Option<mpsc::UnboundedSender<String>>,
     /// Pending CLI requests waiting for extension responses, keyed by request id
     pending: HashMap<u64, oneshot::Sender<String>>,
     /// Monotonically increasing request id counter
     next_id: u64,
-    /// Last activity timestamp (any message from any client resets this)
-    last_activity: Instant,
 }
 
 impl BridgeState {
-    fn new(token: String) -> Self {
+    fn new() -> Self {
         Self {
-            token,
             extension_tx: None,
             pending: HashMap::new(),
             next_id: 1,
-            last_activity: Instant::now(),
         }
-    }
-
-    fn touch(&mut self) {
-        self.last_activity = Instant::now();
     }
 }
 
-/// Start the bridge WebSocket server on the given port with the given session token.
+/// Start the bridge WebSocket server on the given port.
 /// This function blocks until the server is shut down.
-pub async fn serve(port: u16, token: String) -> Result<()> {
+pub async fn serve(port: u16) -> Result<()> {
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
     // Handle SIGINT/SIGTERM by sending on the oneshot
@@ -297,7 +218,7 @@ pub async fn serve(port: u16, token: String) -> Result<()> {
         let _ = shutdown_tx.send(());
     });
 
-    serve_with_shutdown(port, token, shutdown_rx).await
+    serve_with_shutdown(port, shutdown_rx).await
 }
 
 /// Start the bridge WebSocket server with an externally-controlled shutdown channel.
@@ -306,7 +227,6 @@ pub async fn serve(port: u16, token: String) -> Result<()> {
 /// a `oneshot::Receiver` that, when resolved, triggers graceful shutdown.
 pub async fn serve_with_shutdown(
     port: u16,
-    token: String,
     shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<()> {
     // Clean up stale port file from a previous ungraceful shutdown before starting.
@@ -317,7 +237,7 @@ pub async fn serve_with_shutdown(
         ActionbookError::Other(format!("Failed to bind to {}: {}", addr, e))
     })?;
 
-    let state = Arc::new(Mutex::new(BridgeState::new(token)));
+    let state = Arc::new(Mutex::new(BridgeState::new()));
 
     println!("Bridge server listening on ws://127.0.0.1:{}", port);
     println!("Waiting for extension connection...");
@@ -330,45 +250,6 @@ pub async fn serve_with_shutdown(
             e
         );
     }
-
-    // Spawn TTL watchdog
-    let ttl_state = Arc::clone(&state);
-    let ttl_handle = tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-            let mut s = ttl_state.lock().await;
-            if s.last_activity.elapsed().as_secs() >= TOKEN_TTL_SECS {
-                tracing::warn!("Token idle timeout reached ({}min). Generating new token.", TOKEN_TTL_SECS / 60);
-                let new_token = generate_token();
-                // Send token_expired notification before closing
-                if let Some(ext_tx) = s.extension_tx.take() {
-                    let expire_msg = serde_json::json!({
-                        "type": "token_expired",
-                        "message": "Session token expired due to inactivity"
-                    });
-                    let _ = ext_tx.send(expire_msg.to_string());
-                    drop(ext_tx);
-                }
-                // Notify all pending CLI requests with their original IDs
-                for (id, sender) in s.pending.drain() {
-                    let err_msg = serde_json::json!({
-                        "id": id,
-                        "error": { "code": -32000, "message": "Session token expired" }
-                    });
-                    let _ = sender.send(err_msg.to_string());
-                }
-                println!(
-                    "\n  {} Token expired due to inactivity. New token: {}\n",
-                    colored::Colorize::yellow("!"),
-                    new_token
-                );
-                // Write new token file
-                let _ = write_token_file(&new_token).await;
-                s.token = new_token;
-                s.last_activity = Instant::now();
-            }
-        }
-    });
 
     let accept_loop = async {
         loop {
@@ -402,7 +283,6 @@ pub async fn serve_with_shutdown(
 
     // Cleanup always runs, whether shutdown was graceful or the loop exited.
     delete_port_file().await;
-    ttl_handle.abort();
     result
 }
 
@@ -579,11 +459,6 @@ async fn handle_connection(stream: TcpStream, state: Arc<Mutex<BridgeState>>) {
         return;
     }
 
-    // Update activity timestamp
-    {
-        let mut s = state.lock().await;
-        s.touch();
-    }
 
     match client_role {
         "extension" => handle_extension_client(write, read, state).await,
@@ -636,12 +511,6 @@ async fn handle_extension_client(
     while let Some(frame) = read.next().await {
         match frame {
             Ok(Message::Text(text)) => {
-                // Update activity timestamp on every message
-                {
-                    let mut s = state.lock().await;
-                    s.touch();
-                }
-
                 let text_str = text.to_string();
                 match serde_json::from_str::<serde_json::Value>(&text_str) {
                     Ok(resp) => {
@@ -723,12 +592,6 @@ async fn handle_cli_client(
         }
     };
 
-    // Update activity
-    {
-        let mut s = state.lock().await;
-        s.touch();
-    }
-
     let method = first_msg
         .get("method")
         .and_then(|m| m.as_str())
@@ -761,15 +624,17 @@ async fn handle_cli_client(
         }
     };
 
-    // Log L2+ operations
+    // Log all CDP operations with risk level
     match risk_level {
+        RiskLevel::L1 => {
+            tracing::debug!("L1 operation: {} (read-only)", method);
+        }
         RiskLevel::L2 => {
             tracing::info!("L2 operation: {} (page modification)", method);
         }
         RiskLevel::L3 => {
             tracing::warn!("L3 operation: {} (high risk)", method);
         }
-        RiskLevel::L1 => {}
     }
 
     // Allocate a unique id and create a oneshot channel for the response

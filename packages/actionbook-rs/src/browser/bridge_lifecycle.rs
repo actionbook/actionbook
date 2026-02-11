@@ -209,7 +209,6 @@ pub async fn stop_bridge(port: u16) -> Result<()> {
 /// Clean up all bridge state files.
 async fn cleanup_files() {
     extension_bridge::delete_pid_file().await;
-    extension_bridge::delete_token_file().await;
     extension_bridge::delete_port_file().await;
 }
 

@@ -74,33 +74,24 @@ pub async fn run() -> crate::error::Result<()> {
         .unwrap_or("");
 
     let response = match msg_type {
-        "get_token" => {
-            let token = extension_bridge::read_token_file().await;
+        "get_bridge_info" | "get_token" => {
+            // "get_token" kept for backward compatibility, but no token is used anymore
             let port = extension_bridge::read_port_file().await.unwrap_or(DEFAULT_BRIDGE_PORT);
             let bridge_running = extension_bridge::is_bridge_running(port).await;
 
-            match token {
-                Some(t) if bridge_running => serde_json::json!({
-                    "type": "token",
-                    "token": t,
+            if bridge_running {
+                serde_json::json!({
+                    "type": "bridge_info",
                     "port": port,
                     "bridge_running": true,
-                }),
-                Some(_) => {
-                    // Token file exists but bridge is not running on the recorded port.
-                    // This indicates stale files from a previous ungraceful shutdown.
-                    serde_json::json!({
-                        "type": "error",
-                        "error": "bridge_not_running",
-                        "message": "Bridge token file exists but bridge is not responding. Restart with: actionbook extension serve",
-                        "port": port,
-                    })
-                }
-                None => serde_json::json!({
+                })
+            } else {
+                serde_json::json!({
                     "type": "error",
-                    "error": "no_token",
+                    "error": "bridge_not_running",
                     "message": "Bridge is not running. Start with: actionbook extension serve",
-                }),
+                    "port": port,
+                })
             }
         }
         _ => serde_json::json!({
