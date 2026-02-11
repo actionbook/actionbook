@@ -5,7 +5,9 @@ use std::time::Duration;
 use colored::Colorize;
 
 use crate::browser::backend::BrowserBackend;
+use crate::browser::bridge_lifecycle;
 use crate::browser::extension_backend::ExtensionBackend;
+use crate::browser::extension_bridge;
 use crate::browser::isolated_backend::IsolatedBackend;
 use crate::browser::{
     build_stealth_profile, discover_all_browsers, stealth_status, SessionManager, SessionStatus,
@@ -70,14 +72,26 @@ fn effective_profile_arg<'a>(cli: &'a Cli, config: &'a Config) -> Option<&'a str
 }
 
 /// Create the appropriate backend based on resolved mode.
-fn create_backend(cli: &Cli, config: &Config) -> Box<dyn BrowserBackend> {
+/// In extension mode, auto-starts the bridge daemon if not already running.
+///
+/// Returns `(backend, bridge_auto_started)` where `bridge_auto_started` is true
+/// only if this invocation spawned the bridge daemon (so `close` knows whether
+/// to stop it — the bridge is shared, so we only stop what we started).
+async fn create_backend(
+    cli: &Cli,
+    config: &Config,
+) -> Result<(Box<dyn BrowserBackend>, bool)> {
     match resolve_mode(cli, config) {
         BrowserMode::Isolated => {
             let sm = create_session_manager(cli, config);
             let profile = effective_profile_name(cli, config).to_string();
-            Box::new(IsolatedBackend::new(sm, profile))
+            Ok((Box::new(IsolatedBackend::new(sm, profile)), false))
         }
-        BrowserMode::Extension => Box::new(ExtensionBackend::new(cli.extension_port)),
+        BrowserMode::Extension => {
+            let auto_started =
+                bridge_lifecycle::ensure_bridge_running(cli.extension_port).await?;
+            Ok((Box::new(ExtensionBackend::new(cli.extension_port)), auto_started))
+        }
     }
 }
 
@@ -255,8 +269,18 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
         _ => {}
     }
 
+    // Close in extension mode: don't auto-start bridge, best-effort detach.
+    // This avoids the pathological case where `close` starts a bridge just to
+    // send detachTab, then waits 30s for an extension that will never connect,
+    // and potentially leaks the auto-started bridge process.
+    if matches!(command, BrowserCommands::Close)
+        && resolve_mode(cli, &config) == BrowserMode::Extension
+    {
+        return close_extension(cli).await;
+    }
+
     // Create backend for all other commands
-    let backend = create_backend(cli, &config);
+    let (backend, bridge_auto_started) = create_backend(cli, &config).await?;
 
     match command {
         BrowserCommands::Open { url } => open(cli, &*backend, url).await,
@@ -303,7 +327,7 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
         }
         BrowserCommands::Viewport => viewport(cli, &*backend).await,
         BrowserCommands::Cookies { command: cmd } => cookies(cli, &*backend, cmd).await,
-        BrowserCommands::Close => close(cli, &*backend).await,
+        BrowserCommands::Close => close(cli, &config, &*backend, bridge_auto_started).await,
         BrowserCommands::Restart => restart(cli, &*backend).await,
         // Status and Connect are handled above
         BrowserCommands::Status | BrowserCommands::Connect { .. } => unreachable!(),
@@ -1236,8 +1260,51 @@ async fn cookies(
     Ok(())
 }
 
-async fn close(cli: &Cli, backend: &dyn BrowserBackend) -> Result<()> {
+/// Close in extension mode without auto-starting the bridge.
+///
+/// If the bridge isn't running, there's nothing to close — report success.
+/// If the bridge is running, attempt a single detachTab (no 30s retry).
+/// Detach failure is non-fatal: the user asked to close, so we succeed
+/// regardless (the tab is not "owned" by us in extension mode).
+async fn close_extension(cli: &Cli) -> Result<()> {
+    let port = cli.extension_port;
+
+    if extension_bridge::is_bridge_running(port).await {
+        match extension_bridge::send_command(
+            port,
+            "Extension.detachTab",
+            serde_json::json!({}),
+        )
+        .await
+        {
+            Ok(_) => tracing::debug!("Extension tab detached"),
+            Err(e) => tracing::debug!("Extension detach skipped (non-fatal): {}", e),
+        }
+    }
+
+    if cli.json {
+        println!("{}", serde_json::json!({ "success": true }));
+    } else {
+        println!("{} Browser closed", "✓".green());
+    }
+
+    Ok(())
+}
+
+async fn close(
+    cli: &Cli,
+    config: &Config,
+    backend: &dyn BrowserBackend,
+    bridge_auto_started: bool,
+) -> Result<()> {
     backend.close().await?;
+
+    // Only stop the bridge if *this* CLI invocation auto-started it.
+    // The bridge is a shared daemon — other CLI sessions or MCP tools may
+    // still be using it. Use `actionbook extension stop` for explicit shutdown.
+    if bridge_auto_started && resolve_mode(cli, config) == BrowserMode::Extension {
+        bridge_lifecycle::stop_bridge(cli.extension_port).await?;
+    }
 
     if cli.json {
         println!("{}", serde_json::json!({ "success": true }));

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use base64::Engine;
 use serde_json::Value;
@@ -5,6 +7,11 @@ use serde_json::Value;
 use super::backend::{BrowserBackend, OpenResult, PageEntry};
 use super::extension_bridge;
 use crate::error::{ActionbookError, Result};
+
+/// Max retries waiting for the Chrome extension to connect to the bridge.
+const EXTENSION_CONNECT_RETRIES: u32 = 60;
+/// Interval between retries when waiting for extension connection (60 * 500ms = 30s).
+const EXTENSION_CONNECT_INTERVAL: Duration = Duration::from_millis(500);
 
 /// Extension mode backend: controls user's Chrome via the extension bridge.
 ///
@@ -19,8 +26,8 @@ impl ExtensionBackend {
         Self { port }
     }
 
-    /// Send a command through the bridge with auto-attach retry.
-    async fn send(&self, method: &str, params: Value) -> Result<Value> {
+    /// Send a command through the bridge with auto-attach retry (single attempt).
+    async fn send_once(&self, method: &str, params: Value) -> Result<Value> {
         let result = extension_bridge::send_command(self.port, method, params.clone()).await;
 
         // Auto-attach: if a CDP method fails because no tab is attached, attach and retry
@@ -38,6 +45,63 @@ impl ExtensionBackend {
         }
 
         result
+    }
+
+    /// Send a command with retry logic for extension-not-connected and token rotation.
+    ///
+    /// - "Extension not connected": retry up to 60 times (30s) at 500ms intervals
+    ///   to wait for the extension to connect to the bridge.
+    /// - "Authentication failed" / "invalid token": re-read the token file and retry once.
+    async fn send(&self, method: &str, params: Value) -> Result<Value> {
+        let result = self.send_once(method, params.clone()).await;
+
+        match &result {
+            Err(ActionbookError::ExtensionError(msg))
+                if msg.contains("Extension not connected") =>
+            {
+                eprintln!(
+                    "Waiting for Chrome extension to connect to the bridge (port {})...",
+                    self.port
+                );
+                eprintln!("Open Chrome with the Actionbook extension enabled.");
+
+                for attempt in 1..=EXTENSION_CONNECT_RETRIES {
+                    tokio::time::sleep(EXTENSION_CONNECT_INTERVAL).await;
+                    tracing::debug!(
+                        "Retry {}/{}: waiting for extension connection",
+                        attempt,
+                        EXTENSION_CONNECT_RETRIES
+                    );
+                    match self.send_once(method, params.clone()).await {
+                        Err(ActionbookError::ExtensionError(ref m))
+                            if m.contains("Extension not connected") =>
+                        {
+                            continue;
+                        }
+                        other => return other,
+                    }
+                }
+
+                Err(ActionbookError::ExtensionError(
+                    "Extension did not connect within 30 seconds. \
+                     Ensure Chrome is open with the Actionbook extension enabled."
+                        .to_string(),
+                ))
+            }
+            Err(ActionbookError::ExtensionError(msg))
+                if msg.contains("invalid token") || msg.contains("Authentication failed") =>
+            {
+                tracing::debug!(
+                    "Token mismatch detected, retrying via send_once (re-reads token + auto-attach)"
+                );
+                // Token may have rotated — retry via send_once which re-reads the token
+                // from file (via send_command) and includes auto-attach recovery for
+                // "No tab attached" errors. This avoids the bug where direct
+                // send_command_with_token() bypassed the auto-attach logic.
+                self.send_once(method, params).await
+            }
+            _ => result,
+        }
     }
 
     /// Evaluate JS via Runtime.evaluate with configurable `awaitPromise`.

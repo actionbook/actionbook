@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod bridge_lifecycle;
 mod discovery;
 pub mod extension_backend;
 pub mod extension_bridge;
