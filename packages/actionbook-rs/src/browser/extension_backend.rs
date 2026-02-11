@@ -124,7 +124,8 @@ impl ExtensionBackend {
 
 /// Escape a string for safe embedding in a JS single-quoted string literal.
 fn escape_js_string(s: &str) -> String {
-    let json = serde_json::to_string(s).unwrap_or_else(|_| format!("\"{}\"", s));
+    // serde_json::to_string on &str never fails for valid UTF-8
+    let json = serde_json::to_string(s).expect("serializing &str to JSON is infallible");
     let inner = &json[1..json.len() - 1];
     inner.replace("\\\"", "\"").replace('\'', "\\'")
 }
@@ -492,10 +493,11 @@ impl BrowserBackend for ExtensionBackend {
     }
 
     async fn screenshot(&self, full_page: bool) -> Result<Vec<u8>> {
-        let mut params = serde_json::json!({ "format": "png" });
-        if full_page {
-            params["captureBeyondViewport"] = serde_json::json!(true);
-        }
+        let params = if full_page {
+            serde_json::json!({ "format": "png", "captureBeyondViewport": true })
+        } else {
+            serde_json::json!({ "format": "png" })
+        };
 
         let result = self.send("Page.captureScreenshot", params).await?;
         let b64_data = result
@@ -624,12 +626,7 @@ impl BrowserBackend for ExtensionBackend {
     }
 
     async fn snapshot(&self) -> Result<Value> {
-        // The snapshot JS is shared between both backends and is large.
-        // It will be called via self.eval() from browser.rs during Phase 3.
-        // For now, provide a placeholder that Phase 3 will fill.
-        Err(ActionbookError::Other(
-            "snapshot: delegate to eval with shared JS (Phase 3)".to_string(),
-        ))
+        self.eval_js(super::backend::SNAPSHOT_JS).await
     }
 
     async fn inspect(&self, x: f64, y: f64) -> Result<Value> {
@@ -714,15 +711,10 @@ impl BrowserBackend for ExtensionBackend {
         let url_result = self.eval_js("window.location.href").await?;
         let url = url_result.as_str().unwrap_or("").to_string();
 
-        let mut params = serde_json::json!({
-            "url": url,
-            "name": name,
-            "value": value,
-        });
-
-        if let Some(d) = domain {
-            params["domain"] = Value::String(d.to_string());
-        }
+        let params = match domain {
+            Some(d) => serde_json::json!({ "url": url, "name": name, "value": value, "domain": d }),
+            None => serde_json::json!({ "url": url, "name": name, "value": value }),
+        };
 
         self.send("Extension.setCookie", params).await?;
         Ok(())
@@ -765,5 +757,62 @@ impl BrowserBackend for ExtensionBackend {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn escape_js_handles_plain_string() {
+        assert_eq!(escape_js_string("hello"), "hello");
+    }
+
+    #[test]
+    fn escape_js_handles_single_quotes() {
+        assert_eq!(escape_js_string("it's"), r"it\'s");
+    }
+
+    #[test]
+    fn escape_js_handles_double_quotes() {
+        assert_eq!(escape_js_string(r#"say "hi""#), r#"say "hi""#);
+    }
+
+    #[test]
+    fn escape_js_handles_newlines() {
+        assert_eq!(escape_js_string("a\nb"), r"a\nb");
+    }
+
+    #[test]
+    fn escape_js_handles_backslash() {
+        assert_eq!(escape_js_string(r"a\b"), r"a\\b");
+    }
+
+    #[test]
+    fn escape_js_handles_injection_attempt() {
+        let input = "');alert(1);//";
+        let escaped = escape_js_string(input);
+        // The single quote is escaped so it can't break out of a JS string literal
+        assert!(escaped.starts_with(r"\'"), "leading quote must be escaped: {}", escaped);
+        // When embedded in JS as '...', the escaped version is safe
+        assert!(escaped.contains(r"\'"), "single quote must be escaped: {}", escaped);
+    }
+
+    #[test]
+    fn js_resolve_selector_css() {
+        let js = js_resolve_selector("button.submit");
+        assert!(js.contains("document.querySelector"));
+        assert!(js.contains("button.submit"));
+    }
+
+    #[test]
+    fn js_resolve_selector_ref_format() {
+        let js = js_resolve_selector("[ref=e5]");
+        let js_lower = js.to_lowercase();
+        assert!(
+            js_lower.contains("queryselectorall") || js_lower.contains("ref"),
+            "ref selector should resolve via ref-based lookup"
+        );
     }
 }

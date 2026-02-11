@@ -482,7 +482,7 @@ fn print_completion(cli: &Cli, config: &Config, skills_result: &mode::SkillsResu
                 "command": "setup",
                 "status": "complete",
                 "config_path": Config::config_path().display().to_string(),
-                "browser_mode": format!("{:?}", config.browser.mode).to_lowercase(),
+                "browser_mode": serde_json::to_value(&config.browser.mode).unwrap_or(serde_json::Value::Null),
                 "browser": config.browser.executable.as_deref().unwrap_or("built-in"),
                 "headless": config.browser.headless,
                 "extension_port": config.browser.extension.port,

@@ -20,8 +20,10 @@ pub enum SetupTarget {
 #[serde(rename_all = "lowercase")]
 pub enum BrowserMode {
     /// Launch a dedicated debug browser, control via CDP
+    #[serde(alias = "builtin")]
     Isolated,
     /// Use Chrome Extension bridge with user's existing browser
+    #[serde(alias = "system")]
     Extension,
 }
 

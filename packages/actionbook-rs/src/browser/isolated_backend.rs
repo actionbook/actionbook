@@ -136,11 +136,9 @@ impl BrowserBackend for IsolatedBackend {
 
     async fn switch(&self, _page_id: &str) -> Result<()> {
         // Isolated mode doesn't have direct tab switching via SessionManager.
-        // This is a no-op / unsupported placeholder.
-        Err(ActionbookError::Other(
-            "Tab switching is not supported in isolated mode. Use page IDs from 'pages' command."
-                .to_string(),
-        ))
+        // Matches current behavior: acknowledge and succeed (no error).
+        tracing::warn!("Page switching is not yet implemented in isolated mode");
+        Ok(())
     }
 
     async fn wait_for(&self, selector: &str, timeout_ms: u64) -> Result<()> {
@@ -249,13 +247,9 @@ impl BrowserBackend for IsolatedBackend {
     }
 
     async fn snapshot(&self) -> Result<Value> {
-        // Snapshot uses the same JS in both modes — delegate to eval_on_page
-        // with the snapshot JS. The actual JS is shared and will be called
-        // from browser.rs during Phase 3 refactor.
-        // For now, provide a placeholder that the refactor will fill.
-        Err(ActionbookError::Other(
-            "snapshot: delegate to eval with shared JS (Phase 3)".to_string(),
-        ))
+        self.session_manager
+            .eval_on_page(self.profile_arg(), super::backend::SNAPSHOT_JS)
+            .await
     }
 
     async fn inspect(&self, x: f64, y: f64) -> Result<Value> {
@@ -269,7 +263,7 @@ impl BrowserBackend for IsolatedBackend {
             .session_manager
             .get_viewport(self.profile_arg())
             .await?;
-        Ok((w as u32, h as u32))
+        Ok((w.max(0.0) as u32, h.max(0.0) as u32))
     }
 
     async fn get_cookies(&self) -> Result<Vec<Value>> {
@@ -290,7 +284,12 @@ impl BrowserBackend for IsolatedBackend {
             .await
     }
 
-    async fn clear_cookies(&self, _domain: Option<&str>) -> Result<()> {
+    async fn clear_cookies(&self, domain: Option<&str>) -> Result<()> {
+        if domain.is_some() {
+            tracing::warn!(
+                "Domain-scoped cookie clearing not supported in isolated mode; clearing all cookies"
+            );
+        }
         self.session_manager
             .clear_cookies(self.profile_arg())
             .await

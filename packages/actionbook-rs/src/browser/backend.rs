@@ -3,6 +3,176 @@ use serde_json::Value;
 
 use crate::error::Result;
 
+/// Shared snapshot JavaScript — builds an accessibility tree from the DOM.
+/// Used by both IsolatedBackend and ExtensionBackend.
+pub const SNAPSHOT_JS: &str = r#"
+        (function() {
+            const SKIP_TAGS = new Set([
+                'script', 'style', 'noscript', 'template', 'svg',
+                'path', 'defs', 'clippath', 'lineargradient', 'stop',
+                'meta', 'link', 'br', 'wbr'
+            ]);
+            const INLINE_TAGS = new Set([
+                'strong', 'b', 'em', 'i', 'code', 'span', 'small',
+                'sup', 'sub', 'abbr', 'mark', 'u', 's', 'del', 'ins',
+                'time', 'q', 'cite', 'dfn', 'var', 'samp', 'kbd'
+            ]);
+            const INTERACTIVE_ROLES = new Set([
+                'button', 'link', 'textbox', 'checkbox', 'radio', 'combobox',
+                'listbox', 'menuitem', 'menuitemcheckbox', 'menuitemradio',
+                'option', 'searchbox', 'slider', 'spinbutton', 'switch',
+                'tab', 'treeitem'
+            ]);
+            const CONTENT_ROLES = new Set([
+                'heading', 'cell', 'gridcell', 'columnheader', 'rowheader',
+                'listitem', 'article', 'region', 'main', 'navigation', 'img'
+            ]);
+            function getRole(el) {
+                const explicit = el.getAttribute('role');
+                if (explicit) return explicit.toLowerCase();
+                const tag = el.tagName.toLowerCase();
+                if (INLINE_TAGS.has(tag)) return tag;
+                const roleMap = {
+                    'a': el.hasAttribute('href') ? 'link' : 'generic',
+                    'button': 'button',
+                    'input': getInputRole(el),
+                    'select': 'combobox',
+                    'textarea': 'textbox',
+                    'img': 'img',
+                    'h1': 'heading', 'h2': 'heading', 'h3': 'heading',
+                    'h4': 'heading', 'h5': 'heading', 'h6': 'heading',
+                    'nav': 'navigation',
+                    'main': 'main',
+                    'header': 'banner',
+                    'footer': 'contentinfo',
+                    'aside': 'complementary',
+                    'form': 'form',
+                    'table': 'table',
+                    'thead': 'rowgroup', 'tbody': 'rowgroup', 'tfoot': 'rowgroup',
+                    'tr': 'row',
+                    'th': 'columnheader',
+                    'td': 'cell',
+                    'ul': 'list', 'ol': 'list',
+                    'li': 'listitem',
+                    'details': 'group',
+                    'summary': 'button',
+                    'dialog': 'dialog',
+                    'section': el.hasAttribute('aria-label') || el.hasAttribute('aria-labelledby') ? 'region' : 'generic',
+                    'article': 'article'
+                };
+                return roleMap[tag] || 'generic';
+            }
+            function getInputRole(el) {
+                const type = (el.getAttribute('type') || 'text').toLowerCase();
+                const map = {
+                    'text': 'textbox', 'email': 'textbox', 'password': 'textbox',
+                    'search': 'searchbox', 'tel': 'textbox', 'url': 'textbox',
+                    'number': 'spinbutton',
+                    'checkbox': 'checkbox', 'radio': 'radio',
+                    'submit': 'button', 'reset': 'button', 'button': 'button',
+                    'range': 'slider'
+                };
+                return map[type] || 'textbox';
+            }
+            function getAccessibleName(el) {
+                const ariaLabel = el.getAttribute('aria-label');
+                if (ariaLabel) return ariaLabel.trim();
+                const labelledBy = el.getAttribute('aria-labelledby');
+                if (labelledBy) {
+                    const label = document.getElementById(labelledBy);
+                    if (label) return label.textContent?.trim()?.substring(0, 100) || '';
+                }
+                const tag = el.tagName.toLowerCase();
+                if (tag === 'img') return el.getAttribute('alt') || '';
+                if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+                    if (el.id) {
+                        const label = document.querySelector('label[for="' + el.id + '"]');
+                        if (label) return label.textContent?.trim()?.substring(0, 100) || '';
+                    }
+                    return el.getAttribute('placeholder') || el.getAttribute('title') || '';
+                }
+                if (tag === 'a' || tag === 'button' || tag === 'summary') {
+                    return '';
+                }
+                if (['h1','h2','h3','h4','h5','h6'].includes(tag)) {
+                    return el.textContent?.trim()?.substring(0, 150) || '';
+                }
+                const title = el.getAttribute('title');
+                if (title) return title.trim();
+                return '';
+            }
+            function isHidden(el) {
+                if (el.hidden) return true;
+                if (el.getAttribute('aria-hidden') === 'true') return true;
+                const style = el.style;
+                if (style.display === 'none' || style.visibility === 'hidden') return true;
+                if (el.offsetParent === null && el.tagName.toLowerCase() !== 'body' &&
+                    getComputedStyle(el).position !== 'fixed' && getComputedStyle(el).position !== 'sticky') {
+                    const cs = getComputedStyle(el);
+                    if (cs.display === 'none' || cs.visibility === 'hidden') return true;
+                }
+                return false;
+            }
+            let refCounter = 0;
+            function walk(el, depth) {
+                if (depth > 15) return null;
+                const tag = el.tagName.toLowerCase();
+                if (SKIP_TAGS.has(tag)) return null;
+                if (isHidden(el)) return null;
+                const role = getRole(el);
+                const name = getAccessibleName(el);
+                const isInteractive = INTERACTIVE_ROLES.has(role);
+                const isContent = CONTENT_ROLES.has(role);
+                const shouldRef = isInteractive || (isContent && name);
+                let ref = null;
+                if (shouldRef) {
+                    refCounter++;
+                    ref = 'e' + refCounter;
+                }
+                const children = [];
+                for (const child of el.childNodes) {
+                    if (child.nodeType === 1) {
+                        const c = walk(child, depth + 1);
+                        if (c) children.push(c);
+                    } else if (child.nodeType === 3) {
+                        const t = child.textContent?.trim();
+                        if (t) {
+                            const content = t.length > 200 ? t.substring(0, 200) + '...' : t;
+                            children.push({ role: 'text', content });
+                        }
+                    }
+                }
+                if (role === 'generic' && !name && !ref && children.length === 1) {
+                    return children[0];
+                }
+                if (role === 'generic' && !name && !ref && children.length === 0) {
+                    return null;
+                }
+                const node = { role };
+                if (name) node.name = name;
+                if (ref) node.ref = ref;
+                if (children.length > 0) node.children = children;
+                if (role === 'link') {
+                    const href = el.getAttribute('href');
+                    if (href) node.url = href;
+                }
+                if (role === 'heading') {
+                    const level = tag.match(/^h(\d)$/);
+                    if (level) node.level = parseInt(level[1]);
+                }
+                if (role === 'textbox' || role === 'searchbox') {
+                    node.value = el.value || '';
+                }
+                if (role === 'checkbox' || role === 'radio' || role === 'switch') {
+                    node.checked = el.checked || false;
+                }
+                return node;
+            }
+            const tree = walk(document.body, 0);
+            return { tree, refCount: refCounter };
+        })()
+    "#;
+
 /// Result of opening a new page/tab.
 pub struct OpenResult {
     pub title: String,

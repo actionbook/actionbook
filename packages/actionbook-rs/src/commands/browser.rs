@@ -13,9 +13,22 @@ use crate::browser::{
     build_stealth_profile, discover_all_browsers, extension_bridge, stealth_status,
     SessionManager, SessionStatus, StealthConfig,
 };
-use crate::cli::{BrowserCommands, Cli, CookiesCommands};
+use crate::cli::{BrowserCommands, BrowserMode, Cli, CookiesCommands};
 use crate::config::Config;
 use crate::error::{ActionbookError, Result};
+
+/// Resolve whether extension mode is active.
+/// Priority: --extension flag (deprecated) > --browser-mode flag > config.browser.mode
+fn is_extension_mode(cli: &Cli, config: &Config) -> bool {
+    if cli.extension {
+        return true;
+    }
+    match cli.browser_mode {
+        Some(BrowserMode::Extension) => true,
+        Some(BrowserMode::Isolated) => false,
+        None => config.browser.mode == BrowserMode::Extension,
+    }
+}
 
 /// Send a command (CDP or Extension.*) through the extension bridge.
 /// For CDP methods, auto-attaches the active tab if no tab is currently attached.
@@ -326,15 +339,15 @@ fn has_explicit_scheme(input: &str) -> bool {
 }
 
 pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
+    let config = Config::load()?;
+
     // --profile is not supported in extension mode: extension operates on the live Chrome profile
-    if cli.extension && cli.profile.is_some() {
+    if is_extension_mode(cli, &config) && cli.profile.is_some() {
         return Err(ActionbookError::Other(
             "--profile is not supported in extension mode. Extension operates on your live Chrome profile. \
-             Remove --profile to use the default profile, or remove --extension to use isolated mode.".to_string()
+             Remove --profile to use the default profile, or switch to isolated mode.".to_string()
         ));
     }
-
-    let config = Config::load()?;
 
     // When --cdp is set, resolve it to a fresh WebSocket URL and persist it
     // as the active session *before* any command runs. Skip for `connect`
@@ -506,7 +519,7 @@ async fn status(cli: &Cli, config: &Config) -> Result<()> {
 async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
     let normalized_url = normalize_navigation_url(url)?;
 
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         let result = extension_send(
             cli,
             "Extension.createTab",
@@ -602,7 +615,7 @@ async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
 async fn goto(cli: &Cli, config: &Config, url: &str, _timeout_ms: u64) -> Result<()> {
     let normalized_url = normalize_navigation_url(url)?;
 
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         extension_send(
             cli,
             "Page.navigate",
@@ -646,7 +659,7 @@ async fn goto(cli: &Cli, config: &Config, url: &str, _timeout_ms: u64) -> Result
 }
 
 async fn back(cli: &Cli, config: &Config) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         extension_eval(cli, "history.back()").await?;
 
         if cli.json {
@@ -672,7 +685,7 @@ async fn back(cli: &Cli, config: &Config) -> Result<()> {
 }
 
 async fn forward(cli: &Cli, config: &Config) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         extension_eval(cli, "history.forward()").await?;
 
         if cli.json {
@@ -698,7 +711,7 @@ async fn forward(cli: &Cli, config: &Config) -> Result<()> {
 }
 
 async fn reload(cli: &Cli, config: &Config) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         extension_send(cli, "Page.reload", serde_json::json!({})).await?;
 
         if cli.json {
@@ -724,7 +737,7 @@ async fn reload(cli: &Cli, config: &Config) -> Result<()> {
 }
 
 async fn pages(cli: &Cli, config: &Config) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         let result = extension_send(
             cli,
             "Extension.listTabs",
@@ -797,8 +810,8 @@ async fn pages(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn switch(cli: &Cli, _config: &Config, page_id: &str) -> Result<()> {
-    if cli.extension {
+async fn switch(cli: &Cli, config: &Config, page_id: &str) -> Result<()> {
+    if is_extension_mode(cli, config) {
         // In extension mode, page_id is expected to be a tab ID (numeric)
         let tab_id: u64 = page_id.strip_prefix("tab:").unwrap_or(page_id).parse().map_err(|_| {
             ActionbookError::Other(format!(
@@ -840,7 +853,7 @@ async fn switch(cli: &Cli, _config: &Config, page_id: &str) -> Result<()> {
 }
 
 async fn wait(cli: &Cli, config: &Config, selector: &str, timeout_ms: u64) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         let resolve_js = js_resolve_selector(selector);
         let poll_js = format!(
             r#"(async function() {{
@@ -894,7 +907,7 @@ async fn wait(cli: &Cli, config: &Config, selector: &str, timeout_ms: u64) -> Re
 }
 
 async fn wait_nav(cli: &Cli, config: &Config, timeout_ms: u64) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         // Poll document.readyState until "complete" or timeout
         let poll_js = format!(
             r#"(async function() {{
@@ -953,7 +966,7 @@ async fn wait_nav(cli: &Cli, config: &Config, timeout_ms: u64) -> Result<()> {
 }
 
 async fn click(cli: &Cli, config: &Config, selector: &str, wait_ms: u64) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         let resolve_js = js_resolve_selector(selector);
         let click_js = format!(
             r#"(function() {{
@@ -1046,7 +1059,7 @@ async fn type_text(
     text: &str,
     wait_ms: u64,
 ) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         let resolve_js = js_resolve_selector(selector);
         let escaped_text = escape_js_string(text);
 
@@ -1146,7 +1159,7 @@ async fn type_text(
 }
 
 async fn fill(cli: &Cli, config: &Config, selector: &str, text: &str, wait_ms: u64) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         let resolve_js = js_resolve_selector(selector);
         let escaped_text = escape_js_string(text);
 
@@ -1250,7 +1263,7 @@ async fn fill(cli: &Cli, config: &Config, selector: &str, text: &str, wait_ms: u
 }
 
 async fn select(cli: &Cli, config: &Config, selector: &str, value: &str) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         let resolve_js = js_resolve_selector(selector);
         let escaped_value = escape_js_string(value);
         let select_js = format!(
@@ -1316,7 +1329,7 @@ async fn select(cli: &Cli, config: &Config, selector: &str, value: &str) -> Resu
 }
 
 async fn hover(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         let resolve_js = js_resolve_selector(selector);
         let hover_js = format!(
             r#"(function() {{
@@ -1374,7 +1387,7 @@ async fn hover(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
 }
 
 async fn focus(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         let resolve_js = js_resolve_selector(selector);
         let focus_js = format!(
             r#"(function() {{
@@ -1430,7 +1443,7 @@ async fn focus(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
 }
 
 async fn press(cli: &Cli, config: &Config, key: &str) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         let escaped_key = escape_js_string(key);
         let press_js = format!(
             r#"(function() {{
@@ -1505,7 +1518,7 @@ async fn press(cli: &Cli, config: &Config, key: &str) -> Result<()> {
 }
 
 async fn screenshot(cli: &Cli, config: &Config, path: &str, full_page: bool) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         let mut params = serde_json::json!({ "format": "png" });
         if full_page {
             params["captureBeyondViewport"] = serde_json::json!(true);
@@ -1591,7 +1604,7 @@ async fn screenshot(cli: &Cli, config: &Config, path: &str, full_page: bool) -> 
 }
 
 async fn pdf(cli: &Cli, config: &Config, path: &str) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         let result = extension_send(cli, "Page.printToPDF", serde_json::json!({})).await?;
         let b64_data = result
             .get("data")
@@ -1657,7 +1670,7 @@ async fn pdf(cli: &Cli, config: &Config, path: &str) -> Result<()> {
 }
 
 async fn eval(cli: &Cli, config: &Config, code: &str) -> Result<()> {
-    let value = if cli.extension {
+    let value = if is_extension_mode(cli, config) {
         let result = extension_send(
             cli,
             "Runtime.evaluate",
@@ -1696,7 +1709,7 @@ async fn eval(cli: &Cli, config: &Config, code: &str) -> Result<()> {
 }
 
 async fn html(cli: &Cli, config: &Config, selector: Option<&str>) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         let js = match selector {
             Some(sel) => {
                 let resolve_js = js_resolve_selector(sel);
@@ -1744,7 +1757,7 @@ async fn html(cli: &Cli, config: &Config, selector: Option<&str>) -> Result<()> 
 }
 
 async fn text(cli: &Cli, config: &Config, selector: Option<&str>) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         let js = match selector {
             Some(sel) => {
                 let resolve_js = js_resolve_selector(sel);
@@ -2003,7 +2016,7 @@ async fn snapshot(cli: &Cli, config: &Config) -> Result<()> {
         })()
     "#;
 
-    let value = if cli.extension {
+    let value = if is_extension_mode(cli, config) {
         extension_eval(cli, js).await?
     } else {
         let session_manager = create_session_manager(cli, config);
@@ -2107,7 +2120,7 @@ fn render_snapshot_tree(node: &serde_json::Value, depth: usize) -> String {
 }
 
 async fn inspect(cli: &Cli, config: &Config, x: f64, y: f64, desc: Option<&str>) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         // In extension mode, use JS elementFromPoint + gather info
         let inspect_js = format!(
             r#"(function() {{
@@ -2422,7 +2435,7 @@ async fn inspect(cli: &Cli, config: &Config, x: f64, y: f64, desc: Option<&str>)
 }
 
 async fn viewport(cli: &Cli, config: &Config) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         let value = extension_eval(
             cli,
             "JSON.stringify({width: window.innerWidth, height: window.innerHeight})",
@@ -2479,7 +2492,7 @@ async fn viewport(cli: &Cli, config: &Config) -> Result<()> {
 }
 
 async fn cookies(cli: &Cli, config: &Config, command: &Option<CookiesCommands>) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         return cookies_extension(cli, command).await;
     }
 
@@ -2870,7 +2883,7 @@ async fn cookies_extension(cli: &Cli, command: &Option<CookiesCommands>) -> Resu
 }
 
 async fn close(cli: &Cli, config: &Config) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         extension_send(cli, "Extension.detachTab", serde_json::json!({})).await?;
 
         if cli.json {
@@ -2901,7 +2914,7 @@ async fn close(cli: &Cli, config: &Config) -> Result<()> {
 }
 
 async fn restart(cli: &Cli, config: &Config) -> Result<()> {
-    if cli.extension {
+    if is_extension_mode(cli, config) {
         // In extension mode, reload the page as a "restart"
         extension_send(cli, "Page.reload", serde_json::json!({})).await?;
 
