@@ -88,18 +88,6 @@ impl ExtensionBackend {
                         .to_string(),
                 ))
             }
-            Err(ActionbookError::ExtensionError(msg))
-                if msg.contains("invalid token") || msg.contains("Authentication failed") =>
-            {
-                tracing::debug!(
-                    "Token mismatch detected, retrying via send_once (re-reads token + auto-attach)"
-                );
-                // Token may have rotated — retry via send_once which re-reads the token
-                // from file (via send_command) and includes auto-attach recovery for
-                // "No tab attached" errors. This avoids the bug where direct
-                // send_command_with_token() bypassed the auto-attach logic.
-                self.send_once(method, params).await
-            }
             _ => result,
         }
     }

@@ -112,14 +112,12 @@ async fn hello_extension(
     ws: &mut tokio_tungstenite::WebSocketStream<
         tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
     >,
-    token: &str,
 ) {
     send_json(
         ws,
         serde_json::json!({
             "type": "hello",
             "role": "extension",
-            "token": token,
             "version": "0.2.0"
         }),
     )
@@ -137,14 +135,12 @@ async fn hello_cli(
     ws: &mut tokio_tungstenite::WebSocketStream<
         tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
     >,
-    token: &str,
 ) {
     send_json(
         ws,
         serde_json::json!({
             "type": "hello",
             "role": "cli",
-            "token": token,
             "version": "0.2.0"
         }),
     )
@@ -157,14 +153,11 @@ async fn hello_cli(
     assert_eq!(ack["type"].as_str(), Some("hello_ack"), "Expected hello_ack");
 }
 
-/// Start a bridge server with a known token and return the token.
-fn start_bridge(port: u16) -> (tokio::task::JoinHandle<()>, String) {
-    let token = actionbook::browser::extension_bridge::generate_token();
-    let t = token.clone();
-    let handle = tokio::spawn(async move {
-        let _ = actionbook::browser::extension_bridge::serve(port, t).await;
-    });
-    (handle, token)
+/// Start a bridge server on the given port.
+fn start_bridge(port: u16) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let _ = actionbook::browser::extension_bridge::serve(port).await;
+    })
 }
 
 mod bridge_tests {
@@ -172,64 +165,11 @@ mod bridge_tests {
     use assert_cmd::Command;
     use predicates::prelude::*;
 
-    /// Test: generate_token produces valid format.
-    #[test]
-    fn generate_token_format() {
-        let token = actionbook::browser::extension_bridge::generate_token();
-        assert!(token.starts_with("abk_"), "Token should start with abk_");
-        assert_eq!(token.len(), 4 + 32, "Token should be abk_ + 32 hex chars");
-        // Verify all chars after prefix are hex
-        assert!(token[4..].chars().all(|c| c.is_ascii_hexdigit()));
-    }
-
-    /// Test: generate_token produces unique tokens.
-    #[test]
-    fn generate_token_uniqueness() {
-        let t1 = actionbook::browser::extension_bridge::generate_token();
-        let t2 = actionbook::browser::extension_bridge::generate_token();
-        assert_ne!(t1, t2, "Tokens should be unique");
-    }
-
-    /// Test: Connection with invalid token receives hello_error and is then closed.
-    #[tokio::test]
-    async fn invalid_token_closes_connection() {
-        let port = free_port().await;
-        let (server_handle, _token) = start_bridge(port);
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        let mut ws = ws_connect(port).await;
-
-        // Send hello with wrong token
-        send_json(
-            &mut ws,
-            serde_json::json!({
-                "type": "hello",
-                "role": "extension",
-                "token": "abk_wrong_token_value_00000000000",
-                "version": "0.2.0"
-            }),
-        )
-        .await;
-
-        // The server should send a hello_error with invalid_token before closing
-        let result = try_recv_json_timeout(&mut ws, 2000).await;
-        assert!(result.is_some(), "Should receive hello_error before connection close");
-        let msg = result.unwrap();
-        assert_eq!(msg["type"], "hello_error");
-        assert_eq!(msg["error"], "invalid_token");
-
-        // Connection should be closed after the error message
-        let after = try_recv_json_timeout(&mut ws, 2000).await;
-        assert!(after.is_none(), "Connection should be closed after hello_error");
-
-        server_handle.abort();
-    }
-
     /// Test: Connection without hello message is closed.
     #[tokio::test]
     async fn no_hello_closes_connection() {
         let port = free_port().await;
-        let (server_handle, _token) = start_bridge(port);
+        let server_handle = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let mut ws = ws_connect(port).await;
@@ -252,12 +192,12 @@ mod bridge_tests {
     #[tokio::test]
     async fn cli_without_extension_gets_error() {
         let port = free_port().await;
-        let (server_handle, token) = start_bridge(port);
+        let server_handle = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Connect as CLI with valid token
         let mut cli_ws = ws_connect(port).await;
-        hello_cli(&mut cli_ws, &token).await;
+        hello_cli(&mut cli_ws).await;
 
         // Send a CLI command
         send_json(
@@ -292,19 +232,19 @@ mod bridge_tests {
     #[tokio::test]
     async fn full_roundtrip_extension_to_cli() {
         let port = free_port().await;
-        let (server_handle, token) = start_bridge(port);
+        let server_handle = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // 1. Connect as extension with hello handshake
         let mut ext_ws = ws_connect(port).await;
-        hello_extension(&mut ext_ws, &token).await;
+        hello_extension(&mut ext_ws).await;
 
         // Give bridge time to register extension
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // 2. Connect as CLI with hello handshake and send command
         let mut cli_ws = ws_connect(port).await;
-        hello_cli(&mut cli_ws, &token).await;
+        hello_cli(&mut cli_ws).await;
         send_json(
             &mut cli_ws,
             serde_json::json!({
@@ -366,17 +306,17 @@ mod bridge_tests {
     #[tokio::test]
     async fn extension_error_forwarded_to_cli() {
         let port = free_port().await;
-        let (server_handle, token) = start_bridge(port);
+        let server_handle = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Connect extension with hello
         let mut ext_ws = ws_connect(port).await;
-        hello_extension(&mut ext_ws, &token).await;
+        hello_extension(&mut ext_ws).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Connect CLI with hello and send command
         let mut cli_ws = ws_connect(port).await;
-        hello_cli(&mut cli_ws, &token).await;
+        hello_cli(&mut cli_ws).await;
         send_json(
             &mut cli_ws,
             serde_json::json!({
@@ -427,17 +367,17 @@ mod bridge_tests {
     #[tokio::test]
     async fn multiple_cli_commands_get_unique_ids() {
         let port = free_port().await;
-        let (server_handle, token) = start_bridge(port);
+        let server_handle = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Connect extension with hello
         let mut ext_ws = ws_connect(port).await;
-        hello_extension(&mut ext_ws, &token).await;
+        hello_extension(&mut ext_ws).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Send first CLI command with hello
         let mut cli1 = ws_connect(port).await;
-        hello_cli(&mut cli1, &token).await;
+        hello_cli(&mut cli1).await;
         send_json(
             &mut cli1,
             serde_json::json!({
@@ -455,7 +395,7 @@ mod bridge_tests {
 
         // Send second CLI command (different connection) with hello
         let mut cli2 = ws_connect(port).await;
-        hello_cli(&mut cli2, &token).await;
+        hello_cli(&mut cli2).await;
         send_json(
             &mut cli2,
             serde_json::json!({
@@ -510,17 +450,17 @@ mod bridge_tests {
     #[tokio::test]
     async fn unknown_method_rejected() {
         let port = free_port().await;
-        let (server_handle, token) = start_bridge(port);
+        let server_handle = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Connect extension
         let mut ext_ws = ws_connect(port).await;
-        hello_extension(&mut ext_ws, &token).await;
+        hello_extension(&mut ext_ws).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Connect CLI and send unknown method
         let mut cli_ws = ws_connect(port).await;
-        hello_cli(&mut cli_ws, &token).await;
+        hello_cli(&mut cli_ws).await;
         send_json(
             &mut cli_ws,
             serde_json::json!({
@@ -560,15 +500,15 @@ mod bridge_tests {
     #[tokio::test]
     async fn l2_method_includes_risk_level() {
         let port = free_port().await;
-        let (server_handle, token) = start_bridge(port);
+        let server_handle = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let mut ext_ws = ws_connect(port).await;
-        hello_extension(&mut ext_ws, &token).await;
+        hello_extension(&mut ext_ws).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         let mut cli_ws = ws_connect(port).await;
-        hello_cli(&mut cli_ws, &token).await;
+        hello_cli(&mut cli_ws).await;
         send_json(
             &mut cli_ws,
             serde_json::json!({
@@ -597,15 +537,15 @@ mod bridge_tests {
     #[tokio::test]
     async fn l3_method_includes_risk_level() {
         let port = free_port().await;
-        let (server_handle, token) = start_bridge(port);
+        let server_handle = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let mut ext_ws = ws_connect(port).await;
-        hello_extension(&mut ext_ws, &token).await;
+        hello_extension(&mut ext_ws).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         let mut cli_ws = ws_connect(port).await;
-        hello_cli(&mut cli_ws, &token).await;
+        hello_cli(&mut cli_ws).await;
         send_json(
             &mut cli_ws,
             serde_json::json!({
@@ -634,15 +574,15 @@ mod bridge_tests {
     #[tokio::test]
     async fn extension_internal_methods_allowed() {
         let port = free_port().await;
-        let (server_handle, token) = start_bridge(port);
+        let server_handle = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let mut ext_ws = ws_connect(port).await;
-        hello_extension(&mut ext_ws, &token).await;
+        hello_extension(&mut ext_ws).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         let mut cli_ws = ws_connect(port).await;
-        hello_cli(&mut cli_ws, &token).await;
+        hello_cli(&mut cli_ws).await;
         send_json(
             &mut cli_ws,
             serde_json::json!({
@@ -709,7 +649,7 @@ mod bridge_tests {
     #[tokio::test]
     async fn is_bridge_running_returns_true() {
         let port = free_port().await;
-        let (server_handle, _token) = start_bridge(port);
+        let server_handle = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let running = actionbook::browser::extension_bridge::is_bridge_running(port).await;
@@ -727,29 +667,6 @@ mod bridge_tests {
         assert!(!running, "Bridge should not be detected as running");
     }
 
-    /// Test: send_command_with_token returns error when bridge is not running.
-    #[tokio::test]
-    async fn send_command_fails_when_bridge_not_running() {
-        let port = free_port().await;
-        // Don't start any server
-
-        let result = actionbook::browser::extension_bridge::send_command_with_token(
-            port,
-            "Runtime.evaluate",
-            serde_json::json!({ "expression": "1" }),
-            "abk_fake_token_for_test_00000000",
-        )
-        .await;
-
-        assert!(result.is_err(), "Should fail when bridge not running");
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("Cannot connect") || err.contains("bridge"),
-            "Error should mention connection failure: {}",
-            err
-        );
-    }
-
     /// Test: CLI extension ping command via assert_cmd.
     #[test]
     fn cli_extension_ping_without_bridge_shows_error() {
@@ -765,7 +682,6 @@ mod bridge_tests {
         // The command may succeed (exit 0) but print a failure message
         assert!(
             stdout.contains("failed") || stdout.contains("Cannot connect")
-                || stdout.contains("No bridge token")
                 || !output.status.success(),
             "Should indicate ping failed: {}",
             stdout
@@ -793,17 +709,17 @@ mod bridge_tests {
     #[tokio::test]
     async fn create_tab_then_cdp_succeeds() {
         let port = free_port().await;
-        let (server_handle, token) = start_bridge(port);
+        let server_handle = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Connect extension
         let mut ext_ws = ws_connect(port).await;
-        hello_extension(&mut ext_ws, &token).await;
+        hello_extension(&mut ext_ws).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // CLI connection 1: send Extension.createTab
         let mut cli1 = ws_connect(port).await;
-        hello_cli(&mut cli1, &token).await;
+        hello_cli(&mut cli1).await;
         send_json(
             &mut cli1,
             serde_json::json!({
@@ -841,7 +757,7 @@ mod bridge_tests {
 
         // CLI connection 2: send a CDP command — should be forwarded to extension
         let mut cli2 = ws_connect(port).await;
-        hello_cli(&mut cli2, &token).await;
+        hello_cli(&mut cli2).await;
         send_json(
             &mut cli2,
             serde_json::json!({
@@ -864,16 +780,16 @@ mod bridge_tests {
     #[tokio::test]
     async fn activate_tab_then_cdp_succeeds() {
         let port = free_port().await;
-        let (server_handle, token) = start_bridge(port);
+        let server_handle = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let mut ext_ws = ws_connect(port).await;
-        hello_extension(&mut ext_ws, &token).await;
+        hello_extension(&mut ext_ws).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // CLI connection 1: send Extension.activateTab
         let mut cli1 = ws_connect(port).await;
-        hello_cli(&mut cli1, &token).await;
+        hello_cli(&mut cli1).await;
         send_json(
             &mut cli1,
             serde_json::json!({
@@ -908,7 +824,7 @@ mod bridge_tests {
 
         // CLI connection 2: send CDP command — should be forwarded
         let mut cli2 = ws_connect(port).await;
-        hello_cli(&mut cli2, &token).await;
+        hello_cli(&mut cli2).await;
         send_json(
             &mut cli2,
             serde_json::json!({
@@ -932,16 +848,16 @@ mod bridge_tests {
     #[tokio::test]
     async fn switch_tab_changes_cdp_target() {
         let port = free_port().await;
-        let (server_handle, token) = start_bridge(port);
+        let server_handle = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let mut ext_ws = ws_connect(port).await;
-        hello_extension(&mut ext_ws, &token).await;
+        hello_extension(&mut ext_ws).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // CLI connection 1: Create tab A
         let mut cli1 = ws_connect(port).await;
-        hello_cli(&mut cli1, &token).await;
+        hello_cli(&mut cli1).await;
         send_json(
             &mut cli1,
             serde_json::json!({ "id": 1, "method": "Extension.createTab", "params": { "url": "https://a.com" } }),
@@ -954,7 +870,7 @@ mod bridge_tests {
 
         // CLI connection 2: Switch to tab B (activateTab)
         let mut cli2 = ws_connect(port).await;
-        hello_cli(&mut cli2, &token).await;
+        hello_cli(&mut cli2).await;
         send_json(
             &mut cli2,
             serde_json::json!({ "id": 2, "method": "Extension.activateTab", "params": { "tabId": 200 } }),
@@ -967,7 +883,7 @@ mod bridge_tests {
 
         // CLI connection 3: CDP command — should be forwarded to extension (which targets tab B now)
         let mut cli3 = ws_connect(port).await;
-        hello_cli(&mut cli3, &token).await;
+        hello_cli(&mut cli3).await;
         send_json(
             &mut cli3,
             serde_json::json!({ "id": 3, "method": "Runtime.evaluate", "params": { "expression": "1+1" } }),

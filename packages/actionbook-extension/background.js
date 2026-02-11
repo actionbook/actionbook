@@ -955,25 +955,42 @@ async function tryNativeMessagingConnect() {
           return;
         }
 
-        if (response && response.type === "token" && response.token && response.bridge_running) {
-          debugLog("[actionbook] Token received via native messaging");
-          if (!isValidTokenFormat(response.token)) {
-            debugLog("[actionbook] Rejected invalid token from native host");
-            return;
+        // Handle both legacy "token" response and new "bridge_info" response
+        if (response && response.bridge_running) {
+          if (response.type === "token" && response.token) {
+            // Legacy token-based response (backward compatibility)
+            debugLog("[actionbook] Token received via native messaging (legacy)");
+            if (!isValidTokenFormat(response.token)) {
+              debugLog("[actionbook] Rejected invalid token from native host");
+              return;
+            }
+            nativeMessagingFailCount = 0;
+            const storageData = { bridgeToken: response.token };
+            if (response.port) {
+              storageData.bridgePort = response.port;
+            }
+            chrome.storage.local.set(storageData, () => {
+              retryCount = 0;
+              reconnectDelay = RECONNECT_BASE_MS;
+              stopNativePolling();
+              connect();
+            });
+          } else if (response.type === "bridge_info") {
+            // New tokenless bridge_info response
+            debugLog("[actionbook] Bridge info received via native messaging");
+            nativeMessagingFailCount = 0;
+            const storageData = { bridgeToken: "connected" }; // Dummy token for compatibility
+            if (response.port) {
+              storageData.bridgePort = response.port;
+            }
+            chrome.storage.local.set(storageData, () => {
+              retryCount = 0;
+              reconnectDelay = RECONNECT_BASE_MS;
+              stopNativePolling();
+              connect();
+            });
           }
-          // Reset fail count on successful native messaging exchange
-          nativeMessagingFailCount = 0;
-          const storageData = { bridgeToken: response.token };
-          if (response.port) {
-            storageData.bridgePort = response.port;
-          }
-          chrome.storage.local.set(storageData, () => {
-            retryCount = 0;
-            reconnectDelay = RECONNECT_BASE_MS;
-            stopNativePolling();
-            connect();
-          });
-        } else if (response && response.type === "error" && (response.error === "no_token" || response.error === "bridge_not_running")) {
+        } else if (response && response.type === "error" && response.error === "bridge_not_running") {
           // Bridge not running yet — keep polling, don't count as native messaging failure
           debugLog("[actionbook] Bridge not running, will retry...");
         }

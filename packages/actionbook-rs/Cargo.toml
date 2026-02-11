@@ -51,10 +51,6 @@ indicatif = "0.17"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# Crypto / random
-rand = "0.8"
-subtle = "2"
-
 # Versioning
 semver = "1"
 

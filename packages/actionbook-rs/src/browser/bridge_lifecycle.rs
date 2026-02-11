@@ -36,7 +36,7 @@ pub async fn ensure_bridge_running(port: u16) -> Result<bool> {
         )));
     }
 
-    // Clean up stale PID/token/port files if the recorded process is dead
+    // Clean up stale PID/port files if the recorded process is dead
     if let Some((pid, recorded_port)) = extension_bridge::read_pid_file().await {
         if recorded_port == port && !extension_bridge::is_pid_alive(pid) {
             tracing::debug!("Cleaning up stale bridge files (PID {} dead)", pid);
@@ -270,7 +270,10 @@ mod tests {
         let result = ensure_bridge_running(port).await;
         // Either spawned successfully (unlikely in test) or timed out
         match result {
-            Ok(true) => {} // bridge somehow started
+            Ok(true) => {
+                // Bridge started successfully - clean up to prevent process/file leaks
+                let _ = stop_bridge(port).await;
+            }
             Err(e) => {
                 let msg = e.to_string();
                 assert!(

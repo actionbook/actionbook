@@ -471,7 +471,7 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
 
     let version = result?;
 
-    // Register native messaging host for automatic token exchange
+    // Register native messaging host for automatic bridge connection
     let native_host_result = native_messaging::install_manifest();
 
     if cli.json {
@@ -513,7 +513,7 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
                     e
                 );
                 println!(
-                    "  {}  Token auto-pairing will not work; manual token entry required",
+                    "  {}  Auto-connect via native messaging will not work",
                     "ℹ".dimmed()
                 );
             }

@@ -1,8 +1,8 @@
-//! Chrome Native Messaging host for automatic token exchange.
+//! Chrome Native Messaging host for bridge connection information exchange.
 //!
 //! When Chrome invokes the actionbook binary as a native messaging host,
-//! this module handles the stdin/stdout protocol to provide the bridge
-//! session token to the extension without manual copy-paste.
+//! this module handles the stdin/stdout protocol to provide bridge
+//! connection information to the extension for auto-connect.
 //!
 //! Protocol: each message is prefixed with a 4-byte little-endian uint32 length,
 //! followed by UTF-8 JSON of that length.
@@ -148,7 +148,7 @@ pub fn native_host_manifest_path() -> crate::error::Result<std::path::PathBuf> {
 pub fn generate_manifest(binary_path: &str) -> serde_json::Value {
     serde_json::json!({
         "name": NATIVE_HOST_NAME,
-        "description": "Actionbook CLI - provides bridge session tokens to the browser extension",
+        "description": "Actionbook CLI - bridge connection host for the browser extension",
         "path": binary_path,
         "type": "stdio",
         "allowed_origins": [

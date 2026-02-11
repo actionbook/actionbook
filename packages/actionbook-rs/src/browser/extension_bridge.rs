@@ -69,6 +69,10 @@ pub fn get_risk_level(method: &str) -> Option<RiskLevel> {
 /// Minimum protocol version we accept in hello handshake.
 const PROTOCOL_VERSION: &str = "0.2.0";
 
+/// Allowed Chrome extension ID (from public key in manifest.json).
+/// Connections from other extensions will be rejected for security.
+const ALLOWED_EXTENSION_ID: &str = "dpfioflkmnkklgjldmaggkodhlidkdcd";
+
 /// Path to the bridge port file: `~/.local/share/actionbook/bridge-port`
 pub fn port_file_path() -> Result<PathBuf> {
     let data_dir = dirs::data_local_dir().ok_or_else(|| {
@@ -325,17 +329,23 @@ fn parse_origin(origin: &str) -> Option<(&str, &str, Option<&str>)> {
 }
 
 /// Validate the Origin header from a WebSocket upgrade request.
-/// Returns true if the origin is acceptable (loopback or chrome-extension://).
+/// Returns true if the origin is acceptable (loopback or allowed chrome-extension).
+///
+/// Security model:
+/// - Loopback origins (http://127.0.0.1, http://localhost, http://[::1]) are trusted
+/// - Only the official Actionbook extension ID is allowed for chrome-extension:// origins
+/// - No Origin header is allowed (CLI clients)
 fn is_origin_allowed(origin: Option<&str>) -> bool {
     match origin {
-        None => true,
+        None => true, // CLI clients without Origin header
         Some(o) => {
             let lower = o.to_lowercase();
             match parse_origin(&lower) {
                 None => false,
                 Some((scheme, host, _port)) => {
                     if scheme == "chrome-extension" {
-                        return true;
+                        // Only allow the official Actionbook extension
+                        return host == ALLOWED_EXTENSION_ID;
                     }
                     if scheme == "http" {
                         return matches!(host, "127.0.0.1" | "localhost" | "[::1]");
@@ -755,12 +765,12 @@ pub async fn send_command(
         }
         Ok(Some(Ok(Message::Close(_)))) | Ok(None) => {
             return Err(ActionbookError::ExtensionError(
-                "Authentication failed: connection closed (invalid token?)".to_string(),
+                "Handshake failed: connection closed by server".to_string(),
             ));
         }
         Ok(Some(Err(e))) => {
             return Err(ActionbookError::ExtensionError(format!(
-                "Authentication error: {}",
+                "Handshake error: {}",
                 e
             )));
         }
@@ -914,10 +924,4 @@ mod tests {
         assert_eq!(parse_origin("not-a-url"), None);
     }
 
-    #[test]
-    fn test_token_format() {
-        let token = generate_token();
-        assert!(token.starts_with(TOKEN_PREFIX));
-        assert_eq!(token.len(), 4 + 32); // "abk_" + 32 hex chars
-    }
 }
