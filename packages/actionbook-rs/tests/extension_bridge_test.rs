@@ -195,7 +195,7 @@ mod bridge_tests {
         let server_handle = start_bridge(port);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // Connect as CLI with valid token
+        // Connect as CLI and handshake
         let mut cli_ws = ws_connect(port).await;
         hello_cli(&mut cli_ws).await;
 

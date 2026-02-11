@@ -47,11 +47,10 @@ impl ExtensionBackend {
         result
     }
 
-    /// Send a command with retry logic for extension-not-connected and token rotation.
+    /// Send a command with retry logic for extension-not-connected.
     ///
     /// - "Extension not connected": retry up to 60 times (30s) at 500ms intervals
     ///   to wait for the extension to connect to the bridge.
-    /// - "Authentication failed" / "invalid token": re-read the token file and retry once.
     async fn send(&self, method: &str, params: Value) -> Result<Value> {
         let result = self.send_once(method, params.clone()).await;
 

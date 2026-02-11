@@ -965,10 +965,14 @@ async function tryNativeMessagingConnect() {
               return;
             }
             nativeMessagingFailCount = 0;
-            const storageData = { bridgeToken: response.token };
-            if (response.port) {
-              storageData.bridgePort = response.port;
-            }
+            // Validate port if present
+            const port = response.port && typeof response.port === "number" && response.port > 0 && response.port <= 65535
+              ? response.port
+              : undefined;
+            const storageData = {
+              bridgeToken: response.token,
+              ...(port && { bridgePort: port })
+            };
             chrome.storage.local.set(storageData, () => {
               retryCount = 0;
               reconnectDelay = RECONNECT_BASE_MS;
@@ -979,20 +983,30 @@ async function tryNativeMessagingConnect() {
             // New tokenless bridge_info response
             debugLog("[actionbook] Bridge info received via native messaging");
             nativeMessagingFailCount = 0;
-            const storageData = { bridgeToken: "connected" }; // Dummy token for compatibility
-            if (response.port) {
-              storageData.bridgePort = response.port;
-            }
+            // Validate port if present
+            const port = response.port && typeof response.port === "number" && response.port > 0 && response.port <= 65535
+              ? response.port
+              : undefined;
+            const storageData = {
+              bridgeToken: "connected", // Dummy token for compatibility
+              ...(port && { bridgePort: port })
+            };
             chrome.storage.local.set(storageData, () => {
               retryCount = 0;
               reconnectDelay = RECONNECT_BASE_MS;
               stopNativePolling();
               connect();
             });
+          } else {
+            // Unexpected response format
+            debugLog("[actionbook] Unexpected native messaging response format:", response);
           }
         } else if (response && response.type === "error" && response.error === "bridge_not_running") {
           // Bridge not running yet — keep polling, don't count as native messaging failure
           debugLog("[actionbook] Bridge not running, will retry...");
+        } else if (response) {
+          // Unknown response format
+          debugLog("[actionbook] Unknown native messaging response:", response);
         }
       }
     );

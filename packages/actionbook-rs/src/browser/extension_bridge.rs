@@ -782,7 +782,7 @@ pub async fn send_command(
         }
         Err(_) => {
             return Err(ActionbookError::ExtensionError(
-                "Authentication timeout: server did not respond".to_string(),
+                "Handshake timeout: server did not respond".to_string(),
             ));
         }
     }
@@ -882,13 +882,12 @@ mod tests {
         assert!(is_origin_allowed(Some("http://[::1]:8080")));
         assert!(is_origin_allowed(Some("http://[::1]/")));
 
-        // Chrome extension origins
-        assert!(is_origin_allowed(Some("chrome-extension://abcdefghijklmnop")));
+        // Allowed chrome extension (official Actionbook extension ID only)
         assert!(is_origin_allowed(Some("chrome-extension://dpfioflkmnkklgjldmaggkodhlidkdcd")));
 
         // Case insensitive
         assert!(is_origin_allowed(Some("HTTP://LOCALHOST")));
-        assert!(is_origin_allowed(Some("Chrome-Extension://abc")));
+        assert!(is_origin_allowed(Some("Chrome-Extension://dpfioflkmnkklgjldmaggkodhlidkdcd")));
     }
 
     #[test]
@@ -905,6 +904,10 @@ mod tests {
         assert!(!is_origin_allowed(Some("http://evil.com")));
         assert!(!is_origin_allowed(Some("https://evil.com")));
         assert!(!is_origin_allowed(Some("http://example.com")));
+
+        // Non-whitelisted chrome extension IDs
+        assert!(!is_origin_allowed(Some("chrome-extension://abcdefghijklmnop")));
+        assert!(!is_origin_allowed(Some("chrome-extension://otherextensionid1234567890abcdef")));
 
         // Malformed origins
         assert!(!is_origin_allowed(Some("not-a-url")));
