@@ -72,10 +72,7 @@ impl BrowserBackend for IsolatedBackend {
             _ => String::new(),
         };
 
-        Ok(OpenResult {
-            title,
-            url: url.to_string(),
-        })
+        Ok(OpenResult { title })
     }
 
     async fn close(&self) -> Result<()> {

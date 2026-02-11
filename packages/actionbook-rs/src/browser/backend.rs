@@ -176,7 +176,6 @@ pub const SNAPSHOT_JS: &str = r#"
 /// Result of opening a new page/tab.
 pub struct OpenResult {
     pub title: String,
-    pub url: String,
 }
 
 /// A page/tab entry from the browser.

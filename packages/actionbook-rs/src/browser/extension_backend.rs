@@ -40,18 +40,18 @@ impl ExtensionBackend {
         result
     }
 
-    /// Evaluate JS via Runtime.evaluate and return the unwrapped value.
-    async fn eval_js(&self, expression: &str) -> Result<Value> {
-        let result = self
-            .send(
-                "Runtime.evaluate",
-                serde_json::json!({
-                    "expression": expression,
-                    "returnByValue": true,
-                    "awaitPromise": true,
-                }),
-            )
-            .await?;
+    /// Evaluate JS via Runtime.evaluate with configurable `awaitPromise`.
+    /// Shared logic for both internal `eval_js` and the user-facing `eval` trait method.
+    async fn eval_with_options(&self, expression: &str, await_promise: bool) -> Result<Value> {
+        let mut params = serde_json::json!({
+            "expression": expression,
+            "returnByValue": true,
+        });
+        if await_promise {
+            params["awaitPromise"] = serde_json::json!(true);
+        }
+
+        let result = self.send("Runtime.evaluate", params).await?;
 
         if let Some(exception) = result.get("exceptionDetails") {
             let msg = exception
@@ -75,6 +75,11 @@ impl ExtensionBackend {
                     .cloned()
                     .unwrap_or(Value::Null)
             }))
+    }
+
+    /// Evaluate JS with `awaitPromise: true` — used by internal action helpers.
+    async fn eval_js(&self, expression: &str) -> Result<Value> {
+        self.eval_with_options(expression, true).await
     }
 
     /// Execute JS that returns `{success: bool, error?: string}` and check for errors.
@@ -203,10 +208,7 @@ impl BrowserBackend for ExtensionBackend {
             .unwrap_or("")
             .to_string();
 
-        Ok(OpenResult {
-            title,
-            url: url.to_string(),
-        })
+        Ok(OpenResult { title })
     }
 
     async fn close(&self) -> Result<()> {
@@ -543,38 +545,7 @@ impl BrowserBackend for ExtensionBackend {
     }
 
     async fn eval(&self, code: &str) -> Result<Value> {
-        let result = self
-            .send(
-                "Runtime.evaluate",
-                serde_json::json!({
-                    "expression": code,
-                    "returnByValue": true,
-                }),
-            )
-            .await?;
-
-        if let Some(exception) = result.get("exceptionDetails") {
-            let msg = exception
-                .get("text")
-                .or_else(|| exception.get("exception").and_then(|e| e.get("description")))
-                .and_then(|v| v.as_str())
-                .unwrap_or("JavaScript exception");
-            return Err(ActionbookError::ExtensionError(format!(
-                "JS error (extension mode): {}",
-                msg
-            )));
-        }
-
-        Ok(result
-            .get("result")
-            .and_then(|r| r.get("value"))
-            .cloned()
-            .unwrap_or_else(|| {
-                result
-                    .get("result")
-                    .cloned()
-                    .unwrap_or(Value::Null)
-            }))
+        self.eval_with_options(code, false).await
     }
 
     async fn html(&self, selector: Option<&str>) -> Result<String> {
