@@ -11,6 +11,19 @@
     "url": "https://github.com/actionbook/actionbook",
     "directory": "playground/deep-research"
   },
+  "dependencies": {
+    "npm": {
+      "@actionbookdev/cli": ">=0.6.0",
+      "@actionbookdev/json-ui": ">=0.1.0"
+    }
+  },
+  "setup": {
+    "install": "npm install -g @actionbookdev/cli @actionbookdev/json-ui",
+    "verify": [
+      { "command": "actionbook --version", "description": "Actionbook CLI (browser automation)" },
+      { "command": "json-ui --version", "description": "json-ui CLI (HTML report rendering)" }
+    ]
+  },
   "skills": "./skills/",
   "commands": "./commands/",
   "agents": "./agents/",

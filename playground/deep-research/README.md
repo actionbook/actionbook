@@ -2,7 +2,7 @@
 
 > Analyze any topic, domain, or paper and generate a beautiful HTML report — powered by Actionbook and Claude Code.
 
-All you need is **Claude Code** + **Actionbook CLI**. Everything runs locally on your machine.
+All you need is **Claude Code** + **Actionbook CLI** + **json-ui**. Everything runs locally on your machine.
 
 ## Demo Gallery
 
@@ -117,7 +117,21 @@ actionbook --version
 actionbook browser status
 ```
 
-### Step 3: Add the Deep Research Skill
+### Step 3: Install json-ui (Report Renderer)
+
+```bash
+npm install -g @actionbookdev/json-ui
+```
+
+This provides the `json-ui` CLI that converts JSON reports into self-contained HTML files.
+
+Verify:
+
+```bash
+json-ui --version
+```
+
+### Step 4: Add the Deep Research Skill
 
 **Option A: One-command install via `npx skills` (recommended)**
 
@@ -142,7 +156,7 @@ mkdir -p ~/.claude/skills/deep-research
 cp playground/deep-research/skills/deep-research/SKILL.md ~/.claude/skills/deep-research/SKILL.md
 ```
 
-### Step 4: Run Your First Research
+### Step 5: Run Your First Research
 
 Start Claude Code:
 
@@ -290,12 +304,31 @@ See `skills/deep-research/SKILL.md` for the full component catalog.
 | Issue | Solution |
 |-------|----------|
 | `actionbook: command not found` | `npm i -g @actionbookdev/cli` |
+| `json-ui: command not found` | `npm i -g @actionbookdev/json-ui` |
 | `claude: command not found` | `npm i -g @anthropic-ai/claude-code` |
 | Browser won't open | `actionbook browser status` — ensure Chromium browser is installed |
 | Empty report | Check internet connection, try a simpler topic |
-| HTML render fails | The JSON report is saved at `./output/<slug>.json` — you can render it later |
+| HTML render fails | The JSON report is saved at `./output/<slug>.json` — install json-ui and render manually: `json-ui render <file>.json -o <file>.html` |
+| `[object Object]` in HTML | Update json-ui: `npm i -g @actionbookdev/json-ui@latest` (fixed in v0.1.0+) |
 | Skill not found | Ensure SKILL.md is at `~/.claude/skills/deep-research/SKILL.md` |
 | Chinese text reads like machine translation | The skill includes quality guidelines — re-run to regenerate |
+
+## Dependencies
+
+This skill requires two npm packages installed globally:
+
+| Package | npm Name | Purpose | Install |
+|---------|----------|---------|---------|
+| Actionbook CLI | `@actionbookdev/cli` | Browser automation, web search, selector queries | `npm i -g @actionbookdev/cli` |
+| json-ui | `@actionbookdev/json-ui` | JSON report → self-contained HTML rendering | `npm i -g @actionbookdev/json-ui` |
+
+**One-command install:**
+
+```bash
+npm install -g @actionbookdev/cli @actionbookdev/json-ui
+```
+
+These dependencies are also declared in `.claude-plugin/plugin.json` under the `dependencies` and `setup` fields, enabling future auto-install support in Claude Code skill managers.
 
 ## Project Structure
 

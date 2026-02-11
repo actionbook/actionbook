@@ -283,20 +283,26 @@ Write a JSON file following the `@actionbookdev/json-ui` schema. Use the Write t
 
 ### Step 8: Render HTML
 
-Try these in order until one works:
+**CRITICAL: You MUST try ALL fallback methods before giving up. Do NOT stop at the first failure.**
+
+**IMPORTANT: Always use ABSOLUTE paths for JSON_FILE and HTML_FILE.** Relative paths break when git rev-parse returns an absolute repo root.
+
+Try each method one by one until one succeeds:
 
 ```bash
-# 1. Local monorepo (if running inside actionbook project)
-node packages/json-ui/dist/cli.js render <report.json> -o <report.html>
+# Method 1: npx (recommended — works anywhere if npm is available)
+npx @actionbookdev/json-ui render /absolute/path/to/report.json -o /absolute/path/to/report.html
 
-# 2. npx (if published)
-npx @actionbookdev/json-ui render <report.json> -o <report.html>
+# Method 2: Global install (if user ran: npm install -g @actionbookdev/json-ui)
+json-ui render /absolute/path/to/report.json -o /absolute/path/to/report.html
 
-# 3. npx with @latest
-npx @actionbookdev/json-ui@latest render <report.json> -o <report.html>
+# Method 3: Monorepo local path (fallback if inside actionbook project)
+node "$(git rev-parse --show-toplevel)/packages/json-ui/dist/cli.js" render /absolute/path/to/report.json -o /absolute/path/to/report.html
 ```
 
-If all fail, save the JSON file and inform the user of its path.
+**NEVER give up silently.** If all methods fail, tell the user:
+1. The JSON report is saved at `<path>`
+2. To install the renderer, run: `npm install -g @actionbookdev/json-ui`
 
 ### Step 9: Open in Browser
 
@@ -531,9 +537,9 @@ Use `actionbook browser` to visit and extract content from:
 | Actionbook selector not found | Use `actionbook browser snapshot` to discover actual page structure |
 | `actionbook search` returns no results | Site not indexed. Use `actionbook browser snapshot` to find selectors manually |
 | json-ui render crash (`text.replace`) | Check MetricsGrid `suffix`/`value` — must be plain strings, not i18n objects |
-| `npx @actionbookdev/json-ui` 404 | Package not on npm. Use local: `node packages/json-ui/dist/cli.js render` |
+| `npx @actionbookdev/json-ui` fails | Run `npm install -g @actionbookdev/json-ui` and retry with `json-ui render`. If still fails, try monorepo local path |
 | No search results | Broaden search terms, try different angles |
-| Render failed | Save JSON and inform user of the path |
+| Render failed | Save JSON, tell user path, and suggest: `npm install -g @actionbookdev/json-ui` |
 
 **IMPORTANT:** Always run `actionbook browser close` before finishing, even on errors.
 
@@ -577,6 +583,31 @@ The `zh` field is not a translation — it is an independent Chinese version of 
 5. **数据和事实保持一致**：中英文的数字、日期、引用来源必须完全一致。
 6. **语气自然**：可以用"说白了"、"换句话说"、"简单来说"等口语化连接词，避免全篇书面腔。
 7. **标点规范**：用中文标点（，。；：「」）而非英文标点。引号优先用「」。
+
+### Table & Short Text Rules (表格与短文本规则)
+
+Table 行中的 `"English / 中文"` 格式是中文质量的重灾区。短文本更容易暴露机翻痕迹。
+
+**规则：中文部分必须是独立的中文表述，不是英文的逐词翻译。**
+
+| Bad | Why Bad | Good |
+|-----|---------|------|
+| "应用级错误处理" | 太生硬，像翻译腔 | "应用层统一报错" |
+| "高性能 Web 框架" | 可以，但太平淡 | "主打性能的 Web 框架" |
+| "序列化框架" | 可以接受 | "序列化框架" ✓ |
+| "嵌入式异步执行器" | 太绕 | "嵌入式异步运行器" |
+| "凸块分配器" | 硬造译名，没人这么说 | "Bump 分配器（arena 风格）" |
+| "安全内存擦除" | 太书面 | "安全清零内存" |
+| "多生产者多消费者通道" | 太长 | "MPMC 通道" |
+| "类 React UI 框架" | OK | "类 React 的 UI 框架" ✓ |
+
+**表格中文短文本的核心原则：**
+
+1. **保留英文术语**：Bump allocator、MPMC、ECS 这些没有公认中文译名的概念，直接保留英文。别硬翻。
+2. **口语化 > 书面化**：短文本读者扫一眼就过，要像说话一样自然。"主打性能" 比 "性能优化的" 好。
+3. **别逐词翻译**：先理解英文描述的意思，然后用中文重新说一遍。"Full-featured datetime" → "功能齐全的时间日期库"，不是 "全功能日期时间"。
+4. **可以省略冗余修饰**：英文 "A generic serialization/deserialization framework" → 中文只需 "序列化框架"。
+5. **数量控制在 10 字以内**：表格中文描述尽量控制在 10 个汉字以内，简短精准。
 
 ### Bilingual Tone Reference
 

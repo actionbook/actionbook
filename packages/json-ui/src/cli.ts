@@ -996,7 +996,7 @@ function renderNode(node: ReportJSON): string {
           <tbody>
             ${rows.map((row, rowIdx) => `
               <tr>
-                ${columns.map(c => `<td${isHighlighted(rowIdx, c.key) ? ' class="highlight"' : ''}>${escapeHtml(String(row[c.key] ?? ''))}</td>`).join('')}
+                ${columns.map(c => `<td${isHighlighted(rowIdx, c.key) ? ' class="highlight"' : ''}>${renderI18n(row[c.key])}</td>`).join('')}
               </tr>
             `).join('')}
           </tbody>
@@ -1035,7 +1035,7 @@ function renderNode(node: ReportJSON): string {
               <tr>
                 ${columns.map(c => {
                   const align = c.align ? ` style="text-align: ${c.align}"` : '';
-                  return `<td${align}>${escapeHtml(String(row[c.key] ?? ''))}</td>`;
+                  return `<td${align}>${renderI18n(row[c.key])}</td>`;
                 }).join('')}
               </tr>
             `).join('')}

@@ -1,7 +1,7 @@
 {
   "name": "@actionbookdev/json-ui",
   "version": "0.1.0",
-  "description": "Universal JSON-to-UI rendering components for AI Agent reports, based on json-render",
+  "description": "Universal JSON-to-UI rendering components for AI Agent reports",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -30,6 +30,7 @@
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build",
     "render": "node dist/cli.js render"
   },
   "dependencies": {
@@ -45,14 +46,29 @@
   "peerDependencies": {
     "react": "^18.0.0"
   },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/actionbook/actionbook.git",
+    "directory": "packages/json-ui"
+  },
+  "homepage": "https://actionbook.dev",
+  "author": "Actionbook Team",
+  "engines": {
+    "node": ">=18"
+  },
   "keywords": [
     "json-render",
+    "json-ui",
     "ui",
     "report",
     "ai-agent",
     "actionbook",
     "react",
-    "zod"
+    "zod",
+    "html-report"
   ],
-  "license": "MIT"
+  "license": "Apache-2.0"
 }
