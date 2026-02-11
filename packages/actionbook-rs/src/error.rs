@@ -45,6 +45,18 @@ pub enum ActionbookError {
     #[error("Timeout: {0}")]
     Timeout(String),
 
+    #[error("Camoufox server not reachable at {0}")]
+    CamofoxServerUnreachable(String),
+
+    #[error("Element ref resolution failed for selector '{0}': {1}")]
+    ElementRefResolution(String, String),
+
+    #[error("Tab not found: {0}")]
+    TabNotFound(String),
+
+    #[error("Browser operation failed: {0}")]
+    BrowserOperation(String),
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 

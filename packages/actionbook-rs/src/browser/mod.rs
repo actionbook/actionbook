@@ -1,3 +1,5 @@
+mod backend;
+pub mod camofox;
 mod discovery;
 pub mod extension_installer;
 pub mod extension_bridge;
@@ -6,6 +8,7 @@ pub mod native_messaging;
 mod session;
 pub mod stealth;
 
+pub use backend::BrowserBackend;
 #[allow(unused_imports)]
 pub use discovery::{discover_all_browsers, BrowserInfo, BrowserType};
 pub use session::{SessionManager, SessionStatus, StealthConfig};

@@ -3112,6 +3112,8 @@ mod tests {
             extension: false,
             extension_port: 19222,
             verbose: false,
+            camofox: false,
+            camofox_port: None,
             command: Commands::Browser { command },
         }
     }

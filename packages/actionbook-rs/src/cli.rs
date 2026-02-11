@@ -79,6 +79,14 @@ pub struct Cli {
     #[arg(short, long, global = true)]
     pub verbose: bool,
 
+    /// Use Camoufox browser backend
+    #[arg(long, env = "ACTIONBOOK_CAMOFOX", global = true)]
+    pub camofox: bool,
+
+    /// Camoufox server port
+    #[arg(long, env = "ACTIONBOOK_CAMOFOX_PORT", global = true)]
+    pub camofox_port: Option<u16>,
+
     #[command(subcommand)]
     pub command: Commands,
 }
