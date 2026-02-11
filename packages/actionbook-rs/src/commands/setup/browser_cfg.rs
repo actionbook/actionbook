@@ -3,6 +3,7 @@ use dialoguer::Select;
 
 use super::detect::EnvironmentInfo;
 use super::theme::setup_theme;
+use crate::browser::extension_installer;
 use crate::cli::{BrowserMode, Cli};
 use crate::config::Config;
 use crate::error::{ActionbookError, Result};
@@ -14,7 +15,7 @@ use crate::error::{ActionbookError, Result};
 ///   2. Mode-specific config (executable+headless for Isolated, extension guidance for Extension)
 ///
 /// Respects --browser flag for non-interactive use.
-pub fn configure_browser(
+pub async fn configure_browser(
     cli: &Cli,
     env: &EnvironmentInfo,
     browser_flag: Option<BrowserMode>,
@@ -77,7 +78,7 @@ pub fn configure_browser(
 
     match mode {
         BrowserMode::Isolated => configure_isolated(cli, env, config)?,
-        BrowserMode::Extension => configure_extension(cli, config)?,
+        BrowserMode::Extension => configure_extension(cli, config).await?,
     }
 
     Ok(())
@@ -206,13 +207,10 @@ fn configure_isolated(cli: &Cli, env: &EnvironmentInfo, config: &mut Config) -> 
     Ok(())
 }
 
-/// Configure extension mode: show setup guidance, persist extension config.
-fn configure_extension(cli: &Cli, config: &mut Config) -> Result<()> {
-    let ext_dir = dirs::home_dir()
-        .unwrap_or_default()
-        .join(".actionbook")
-        .join("extension");
-    let installed = ext_dir.exists();
+/// Configure extension mode: auto-install if needed, show setup guidance.
+async fn configure_extension(cli: &Cli, config: &mut Config) -> Result<()> {
+    let ext_dir = extension_installer::extension_dir()?;
+    let installed = extension_installer::is_installed();
 
     if cli.json {
         println!(
@@ -227,12 +225,50 @@ fn configure_extension(cli: &Cli, config: &mut Config) -> Result<()> {
         return Ok(());
     }
 
-    if installed {
+    // Auto-install extension if not present and auto_install is enabled
+    if !installed && config.browser.extension.auto_install {
         println!(
-            "  {}  Extension installed at {}",
-            "◇".green(),
-            ext_dir.display()
+            "  {}  Extension not found. Downloading from GitHub...",
+            "⏳".yellow()
         );
+
+        match extension_installer::download_and_install(false).await {
+            Ok(version) => {
+                println!(
+                    "  {}  Extension v{} installed at {}",
+                    "✓".green(),
+                    version,
+                    ext_dir.display()
+                );
+            }
+            Err(e) => {
+                println!(
+                    "  {}  Failed to auto-install extension: {}",
+                    "✗".red(),
+                    e
+                );
+                println!(
+                    "  {}  Please run {} manually",
+                    "→".yellow(),
+                    "actionbook extension install".cyan()
+                );
+            }
+        }
+    } else if installed {
+        if let Some(version) = extension_installer::installed_version() {
+            println!(
+                "  {}  Extension v{} installed at {}",
+                "◇".green(),
+                version,
+                ext_dir.display()
+            );
+        } else {
+            println!(
+                "  {}  Extension installed at {}",
+                "◇".green(),
+                ext_dir.display()
+            );
+        }
     } else {
         println!(
             "  {}  Extension not found. Run {} to install.",
@@ -259,7 +295,7 @@ fn configure_extension(cli: &Cli, config: &mut Config) -> Result<()> {
     println!(
         "  {}  3. Click \"Load unpacked\" → select {}",
         "│".dimmed(),
-        "~/.actionbook/extension".cyan()
+        ext_dir.display().to_string().cyan()
     );
     println!(
         "  {}  4. The extension auto-connects when you run browser commands",

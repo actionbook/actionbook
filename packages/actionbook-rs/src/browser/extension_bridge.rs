@@ -6,7 +6,6 @@ use std::time::Instant;
 
 use futures::{SinkExt, StreamExt};
 use rand::Rng;
-use subtle::ConstantTimeEq;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_tungstenite::tungstenite::http::StatusCode;
@@ -534,7 +533,6 @@ async fn handle_connection(stream: TcpStream, state: Arc<Mutex<BridgeState>>) {
         return;
     }
 
-    let client_token = parsed.get("token").and_then(|t| t.as_str()).unwrap_or("");
     let client_role = parsed.get("role").and_then(|r| r.as_str()).unwrap_or("");
     let client_version = parsed
         .get("version")
@@ -570,25 +568,7 @@ async fn handle_connection(stream: TcpStream, state: Arc<Mutex<BridgeState>>) {
         }
     }
 
-    // Validate token (constant-time to prevent timing side-channels)
-    {
-        let s = state.lock().await;
-        let token_match = client_token.as_bytes().ct_eq(s.token.as_bytes());
-        if token_match.unwrap_u8() != 1 {
-            tracing::warn!("Invalid token from {} client", client_role);
-            let err_msg = serde_json::json!({
-                "type": "hello_error",
-                "error": "invalid_token",
-                "message": "Token mismatch. Reconnect via native messaging to obtain the current token.",
-            });
-            let _ = write
-                .send(Message::Text(err_msg.to_string().into()))
-                .await;
-            return;
-        }
-    }
-
-    // Send hello_ack to confirm successful authentication
+    // Send hello_ack to confirm successful handshake
     let ack = serde_json::json!({ "type": "hello_ack", "version": PROTOCOL_VERSION });
     if write
         .send(Message::Text(ack.to_string().into()))
@@ -876,40 +856,20 @@ pub async fn send_command(
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value> {
-    let token = read_token_file()
-        .await
-        .ok_or_else(|| {
-            ActionbookError::ExtensionError(
-                "No bridge token found. Is `actionbook extension serve` running?"
-                    .to_string(),
-            )
-        })?;
-
-    send_command_with_token(port, method, params, &token).await
-}
-
-/// Send a single command with an explicit token.
-pub async fn send_command_with_token(
-    port: u16,
-    method: &str,
-    params: serde_json::Value,
-    token: &str,
-) -> Result<serde_json::Value> {
     use tokio_tungstenite::connect_async;
 
     let url = format!("ws://127.0.0.1:{}", port);
     let (mut ws, _) = connect_async(&url).await.map_err(|e| {
         ActionbookError::ExtensionError(format!(
-            "Cannot connect to bridge at {}. Is `actionbook extension serve` running? ({})",
+            "Cannot connect to bridge at {}. Is the bridge running? ({})",
             url, e
         ))
     })?;
 
-    // Send hello handshake first
+    // Send hello handshake (no token required)
     let hello = serde_json::json!({
         "type": "hello",
         "role": "cli",
-        "token": token,
         "version": PROTOCOL_VERSION,
     });
 
@@ -924,7 +884,7 @@ pub async fn send_command_with_token(
                 serde_json::from_str(text.as_str()).unwrap_or_default();
             if ack.get("type").and_then(|t| t.as_str()) != Some("hello_ack") {
                 return Err(ActionbookError::ExtensionError(
-                    "Authentication failed: invalid token".to_string(),
+                    "Handshake failed".to_string(),
                 ));
             }
         }
