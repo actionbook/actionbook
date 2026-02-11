@@ -9,6 +9,7 @@ use figment::providers::{Env, Format, Serialized, Toml};
 use figment::Figment;
 use serde::{Deserialize, Serialize};
 
+use crate::cli::BrowserMode;
 use crate::error::{ActionbookError, Result};
 
 /// Main configuration structure
@@ -52,6 +53,10 @@ fn default_api_url() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrowserConfig {
+    /// Browser mode: isolated (dedicated debug browser) or extension (user's Chrome via bridge)
+    #[serde(default = "default_browser_mode")]
+    pub mode: BrowserMode,
+
     /// Browser executable path (overrides auto-discovery)
     pub executable: Option<String>,
 
@@ -62,16 +67,54 @@ pub struct BrowserConfig {
     /// Default headless mode
     #[serde(default)]
     pub headless: bool,
+
+    /// Extension bridge configuration
+    #[serde(default)]
+    pub extension: ExtensionConfig,
 }
 
 impl Default for BrowserConfig {
     fn default() -> Self {
         Self {
+            mode: default_browser_mode(),
             executable: None,
             default_profile: default_profile_name(),
             headless: false,
+            extension: ExtensionConfig::default(),
         }
     }
+}
+
+fn default_browser_mode() -> BrowserMode {
+    BrowserMode::Isolated
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtensionConfig {
+    /// Bridge WebSocket port
+    #[serde(default = "default_extension_port")]
+    pub port: u16,
+
+    /// Auto-install extension on first use
+    #[serde(default = "default_true")]
+    pub auto_install: bool,
+}
+
+impl Default for ExtensionConfig {
+    fn default() -> Self {
+        Self {
+            port: default_extension_port(),
+            auto_install: true,
+        }
+    }
+}
+
+fn default_extension_port() -> u16 {
+    19222
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_profile_name() -> String {
@@ -233,6 +276,7 @@ mod tests {
                 executable: Some("/Applications/Google Chrome.app".to_string()),
                 default_profile: "team".to_string(),
                 headless: true,
+                ..BrowserConfig::default()
             },
             profiles: HashMap::new(),
         };
@@ -264,6 +308,7 @@ mod tests {
                 executable: None,
                 default_profile: "   ".to_string(),
                 headless: false,
+                ..BrowserConfig::default()
             },
             profiles: HashMap::new(),
         };

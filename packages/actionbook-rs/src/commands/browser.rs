@@ -2983,6 +2983,7 @@ mod tests {
             stealth_gpu: None,
             api_key: None,
             json: false,
+            browser_mode: None,
             extension: false,
             extension_port: 19222,
             verbose: false,

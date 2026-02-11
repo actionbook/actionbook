@@ -7,9 +7,12 @@ use crate::cli::{BrowserMode, Cli};
 use crate::config::Config;
 use crate::error::{ActionbookError, Result};
 
-/// Configure the browser mode (system vs builtin) and headless preference.
+/// Configure browser mode (isolated vs extension), executable, and headless preference.
 ///
-/// When browsers are detected, offers the user a choice.
+/// Interactive flow:
+///   1. Select mode (Isolated / Extension)
+///   2. Mode-specific config (executable+headless for Isolated, extension guidance for Extension)
+///
 /// Respects --browser flag for non-interactive use.
 pub fn configure_browser(
     cli: &Cli,
@@ -23,8 +26,9 @@ pub fn configure_browser(
         return apply_browser_mode(cli, env, mode, config);
     }
 
-    // Non-interactive without flag: use best detected browser or keep current
+    // Non-interactive without flag: default to isolated with best detected browser
     if non_interactive {
+        config.browser.mode = BrowserMode::Isolated;
         if let Some(browser) = env.browsers.first() {
             config.browser.executable = Some(browser.path.display().to_string());
             config.browser.headless = true;
@@ -33,14 +37,14 @@ pub fn configure_browser(
                     "{}",
                     serde_json::json!({
                         "step": "browser",
-                        "mode": "system",
+                        "mode": "isolated",
                         "browser": browser.browser_type.name(),
                         "headless": true,
                     })
                 );
             } else {
                 println!(
-                    "  {}  Using system browser: {}",
+                    "  {}  Using isolated mode with: {}",
                     "◇".green(),
                     browser.browser_type.name()
                 );
@@ -53,13 +57,13 @@ pub fn configure_browser(
                     "{}",
                     serde_json::json!({
                         "step": "browser",
-                        "mode": "builtin",
+                        "mode": "isolated",
                         "headless": true,
                     })
                 );
             } else {
                 println!(
-                    "  {}  No system browser detected, using built-in",
+                    "  {}  No system browser detected, using isolated mode with built-in",
                     "◇".green()
                 );
             }
@@ -67,7 +71,52 @@ pub fn configure_browser(
         return Ok(());
     }
 
-    // Interactive mode
+    // Interactive: Step 1 — select browser mode
+    let mode = select_browser_mode(cli)?;
+    config.browser.mode = mode;
+
+    match mode {
+        BrowserMode::Isolated => configure_isolated(cli, env, config)?,
+        BrowserMode::Extension => configure_extension(cli, config)?,
+    }
+
+    Ok(())
+}
+
+/// Interactive prompt to select browser mode (Isolated vs Extension).
+fn select_browser_mode(cli: &Cli) -> Result<BrowserMode> {
+    let options = vec![
+        "Extension — control your existing Chrome browser",
+        "Isolated  — launch a dedicated debug browser",
+    ];
+
+    let selection = Select::with_theme(&setup_theme())
+        .with_prompt(" Browser mode")
+        .items(&options)
+        .default(0)
+        .report(false)
+        .interact()
+        .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
+
+    let mode = if selection == 0 {
+        BrowserMode::Extension
+    } else {
+        BrowserMode::Isolated
+    };
+
+    if !cli.json {
+        let label = match mode {
+            BrowserMode::Extension => "Extension",
+            BrowserMode::Isolated => "Isolated",
+        };
+        println!("  {}  Mode: {}", "◇".green(), label);
+    }
+
+    Ok(mode)
+}
+
+/// Configure isolated mode: select browser executable + headless/visible.
+fn configure_isolated(cli: &Cli, env: &EnvironmentInfo, config: &mut Config) -> Result<()> {
     if env.browsers.is_empty() {
         if !cli.json {
             println!("  {}  No Chromium-based browsers detected.", "■".yellow());
@@ -77,52 +126,51 @@ pub fn configure_browser(
             );
         }
         config.browser.executable = None;
-        return Ok(());
-    }
-
-    // Build selection options
-    let mut options: Vec<String> = env
-        .browsers
-        .iter()
-        .map(|b| {
-            let ver = b
-                .version
-                .as_deref()
-                .map(|v| format!(" v{}", v))
-                .unwrap_or_default();
-            format!("{}{} (detected)", b.browser_type.name(), ver)
-        })
-        .collect();
-    options.push("Built-in (recommended for agents)".to_string());
-
-    let selection = Select::with_theme(&setup_theme())
-        .with_prompt(" Select browser")
-        .items(&options)
-        .default(0)
-        .report(false)
-        .interact()
-        .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
-
-    if selection < env.browsers.len() {
-        let browser = &env.browsers[selection];
-        config.browser.executable = Some(browser.path.display().to_string());
-        if !cli.json {
-            println!(
-                "  {}  Browser: {}",
-                "◇".green(),
-                browser.browser_type.name()
-            );
-        }
     } else {
-        config.browser.executable = None;
-        if !cli.json {
-            println!("  {}  Browser: Built-in", "◇".green());
+        let mut options: Vec<String> = env
+            .browsers
+            .iter()
+            .map(|b| {
+                let ver = b
+                    .version
+                    .as_deref()
+                    .map(|v| format!(" v{}", v))
+                    .unwrap_or_default();
+                format!("{}{} (detected)", b.browser_type.name(), ver)
+            })
+            .collect();
+        options.push("Built-in (recommended for agents)".to_string());
+
+        let selection = Select::with_theme(&setup_theme())
+            .with_prompt(" Select browser")
+            .items(&options)
+            .default(0)
+            .report(false)
+            .interact()
+            .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
+
+        if selection < env.browsers.len() {
+            let browser = &env.browsers[selection];
+            config.browser.executable = Some(browser.path.display().to_string());
+            if !cli.json {
+                println!(
+                    "  {}  Browser: {}",
+                    "◇".green(),
+                    browser.browser_type.name()
+                );
+            }
+        } else {
+            config.browser.executable = None;
+            if !cli.json {
+                println!("  {}  Browser: Built-in", "◇".green());
+            }
         }
     }
 
+    // Headless selection (default: visible — most users want to see what's happening)
     let headless_options = vec![
-        "Headless — no window, ideal for automation",
         "Visible — opens a browser window you can see",
+        "Headless — no window, ideal for CI/automation",
     ];
     let headless_selection = Select::with_theme(&setup_theme())
         .with_prompt(" Display mode")
@@ -132,7 +180,7 @@ pub fn configure_browser(
         .interact()
         .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
 
-    config.browser.headless = headless_selection == 0;
+    config.browser.headless = headless_selection == 1;
 
     if !cli.json {
         let mode_label = if config.browser.headless {
@@ -148,12 +196,75 @@ pub fn configure_browser(
             "{}",
             serde_json::json!({
                 "step": "browser",
-                "mode": if config.browser.executable.is_some() { "system" } else { "builtin" },
+                "mode": "isolated",
                 "executable": config.browser.executable,
                 "headless": config.browser.headless,
             })
         );
     }
+
+    Ok(())
+}
+
+/// Configure extension mode: show setup guidance, persist extension config.
+fn configure_extension(cli: &Cli, config: &mut Config) -> Result<()> {
+    let ext_dir = dirs::home_dir()
+        .unwrap_or_default()
+        .join(".actionbook")
+        .join("extension");
+    let installed = ext_dir.exists();
+
+    if cli.json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "step": "browser",
+                "mode": "extension",
+                "extension_installed": installed,
+                "extension_port": config.browser.extension.port,
+            })
+        );
+        return Ok(());
+    }
+
+    if installed {
+        println!(
+            "  {}  Extension installed at {}",
+            "◇".green(),
+            ext_dir.display()
+        );
+    } else {
+        println!(
+            "  {}  Extension not found. Run {} to install.",
+            "■".yellow(),
+            "actionbook extension install".cyan()
+        );
+    }
+
+    println!("  {}", "│".dimmed());
+    println!(
+        "  {}  {}",
+        "│".dimmed(),
+        "To use extension mode:".dimmed()
+    );
+    println!(
+        "  {}  1. Open {} in Chrome",
+        "│".dimmed(),
+        "chrome://extensions".cyan()
+    );
+    println!(
+        "  {}  2. Enable \"Developer mode\" (top right toggle)",
+        "│".dimmed()
+    );
+    println!(
+        "  {}  3. Click \"Load unpacked\" → select {}",
+        "│".dimmed(),
+        "~/.actionbook/extension".cyan()
+    );
+    println!(
+        "  {}  4. The extension auto-connects when you run browser commands",
+        "│".dimmed()
+    );
 
     Ok(())
 }
@@ -164,33 +275,34 @@ fn apply_browser_mode(
     mode: BrowserMode,
     config: &mut Config,
 ) -> Result<()> {
+    config.browser.mode = mode;
+
     match mode {
-        BrowserMode::System => {
+        BrowserMode::Isolated => {
             if let Some(browser) = env.browsers.first() {
                 config.browser.executable = Some(browser.path.display().to_string());
                 if !cli.json {
                     println!(
-                        "  {}  Using system browser: {}",
+                        "  {}  Using isolated mode with: {}",
                         "◇".green(),
                         browser.browser_type.name()
                     );
                 }
             } else {
-                return Err(ActionbookError::SetupError(
-                    "No system browser detected. Install Chrome, Brave, or Edge.".to_string(),
-                ));
+                config.browser.executable = None;
+                if !cli.json {
+                    println!("  {}  Using isolated mode with built-in browser", "◇".green());
+                }
             }
+            // Default to headless when using flags (agent scenario)
+            config.browser.headless = true;
         }
-        BrowserMode::Builtin => {
-            config.browser.executable = None;
+        BrowserMode::Extension => {
             if !cli.json {
-                println!("  {}  Using built-in browser", "◇".green());
+                println!("  {}  Using extension mode", "◇".green());
             }
         }
     }
-
-    // Default to headless when using flags (agent scenario)
-    config.browser.headless = true;
 
     if cli.json {
         println!(
@@ -200,6 +312,7 @@ fn apply_browser_mode(
                 "mode": format!("{:?}", mode).to_lowercase(),
                 "executable": config.browser.executable,
                 "headless": config.browser.headless,
+                "extension_port": config.browser.extension.port,
             })
         );
     }
@@ -226,9 +339,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_apply_builtin_mode() {
-        let cli = Cli {
+    fn make_test_cli() -> Cli {
+        Cli {
             browser_path: None,
             cdp: None,
             profile: None,
@@ -238,67 +350,32 @@ mod tests {
             stealth_gpu: None,
             api_key: None,
             json: false,
+            browser_mode: None,
             extension: false,
             extension_port: 19222,
             verbose: false,
             command: crate::cli::Commands::Config {
                 command: crate::cli::ConfigCommands::Show,
             },
-        };
+        }
+    }
+
+    #[test]
+    fn test_apply_isolated_mode() {
+        let cli = make_test_cli();
         let env = make_env_with_browsers(vec![]);
         let mut config = Config::default();
 
-        let result = apply_browser_mode(&cli, &env, BrowserMode::Builtin, &mut config);
+        let result = apply_browser_mode(&cli, &env, BrowserMode::Isolated, &mut config);
         assert!(result.is_ok());
+        assert_eq!(config.browser.mode, BrowserMode::Isolated);
         assert!(config.browser.executable.is_none());
         assert!(config.browser.headless);
     }
 
     #[test]
-    fn test_apply_system_mode_no_browser() {
-        let cli = Cli {
-            browser_path: None,
-            cdp: None,
-            profile: None,
-            headless: false,
-            stealth: false,
-            stealth_os: None,
-            stealth_gpu: None,
-            api_key: None,
-            json: false,
-            extension: false,
-            extension_port: 19222,
-            verbose: false,
-            command: crate::cli::Commands::Config {
-                command: crate::cli::ConfigCommands::Show,
-            },
-        };
-        let env = make_env_with_browsers(vec![]);
-        let mut config = Config::default();
-
-        let result = apply_browser_mode(&cli, &env, BrowserMode::System, &mut config);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_apply_system_mode_with_browser() {
-        let cli = Cli {
-            browser_path: None,
-            cdp: None,
-            profile: None,
-            headless: false,
-            stealth: false,
-            stealth_os: None,
-            stealth_gpu: None,
-            api_key: None,
-            json: false,
-            extension: false,
-            extension_port: 19222,
-            verbose: false,
-            command: crate::cli::Commands::Config {
-                command: crate::cli::ConfigCommands::Show,
-            },
-        };
+    fn test_apply_isolated_mode_with_browser() {
+        let cli = make_test_cli();
         let browser = BrowserInfo {
             browser_type: BrowserType::Chrome,
             path: PathBuf::from("/usr/bin/chrome"),
@@ -307,8 +384,9 @@ mod tests {
         let env = make_env_with_browsers(vec![browser]);
         let mut config = Config::default();
 
-        let result = apply_browser_mode(&cli, &env, BrowserMode::System, &mut config);
+        let result = apply_browser_mode(&cli, &env, BrowserMode::Isolated, &mut config);
         assert!(result.is_ok());
+        assert_eq!(config.browser.mode, BrowserMode::Isolated);
         assert_eq!(
             config.browser.executable,
             Some("/usr/bin/chrome".to_string())
@@ -316,4 +394,15 @@ mod tests {
         assert!(config.browser.headless);
     }
 
+    #[test]
+    fn test_apply_extension_mode() {
+        let cli = make_test_cli();
+        let env = make_env_with_browsers(vec![]);
+        let mut config = Config::default();
+
+        let result = apply_browser_mode(&cli, &env, BrowserMode::Extension, &mut config);
+        assert!(result.is_ok());
+        assert_eq!(config.browser.mode, BrowserMode::Extension);
+        assert_eq!(config.browser.extension.port, 19222);
+    }
 }

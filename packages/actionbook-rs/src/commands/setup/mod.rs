@@ -83,19 +83,18 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
                 .as_deref()
                 .map(api_key::mask_key)
                 .unwrap_or_else(|| "not configured".to_string());
-            let browser_display = config.browser.executable.as_deref().unwrap_or("built-in");
-            let headless_display = if config.browser.headless {
-                "headless"
-            } else {
-                "visible"
+            let mode_display = match config.browser.mode {
+                BrowserMode::Isolated => {
+                    let browser_name = config.browser.executable.as_deref().unwrap_or("built-in");
+                    let headless_label = if config.browser.headless { "headless" } else { "visible" };
+                    format!("isolated — {} ({})", browser_name, headless_label)
+                }
+                BrowserMode::Extension => "extension".to_string(),
             };
 
             println!("  {}  {}", bar, "Configuration summary:".dimmed());
             println!("  {}    API Key   {}", bar, api_display);
-            println!(
-                "  {}    Browser   {} ({})",
-                bar, browser_display, headless_display
-            );
+            println!("  {}    Browser   {}", bar, mode_display);
             println!(
                 "  {}    Path      {}",
                 bar,
@@ -483,8 +482,10 @@ fn print_completion(cli: &Cli, config: &Config, skills_result: &mode::SkillsResu
                 "command": "setup",
                 "status": "complete",
                 "config_path": Config::config_path().display().to_string(),
+                "browser_mode": format!("{:?}", config.browser.mode).to_lowercase(),
                 "browser": config.browser.executable.as_deref().unwrap_or("built-in"),
                 "headless": config.browser.headless,
+                "extension_port": config.browser.extension.port,
                 "skills": {
                     "npx_available": skills_result.npx_available,
                     "action": format!("{}", skills_result.action),
@@ -526,16 +527,18 @@ fn print_completion(cli: &Cli, config: &Config, skills_result: &mode::SkillsResu
         .map(api_key::mask_key)
         .unwrap_or_else(|| "not configured".dimmed().to_string());
 
-    let browser_name = config
-        .browser
-        .executable
-        .as_deref()
-        .map(shorten_browser_path)
-        .unwrap_or_else(|| "built-in".to_string());
-    let headless_str = if config.browser.headless {
-        "headless"
-    } else {
-        "visible"
+    let browser_display = match config.browser.mode {
+        BrowserMode::Isolated => {
+            let name = config
+                .browser
+                .executable
+                .as_deref()
+                .map(shorten_browser_path)
+                .unwrap_or_else(|| "built-in".to_string());
+            let headless_str = if config.browser.headless { "headless" } else { "visible" };
+            format!("isolated — {} ({})", name, headless_str)
+        }
+        BrowserMode::Extension => "extension".to_string(),
     };
 
     println!();
@@ -545,12 +548,7 @@ fn print_completion(cli: &Cli, config: &Config, skills_result: &mode::SkillsResu
         shorten_home_path(&Config::config_path().display().to_string())
     );
     println!("     {}  {}", "Key".dimmed(), api_display);
-    println!(
-        "     {}  {} ({})",
-        "Browser".dimmed(),
-        browser_name,
-        headless_str
-    );
+    println!("     {}  {}", "Browser".dimmed(), browser_display);
     // --- Next steps ---
     println!();
     println!("     {}", "Next steps".bold());

@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
+use serde::{Deserialize, Serialize};
 
 use crate::commands;
 use crate::error::Result;
@@ -15,10 +16,13 @@ pub enum SetupTarget {
     All,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum BrowserMode {
-    Builtin,
-    System,
+    /// Launch a dedicated debug browser, control via CDP
+    Isolated,
+    /// Use Chrome Extension bridge with user's existing browser
+    Extension,
 }
 
 /// Actionbook CLI - Browser automation with zero installation
@@ -67,8 +71,12 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub json: bool,
 
-    /// Use extension mode (route browser commands through Chrome Extension bridge)
-    #[arg(long, env = "ACTIONBOOK_EXTENSION", global = true)]
+    /// Browser mode override (reads from config.toml by default)
+    #[arg(long, env = "ACTIONBOOK_BROWSER_MODE", value_enum, global = true)]
+    pub browser_mode: Option<BrowserMode>,
+
+    /// [Deprecated: use --browser-mode=extension] Route commands through Chrome Extension bridge
+    #[arg(long, env = "ACTIONBOOK_EXTENSION", global = true, hide = true)]
     pub extension: bool,
 
     /// Extension bridge port
