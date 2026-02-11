@@ -4,7 +4,7 @@
 
 ### Actionbook
 
-![GitHub last commit](https://img.shields.io/github/last-commit/actionbook/actionbook) ![NPM Downloads](https://img.shields.io/npm/d18m/%40actionbookdev%2Fcli) ![npm version](https://img.shields.io/npm/v/%40actionbookdev%2Fcli)
+![GitHub last commit](https://img.shields.io/github/last-commit/actionbook/actionbook) [![NPM Downloads](https://img.shields.io/npm/d18m/%40actionbookdev%2Fcli)](https://www.npmjs.com/package/@actionbookdev/cli) [![npm version](https://img.shields.io/npm/v/%40actionbookdev%2Fcli)](https://www.npmjs.com/package/@actionbookdev/cli) [![skills](https://img.shields.io/badge/skills-ready-blue)](https://skills.sh/actionbook/actionbook/actionbook)
 
 
 
