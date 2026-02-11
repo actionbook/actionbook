@@ -5,12 +5,14 @@ pub mod extension_installer;
 pub mod extension_bridge;
 pub mod launcher;
 pub mod native_messaging;
+mod router;
 mod session;
 pub mod stealth;
 
 pub use backend::BrowserBackend;
 #[allow(unused_imports)]
 pub use discovery::{discover_all_browsers, BrowserInfo, BrowserType};
+pub use router::BrowserDriver;
 pub use session::{SessionManager, SessionStatus, StealthConfig};
 pub use stealth::{build_stealth_profile, stealth_status};
 
