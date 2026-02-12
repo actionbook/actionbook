@@ -77,7 +77,13 @@ impl ExtensionBackend {
                         {
                             continue;
                         }
-                        other => return other,
+                        other => {
+                            // Extension connected successfully
+                            if other.is_ok() {
+                                eprintln!("  {} Extension connected", colored::Colorize::green("✓"));
+                            }
+                            return other;
+                        }
                     }
                 }
 
