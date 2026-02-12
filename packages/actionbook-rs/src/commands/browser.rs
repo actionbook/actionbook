@@ -10,8 +10,8 @@ use tokio::time::timeout;
 #[cfg(feature = "stealth")]
 use crate::browser::apply_stealth_to_page;
 use crate::browser::{
-    build_stealth_profile, discover_all_browsers, extension_bridge, stealth_status,
-    SessionManager, SessionStatus, StealthConfig,
+    build_stealth_profile, discover_all_browsers, extension_bridge, BrowserDriver,
+    stealth_status, SessionManager, SessionStatus, StealthConfig,
 };
 use crate::cli::{BrowserCommands, Cli, CookiesCommands};
 use crate::config::Config;
@@ -163,6 +163,18 @@ fn create_session_manager(cli: &Cli, config: &Config) -> SessionManager {
     } else {
         SessionManager::new(config.clone())
     }
+}
+
+/// Create a browser driver for multi-backend support (CDP or Camoufox)
+async fn create_browser_driver(cli: &Cli, config: &Config) -> Result<BrowserDriver> {
+    // Determine profile
+    let profile_name = effective_profile_arg(cli, config).unwrap_or(&config.browser.default_profile);
+    let profile = config
+        .profiles
+        .get(profile_name)
+        .ok_or_else(|| ActionbookError::Other(format!("Profile not found: {}", profile_name)))?;
+
+    BrowserDriver::from_config(config, profile, cli).await
 }
 
 /// Resolve a CDP endpoint string (port number or ws:// URL) into a (port, ws_url) pair.
@@ -483,6 +495,9 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
         }
         BrowserCommands::Viewport => viewport(cli, &config).await,
         BrowserCommands::Cookies { command } => cookies(cli, &config, command).await,
+        BrowserCommands::Scroll { direction, smooth } => {
+            scroll(cli, &config, direction, *smooth).await
+        }
         BrowserCommands::Close => close(cli, &config).await,
         BrowserCommands::Restart => restart(cli, &config).await,
         BrowserCommands::Connect { endpoint } => connect(cli, &config, endpoint).await,
@@ -726,43 +741,68 @@ async fn goto(cli: &Cli, config: &Config, url: &str, _timeout_ms: u64) -> Result
     let normalized_url = normalize_navigation_url(url)?;
 
     if cli.extension {
-        extension_send(
-            cli,
-            "Page.navigate",
-            serde_json::json!({ "url": normalized_url }),
-        )
-        .await?;
+        // Extension + Camoufox mode: use Camoufox backend through bridge
+        if cli.camofox {
+            extension_send(
+                cli,
+                "Camoufox.goto",
+                serde_json::json!({ "url": normalized_url }),
+            )
+            .await?;
 
-        if cli.json {
-            println!(
-                "{}",
-                serde_json::json!({ "success": true, "url": normalized_url })
-            );
+            if cli.json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "success": true, "url": normalized_url, "backend": "Camofox" })
+                );
+            } else {
+                println!(
+                    "{} Navigated to: {} (extension + camoufox)",
+                    "✓".green(),
+                    normalized_url
+                );
+            }
         } else {
-            println!(
-                "{} Navigated to: {} (extension)",
-                "✓".green(),
-                normalized_url
-            );
+            // Extension + CDP mode (default)
+            extension_send(
+                cli,
+                "Page.navigate",
+                serde_json::json!({ "url": normalized_url }),
+            )
+            .await?;
+
+            if cli.json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "success": true, "url": normalized_url })
+                );
+            } else {
+                println!(
+                    "{} Navigated to: {} (extension)",
+                    "✓".green(),
+                    normalized_url
+                );
+            }
         }
         return Ok(());
     }
 
-    let session_manager = create_session_manager(cli, config);
-    session_manager
-        .goto(effective_profile_arg(cli, config), &normalized_url)
-        .await?;
+    // Use BrowserDriver for multi-backend support (CDP or Camoufox)
+    let mut driver = create_browser_driver(cli, config).await?;
+    driver.goto(&normalized_url).await?;
 
     if cli.json {
         println!(
             "{}",
             serde_json::json!({
                 "success": true,
-                "url": normalized_url
+                "url": normalized_url,
+                "backend": format!("{:?}", driver.backend())
             })
         );
     } else {
-        println!("{} Navigated to: {}", "✓".green(), normalized_url);
+        let backend_label = if driver.is_camofox() { " (camoufox)" } else { "" };
+        println!("{} Navigated to: {}{}", "✓".green(), normalized_url, backend_label);
     }
 
     Ok(())
@@ -1077,6 +1117,31 @@ async fn wait_nav(cli: &Cli, config: &Config, timeout_ms: u64) -> Result<()> {
 
 async fn click(cli: &Cli, config: &Config, selector: &str, wait_ms: u64) -> Result<()> {
     if cli.extension {
+        if cli.camofox {
+            // Route through Extension Bridge with Camoufox backend
+            extension_send(
+                cli,
+                "Camoufox.click",
+                serde_json::json!({ "selector": selector }),
+            )
+            .await?;
+
+            if cli.json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "success": true, "selector": selector })
+                );
+            } else {
+                println!(
+                    "{} Clicked: {} (extension + camoufox)",
+                    "✓".green(),
+                    selector
+                );
+            }
+            return Ok(());
+        }
+
+        // CDP Extension mode
         let resolve_js = js_resolve_selector(selector);
         let click_js = format!(
             r#"(function() {{
@@ -1135,28 +1200,32 @@ async fn click(cli: &Cli, config: &Config, selector: &str, wait_ms: u64) -> Resu
         return Ok(());
     }
 
-    let session_manager = create_session_manager(cli, config);
+    // Use BrowserDriver for multi-backend support (CDP or Camoufox)
+    let mut driver = create_browser_driver(cli, config).await?;
 
+    // Wait is only supported for CDP backend
     if wait_ms > 0 {
-        session_manager
-            .wait_for_element(effective_profile_arg(cli, config), selector, wait_ms)
-            .await?;
+        if let Some(mgr) = driver.as_cdp_mut() {
+            mgr.wait_for_element(effective_profile_arg(cli, config), selector, wait_ms)
+                .await?;
+        }
+        // Camoufox: snapshot refresh handles waiting implicitly
     }
 
-    session_manager
-        .click_on_page(effective_profile_arg(cli, config), selector)
-        .await?;
+    driver.click(selector).await?;
 
     if cli.json {
         println!(
             "{}",
             serde_json::json!({
                 "success": true,
-                "selector": selector
+                "selector": selector,
+                "backend": format!("{:?}", driver.backend())
             })
         );
     } else {
-        println!("{} Clicked: {}", "✓".green(), selector);
+        let backend_label = if driver.is_camofox() { " (camoufox)" } else { "" };
+        println!("{} Clicked: {}{}", "✓".green(), selector, backend_label);
     }
 
     Ok(())
@@ -1170,6 +1239,31 @@ async fn type_text(
     wait_ms: u64,
 ) -> Result<()> {
     if cli.extension {
+        if cli.camofox {
+            // Route through Extension Bridge with Camoufox backend
+            extension_send(
+                cli,
+                "Camoufox.type",
+                serde_json::json!({ "selector": selector, "text": text }),
+            )
+            .await?;
+
+            if cli.json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "success": true, "selector": selector, "text": text })
+                );
+            } else {
+                println!(
+                    "{} Typed into: {} (extension + camoufox)",
+                    "✓".green(),
+                    selector
+                );
+            }
+            return Ok(());
+        }
+
+        // CDP Extension mode
         let resolve_js = js_resolve_selector(selector);
         let escaped_text = escape_js_string(text);
 
@@ -1240,17 +1334,19 @@ async fn type_text(
         return Ok(());
     }
 
-    let session_manager = create_session_manager(cli, config);
+    // Use BrowserDriver for multi-backend support (CDP or Camoufox)
+    let mut driver = create_browser_driver(cli, config).await?;
 
+    // Wait is only supported for CDP backend
     if wait_ms > 0 {
-        session_manager
-            .wait_for_element(effective_profile_arg(cli, config), selector, wait_ms)
-            .await?;
+        if let Some(mgr) = driver.as_cdp_mut() {
+            mgr.wait_for_element(effective_profile_arg(cli, config), selector, wait_ms)
+                .await?;
+        }
+        // Camoufox: snapshot refresh handles waiting implicitly
     }
 
-    session_manager
-        .type_on_page(effective_profile_arg(cli, config), selector, text)
-        .await?;
+    driver.type_text(selector, text).await?;
 
     if cli.json {
         println!(
@@ -1258,11 +1354,13 @@ async fn type_text(
             serde_json::json!({
                 "success": true,
                 "selector": selector,
-                "text": text
+                "text": text,
+                "backend": format!("{:?}", driver.backend())
             })
         );
     } else {
-        println!("{} Typed into: {}", "✓".green(), selector);
+        let backend_label = if driver.is_camofox() { " (camoufox)" } else { "" };
+        println!("{} Typed into: {}{}", "✓".green(), selector, backend_label);
     }
 
     Ok(())
@@ -1629,6 +1727,51 @@ async fn press(cli: &Cli, config: &Config, key: &str) -> Result<()> {
 
 async fn screenshot(cli: &Cli, config: &Config, path: &str, full_page: bool) -> Result<()> {
     if cli.extension {
+        if cli.camofox {
+            // Route through Extension Bridge with Camoufox backend
+            let result = extension_send(cli, "Camoufox.screenshot", serde_json::json!({})).await?;
+            let b64_data = result
+                .get("data")
+                .and_then(|d| d.as_str())
+                .ok_or_else(|| {
+                    ActionbookError::ExtensionError(
+                        "Screenshot response missing 'data' field (extension + camoufox mode)"
+                            .to_string(),
+                    )
+                })?;
+
+            let screenshot_data = base64::engine::general_purpose::STANDARD
+                .decode(b64_data)
+                .map_err(|e| {
+                    ActionbookError::ExtensionError(format!(
+                        "Failed to decode screenshot base64 (extension + camoufox mode): {}",
+                        e
+                    ))
+                })?;
+
+            if let Some(parent) = Path::new(path).parent() {
+                if !parent.as_os_str().is_empty() {
+                    fs::create_dir_all(parent)?;
+                }
+            }
+            fs::write(path, screenshot_data)?;
+
+            if cli.json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "success": true, "path": path })
+                );
+            } else {
+                println!(
+                    "{} Screenshot saved: {} (extension + camoufox)",
+                    "✓".green(),
+                    path
+                );
+            }
+            return Ok(());
+        }
+
+        // CDP Extension mode
         let mut params = serde_json::json!({ "format": "png" });
         if full_page {
             params["captureBeyondViewport"] = serde_json::json!(true);
@@ -1677,16 +1820,25 @@ async fn screenshot(cli: &Cli, config: &Config, path: &str, full_page: bool) -> 
         return Ok(());
     }
 
-    let session_manager = create_session_manager(cli, config);
+    // Use BrowserDriver for multi-backend support (CDP or Camoufox)
+    let mut driver = create_browser_driver(cli, config).await?;
 
-    let screenshot_data = if full_page {
-        session_manager
+    // Full page is CDP-only feature
+    if full_page && driver.is_camofox() {
+        eprintln!(
+            "{} --full-page is not supported in Camoufox backend, using viewport screenshot",
+            "!".yellow()
+        );
+    }
+
+    let screenshot_data = if full_page && driver.is_cdp() {
+        driver
+            .as_cdp_mut()
+            .unwrap()
             .screenshot_full_page(effective_profile_arg(cli, config))
             .await?
     } else {
-        session_manager
-            .screenshot_page(effective_profile_arg(cli, config))
-            .await?
+        driver.screenshot().await?
     };
 
     if let Some(parent) = Path::new(path).parent() {
@@ -1702,12 +1854,24 @@ async fn screenshot(cli: &Cli, config: &Config, path: &str, full_page: bool) -> 
             serde_json::json!({
                 "success": true,
                 "path": path,
-                "fullPage": full_page
+                "fullPage": full_page && driver.is_cdp(),
+                "backend": format!("{:?}", driver.backend())
             })
         );
     } else {
-        let mode = if full_page { " (full page)" } else { "" };
-        println!("{} Screenshot saved{}: {}", "✓".green(), mode, path);
+        let mode = if full_page && driver.is_cdp() {
+            " (full page)"
+        } else {
+            ""
+        };
+        let backend_label = if driver.is_camofox() { " (camoufox)" } else { "" };
+        println!(
+            "{} Screenshot saved{}: {}{}",
+            "✓".green(),
+            mode,
+            path,
+            backend_label
+        );
     }
 
     Ok(())
@@ -1820,6 +1984,20 @@ async fn eval(cli: &Cli, config: &Config, code: &str) -> Result<()> {
 
 async fn html(cli: &Cli, config: &Config, selector: Option<&str>) -> Result<()> {
     if cli.extension {
+        if cli.camofox {
+            // Route through Extension Bridge with Camoufox backend
+            // Camoufox returns accessibility tree instead of HTML
+            let result = extension_send(cli, "Camoufox.html", serde_json::json!({})).await?;
+
+            if cli.json {
+                println!("{}", serde_json::to_string(&result)?);
+            } else {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            }
+            return Ok(());
+        }
+
+        // CDP Extension mode
         let js = match selector {
             Some(sel) => {
                 let resolve_js = js_resolve_selector(sel);
@@ -1852,15 +2030,37 @@ async fn html(cli: &Cli, config: &Config, selector: Option<&str>) -> Result<()> 
         return Ok(());
     }
 
-    let session_manager = create_session_manager(cli, config);
-    let html = session_manager
-        .get_html(effective_profile_arg(cli, config), selector)
-        .await?;
+    // Use BrowserDriver for multi-backend support (CDP or Camoufox)
+    let mut driver = create_browser_driver(cli, config).await?;
+
+    // Selector parameter is CDP-only feature
+    if selector.is_some() && driver.is_camofox() {
+        return Err(ActionbookError::BrowserOperation(
+            "Selector filtering not supported in Camoufox backend. Use `actionbook browser html` without selector to get accessibility tree.".to_string()
+        ));
+    }
+
+    let content = if driver.is_cdp() {
+        driver
+            .as_cdp_mut()
+            .unwrap()
+            .get_html(effective_profile_arg(cli, config), selector)
+            .await?
+    } else {
+        driver.get_content().await?
+    };
 
     if cli.json {
-        println!("{}", serde_json::json!({ "html": html }));
+        println!(
+            "{}",
+            serde_json::json!({
+                "content": content,
+                "backend": format!("{:?}", driver.backend()),
+                "format": if driver.is_camofox() { "accessibility_tree" } else { "html" }
+            })
+        );
     } else {
-        println!("{}", html);
+        println!("{}", content);
     }
 
     Ok(())
@@ -2989,6 +3189,116 @@ async fn cookies_extension(cli: &Cli, command: &Option<CookiesCommands>) -> Resu
             }
         }
     }
+    Ok(())
+}
+
+async fn scroll(
+    cli: &Cli,
+    config: &Config,
+    direction: &crate::cli::ScrollDirection,
+    smooth: bool,
+) -> Result<()> {
+    use crate::cli::ScrollDirection;
+
+    let behavior = if smooth { "smooth" } else { "instant" };
+
+    let js = match direction {
+        ScrollDirection::Down { pixels } => {
+            if *pixels == 0 {
+                format!(
+                    "window.scrollBy({{ top: window.innerHeight, behavior: '{}' }})",
+                    behavior
+                )
+            } else {
+                format!(
+                    "window.scrollBy({{ top: {}, behavior: '{}' }})",
+                    pixels, behavior
+                )
+            }
+        }
+
+        ScrollDirection::Up { pixels } => {
+            if *pixels == 0 {
+                format!(
+                    "window.scrollBy({{ top: -window.innerHeight, behavior: '{}' }})",
+                    behavior
+                )
+            } else {
+                format!(
+                    "window.scrollBy({{ top: -{}, behavior: '{}' }})",
+                    pixels, behavior
+                )
+            }
+        }
+
+        ScrollDirection::Bottom => {
+            format!(
+                "window.scrollTo({{ top: document.body.scrollHeight, behavior: '{}' }})",
+                behavior
+            )
+        }
+
+        ScrollDirection::Top => {
+            format!("window.scrollTo({{ top: 0, behavior: '{}' }})", behavior)
+        }
+
+        ScrollDirection::To { selector, align } => {
+            // Validate align value
+            let valid_aligns = ["start", "center", "end", "nearest"];
+            if !valid_aligns.contains(&align.as_str()) {
+                return Err(ActionbookError::Other(format!(
+                    "Invalid align value '{}'. Must be one of: start, center, end, nearest",
+                    align
+                )));
+            }
+
+            format!(
+                r#"(function() {{
+                    const el = document.querySelector('{}');
+                    if (!el) throw new Error('Element not found: {}');
+                    el.scrollIntoView({{ block: '{}', behavior: '{}' }});
+                    return {{ success: true, selector: '{}' }};
+                }})()"#,
+                selector.replace('\'', "\\'"),
+                selector.replace('\'', "\\'"),
+                align,
+                behavior,
+                selector.replace('\'', "\\'")
+            )
+        }
+    };
+
+    // Execute scroll command
+    if cli.extension {
+        extension_eval(cli, &js).await?;
+    } else {
+        let session_manager = create_session_manager(cli, config);
+        session_manager
+            .eval_on_page(effective_profile_arg(cli, config), &js)
+            .await?;
+    }
+
+    // Print success message
+    match direction {
+        ScrollDirection::Down { pixels } => {
+            if *pixels == 0 {
+                println!("✅ Scrolled down one viewport");
+            } else {
+                println!("✅ Scrolled down {} pixels", pixels);
+            }
+        }
+        ScrollDirection::Up { pixels } => {
+            if *pixels == 0 {
+                println!("✅ Scrolled up one viewport");
+            } else {
+                println!("✅ Scrolled up {} pixels", pixels);
+            }
+        }
+        ScrollDirection::Bottom => println!("✅ Scrolled to bottom"),
+        ScrollDirection::Top => println!("✅ Scrolled to top"),
+        ScrollDirection::To { selector, .. } => println!("✅ Scrolled to element: {}", selector),
+    }
+
     Ok(())
 }
 

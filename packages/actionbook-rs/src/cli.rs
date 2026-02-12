@@ -343,6 +343,15 @@ pub enum BrowserCommands {
         command: Option<CookiesCommands>,
     },
 
+    /// Scroll the page
+    Scroll {
+        #[command(subcommand)]
+        direction: ScrollDirection,
+        /// Enable smooth scrolling
+        #[arg(long)]
+        smooth: bool,
+    },
+
     /// Close the browser
     Close,
 
@@ -391,6 +400,38 @@ pub enum CookiesCommands {
         /// Skip confirmation — required to actually clear
         #[arg(short = 'y', long)]
         yes: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ScrollDirection {
+    /// Scroll down by pixels
+    Down {
+        /// Number of pixels to scroll (default: one viewport height)
+        #[arg(default_value = "0")]
+        pixels: i32,
+    },
+
+    /// Scroll up by pixels
+    Up {
+        /// Number of pixels to scroll (default: one viewport height)
+        #[arg(default_value = "0")]
+        pixels: i32,
+    },
+
+    /// Scroll to the bottom of the page
+    Bottom,
+
+    /// Scroll to the top of the page
+    Top,
+
+    /// Scroll to a specific element
+    To {
+        /// CSS selector
+        selector: String,
+        /// Alignment: start, center, end, nearest
+        #[arg(long, default_value = "center")]
+        align: String,
     },
 }
 
