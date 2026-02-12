@@ -27,46 +27,63 @@ pub async fn configure_browser(
         return apply_browser_mode(cli, env, mode, config);
     }
 
-    // Non-interactive without flag: default to isolated with best detected browser
+    // Non-interactive without flag: preserve existing config.browser.mode
+    // (already loaded from existing config or defaults to Isolated)
     if non_interactive {
-        config.browser.mode = BrowserMode::Isolated;
-        if let Some(browser) = env.browsers.first() {
-            config.browser.executable = Some(browser.path.display().to_string());
-            config.browser.headless = true;
-            if cli.json {
-                println!(
-                    "{}",
-                    serde_json::json!({
-                        "step": "browser",
-                        "mode": "isolated",
-                        "browser": browser.browser_type.name(),
-                        "headless": true,
-                    })
-                );
+        // For isolated mode, ensure executable and headless are set
+        if config.browser.mode == BrowserMode::Isolated {
+            if let Some(browser) = env.browsers.first() {
+                config.browser.executable = Some(browser.path.display().to_string());
+                config.browser.headless = true;
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "step": "browser",
+                            "mode": "isolated",
+                            "browser": browser.browser_type.name(),
+                            "headless": true,
+                        })
+                    );
+                } else {
+                    println!(
+                        "  {}  Using isolated mode with: {}",
+                        "◇".green(),
+                        browser.browser_type.name()
+                    );
+                }
             } else {
-                println!(
-                    "  {}  Using isolated mode with: {}",
-                    "◇".green(),
-                    browser.browser_type.name()
-                );
+                config.browser.executable = None;
+                config.browser.headless = true;
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "step": "browser",
+                            "mode": "isolated",
+                            "headless": true,
+                        })
+                    );
+                } else {
+                    println!(
+                        "  {}  No system browser detected, using isolated mode with built-in",
+                        "◇".green()
+                    );
+                }
             }
         } else {
-            config.browser.executable = None;
-            config.browser.headless = true;
+            // Extension mode: no additional setup needed in non-interactive
+            // (bridge port and auto_install already have defaults from ExtensionConfig::default())
             if cli.json {
                 println!(
                     "{}",
                     serde_json::json!({
                         "step": "browser",
-                        "mode": "isolated",
-                        "headless": true,
+                        "mode": "extension",
                     })
                 );
             } else {
-                println!(
-                    "  {}  No system browser detected, using isolated mode with built-in",
-                    "◇".green()
-                );
+                println!("  {}  Using extension mode", "◇".green());
             }
         }
         return Ok(());
