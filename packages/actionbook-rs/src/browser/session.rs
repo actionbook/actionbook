@@ -54,9 +54,9 @@ pub struct SessionManager {
 
 impl SessionManager {
     pub fn new(config: Config) -> Self {
-        let sessions_dir = dirs::data_dir()
+        let sessions_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("actionbook")
+            .join(".actionbook")
             .join("sessions");
 
         Self {
@@ -68,9 +68,9 @@ impl SessionManager {
 
     /// Create session manager with stealth configuration
     pub fn with_stealth(config: Config, stealth_config: StealthConfig) -> Self {
-        let sessions_dir = dirs::data_dir()
+        let sessions_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("actionbook")
+            .join(".actionbook")
             .join("sessions");
 
         Self {
