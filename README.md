@@ -89,7 +89,10 @@ npx skills add actionbook/actionbook
 ## Installation
 
 ```bash
+# Install the Actionbook CLI globally
 npm install -g @actionbookdev/cli
+
+# Initialize local configuration
 actionbook setup
 ```
 
