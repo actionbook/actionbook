@@ -47,9 +47,12 @@ impl CamofoxSession {
         // Verify server is reachable
         client.health_check().await?;
 
+        // Check if there's already an active tab for this session
+        let active_tab_id = client.get_active_tab(&session_key).await?;
+
         Ok(Self {
             client,
-            active_tab_id: None,
+            active_tab_id,
             session_key,
             snapshot_cache: None,
         })

@@ -3,7 +3,10 @@
 //! Routes commands to either CDP (Chrome/Edge/Brave) or Camoufox backend based on configuration.
 
 use super::{
-    camofox::CamofoxSession, session::SessionManager, BrowserBackend,
+    camofox::CamofoxSession,
+    camofox_webdriver::CamofoxDriver,
+    session::SessionManager,
+    BrowserBackend,
 };
 use crate::{
     cli::Cli,
@@ -15,8 +18,10 @@ use crate::{
 pub enum BrowserDriver {
     /// Chrome DevTools Protocol backend
     Cdp(SessionManager),
-    /// Camoufox browser backend
+    /// Camoufox browser backend (REST API via Python server)
     Camofox(CamofoxSession),
+    /// Camoufox WebDriver backend (direct Rust control)
+    CamofoxWebDriver(CamofoxDriver),
 }
 
 impl BrowserDriver {
@@ -48,27 +53,36 @@ impl BrowserDriver {
                 Ok(Self::Cdp(session_mgr))
             }
             BrowserBackend::Camofox => {
-                let port = cli
-                    .camofox_port
-                    .or(profile.camofox_port)
-                    .unwrap_or(config.browser.camofox.port);
+                // Check if using WebDriver mode
+                if config.browser.camofox.use_webdriver {
+                    // Use Rust WebDriver implementation
+                    let headless = config.browser.camofox.headless;
+                    let driver = CamofoxDriver::new(headless).await?;
+                    Ok(Self::CamofoxWebDriver(driver))
+                } else {
+                    // Use REST API (Python server)
+                    let port = cli
+                        .camofox_port
+                        .or(profile.camofox_port)
+                        .unwrap_or(config.browser.camofox.port);
 
-                let user_id = config
-                    .browser
-                    .camofox
-                    .user_id
-                    .clone()
-                    .unwrap_or_else(|| "actionbook-user".to_string());
+                    let user_id = config
+                        .browser
+                        .camofox
+                        .user_id
+                        .clone()
+                        .unwrap_or_else(|| "actionbook-user".to_string());
 
-                let session_key = config
-                    .browser
-                    .camofox
-                    .session_key
-                    .clone()
-                    .unwrap_or_else(|| format!("actionbook-default"));
+                    let session_key = config
+                        .browser
+                        .camofox
+                        .session_key
+                        .clone()
+                        .unwrap_or_else(|| format!("actionbook-default"));
 
-                let session = CamofoxSession::connect(port, user_id, session_key).await?;
-                Ok(Self::Camofox(session))
+                    let session = CamofoxSession::connect(port, user_id, session_key).await?;
+                    Ok(Self::Camofox(session))
+                }
             }
         }
     }
@@ -86,14 +100,28 @@ impl BrowserDriver {
                     session.navigate(url).await
                 }
             }
+            Self::CamofoxWebDriver(driver) => driver.goto(url).await,
         }
+    }
+
+    /// Ensure Camoufox session has an active tab (creates blank tab if needed)
+    async fn ensure_camofox_tab(session: &mut CamofoxSession) -> Result<()> {
+        if session.active_tab().is_err() {
+            // Create a blank tab at about:blank
+            session.create_tab("about:blank").await?;
+        }
+        Ok(())
     }
 
     /// Click an element by selector
     pub async fn click(&mut self, selector: &str) -> Result<()> {
         match self {
             Self::Cdp(mgr) => mgr.click_on_page(None, selector).await,
-            Self::Camofox(session) => session.click(selector).await,
+            Self::Camofox(session) => {
+                Self::ensure_camofox_tab(session).await?;
+                session.click(selector).await
+            }
+            Self::CamofoxWebDriver(driver) => driver.click(selector).await,
         }
     }
 
@@ -101,7 +129,11 @@ impl BrowserDriver {
     pub async fn type_text(&mut self, selector: &str, text: &str) -> Result<()> {
         match self {
             Self::Cdp(mgr) => mgr.type_on_page(None, selector, text).await,
-            Self::Camofox(session) => session.type_text(selector, text).await,
+            Self::Camofox(session) => {
+                Self::ensure_camofox_tab(session).await?;
+                session.type_text(selector, text).await
+            }
+            Self::CamofoxWebDriver(driver) => driver.type_text(selector, text).await,
         }
     }
 
@@ -109,18 +141,27 @@ impl BrowserDriver {
     pub async fn screenshot(&mut self) -> Result<Vec<u8>> {
         match self {
             Self::Cdp(mgr) => mgr.screenshot_page(None).await,
-            Self::Camofox(session) => session.screenshot().await,
+            Self::Camofox(session) => {
+                Self::ensure_camofox_tab(session).await?;
+                session.screenshot().await
+            }
+            Self::CamofoxWebDriver(driver) => driver.screenshot().await,
         }
     }
 
     /// Get page content
     ///
     /// For CDP: Returns HTML
-    /// For Camoufox: Returns accessibility tree JSON
+    /// For Camoufox REST: Returns accessibility tree JSON
+    /// For Camoufox WebDriver: Returns HTML
     pub async fn get_content(&mut self) -> Result<String> {
         match self {
             Self::Cdp(mgr) => mgr.get_html(None, None).await,
-            Self::Camofox(session) => session.get_content().await,
+            Self::Camofox(session) => {
+                Self::ensure_camofox_tab(session).await?;
+                session.get_content().await
+            }
+            Self::CamofoxWebDriver(driver) => driver.get_html().await,
         }
     }
 
@@ -133,9 +174,11 @@ impl BrowserDriver {
                 let result = mgr.eval_on_page(None, script).await?;
                 Ok(serde_json::to_string(&result).unwrap_or_default())
             }
-            Self::Camofox(_) => Err(crate::error::ActionbookError::BrowserOperation(
-                "JavaScript execution not supported in Camoufox backend".to_string(),
-            )),
+            Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
+                Err(crate::error::ActionbookError::BrowserOperation(
+                    "JavaScript execution not supported in Camoufox backend".to_string(),
+                ))
+            }
         }
     }
 
@@ -143,13 +186,13 @@ impl BrowserDriver {
     pub fn backend(&self) -> BrowserBackend {
         match self {
             Self::Cdp(_) => BrowserBackend::Cdp,
-            Self::Camofox(_) => BrowserBackend::Camofox,
+            Self::Camofox(_) | Self::CamofoxWebDriver(_) => BrowserBackend::Camofox,
         }
     }
 
-    /// Check if the driver is using Camoufox
+    /// Check if the driver is using Camoufox (either REST or WebDriver)
     pub fn is_camofox(&self) -> bool {
-        matches!(self, Self::Camofox(_))
+        matches!(self, Self::Camofox(_) | Self::CamofoxWebDriver(_))
     }
 
     /// Check if the driver is using CDP
@@ -157,11 +200,16 @@ impl BrowserDriver {
         matches!(self, Self::Cdp(_))
     }
 
+    /// Check if using WebDriver mode (direct Rust control)
+    pub fn is_webdriver(&self) -> bool {
+        matches!(self, Self::CamofoxWebDriver(_))
+    }
+
     /// Get CDP session manager (if using CDP backend)
     pub fn as_cdp(&self) -> Option<&SessionManager> {
         match self {
             Self::Cdp(mgr) => Some(mgr),
-            Self::Camofox(_) => None,
+            Self::Camofox(_) | Self::CamofoxWebDriver(_) => None,
         }
     }
 
@@ -169,23 +217,39 @@ impl BrowserDriver {
     pub fn as_cdp_mut(&mut self) -> Option<&mut SessionManager> {
         match self {
             Self::Cdp(mgr) => Some(mgr),
-            Self::Camofox(_) => None,
+            Self::Camofox(_) | Self::CamofoxWebDriver(_) => None,
         }
     }
 
-    /// Get Camoufox session (if using Camoufox backend)
+    /// Get Camoufox session (if using Camoufox REST backend)
     pub fn as_camofox(&self) -> Option<&CamofoxSession> {
         match self {
-            Self::Cdp(_) => None,
+            Self::Cdp(_) | Self::CamofoxWebDriver(_) => None,
             Self::Camofox(session) => Some(session),
         }
     }
 
-    /// Get Camoufox session mutably (if using Camoufox backend)
+    /// Get Camoufox session mutably (if using Camoufox REST backend)
     pub fn as_camofox_mut(&mut self) -> Option<&mut CamofoxSession> {
         match self {
-            Self::Cdp(_) => None,
+            Self::Cdp(_) | Self::CamofoxWebDriver(_) => None,
             Self::Camofox(session) => Some(session),
+        }
+    }
+
+    /// Get Camoufox WebDriver (if using WebDriver backend)
+    pub fn as_webdriver(&self) -> Option<&CamofoxDriver> {
+        match self {
+            Self::CamofoxWebDriver(driver) => Some(driver),
+            Self::Cdp(_) | Self::Camofox(_) => None,
+        }
+    }
+
+    /// Get Camoufox WebDriver mutably (if using WebDriver backend)
+    pub fn as_webdriver_mut(&mut self) -> Option<&mut CamofoxDriver> {
+        match self {
+            Self::CamofoxWebDriver(driver) => Some(driver),
+            Self::Cdp(_) | Self::Camofox(_) => None,
         }
     }
 }

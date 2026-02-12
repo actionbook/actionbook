@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Request to create a new browser tab
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTabRequest {
     pub user_id: String,
@@ -12,14 +12,14 @@ pub struct CreateTabRequest {
 }
 
 /// Response from creating a new tab
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateTabResponse {
     pub id: String,
     pub url: String,
 }
 
 /// Request to click an element
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClickRequest {
     pub user_id: String,
@@ -27,7 +27,7 @@ pub struct ClickRequest {
 }
 
 /// Request to type text into an element
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TypeTextRequest {
     pub user_id: String,
@@ -36,7 +36,7 @@ pub struct TypeTextRequest {
 }
 
 /// Request to navigate to a URL
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NavigateRequest {
     pub user_id: String,
@@ -72,13 +72,13 @@ pub struct AccessibilityNode {
 }
 
 /// Response from getting accessibility tree snapshot
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SnapshotResponse {
     pub tree: AccessibilityNode,
 }
 
 /// Response from screenshot endpoint
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScreenshotResponse {
     /// Base64-encoded PNG image
     pub data: String,

@@ -10,7 +10,7 @@
 mod client;
 mod session;
 mod snapshot;
-mod types;
+pub mod types;
 
 pub use client::CamofoxClient;
 pub use session::CamofoxSession;

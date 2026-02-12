@@ -96,6 +96,7 @@ impl CamofoxClient {
         let response = self
             .client
             .get(&url)
+            .query(&[("user_id", &self.user_id)])
             .send()
             .await
             .map_err(|e| ActionbookError::BrowserOperation(format!("Failed to get snapshot: {}", e)))?;
@@ -223,6 +224,7 @@ impl CamofoxClient {
         let response = self
             .client
             .get(&url)
+            .query(&[("user_id", &self.user_id)])
             .send()
             .await
             .map_err(|e| ActionbookError::BrowserOperation(format!("Failed to take screenshot: {}", e)))?;
@@ -250,6 +252,44 @@ impl CamofoxClient {
         general_purpose::STANDARD
             .decode(&screenshot_response.data)
             .map_err(|e| ActionbookError::BrowserOperation(format!("Failed to decode screenshot: {}", e)))
+    }
+
+    /// Get the active tab ID for a session
+    pub async fn get_active_tab(&self, session_key: &str) -> Result<Option<String>> {
+        let url = format!("{}/sessions/{}/active-tab", self.base_url, session_key);
+
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| ActionbookError::BrowserOperation(format!("Failed to get active tab: {}", e)))?;
+
+        if response.status() == StatusCode::NOT_FOUND {
+            // No active tab for this session
+            return Ok(None);
+        }
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(ActionbookError::BrowserOperation(format!(
+                "Get active tab failed with status {}: {}",
+                status, error_text
+            )));
+        }
+
+        #[derive(serde::Deserialize)]
+        struct ActiveTabResponse {
+            tab_id: String,
+        }
+
+        let active_tab_response = response
+            .json::<ActiveTabResponse>()
+            .await
+            .map_err(|e| ActionbookError::BrowserOperation(format!("Failed to parse active tab response: {}", e)))?;
+
+        Ok(Some(active_tab_response.tab_id))
     }
 }
 

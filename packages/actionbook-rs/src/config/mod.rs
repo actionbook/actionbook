@@ -84,6 +84,14 @@ pub struct CamofoxConfig {
 
     /// Default session key
     pub session_key: Option<String>,
+
+    /// Use WebDriver (Rust) instead of REST API (Python server)
+    #[serde(default)]
+    pub use_webdriver: bool,
+
+    /// Headless mode (for WebDriver)
+    #[serde(default)]
+    pub headless: bool,
 }
 
 impl Default for CamofoxConfig {
@@ -92,6 +100,8 @@ impl Default for CamofoxConfig {
             port: default_camofox_port(),
             user_id: None,
             session_key: None,
+            use_webdriver: false, // Default to REST API for backward compatibility
+            headless: false,
         }
     }
 }

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
+use base64::Engine;
 use futures::{SinkExt, StreamExt};
 use rand::Rng;
 use subtle::ConstantTimeEq;
@@ -254,6 +255,8 @@ struct BridgeState {
     next_id: u64,
     /// Last activity timestamp (any message from any client resets this)
     last_activity: Instant,
+    /// Camoufox session for --extension --camofox mode (persistent across commands)
+    camofox_session: Option<crate::browser::camofox::CamofoxSession>,
 }
 
 impl BridgeState {
@@ -264,11 +267,26 @@ impl BridgeState {
             pending: HashMap::new(),
             next_id: 1,
             last_activity: Instant::now(),
+            camofox_session: None,
         }
     }
 
     fn touch(&mut self) {
         self.last_activity = Instant::now();
+    }
+
+    /// Get or create Camoufox session for this bridge
+    async fn get_or_create_camofox_session(
+        &mut self,
+        port: u16,
+        user_id: String,
+        session_key: String,
+    ) -> Result<&mut crate::browser::camofox::CamofoxSession> {
+        if self.camofox_session.is_none() {
+            let session = crate::browser::camofox::CamofoxSession::connect(port, user_id, session_key).await?;
+            self.camofox_session = Some(session);
+        }
+        Ok(self.camofox_session.as_mut().unwrap())
     }
 }
 
@@ -764,6 +782,28 @@ async fn handle_cli_client(
 
     tracing::debug!("CLI command: {} {:?}", method, params);
 
+    // Handle Camoufox commands directly (without Extension)
+    if method.starts_with("Camoufox.") {
+        let camofox_result = handle_camofox_command(&state, method, &params).await;
+
+        let response = match camofox_result {
+            Ok(result) => serde_json::json!({
+                "id": cli_id,
+                "result": result
+            }),
+            Err(e) => serde_json::json!({
+                "id": cli_id,
+                "error": {
+                    "code": -32000,
+                    "message": format!("Camoufox error: {}", e)
+                }
+            }),
+        };
+
+        let _ = write.send(Message::Text(response.to_string().into())).await;
+        return;
+    }
+
     // Enforce CDP method allowlist
     let risk_level = match get_risk_level(method) {
         Some(level) => level,
@@ -867,6 +907,93 @@ async fn handle_cli_client(
             let _ = write.send(Message::Text(err.to_string().into())).await;
         }
     }
+}
+
+/// Handle Camoufox commands directly through the bridge's persistent session.
+/// Supports commands like: Camoufox.goto, Camoufox.click, Camoufox.type, etc.
+async fn handle_camofox_command(
+    state: &Arc<Mutex<BridgeState>>,
+    method: &str,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    // Parse command: "Camoufox.goto" -> "goto"
+    let command = method
+        .strip_prefix("Camoufox.")
+        .ok_or_else(|| ActionbookError::Other("Invalid Camoufox command".to_string()))?;
+
+    // Get Camoufox configuration from params or use defaults
+    let camofox_port = params
+        .get("camofox_port")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u16)
+        .unwrap_or(9377);
+
+    let user_id = params
+        .get("user_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("bridge-user")
+        .to_string();
+
+    let session_key = params
+        .get("session_key")
+        .and_then(|v| v.as_str())
+        .unwrap_or("bridge-session")
+        .to_string();
+
+    // Get or create Camoufox session
+    let mut state_guard = state.lock().await;
+    let session = state_guard
+        .get_or_create_camofox_session(camofox_port, user_id, session_key)
+        .await?;
+
+    // Execute command based on type
+    let result = match command {
+        "goto" => {
+            let url = params
+                .get("url")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ActionbookError::Other("Missing 'url' parameter".to_string()))?;
+            session.navigate(url).await?;
+            serde_json::json!({ "success": true })
+        }
+        "click" => {
+            let selector = params
+                .get("selector")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ActionbookError::Other("Missing 'selector' parameter".to_string()))?;
+            session.click(selector).await?;
+            serde_json::json!({ "success": true })
+        }
+        "type" => {
+            let selector = params
+                .get("selector")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ActionbookError::Other("Missing 'selector' parameter".to_string()))?;
+            let text = params
+                .get("text")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ActionbookError::Other("Missing 'text' parameter".to_string()))?;
+            session.type_text(selector, text).await?;
+            serde_json::json!({ "success": true })
+        }
+        "screenshot" => {
+            let bytes = session.screenshot().await?;
+            let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+            serde_json::json!({ "data": encoded })
+        }
+        "html" | "content" => {
+            let content = session.get_content().await?;
+            serde_json::json!({ "content": content })
+        }
+        _ => {
+            return Err(ActionbookError::Other(format!(
+                "Unknown Camoufox command: {}",
+                command
+            )));
+        }
+    };
+
+    Ok(result)
 }
 
 /// Send a single command to the extension via the bridge and wait for the response.
