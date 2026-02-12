@@ -15,10 +15,7 @@
         "groups": [
           {
             "group": "Welcome",
-            "pages": [
-              "index",
-              "quickstart"
-            ]
+            "pages": ["index", "quickstart"]
           },
           {
             "group": "Guides",
@@ -32,15 +29,11 @@
           },
           {
             "group": "Examples",
-            "pages": [
-              "examples"
-            ]
+            "pages": ["examples"]
           },
           {
             "group": "Community",
-            "pages": [
-              "community/contributing"
-            ]
+            "pages": ["community/contributing"]
           }
         ]
       },
@@ -49,15 +42,7 @@
         "groups": [
           {
             "group": "CLI",
-            "pages": [
-              "api-reference/cli"
-            ]
-          },
-          {
-            "group": "MCP Tools",
-            "pages": [
-              "api-reference/mcp-tools"
-            ]
+            "pages": ["api-reference/cli"]
           }
         ]
       }

@@ -1,9 +1,15 @@
 ---
-title: "MCP Tools Reference"
-description: "Reference for Actionbook MCP Tools"
+title: 'MCP Tools Reference'
+description: 'Reference for Actionbook MCP Tools'
 ---
 
 # MCP Tools Reference
+
+<Note>
+  Most users should start with the [CLI](/guides/installation). This page covers
+  the MCP protocol internals — useful if you're building custom integrations or
+  debugging tool calls.
+</Note>
 
 ## MCP Tools
 
@@ -14,6 +20,7 @@ Actionbook exposes the following tools through the MCP protocol:
 Search for actions by keyword.
 
 **Parameters:**
+
 - `query` (string): Search keyword
 
 **Returns:** List of matching actions with metadata
@@ -23,6 +30,7 @@ Search for actions by keyword.
 Get action content by ActionId.
 
 **Parameters:**
+
 - `actionId` (string): The ActionId in format `site/{domain}/page/{pageType}/element/{semanticId}`
 
 **Returns:** Action content including selectors and methods

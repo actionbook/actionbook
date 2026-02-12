@@ -1,9 +1,9 @@
 ---
-title: "Introduction"
-description: "Make your agents act 10x faster with 100x token savings."
+title: 'Introduction'
+description: 'Make your agents act 10x faster with 100x token savings.'
 ---
 
-Actionbook gives LLMs up-to-date DOM structure and action guides. Works with any AI agents.
+Actionbook gives LLMs up-to-date DOM structure and action guides. Install the CLI and start automating in minutes.
 
 <video
   controls
@@ -11,7 +11,7 @@ Actionbook gives LLMs up-to-date DOM structure and action guides. Works with any
   src="/actionbook-demo.mp4"
 />
 
-*See how Actionbook enables an agent to complete an Airbnb search task 10x faster.*
+_See how Actionbook enables an agent to complete an Airbnb search task 10x faster._
 
 ## Why Actionbook?
 
@@ -36,14 +36,18 @@ Actionbook places up-to-date action manuals with the relevant DOM selectors dire
 ## How It Works
 
 <Steps>
-  <Step title="Agent Requests Action" icon="robot">
-    Your AI agent calls Actionbook MCP tools like `search_actions` or `get_action_by_id` to find the action it needs.
+  <Step title="Search for Actions" icon="magnifying-glass">
+    Find available actions for any website using the CLI (`actionbook search
+    "airbnb login"`).
   </Step>
-  <Step title="Actionbook Retrieves Manual" icon="book">
-    Actionbook looks up the pre-verified action manual from its database, containing precise selectors and operation methods.
+  <Step title="Get Action Details" icon="book">
+    Retrieve the full action manual with precise selectors and step-by-step
+    instructions (`actionbook get "google.com:/:default"`).
   </Step>
-  <Step title="Agent Executes Precisely" icon="bullseye">
-    Your agent receives clean, structured action data and executes the operation with confidence - no guessing, no hallucinations.
+  <Step title="Launch & Execute" icon="bullseye">
+    Open a browser session and let your agent execute actions with confidence —
+    no guessing, no hallucinations (`actionbook browser open
+    "https://www.google.com"`).
   </Step>
 </Steps>
 
@@ -57,7 +61,7 @@ Actionbook places up-to-date action manuals with the relevant DOM selectors dire
     Isolated or extension — two modes for AI agents
   </Card>
   <Card title="MCP Server" icon="server" href="/guides/mcp-server">
-    IDE integrations for Cursor, Claude Code, VS Code, etc.
+    Integrate with Cursor, Claude Code, VS Code, etc.
   </Card>
 </Columns>
 
@@ -67,21 +71,36 @@ Actionbook places up-to-date action manuals with the relevant DOM selectors dire
   <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
     Get started in under 2 minutes
   </Card>
-  <Card title="API Reference" icon="code" href="/api-reference/introduction">
-    MCP tools and API documentation
+  <Card title="API Reference" icon="code" href="/api-reference/cli">
+    CLI commands and API documentation
   </Card>
 </Columns>
 
 ## Community
 
 <Columns cols={3}>
-  <Card title="GitHub" icon="github" iconType="brands" href="https://github.com/actionbook/actionbook">
+  <Card
+    title="GitHub"
+    icon="github"
+    iconType="brands"
+    href="https://github.com/actionbook/actionbook"
+  >
     Star us and contribute
   </Card>
-  <Card title="Discord" icon="discord" iconType="brands" href="https://discord.gg/7sKKp7XQ2d">
+  <Card
+    title="Discord"
+    icon="discord"
+    iconType="brands"
+    href="https://discord.gg/7sKKp7XQ2d"
+  >
     Get help and share your agents
   </Card>
-  <Card title="X / Twitter" icon="x-twitter" iconType="brands" href="https://x.com/ActionbookHQ">
+  <Card
+    title="X / Twitter"
+    icon="x-twitter"
+    iconType="brands"
+    href="https://x.com/ActionbookHQ"
+  >
     Product updates and announcements
   </Card>
 </Columns>

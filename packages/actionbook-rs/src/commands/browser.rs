@@ -151,6 +151,104 @@ fn normalize_navigation_url(raw: &str) -> Result<String> {
     Ok(format!("https://{}", trimmed))
 }
 
+fn is_reusable_initial_blank_page_url(url: &str) -> bool {
+    let normalized = url.trim().to_ascii_lowercase();
+    let normalized = normalized.trim_end_matches('/');
+
+    matches!(
+        normalized,
+        "about:blank"
+            | "about:newtab"
+            | "chrome://newtab"
+            | "chrome://new-tab-page"
+            | "edge://newtab"
+    )
+}
+
+async fn try_open_on_initial_blank_page(
+    session_manager: &SessionManager,
+    profile_name: Option<&str>,
+    normalized_url: &str,
+) -> Result<Option<String>> {
+    let pages = match session_manager.get_pages(profile_name).await {
+        Ok(pages) => pages,
+        Err(e) => {
+            tracing::debug!(
+                "Unable to inspect current tabs for reuse, falling back to new tab: {}",
+                e
+            );
+            return Ok(None);
+        }
+    };
+
+    if pages.len() != 1 || !is_reusable_initial_blank_page_url(&pages[0].url) {
+        return Ok(None);
+    }
+
+    match timeout(
+        Duration::from_secs(30),
+        session_manager.goto(profile_name, normalized_url),
+    )
+    .await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            return Err(ActionbookError::Other(format!(
+                "Failed to open page on initial tab: {}",
+                e
+            )));
+        }
+        Err(_) => {
+            return Err(ActionbookError::Timeout(format!(
+                "Page load timed out after 30 seconds: {}",
+                normalized_url
+            )));
+        }
+    }
+
+    let _ = wait_for_document_complete(session_manager, profile_name, 30_000).await;
+
+    let title = match timeout(
+        Duration::from_secs(5),
+        session_manager.eval_on_page(profile_name, "document.title"),
+    )
+    .await
+    {
+        Ok(Ok(value)) => value.as_str().unwrap_or("").to_string(),
+        _ => String::new(),
+    };
+
+    Ok(Some(title))
+}
+
+async fn wait_for_document_complete(
+    session_manager: &SessionManager,
+    profile_name: Option<&str>,
+    timeout_ms: u64,
+) -> Result<()> {
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_millis(timeout_ms);
+
+    loop {
+        let ready_state = session_manager
+            .eval_on_page(profile_name, "document.readyState")
+            .await?;
+
+        if ready_state.as_str() == Some("complete") {
+            return Ok(());
+        }
+
+        if start.elapsed() > timeout {
+            return Err(ActionbookError::Timeout(format!(
+                "Page did not reach complete state within {}ms",
+                timeout_ms
+            )));
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+}
+
 fn is_host_port_with_optional_path(input: &str) -> bool {
     let boundary = input.find(['/', '?', '#']).unwrap_or(input.len());
     let authority = &input[..boundary];
@@ -1432,7 +1530,10 @@ fn render_snapshot_tree(node: &serde_json::Value, depth: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{effective_profile_name, normalize_navigation_url, render_snapshot_tree};
+    use super::{
+        effective_profile_name, is_reusable_initial_blank_page_url, normalize_navigation_url,
+        render_snapshot_tree,
+    };
     use crate::cli::{BrowserCommands, Cli, Commands};
     use crate::config::Config;
     use serde_json::json;
@@ -1532,6 +1633,23 @@ mod tests {
     fn normalize_empty_input_returns_error() {
         assert!(normalize_navigation_url("").is_err());
         assert!(normalize_navigation_url("   ").is_err());
+    }
+
+    #[test]
+    fn reusable_initial_blank_page_urls() {
+        assert!(is_reusable_initial_blank_page_url("about:blank"));
+        assert!(is_reusable_initial_blank_page_url(" ABOUT:BLANK "));
+        assert!(is_reusable_initial_blank_page_url("about:newtab"));
+        assert!(is_reusable_initial_blank_page_url("chrome://newtab/"));
+        assert!(is_reusable_initial_blank_page_url("chrome://new-tab-page/"));
+        assert!(is_reusable_initial_blank_page_url("edge://newtab/"));
+    }
+
+    #[test]
+    fn non_reusable_page_urls() {
+        assert!(!is_reusable_initial_blank_page_url(""));
+        assert!(!is_reusable_initial_blank_page_url("https://example.com"));
+        assert!(!is_reusable_initial_blank_page_url("chrome://settings"));
     }
 
     #[test]

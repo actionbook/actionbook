@@ -88,13 +88,15 @@ npx skills add actionbook/actionbook
 
 ## Installation
 
-Actionbook provides three integration methods:
+```bash
+# Install the Actionbook CLI globally
+npm install -g @actionbookdev/cli
 
-- **CLI (Recommended)**: Best for AI agents and general automation.
-- **MCP Server**: For AI IDEs like Cursor and Claude.
-- **JavaScript SDK**: For custom programmatic integration.
+# Initialize local configuration
+actionbook setup
+```
 
-For detailed installation instructions, please visit the [Installation Guide](https://actionbook.dev/docs/guides/installation).
+The CLI is all you need to get started. For advanced use cases, Actionbook also offers an [MCP Server](https://actionbook.dev/docs/guides/mcp-server) and [JavaScript SDK](https://actionbook.dev/docs/guides/sdk-integration).
 
 
 ## Examples
@@ -104,9 +106,7 @@ Explore real-world examples in the [Examples Documentation](https://actionbook.d
 
 ## Available Tools
 
-Actionbook provides tools for searching and retrieving action manuals.
-
-Check out the [CLI Reference](https://actionbook.dev/docs/api-reference/cli) and [MCP Tools Reference](https://actionbook.dev/docs/api-reference/mcp-tools).
+Actionbook provides tools for searching and retrieving action manuals. See the [CLI Reference](https://actionbook.dev/docs/api-reference/cli) for the full command list. If you're using the MCP integration, see the [MCP Tools Reference](https://actionbook.dev/docs/api-reference/mcp-tools).
 
 
 ## Documentation
