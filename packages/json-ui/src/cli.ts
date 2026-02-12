@@ -1782,7 +1782,11 @@ function generateHTML(json: ReportJSON, options: { title?: string } = {}): strin
       border-right: none;
       border-radius: 0;
       background: transparent;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       gap: 0.85rem;
+      flex-wrap: nowrap;
     }
 
     .brand-header > span:first-child {
@@ -1813,6 +1817,59 @@ function generateHTML(json: ReportJSON, options: { title?: string } = {}): strin
       font-family: 'IBM Plex Mono', 'SF Mono', 'Consolas', monospace;
       letter-spacing: 0.02em;
       color: var(--color-text-muted);
+    }
+
+    .report-hero {
+      margin: 0;
+      padding: clamp(1.2rem, 3.8vw, 3rem) clamp(1rem, 10vw, 180px);
+      border-top: 1px solid var(--color-border);
+      border-bottom: 1px solid var(--color-border);
+      background: transparent;
+    }
+
+    .hero-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.1rem;
+    }
+
+    .hero-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 40px;
+      border: 1px solid var(--color-border);
+      border-radius: 0;
+      padding: 0.46rem 0.9rem;
+      font-family: 'IBM Plex Mono', 'SF Mono', 'Consolas', monospace;
+      font-size: 0.78rem;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--color-text);
+      background: transparent;
+    }
+
+    .hero-chip-primary {
+      background: var(--color-primary);
+      border-color: var(--color-primary);
+      color: #ffffff;
+    }
+
+    .hero-title {
+      margin: 0;
+      font-size: clamp(2.2rem, 6.3vw, 5.4rem);
+      line-height: 0.97;
+      letter-spacing: -0.04em;
+      max-width: 16ch;
+    }
+
+    .hero-subtitle {
+      margin-top: 1rem;
+      max-width: 58ch;
+      color: var(--color-text-muted);
+      font-size: 1.02rem;
+      line-height: 1.58;
     }
 
     .section {
@@ -1964,10 +2021,11 @@ function generateHTML(json: ReportJSON, options: { title?: string } = {}): strin
     }
 
     .lang-switcher {
-      position: fixed;
-      top: 1rem;
-      right: clamp(1rem, 4vw, 2.4rem);
-      z-index: 1100;
+      position: static;
+      top: auto;
+      right: auto;
+      z-index: auto;
+      margin-left: auto;
       border: none;
       background: transparent;
       box-shadow: none;
@@ -2048,11 +2106,7 @@ function generateHTML(json: ReportJSON, options: { title?: string } = {}): strin
       }
 
       .lang-switcher {
-        position: fixed;
-        top: 0.85rem;
-        right: 1rem;
-        margin: 0;
-        width: auto;
+        margin-left: auto;
       }
 
       .corner-powered {
@@ -2064,6 +2118,17 @@ function generateHTML(json: ReportJSON, options: { title?: string } = {}): strin
 
     @media (max-width: 560px) {
       .paper-header h1 {
+        font-size: clamp(1.85rem, 11vw, 2.8rem);
+        line-height: 1.02;
+      }
+
+      .hero-chip {
+        min-height: 34px;
+        padding: 0.35rem 0.62rem;
+        font-size: 0.7rem;
+      }
+
+      .hero-title {
         font-size: clamp(1.85rem, 11vw, 2.8rem);
         line-height: 1.02;
       }
@@ -2154,10 +2219,6 @@ function generateHTML(json: ReportJSON, options: { title?: string } = {}): strin
   </script>
 </head>
 <body>
-  <div class="lang-switcher">
-    <button data-lang="en" class="active">EN</button>
-    <button data-lang="zh">中文</button>
-  </div>
   <article class="report">
     ${renderNode(json)}
   </article>
@@ -2197,18 +2258,228 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
+function isGenericBadgeText(text: string): boolean {
+  const raw = text.trim();
+  if (!raw) return true;
+  const normalized = raw.toLowerCase().replace(/\s+/g, ' ');
+  return normalized.includes('deep research report')
+    || normalized.includes('ai generated')
+    || normalized.includes('ai-generated')
+    || normalized.includes('paper summary')
+    || normalized === 'research report'
+    || raw.includes('深度研究报告')
+    || raw.includes('ai 生成')
+    || raw.includes('AI 生成')
+    || raw.includes('论文解读');
+}
+
+function resolveBrandBadge(value: unknown): I18nValue {
+  const fallback = 'AR_FINAL.REP';
+  if (isI18n(value)) {
+    const en = value.en?.trim() ?? '';
+    const zh = value.zh?.trim() ?? '';
+    const enGeneric = isGenericBadgeText(en);
+    const zhGeneric = isGenericBadgeText(zh);
+    if ((enGeneric || !en) && (zhGeneric || !zh)) return fallback;
+    return {
+      en: enGeneric || !en ? fallback : en,
+      zh: zhGeneric || !zh ? fallback : zh,
+    };
+  }
+  const text = String(value ?? '').trim();
+  if (!text || isGenericBadgeText(text)) return fallback;
+  return text;
+}
+
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/`+/g, '')
+    .replace(/\*\*/g, '')
+    .replace(/\*/g, '')
+    .replace(/^#+\s*/gm, '')
+    .replace(/\[(.*?)\]\((.*?)\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function firstSentence(text: string, maxLength = 64): string {
+  const headlineMatch = text.match(/\*\*([^*]{3,120})\*\*/);
+  if (headlineMatch) {
+    const headline = stripMarkdown(headlineMatch[1]);
+    if (headline) {
+      if (headline.length <= maxLength) return headline;
+      return `${headline.slice(0, maxLength).trimEnd()}…`;
+    }
+  }
+
+  const plain = stripMarkdown(text);
+  if (!plain) return '';
+  const sentence = plain.split(/[。！？.!?]/)[0]?.trim() || plain;
+  if (sentence.length <= maxLength) return sentence;
+  return `${sentence.slice(0, maxLength).trimEnd()}…`;
+}
+
+function isGenericSectionTitle(value: unknown): boolean {
+  const en = resolveI18n(value, 'en').trim().toLowerCase();
+  const zh = resolveI18n(value, 'zh').trim();
+  const genericEn = new Set([
+    'overview',
+    'summary',
+    'abstract',
+    'key findings',
+    'detailed analysis',
+    'sources',
+    'key metrics',
+    'introduction',
+  ]);
+  const genericZh = new Set([
+    '概述',
+    '摘要',
+    '核心发现',
+    '详细分析',
+    '信息来源',
+    '关键指标',
+    '简介',
+  ]);
+  return genericEn.has(en) || genericZh.has(zh);
+}
+
+function extractHeroTitle(report: ReportJSON): I18nValue | null {
+  const reportTitle = report.props?.title;
+  if (reportTitle) return reportTitle as I18nValue;
+
+  const brandTitle = report.children?.find((c) => c.type === 'BrandHeader' && c.props?.title)?.props?.title;
+  if (brandTitle) return brandTitle as I18nValue;
+
+  for (const child of report.children || []) {
+    if (child.type !== 'Section') continue;
+    for (const block of child.children || []) {
+      if (block.type === 'Prose' && block.props?.content) {
+        const content = block.props.content;
+        if (isI18n(content)) {
+          const en = firstSentence(content.en);
+          const zh = firstSentence(content.zh);
+          if (en || zh) return { en: en || 'Research Report', zh: zh || '研究报告' };
+        }
+        const text = firstSentence(String(content));
+        if (text) return text;
+      }
+      if (block.type === 'Abstract' && block.props?.text) {
+        const text = block.props.text;
+        if (isI18n(text)) {
+          const en = firstSentence(text.en);
+          const zh = firstSentence(text.zh);
+          if (en || zh) return { en: en || 'Research Report', zh: zh || '研究报告' };
+        }
+        const oneLine = firstSentence(String(text));
+        if (oneLine) return oneLine;
+      }
+    }
+  }
+
+  for (const child of report.children || []) {
+    if (child.type === 'Section' && child.props?.title && !isGenericSectionTitle(child.props.title)) {
+      return child.props.title as I18nValue;
+    }
+  }
+
+  return null;
+}
+
+function formatHeroDate(value: unknown): string | null {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  return `${months[parsed.getUTCMonth()]} ${String(parsed.getUTCDate()).padStart(2, '0')}, ${parsed.getUTCFullYear()}`;
+}
+
+function extractHeroDate(report: ReportJSON): string | null {
+  if (report.props?.date) return formatHeroDate(report.props.date);
+  for (const child of report.children || []) {
+    if (child.type === 'BrandFooter' && child.props?.timestamp) {
+      return formatHeroDate(child.props.timestamp);
+    }
+  }
+  return null;
+}
+
+function extractHeroConfidence(report: ReportJSON): string | null {
+  const value = report.props?.confidence ?? report.props?.conf;
+  if (value == null) return null;
+  if (typeof value === 'number') {
+    const percentage = value <= 1 ? value * 100 : value;
+    return `${percentage.toFixed(1)}%`;
+  }
+  const text = String(value).trim();
+  return text || null;
+}
+
+function extractHeroId(report: ReportJSON): string | null {
+  const id = report.props?.id
+    ?? report.props?.reportId
+    ?? report.props?.identifier
+    ?? report.props?.refId;
+  if (id == null) return null;
+  const text = String(id).trim();
+  return text || null;
+}
+
+function renderHero(report: ReportJSON, title: I18nValue): string {
+  const label = (report.props?.heroLabel || 'ACTIVE RESEARCH') as I18nValue;
+  const date = extractHeroDate(report);
+  const confidence = extractHeroConfidence(report);
+  const id = extractHeroId(report);
+  const subtitle = report.props?.subtitle as I18nValue | undefined;
+
+  const chips: string[] = [
+    `<span class="hero-chip hero-chip-primary">${renderI18n(label)}</span>`,
+  ];
+  if (date) chips.push(`<span class="hero-chip">${escapeHtml(date)}</span>`);
+  if (confidence) chips.push(`<span class="hero-chip">CONF: ${escapeHtml(confidence)}</span>`);
+  if (id) chips.push(`<span class="hero-chip">ID: ${escapeHtml(id)}</span>`);
+
+  return `<section class="report-hero">
+    <div class="hero-meta">${chips.join('')}</div>
+    <h1 class="hero-title">${renderI18n(title)}</h1>
+    ${subtitle ? `<p class="hero-subtitle">${renderI18n(subtitle)}</p>` : ''}
+  </section>`;
+}
+
 function renderNode(node: ReportJSON): string {
   const { type, props = {}, children = [] } = node;
   const childrenHtml = children.map(renderNode).join('\n');
 
   switch (type) {
-    case 'Report':
-      return childrenHtml;
+    case 'Report': {
+      const hasPaperHeader = children.some((child) => child.type === 'PaperHeader');
+      const renderedChildren = children.map(renderNode);
+      if (hasPaperHeader) return renderedChildren.join('\n');
 
-    case 'BrandHeader':
+      const heroTitle = extractHeroTitle(node);
+      if (!heroTitle) return renderedChildren.join('\n');
+
+      const heroHtml = renderHero(node, heroTitle);
+      const brandHeaderIndex = children.findIndex((child) => child.type === 'BrandHeader');
+      if (brandHeaderIndex >= 0) {
+        renderedChildren.splice(brandHeaderIndex + 1, 0, heroHtml);
+      } else {
+        renderedChildren.unshift(heroHtml);
+      }
+      return renderedChildren.join('\n');
+    }
+
+    case 'BrandHeader': {
+      const badge = resolveBrandBadge(props.badge);
       return `<div class="brand-header">
-        <span>${renderI18n(props.badge || 'Research Report')}</span>
+        <span>${renderI18n(badge)}</span>
+        <div class="lang-switcher">
+          <button data-lang="en" class="active">EN</button>
+          <button data-lang="zh">中文</button>
+        </div>
       </div>`;
+    }
 
     case 'PaperHeader': {
       const categories = (props.categories as string[]) || [];
