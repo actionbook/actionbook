@@ -8,7 +8,7 @@
       "name": "actionbook",
       "source": "./",
       "description": "Up-to-date action manuals for browser automation. Get verified CSS/XPath selectors for any website directly into your agent context.",
-      "version": "0.2.0"
+      "version": "0.3.0"
     },
     {
       "name": "rust-learner",
