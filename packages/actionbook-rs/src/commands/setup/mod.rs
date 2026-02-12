@@ -74,7 +74,7 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
             print_step_header(4, "Save");
         }
 
-        // Show recap and confirm before saving (interactive only)
+        // Show recap (interactive only)
         if !cli.json && !args.non_interactive {
             let bar = "│".dimmed();
             let api_display = config
@@ -100,38 +100,9 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
                 bar,
                 Config::config_path().display().to_string().dimmed()
             );
-            println!("  {}", bar);
-
-            let choices = vec!["Save and continue", "Restart setup", "Discard and exit"];
-            let selection = Select::with_theme(&setup_theme())
-                .with_prompt(" What would you like to do?")
-                .items(&choices)
-                .default(0)
-                .report(false)
-                .interact()
-                .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
-
-            match selection {
-                0 => break config, // Save
-                1 => {
-                    // Restart: reset config and loop
-                    config = Config::default();
-                    println!("\n  {}  Restarting setup...\n", "◇".cyan());
-                    continue;
-                }
-                _ => {
-                    // Discard: clean exit
-                    println!(
-                        "\n  {}  Setup discarded. Run {} to start again.\n",
-                        "■".dimmed(),
-                        "actionbook setup".cyan()
-                    );
-                    return Ok(());
-                }
-            }
         }
 
-        // Non-interactive / JSON: save directly
+        // Save directly without confirmation
         break config;
     };
 
