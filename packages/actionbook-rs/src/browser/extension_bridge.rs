@@ -879,6 +879,74 @@ pub async fn is_bridge_running(port: u16) -> bool {
         .is_ok()
 }
 
+/// Verify that a PID belongs to an Actionbook bridge process.
+///
+/// This prevents `stop_bridge` from accidentally terminating unrelated processes
+/// when the PID file is missing but the port is in use.
+///
+/// On Unix: Uses `ps` to check if the command line contains "actionbook".
+/// On Windows: Uses `wmic` to query the process command line.
+///
+/// Returns `false` if verification fails or the process cannot be inspected.
+pub async fn is_actionbook_bridge_process(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        let output = tokio::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "args="])
+            .output()
+            .await;
+
+        if let Ok(output) = output {
+            if !output.status.success() {
+                return false;
+            }
+
+            let cmdline = String::from_utf8_lossy(&output.stdout);
+            let cmdline_lower = cmdline.to_lowercase();
+
+            // Verify the command line contains "actionbook"
+            // We check for the binary name to avoid false positives
+            cmdline_lower.contains("actionbook")
+        } else {
+            // If ps command fails, fail safely by rejecting
+            tracing::warn!("Failed to run ps command for PID verification");
+            false
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        // Windows: Use wmic to get the command line
+        let output = tokio::process::Command::new("wmic")
+            .args([
+                "process",
+                "where",
+                &format!("ProcessId={}", pid),
+                "get",
+                "CommandLine",
+                "/value",
+            ])
+            .output()
+            .await;
+
+        if let Ok(output) = output {
+            if !output.status.success() {
+                return false;
+            }
+
+            let cmdline = String::from_utf8_lossy(&output.stdout);
+            let cmdline_lower = cmdline.to_lowercase();
+
+            // Verify the command line contains "actionbook"
+            cmdline_lower.contains("actionbook")
+        } else {
+            // If wmic command fails, fail safely by rejecting
+            tracing::warn!("Failed to run wmic command for PID verification");
+            false
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -942,6 +1010,37 @@ mod tests {
         assert_eq!(parse_origin("chrome-extension://abcdef"), Some(("chrome-extension", "abcdef", None)));
         assert_eq!(parse_origin("http://"), None);
         assert_eq!(parse_origin("not-a-url"), None);
+    }
+
+    #[tokio::test]
+    async fn test_is_actionbook_bridge_process_current() {
+        // Test with current process - should recognize as actionbook
+        let current_pid = std::process::id();
+        let is_actionbook = is_actionbook_bridge_process(current_pid).await;
+
+        // This test process should be recognized as actionbook
+        // (command line contains "actionbook" from cargo test)
+        assert!(is_actionbook, "Current test process should be recognized as actionbook");
+    }
+
+    #[tokio::test]
+    async fn test_is_actionbook_bridge_process_invalid_pid() {
+        // Test with a PID that doesn't exist
+        let invalid_pid = u32::MAX;
+        let is_actionbook = is_actionbook_bridge_process(invalid_pid).await;
+
+        // Should return false for non-existent process
+        assert!(!is_actionbook, "Invalid PID should return false");
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_is_actionbook_bridge_process_system_process() {
+        // Test with PID 1 (init/systemd) - definitely not actionbook
+        let is_actionbook = is_actionbook_bridge_process(1).await;
+
+        // PID 1 should not be recognized as actionbook
+        assert!(!is_actionbook, "System init process should not be recognized as actionbook");
     }
 
 }
