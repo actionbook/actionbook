@@ -32,6 +32,21 @@ async fn serve(_cli: &Cli, port: u16) -> Result<()> {
         "(not installed - run 'actionbook extension install')".dimmed().to_string()
     };
 
+    // Show deprecation notice (only in non-JSON mode)
+    if !_cli.json {
+        println!();
+        println!(
+            "  {}  {}",
+            "ℹ".dimmed(),
+            "Note: The bridge now auto-starts with browser commands".dimmed()
+        );
+        println!(
+            "  {}  {}",
+            "ℹ".dimmed(),
+            "This manual start is only needed for debugging".dimmed()
+        );
+    }
+
     println!();
     println!("  {}", "Actionbook Extension Bridge".bold());
     println!("  {}", "─".repeat(40).dimmed());
@@ -84,9 +99,8 @@ async fn status(_cli: &Cli, port: u16) -> Result<()> {
             port
         );
         println!(
-            "  {}  Start with: {}",
-            "ℹ".dimmed(),
-            "actionbook extension serve".dimmed()
+            "  {}  It will auto-start when you run browser commands",
+            "ℹ".dimmed()
         );
     }
 
@@ -529,12 +543,11 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
         );
         println!("     {}", dir.display().to_string().dimmed());
         println!(
-            "  4. Run {}",
-            "actionbook extension serve".cyan()
+            "  4. Run any browser command (bridge auto-starts):"
         );
         println!(
-            "  5. Extension {} via native messaging",
-            "auto-connects".green().bold()
+            "     {}",
+            "actionbook browser open https://example.com".cyan()
         );
         println!();
     }

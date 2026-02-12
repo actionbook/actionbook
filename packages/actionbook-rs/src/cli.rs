@@ -398,7 +398,11 @@ pub enum CookiesCommands {
 
 #[derive(Subcommand)]
 pub enum ExtensionCommands {
+    #[command(hide = true)]
     /// Start the extension bridge WebSocket server
+    ///
+    /// Note: The bridge is automatically started when needed by browser commands.
+    /// This command is provided for debugging and manual control only.
     Serve {
         /// Port to listen on
         #[arg(long, default_value = "19222")]

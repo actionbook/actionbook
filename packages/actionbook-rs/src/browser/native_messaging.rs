@@ -89,7 +89,7 @@ pub async fn run() -> crate::error::Result<()> {
                 serde_json::json!({
                     "type": "error",
                     "error": "bridge_not_running",
-                    "message": "Bridge is not running. Start with: actionbook extension serve",
+                    "message": "Bridge is not running. It will auto-start when you run browser commands.",
                     "port": port,
                 })
             }

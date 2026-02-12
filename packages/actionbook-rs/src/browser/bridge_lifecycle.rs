@@ -68,8 +68,8 @@ pub async fn ensure_bridge_running(port: u16) -> Result<bool> {
 
     Err(ActionbookError::ExtensionError(format!(
         "Bridge did not start within 5 seconds on port {}. \
-         Check logs or run `actionbook extension serve --port {}` manually.",
-        port, port
+         Check if the port is already in use or check logs for errors.",
+        port
     )))
 }
 
