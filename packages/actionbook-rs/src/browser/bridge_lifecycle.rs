@@ -143,14 +143,60 @@ pub async fn stop_bridge(port: u16) -> Result<()> {
     let pid = match pid_info {
         Some((pid, recorded_port)) if recorded_port == port => pid,
         _ => {
-            // No PID file or port mismatch — check if bridge is actually running
-            if extension_bridge::is_bridge_running(port).await {
+            // No PID file or port mismatch
+            // Try to find the process by port using lsof/netstat
+            if !extension_bridge::is_bridge_running(port).await {
+                // Port not in use, nothing to stop
+                cleanup_files().await;
+                return Ok(());
+            }
+
+            // Port is in use but no PID file - try to find PID via lsof
+            #[cfg(unix)]
+            {
+                let output = tokio::process::Command::new("lsof")
+                    .args(["-ti", &format!(":{}", port)])
+                    .output()
+                    .await;
+
+                if let Ok(output) = output {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let pids: Vec<u32> = stdout
+                        .lines()
+                        .filter_map(|line| line.trim().parse::<u32>().ok())
+                        .collect();
+
+                    if let Some(&found_pid) = pids.first() {
+                        tracing::info!(
+                            "Bridge running on port {} without PID file, found PID {} via lsof",
+                            port,
+                            found_pid
+                        );
+                        found_pid
+                    } else {
+                        tracing::warn!(
+                            "Bridge running on port {} but cannot determine PID",
+                            port
+                        );
+                        return Ok(());
+                    }
+                } else {
+                    tracing::warn!(
+                        "Bridge running on port {} but lsof failed to find PID",
+                        port
+                    );
+                    return Ok(());
+                }
+            }
+
+            #[cfg(not(unix))]
+            {
                 tracing::warn!(
-                    "Bridge running on port {} but no matching PID file; cannot auto-stop",
+                    "Bridge running on port {} but no PID file found; cannot auto-stop on Windows without lsof",
                     port
                 );
+                return Ok(());
             }
-            return Ok(());
         }
     };
 

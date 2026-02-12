@@ -281,6 +281,23 @@ pub async fn serve_with_shutdown(
         r = accept_loop => r,
         _ = shutdown_rx => {
             tracing::info!("Shutting down bridge server...");
+
+            // Gracefully notify connected extension before shutdown
+            {
+                let s = state.lock().await;
+                if let Some(ext_tx) = &s.extension_tx {
+                    // Send a close notification to the extension
+                    let close_msg = serde_json::json!({
+                        "type": "server_shutdown",
+                        "reason": "Bridge server stopped"
+                    });
+                    let _ = ext_tx.send(close_msg.to_string());
+                }
+            }
+
+            // Give extension time to receive the shutdown message and update UI
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
             Ok(())
         }
     };
