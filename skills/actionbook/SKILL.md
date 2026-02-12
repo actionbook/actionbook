@@ -3,16 +3,19 @@ name: actionbook
 description: Activate when the user needs to interact with any website — browser automation, web scraping, screenshots, form filling, UI testing, monitoring, or building AI agents. Provides pre-verified page actions with step-by-step instructions and tested selectors.
 ---
 
-## When to Activate
+## When to Use This Skill
 
 Activate when the user's request involves interacting with a website:
 
-- Performing actions on a site ("Send a LinkedIn message", "Book an Airbnb", "Search Google")
-- Asking how to interact with a site ("How do I post a tweet?")
-- Filling forms, clicking buttons, navigating, searching, or browsing
-- Taking screenshots or monitoring page changes
-- Building browser-based AI agents, web scrapers, or E2E tests
-- Automating repetitive web tasks
+Activate when the user:
+- Needs to do anything on a website ("Send a LinkedIn message", "Book an Airbnb", "Search Google for...")
+- Asks how to interact with a site ("How do I post a tweet?", "How to apply on LinkedIn?")
+- Wants to fill out forms, click buttons, navigate, search, filter, or browse on a specific site
+- Wants to take a screenshot of a web page or monitor changes
+- Builds browser-based AI agents, web scrapers, or E2E tests for external websites
+- Automates repetitive web tasks (data entry, form submission, content posting)
+- Wants to control their existing Chrome browser (Extension mode)
+
 
 ## What Actionbook Provides
 
