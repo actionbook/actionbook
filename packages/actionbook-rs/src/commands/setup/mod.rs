@@ -494,8 +494,8 @@ fn print_completion(cli: &Cli, config: &Config, skills_result: &mode::SkillsResu
         .api
         .api_key
         .as_deref()
-        .map(api_key::mask_key)
-        .unwrap_or_else(|| "not configured".dimmed().to_string());
+        .unwrap_or("not configured")
+        .to_string();
 
     let browser_display = match config.browser.mode {
         BrowserMode::Isolated => {
