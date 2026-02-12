@@ -1133,33 +1133,53 @@ impl SessionManager {
 
     /// Press a keyboard key
     pub async fn press_key(&self, profile_name: Option<&str>, key: &str) -> Result<()> {
-        // Map common key names to CDP key codes
-        let (key_code, text) = match key.to_lowercase().as_str() {
-            "enter" | "return" => ("Enter", "\r"),
-            "tab" => ("Tab", "\t"),
-            "escape" | "esc" => ("Escape", ""),
-            "backspace" => ("Backspace", ""),
-            "delete" => ("Delete", ""),
-            "arrowup" | "up" => ("ArrowUp", ""),
-            "arrowdown" | "down" => ("ArrowDown", ""),
-            "arrowleft" | "left" => ("ArrowLeft", ""),
-            "arrowright" | "right" => ("ArrowRight", ""),
-            "home" => ("Home", ""),
-            "end" => ("End", ""),
-            "pageup" => ("PageUp", ""),
-            "pagedown" => ("PageDown", ""),
-            "space" => ("Space", " "),
-            _ => (key, key),
+        // Map common key names to CDP key codes, code, and windowsVirtualKeyCode
+        // Virtual key codes follow the Windows VK standard — cross-platform in CDP
+        let (key_value, code, text, vk) = match key.to_lowercase().as_str() {
+            "enter" | "return" => ("Enter", "Enter", "\r", 13),
+            "tab" => ("Tab", "Tab", "\t", 9),
+            "escape" | "esc" => ("Escape", "Escape", "", 27),
+            "backspace" => ("Backspace", "Backspace", "", 8),
+            "delete" => ("Delete", "Delete", "", 46),
+            "arrowup" | "up" => ("ArrowUp", "ArrowUp", "", 38),
+            "arrowdown" | "down" => ("ArrowDown", "ArrowDown", "", 40),
+            "arrowleft" | "left" => ("ArrowLeft", "ArrowLeft", "", 37),
+            "arrowright" | "right" => ("ArrowRight", "ArrowRight", "", 39),
+            "home" => ("Home", "Home", "", 36),
+            "end" => ("End", "End", "", 35),
+            "pageup" => ("PageUp", "PageUp", "", 33),
+            "pagedown" => ("PageDown", "PageDown", "", 34),
+            "space" => (" ", "Space", " ", 32),
+            "f1" => ("F1", "F1", "", 112),
+            "f2" => ("F2", "F2", "", 113),
+            "f3" => ("F3", "F3", "", 114),
+            "f4" => ("F4", "F4", "", 115),
+            "f5" => ("F5", "F5", "", 116),
+            "f6" => ("F6", "F6", "", 117),
+            "f7" => ("F7", "F7", "", 118),
+            "f8" => ("F8", "F8", "", 119),
+            "f9" => ("F9", "F9", "", 120),
+            "f10" => ("F10", "F10", "", 121),
+            "f11" => ("F11", "F11", "", 122),
+            "f12" => ("F12", "F12", "", 123),
+            "insert" => ("Insert", "Insert", "", 45),
+            _ => (key, key, key, 0),
         };
+
+        let mut key_down = serde_json::json!({
+            "type": "keyDown",
+            "key": key_value,
+            "code": code,
+            "windowsVirtualKeyCode": vk,
+        });
+        if !text.is_empty() {
+            key_down["text"] = serde_json::json!(text);
+        }
 
         self.send_cdp_command(
             profile_name,
             "Input.dispatchKeyEvent",
-            serde_json::json!({
-                "type": "keyDown",
-                "key": key_code,
-                "text": text
-            }),
+            key_down,
         )
         .await?;
 
@@ -1168,7 +1188,9 @@ impl SessionManager {
             "Input.dispatchKeyEvent",
             serde_json::json!({
                 "type": "keyUp",
-                "key": key_code
+                "key": key_value,
+                "code": code,
+                "windowsVirtualKeyCode": vk,
             }),
         )
         .await?;
