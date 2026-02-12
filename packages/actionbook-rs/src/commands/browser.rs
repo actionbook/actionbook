@@ -3,6 +3,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use colored::Colorize;
+use tokio::time::timeout;
 
 use crate::browser::backend::BrowserBackend;
 use crate::browser::bridge_lifecycle;
