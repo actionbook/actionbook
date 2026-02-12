@@ -198,6 +198,39 @@ impl ApiClient {
         self.handle_response(response).await
     }
 
+    /// Validate API key by making a real search request
+    pub async fn validate_api_key(&self) -> Result<bool> {
+        // Use a real search_actions call to validate (requires valid API key)
+        let response = self
+            .request_text(reqwest::Method::GET, "/api/search_actions")
+            .query(&[("query", "test"), ("page_size", "1")])
+            .send()
+            .await
+            .map_err(|e| ActionbookError::ApiError(format!("Request failed: {}", e)))?;
+
+        let status = response.status();
+
+        // 2xx = valid key, 401 = invalid key, other errors = connection issues
+        if status.is_success() {
+            Ok(true)
+        } else if status == StatusCode::UNAUTHORIZED {
+            Ok(false)
+        } else {
+            // For other errors, try to get the error message
+            let error_text = response.text().await.unwrap_or_default();
+
+            // Check if it's an invalid API key format error (code 10002)
+            if error_text.contains("10002") || error_text.contains("Invalid API key format") {
+                Ok(false)
+            } else {
+                Err(ActionbookError::ApiError(format!(
+                    "API validation failed: {} - {}",
+                    status, error_text
+                )))
+            }
+        }
+    }
+
     /// Handle API response (JSON)
     async fn handle_response<T: serde::de::DeserializeOwned>(
         &self,

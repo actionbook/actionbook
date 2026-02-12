@@ -87,22 +87,22 @@ pub async fn configure_browser(
 /// Interactive prompt to select browser mode (Isolated vs Extension).
 fn select_browser_mode(cli: &Cli) -> Result<BrowserMode> {
     let options = vec![
-        "extension  — Control your existing Chrome (requires extension install)",
         "isolated   — Launch dedicated browser (clean environment, no setup needed)",
+        "extension  — Control your existing Chrome (requires extension install)",
     ];
 
     let selection = Select::with_theme(&setup_theme())
         .with_prompt(" Browser Mode")
         .items(&options)
-        .default(1) // Default to isolated (recommended for most users)
+        .default(0) // Default to isolated (recommended for most users)
         .report(false)
         .interact()
         .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
 
     let mode = if selection == 0 {
-        BrowserMode::Extension
-    } else {
         BrowserMode::Isolated
+    } else {
+        BrowserMode::Extension
     };
 
     if !cli.json {

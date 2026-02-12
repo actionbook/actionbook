@@ -3,6 +3,7 @@ use dialoguer::{Confirm, Input};
 
 use super::detect::EnvironmentInfo;
 use super::theme::setup_theme;
+use crate::api::ApiClient;
 use crate::cli::Cli;
 use crate::config::Config;
 use crate::error::{ActionbookError, Result};
@@ -103,57 +104,148 @@ pub async fn configure_api_key(
     }
 
     // Interactive input — leave blank to skip
-    let key: String = Input::with_theme(&setup_theme())
-        .with_prompt(" Enter your API key (leave blank to skip)")
-        .allow_empty(true)
-        .report(false)
-        .interact_text()
-        .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
+    loop {
+        let key: String = Input::with_theme(&setup_theme())
+            .with_prompt(" Enter your API key (leave blank to skip)")
+            .allow_empty(true)
+            .report(false)
+            .interact_text()
+            .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
 
-    let key = key.trim().to_string();
+        let key = key.trim().to_string();
 
-    if key.is_empty() {
-        if cli.json {
-            println!(
-                "{}",
-                serde_json::json!({
-                    "step": "api_key",
-                    "status": "skipped",
-                })
-            );
-        } else {
-            println!(
-                "  {}  Skipped. You can configure it later with:",
-                "◇".dimmed()
-            );
-            println!(
-                "  {}  {}",
-                "│".dimmed(),
-                "actionbook config set api.api_key <your-key>".cyan()
-            );
+        if key.is_empty() {
+            if cli.json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "step": "api_key",
+                        "status": "skipped",
+                    })
+                );
+            } else {
+                println!(
+                    "  {}  Skipped. You can configure it later with:",
+                    "◇".dimmed()
+                );
+                println!(
+                    "  {}  {}",
+                    "│".dimmed(),
+                    "actionbook config set api.api_key <your-key>".cyan()
+                );
+            }
+            return Ok(());
         }
-        return Ok(());
-    }
 
-    if cli.json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "step": "api_key",
-                "status": "configured",
-                "masked_key": mask_key(&key),
-            })
-        );
-    } else {
-        println!(
-            "  {}  API key configured: {}",
-            "◇".green(),
-            mask_key(&key).dimmed()
-        );
-    }
+        // Validate the API key
+        if !cli.json {
+            println!("  {}  Validating API key...", "⏳".yellow());
+        }
 
-    config.api.api_key = Some(key);
-    Ok(())
+        // Create a temporary config with the new API key
+        let mut temp_config = config.clone();
+        temp_config.api.api_key = Some(key.clone());
+
+        let client = ApiClient::from_config(&temp_config)?;
+        match client.validate_api_key().await {
+            Ok(true) => {
+                // Valid API key
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "step": "api_key",
+                            "status": "configured",
+                            "api_key": key,
+                        })
+                    );
+                } else {
+                    println!(
+                        "  {}  API key validated: {}",
+                        "✓".green(),
+                        key.dimmed()
+                    );
+                }
+
+                config.api.api_key = Some(key);
+                return Ok(());
+            }
+            Ok(false) => {
+                // Invalid API key (401 Unauthorized)
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "step": "api_key",
+                            "status": "invalid",
+                            "error": "Invalid API key format or unauthorized",
+                        })
+                    );
+                    return Err(ActionbookError::SetupError(
+                        "Invalid API key".to_string(),
+                    ));
+                } else {
+                    println!(
+                        "  {}  Invalid API key. Please check and try again.",
+                        "✗".red()
+                    );
+                    println!(
+                        "  {}  Get your API key at: {}",
+                        "│".dimmed(),
+                        "https://actionbook.dev/dashboard".cyan().underline()
+                    );
+                    // Loop back to prompt again
+                }
+            }
+            Err(e) => {
+                // Connection or other errors
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "step": "api_key",
+                            "status": "validation_failed",
+                            "error": format!("{}", e),
+                        })
+                    );
+                    return Err(e);
+                } else {
+                    println!(
+                        "  {}  Failed to validate API key: {}",
+                        "⚠".yellow(),
+                        e
+                    );
+                    println!(
+                        "  {}  The key will be saved, but you may need to check your connection.",
+                        "│".dimmed()
+                    );
+
+                    // Ask if they want to save it anyway
+                    let save_anyway = Confirm::with_theme(&setup_theme())
+                        .with_prompt(" Save API key anyway?")
+                        .default(true)
+                        .report(false)
+                        .interact()
+                        .map_err(|e| {
+                            ActionbookError::SetupError(format!("Prompt failed: {}", e))
+                        })?;
+
+                    if save_anyway {
+                        if !cli.json {
+                            println!(
+                                "  {}  API key saved: {}",
+                                "◇".green(),
+                                key.dimmed()
+                            );
+                        }
+                        config.api.api_key = Some(key);
+                        return Ok(());
+                    }
+                    // Loop back to prompt again
+                }
+            }
+        }
+    }
 }
 
 /// Resolve the best available key and its source name.
