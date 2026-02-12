@@ -138,13 +138,20 @@ fn configure_isolated(cli: &Cli, env: &EnvironmentInfo, config: &mut Config) -> 
                     .map(|v| format!(" v{}", v))
                     .unwrap_or_default();
                 format!(
-                    "{}{} — Use system browser (keeps bookmarks & login state)",
+                    "{}{} — Use this specific browser",
                     b.browser_type.name(),
                     ver
                 )
             })
             .collect();
-        options.push("Built-in — Download Chromium on-demand (recommended for automation)".to_string());
+
+        // Show auto-detect option with preview of what will be selected
+        let auto_detect_preview = if let Some(first) = env.browsers.first() {
+            format!("Auto-detect — Will use {} (highest priority)", first.browser_type.name())
+        } else {
+            "Auto-detect — Let actionbook choose available browser".to_string()
+        };
+        options.push(auto_detect_preview);
 
         let selection = Select::with_theme(&setup_theme())
             .with_prompt(" Browser executable")
@@ -167,7 +174,10 @@ fn configure_isolated(cli: &Cli, env: &EnvironmentInfo, config: &mut Config) -> 
         } else {
             config.browser.executable = None;
             if !cli.json {
-                println!("  {}  Browser: Built-in", "◇".green());
+                let detected = env.browsers.first()
+                    .map(|b| b.browser_type.name())
+                    .unwrap_or("none");
+                println!("  {}  Browser: Auto-detect ({})", "◇".green(), detected);
             }
         }
     }
