@@ -1,5 +1,5 @@
 use colored::Colorize;
-use dialoguer::{Confirm, Password};
+use dialoguer::{Confirm, Input};
 
 use super::detect::EnvironmentInfo;
 use super::theme::setup_theme;
@@ -103,11 +103,11 @@ pub async fn configure_api_key(
     }
 
     // Interactive input — leave blank to skip
-    let key: String = Password::with_theme(&setup_theme())
+    let key: String = Input::with_theme(&setup_theme())
         .with_prompt(" Enter your API key (leave blank to skip)")
-        .allow_empty_password(true)
+        .allow_empty(true)
         .report(false)
-        .interact()
+        .interact_text()
         .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
 
     let key = key.trim().to_string();
