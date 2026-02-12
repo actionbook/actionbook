@@ -2274,7 +2274,7 @@ function isGenericBadgeText(text: string): boolean {
 }
 
 function resolveBrandBadge(value: unknown): I18nValue {
-  const fallback = 'AR_FINAL.REP';
+  const fallback = 'ACTIVE RESEARCH';
   if (isI18n(value)) {
     const en = value.en?.trim() ?? '';
     const zh = value.zh?.trim() ?? '';
