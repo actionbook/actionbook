@@ -87,14 +87,14 @@ pub async fn configure_browser(
 /// Interactive prompt to select browser mode (Isolated vs Extension).
 fn select_browser_mode(cli: &Cli) -> Result<BrowserMode> {
     let options = vec![
-        "Extension — control your existing Chrome browser",
-        "Isolated  — launch a dedicated debug browser",
+        "extension  — Control your existing Chrome (requires extension install)",
+        "isolated   — Launch dedicated browser (clean environment, no setup needed)",
     ];
 
     let selection = Select::with_theme(&setup_theme())
-        .with_prompt(" Browser mode")
+        .with_prompt(" Browser Mode")
         .items(&options)
-        .default(0)
+        .default(1) // Default to isolated (recommended for most users)
         .report(false)
         .interact()
         .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
@@ -107,8 +107,8 @@ fn select_browser_mode(cli: &Cli) -> Result<BrowserMode> {
 
     if !cli.json {
         let label = match mode {
-            BrowserMode::Extension => "Extension",
-            BrowserMode::Isolated => "Isolated",
+            BrowserMode::Extension => "extension",
+            BrowserMode::Isolated => "isolated",
         };
         println!("  {}  Mode: {}", "◇".green(), label);
     }
@@ -137,15 +137,19 @@ fn configure_isolated(cli: &Cli, env: &EnvironmentInfo, config: &mut Config) -> 
                     .as_deref()
                     .map(|v| format!(" v{}", v))
                     .unwrap_or_default();
-                format!("{}{} (detected)", b.browser_type.name(), ver)
+                format!(
+                    "{}{} — Use system browser (keeps bookmarks & login state)",
+                    b.browser_type.name(),
+                    ver
+                )
             })
             .collect();
-        options.push("Built-in (recommended for agents)".to_string());
+        options.push("Built-in — Download Chromium on-demand (recommended for automation)".to_string());
 
         let selection = Select::with_theme(&setup_theme())
-            .with_prompt(" Select browser")
+            .with_prompt(" Browser executable")
             .items(&options)
-            .default(0)
+            .default(options.len() - 1) // Default to built-in (last option)
             .report(false)
             .interact()
             .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
@@ -170,11 +174,11 @@ fn configure_isolated(cli: &Cli, env: &EnvironmentInfo, config: &mut Config) -> 
 
     // Headless selection (default: visible — most users want to see what's happening)
     let headless_options = vec![
-        "Visible — opens a browser window you can see",
-        "Headless — no window, ideal for CI/automation",
+        "visible   — Shows browser window (recommended for debugging)",
+        "headless  — No window, runs in background (recommended for automation)",
     ];
     let headless_selection = Select::with_theme(&setup_theme())
-        .with_prompt(" Display mode")
+        .with_prompt(" Display Mode")
         .items(&headless_options)
         .default(0)
         .report(false)
@@ -185,9 +189,9 @@ fn configure_isolated(cli: &Cli, env: &EnvironmentInfo, config: &mut Config) -> 
 
     if !cli.json {
         let mode_label = if config.browser.headless {
-            "Headless"
+            "headless"
         } else {
-            "Visible"
+            "visible"
         };
         println!("  {}  Display: {}", "◇".green(), mode_label);
     }
