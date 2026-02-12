@@ -127,59 +127,45 @@ fn configure_isolated(cli: &Cli, env: &EnvironmentInfo, config: &mut Config) -> 
             );
         }
         config.browser.executable = None;
-    } else {
-        let mut options: Vec<String> = env
-            .browsers
-            .iter()
-            .map(|b| {
-                let ver = b
-                    .version
-                    .as_deref()
-                    .map(|v| format!(" v{}", v))
-                    .unwrap_or_default();
-                format!(
-                    "{}{} — Use this specific browser",
-                    b.browser_type.name(),
-                    ver
-                )
-            })
-            .collect();
+        return Ok(());
+    }
 
-        // Show auto-detect option with preview of what will be selected
-        let auto_detect_preview = if let Some(first) = env.browsers.first() {
-            format!("Auto-detect — Will use {} (highest priority)", first.browser_type.name())
-        } else {
-            "Auto-detect — Let actionbook choose available browser".to_string()
-        };
-        options.push(auto_detect_preview);
+    // Show all detected browsers for user to choose
+    let options: Vec<String> = env
+        .browsers
+        .iter()
+        .map(|b| {
+            let ver = b
+                .version
+                .as_deref()
+                .map(|v| format!(" v{}", v))
+                .unwrap_or_default();
+            format!(
+                "{}{} — {}",
+                b.browser_type.name(),
+                ver,
+                b.path.display().to_string().dimmed().to_string()
+            )
+        })
+        .collect();
 
-        let selection = Select::with_theme(&setup_theme())
-            .with_prompt(" Browser executable")
-            .items(&options)
-            .default(options.len() - 1) // Default to built-in (last option)
-            .report(false)
-            .interact()
-            .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
+    let selection = Select::with_theme(&setup_theme())
+        .with_prompt(" Select browser for isolated mode")
+        .items(&options)
+        .default(0) // Default to first detected browser (highest priority)
+        .report(false)
+        .interact()
+        .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
 
-        if selection < env.browsers.len() {
-            let browser = &env.browsers[selection];
-            config.browser.executable = Some(browser.path.display().to_string());
-            if !cli.json {
-                println!(
-                    "  {}  Browser: {}",
-                    "◇".green(),
-                    browser.browser_type.name()
-                );
-            }
-        } else {
-            config.browser.executable = None;
-            if !cli.json {
-                let detected = env.browsers.first()
-                    .map(|b| b.browser_type.name())
-                    .unwrap_or("none");
-                println!("  {}  Browser: Auto-detect ({})", "◇".green(), detected);
-            }
-        }
+    let browser = &env.browsers[selection];
+    config.browser.executable = Some(browser.path.display().to_string());
+
+    if !cli.json {
+        println!(
+            "  {}  Browser: {}",
+            "◇".green(),
+            browser.browser_type.name()
+        );
     }
 
     // Headless selection (default: visible — most users want to see what's happening)
