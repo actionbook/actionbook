@@ -81,8 +81,7 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
                 .api
                 .api_key
                 .as_deref()
-                .map(api_key::mask_key)
-                .unwrap_or_else(|| "not configured".to_string());
+                .unwrap_or("not configured");
             let mode_display = match config.browser.mode {
                 BrowserMode::Isolated => {
                     let browser_name = config.browser.executable.as_deref().unwrap_or("built-in");
