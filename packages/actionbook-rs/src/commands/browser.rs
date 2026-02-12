@@ -1305,6 +1305,10 @@ async fn close_extension(cli: &Cli, config: &Config) -> Result<()> {
         }
     }
 
+    // Always stop the bridge when browser is closed
+    // This ensures the extension shows "disconnected" after the task is done
+    bridge_lifecycle::stop_bridge(port).await?;
+
     if cli.json {
         println!("{}", serde_json::json!({ "success": true }));
     } else {
