@@ -10,9 +10,9 @@ Analyze any topic, domain, or paper and generate a beautiful HTML report using A
 ## Usage
 
 ```
-/active-research:analyze <topic>
-/active-research:analyze <topic> --lang zh
-/active-research:analyze <topic> --output ./reports/my-report.json
+/active-research <topic>
+/active-research <topic> --lang zh
+/active-research <topic> --output ./reports/my-report.json
 ```
 
 Or simply tell Claude: "帮我深度研究 XXX 并生成报告" / "Research XXX and generate a report"
