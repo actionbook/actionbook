@@ -4,40 +4,56 @@ Common issues and fixes for the Chrome Extension bridge.
 
 ## Bridge not running
 
+The bridge **auto-starts** when you run browser commands - no manual start needed:
+
 ```bash
-actionbook extension serve              # Start the bridge
+actionbook browser open https://example.com    # Bridge starts automatically
 ```
 
-Keep `serve` running in a separate terminal — it is a foreground process.
+Check bridge status:
+
+```bash
+actionbook extension status                   # Check if running
+```
 
 ## Extension not responding
 
 ```bash
-actionbook extension ping               # Check connectivity
+actionbook extension ping                     # Check connectivity
 ```
 
-If ping fails, verify the extension is loaded in Chrome (`chrome://extensions`) and enabled.
+If ping fails, verify:
+1. Extension is loaded in Chrome (`chrome://extensions`) and enabled
+2. Bridge auto-started correctly (check `actionbook extension status`)
+3. No port conflicts on port 19222
 
-## Token expired (idle > 30 min)
+## Port conflict
 
-Restart the bridge and re-pair in the extension popup:
+**Symptoms:** "Bridge did not start" or "port already in use" errors.
+
+**Fix:** Check if another process is using port 19222:
 
 ```bash
-actionbook extension serve              # Prints new token
+lsof -i :19222                               # macOS/Linux
+netstat -ano | findstr :19222                # Windows
 ```
 
-Copy the token from output → paste in extension popup → Save.
+Stop the conflicting process or change the port in `~/.actionbook/config.toml`:
 
-## Stale port/token files
+```toml
+[browser.extension]
+port = 19223  # Use a different port
+```
 
-**Symptoms:** bridge running but extension connects to wrong port, or "WebSocket handshake failed" errors in bridge output.
+## Stale bridge process
 
-**Cause:** previous `serve` process was killed ungracefully.
+**Symptoms:** Bridge appears running but unresponsive.
 
-**Fix:** restart `serve` — it auto-cleans stale files on startup:
+**Fix:** Stop and let it auto-restart:
 
 ```bash
-actionbook extension serve
+actionbook extension stop                     # Kill bridge process
+actionbook browser open https://example.com   # Auto-restarts fresh
 ```
 
 ## Extension not installed

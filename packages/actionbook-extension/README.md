@@ -28,25 +28,18 @@ This downloads the latest release from GitHub and installs it to `~/.config/acti
 
 ## Usage
 
-### Start the bridge (required)
+### Use the extension
 
-The extension communicates with the CLI via a local WebSocket. Keep this running:
+The extension communicates with the CLI via a local WebSocket bridge that **auto-starts** when you run browser commands.
+
+**No manual bridge start needed** - just run commands:
 
 ```bash
-actionbook extension serve
+actionbook browser open https://example.com
+# Bridge starts automatically in the background
 ```
 
-Default port is `19222`. Open a separate terminal for automation commands.
-
-### Pairing
-
-The CLI registers Native Messaging on install, so token pairing is usually automatic.
-
-If it doesn't auto-pair:
-
-1. Click the extension icon to open the popup
-2. Copy the token from `actionbook extension serve` output (`abk_...`)
-3. Paste and click **Save**
+The CLI registers Native Messaging on install, so the extension connects automatically when the bridge starts.
 
 ### Verify connection
 
@@ -108,9 +101,9 @@ The CLI and extension are versioned independently. Compatibility is guaranteed b
 
 ## Troubleshooting
 
-1. **`Ping failed` / `not running`** - Ensure `actionbook extension serve` is running and the extension is loaded in Chrome.
+1. **`Ping failed` / `not running`** - The bridge auto-starts with browser commands. Ensure the extension is loaded in Chrome. Check status with `actionbook extension status`.
 
-2. **`Token required` / `pairing_required`** - Reopen the popup and paste the latest token. Tokens expire after 30 minutes of inactivity.
+2. **Port conflict** - If the bridge fails to start, check if port 19222 is in use. Stop conflicting processes or use a different port in `~/.actionbook/config.toml`.
 
 3. **`No tab attached`** - Make sure Chrome has a visible tab. Run `open` or `goto` first.
 

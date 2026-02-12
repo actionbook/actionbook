@@ -158,7 +158,6 @@ Commands for managing the Chrome Extension bridge:
 ```bash
 actionbook extension install              # Install extension files to local config dir
 actionbook extension path                 # Show extension directory (for Chrome "Load unpacked")
-actionbook extension serve                # Start WebSocket bridge (keep running in background)
 actionbook extension stop                 # Stop the running bridge server (sends SIGTERM)
 actionbook extension status               # Check bridge and extension connection status
 actionbook extension ping                 # Ping the extension to verify link is alive
@@ -167,8 +166,8 @@ actionbook extension ping                 # Ping the extension to verify link is
 **Setup flow (one-time):**
 1. `actionbook extension install` — extract extension files and register native messaging host
 2. Open `chrome://extensions` → enable Developer mode → Load unpacked → select the path from `actionbook extension path`
-3. `actionbook extension serve` — start bridge (keep running)
-4. Extension auto-connects via native messaging (no manual token needed in most cases). If auto-pairing fails: copy token from `serve` output → paste in extension popup → Save
+3. Run any browser command — bridge auto-starts transparently (e.g., `actionbook browser open https://example.com`)
+4. Extension auto-connects via native messaging (no manual pairing needed)
 
 **Connection check before automation:**
 ```bash
@@ -388,18 +387,13 @@ Then guide the user to load it in Chrome:
 Start the bridge server and attempt auto-pairing. **Retry up to 3 times** before considering manual fallback.
 
 ```bash
-# Start bridge (run in background)
-actionbook extension serve
+# Bridge auto-starts with browser commands - no manual start needed
+# Just run browser commands directly:
+actionbook browser open https://example.com
 
-# Attempt 1: Wait for auto-pairing via Native Messaging
-sleep 3
+# Optional: Verify connection
 actionbook extension ping
-# → If ping succeeds → proceed to Step 3 (Execute)
-
-# Attempt 2: If ping fails, wait longer and retry
-sleep 5
-actionbook extension ping
-# → If ping succeeds → proceed to Step 3 (Execute)
+# → If ping succeeds → bridge is connected
 
 # Attempt 3: Final retry
 sleep 5
@@ -441,14 +435,17 @@ actionbook extension status    # should show "not running"
 
 ```bash
 # Bridge not running?
-actionbook extension serve              # Start it
+# It auto-starts with browser commands - just use them directly
+actionbook browser open https://example.com
 
 # Extension not responding?
 actionbook extension ping               # Check connectivity
+actionbook extension status             # Check bridge status
 
-# Token expired? (idle > 30 min)
-# Restart serve and re-pair in extension popup
-actionbook extension serve              # Prints new token
+# Bridge won't auto-start?
+# Check for port conflicts or manually restart:
+actionbook extension stop
+# Then try browser command again (auto-starts)
 ```
 
 ### Multi-page-type workflow (re-search on navigation)
