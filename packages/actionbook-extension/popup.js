@@ -43,15 +43,17 @@ function updateUI(state) {
       actionBtn.classList.remove("hidden");
       break;
     case "pairing_required":
-      bridgeDot.className = "dot red";
-      bridgeStatus.textContent = "Token required";
-      tokenSection.classList.remove("hidden");
+      // Deprecated: Token no longer required, treat as disconnected
+      bridgeDot.className = "dot orange";
+      bridgeStatus.textContent = "Waiting for bridge";
+      actionBtn.textContent = "Connect";
+      actionBtn.classList.remove("hidden");
       break;
     case "idle":
     default:
       bridgeDot.className = "dot gray";
       bridgeStatus.textContent = "Not connected";
-      tokenSection.classList.remove("hidden");
+      // Note: Token section hidden by default (tokenless mode)
       actionBtn.textContent = "Connect";
       actionBtn.classList.remove("hidden");
       break;
@@ -91,7 +93,10 @@ document.getElementById("actionBtn").addEventListener("click", () => {
   chrome.runtime.sendMessage({ type: msgType });
 });
 
-// Token format: "abk_" prefix + 32 hex chars = 36 total
+// --- Legacy Token Handlers (Deprecated in v0.8.0) ---
+// Note: Tokenless mode is now default. These handlers are kept for backward
+// compatibility with older bridge versions but are no longer shown in UI.
+
 function isValidTokenFormat(token) {
   return (
     typeof token === "string" &&
@@ -101,8 +106,8 @@ function isValidTokenFormat(token) {
   );
 }
 
-// Token save handler
-document.getElementById("tokenSaveBtn").addEventListener("click", () => {
+// Token save handler (legacy, tokenSection is hidden by default)
+document.getElementById("tokenSaveBtn")?.addEventListener("click", () => {
   const token = document.getElementById("tokenInput").value.trim();
   if (!isValidTokenFormat(token)) {
     document.getElementById("tokenInput").style.borderColor = "#ef4444";
@@ -113,8 +118,8 @@ document.getElementById("tokenSaveBtn").addEventListener("click", () => {
   document.getElementById("tokenInput").value = "";
 });
 
-// Allow Enter key to save token
-document.getElementById("tokenInput").addEventListener("keydown", (e) => {
+// Allow Enter key to save token (legacy)
+document.getElementById("tokenInput")?.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     document.getElementById("tokenSaveBtn").click();
   }
@@ -131,10 +136,11 @@ document.getElementById("confirmDeny").addEventListener("click", () => {
   updateL3UI(null);
 });
 
-// Check if token exists (show indicator, but never pre-populate the value)
+// Check if token exists (legacy - kept for backward compatibility)
 chrome.storage.local.get("bridgeToken", (result) => {
-  if (result.bridgeToken) {
-    document.getElementById("tokenInput").placeholder = "Token saved (paste to replace)";
+  const tokenInput = document.getElementById("tokenInput");
+  if (tokenInput && result.bridgeToken) {
+    tokenInput.placeholder = "Token saved (paste to replace)";
   }
 });
 
