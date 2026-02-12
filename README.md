@@ -90,6 +90,7 @@ npx skills add actionbook/actionbook
 
 ```bash
 npm install -g @actionbookdev/cli
+actionbook setup
 ```
 
 The CLI is all you need to get started. For advanced use cases, Actionbook also offers an [MCP Server](https://actionbook.dev/docs/guides/mcp-server) and [JavaScript SDK](https://actionbook.dev/docs/guides/sdk-integration).
