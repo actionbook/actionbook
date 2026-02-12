@@ -4,7 +4,7 @@ use crate::browser::extension_installer;
 use crate::browser::extension_bridge;
 use crate::browser::native_messaging;
 use crate::cli::{Cli, ExtensionCommands};
-use crate::error::Result;
+use crate::error::{ActionbookError, Result};
 
 pub async fn run(cli: &Cli, command: &ExtensionCommands) -> Result<()> {
     match command {
@@ -66,13 +66,14 @@ async fn serve(_cli: &Cli, port: u16) -> Result<()> {
     println!();
 
     // Write PID file so `extension stop` can find this process
-    if let Err(e) = extension_bridge::write_pid_file(port).await {
-        eprintln!(
-            "  {} Failed to write PID file: {}",
-            "!".yellow(),
-            e
-        );
-    }
+    // Mandatory: fail-fast if PID file cannot be written
+    extension_bridge::write_pid_file(port).await
+        .map_err(|e| {
+            ActionbookError::Other(format!(
+                "Failed to write PID file - check directory permissions: {}",
+                e
+            ))
+        })?;
 
     // Run the bridge server
     let result = extension_bridge::serve(port).await;

@@ -28,19 +28,37 @@ pub async fn ensure_bridge_running(port: u16) -> Result<bool> {
             }
         }
         // Port is occupied but no matching bridge PID — likely another application
+        #[cfg(unix)]
+        let hint = format!("Check with: lsof -i :{}", port);
+        #[cfg(windows)]
+        let hint = format!("Check with: netstat -ano | findstr :{}", port);
+
         return Err(ActionbookError::ExtensionError(format!(
-            "Port {} is already in use but does not appear to be an Actionbook bridge \
-             (no matching PID file found). Another application may be using this port. \
-             Try a different port in config.toml under [browser.extension].",
-            port
+            "Port {} is already in use by another process.\n\
+             {}\n\
+             To use a different port, edit ~/.actionbook/config.toml:\n\
+             [browser.extension]\n\
+             port = 19223  # Or any free port",
+            port, hint
         )));
     }
 
     // Clean up stale PID/port files if the recorded process is dead
     if let Some((pid, recorded_port)) = extension_bridge::read_pid_file().await {
-        if recorded_port == port && !extension_bridge::is_pid_alive(pid) {
-            tracing::debug!("Cleaning up stale bridge files (PID {} dead)", pid);
+        if !extension_bridge::is_pid_alive(pid) {
+            // Clean up stale files REGARDLESS of port match
+            tracing::debug!(
+                "Cleaning up stale bridge files (PID {} dead, was port {})",
+                pid, recorded_port
+            );
             cleanup_files().await;
+        } else if recorded_port != port {
+            // Different port, process alive - potential conflict or old bridge
+            tracing::warn!(
+                "Found PID file for different port {} (requested {}), process {} still alive",
+                recorded_port, port, pid
+            );
+            // Continue anyway - user may be switching ports intentionally
         }
     }
 
