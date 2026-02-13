@@ -64,23 +64,23 @@ importers:
         version: 1.6.1(@types/node@20.19.27)(lightningcss@1.30.2)
     optionalDependencies:
       '@actionbookdev/cli-darwin-arm64':
-        specifier: 0.7.2
-        version: 0.7.2
+        specifier: workspace:*
+        version: link:../cli-darwin-arm64
       '@actionbookdev/cli-darwin-x64':
-        specifier: 0.7.2
-        version: 0.7.2
+        specifier: workspace:*
+        version: link:../cli-darwin-x64
       '@actionbookdev/cli-linux-arm64-gnu':
-        specifier: 0.7.2
-        version: 0.7.2
+        specifier: workspace:*
+        version: link:../cli-linux-arm64-gnu
       '@actionbookdev/cli-linux-x64-gnu':
-        specifier: 0.7.2
-        version: 0.7.2
+        specifier: workspace:*
+        version: link:../cli-linux-x64-gnu
       '@actionbookdev/cli-win32-arm64':
-        specifier: 0.7.2
-        version: 0.7.2
+        specifier: workspace:*
+        version: link:../cli-win32-arm64
       '@actionbookdev/cli-win32-x64':
-        specifier: 0.7.2
-        version: 0.7.2
+        specifier: workspace:*
+        version: link:../cli-win32-x64
 
   packages/cli-darwin-arm64: {}
 
@@ -549,44 +549,6 @@ importers:
         version: 3.2.4(@types/node@22.19.3)(lightningcss@1.30.2)
 
 packages:
-
-  '@actionbookdev/cli-darwin-arm64@0.7.2':
-    resolution: {integrity: sha512-2kquJosK2iYowT1XjLqSKLn4G72cEy5cnoCacB2IZN6Y17JfH4lLD2ItYGV6r7xOH09xEWRk51jLF7gItxfwhw==}
-    cpu: [arm64]
-    os: [darwin]
-    hasBin: true
-
-  '@actionbookdev/cli-darwin-x64@0.7.2':
-    resolution: {integrity: sha512-ySoL7l+jg5eK1E3TyWsh2rcQFzr8ylWVPC8Zo3Q287lorKxj8RQBFHn0aACOiKtZl3pnwPAUE8OM8/OUp4hGIA==}
-    cpu: [x64]
-    os: [darwin]
-    hasBin: true
-
-  '@actionbookdev/cli-linux-arm64-gnu@0.7.2':
-    resolution: {integrity: sha512-vyx+7m6bB+rgiSG7YhjHpR0eBCGLJii1XEeXIkD/emzUzFyb/RwHwRKmqhbdr9dL2qwruXrx3mYdaWZinACOCQ==}
-    cpu: [arm64]
-    os: [linux]
-    libc: glibc
-    hasBin: true
-
-  '@actionbookdev/cli-linux-x64-gnu@0.7.2':
-    resolution: {integrity: sha512-SxUsqv2Z/yOSQps5kWUE8ajfIklgM8M8Bjp0lmlk05BcuOjyTtxLLTpDmF4YncKKRV0oE4FHlc5+/1OiSN1G2Q==}
-    cpu: [x64]
-    os: [linux]
-    libc: glibc
-    hasBin: true
-
-  '@actionbookdev/cli-win32-arm64@0.7.2':
-    resolution: {integrity: sha512-nG0GHZs5/ILKWmPNXd3jOrrL/RsE5yCPEwSJ7ZNFOC/x+9vOR4B76qUuk2HR4uDMg8myW61sK5lVqCWplhqPHw==}
-    cpu: [arm64]
-    os: [win32]
-    hasBin: true
-
-  '@actionbookdev/cli-win32-x64@0.7.2':
-    resolution: {integrity: sha512-h/mcx7L6fewZxWVfByE/X5vBTzf0QLJXITxtaZ4p7v17Ueko03Z19o9WngXBQ19tC8dQvaKEMlwLpSM+PwZ1Ig==}
-    cpu: [x64]
-    os: [win32]
-    hasBin: true
 
   '@ai-sdk/amazon-bedrock@3.0.72':
     resolution: {integrity: sha512-NUDgTtSbaQ1le8U1F7g79hmDlk0wwH+BKnzKpWF9ShO8SaYib7I2XUAik5STRAmDmbjfUNTtLQx+fizHUzCkBQ==}
@@ -5148,24 +5110,6 @@ packages:
     resolution: {integrity: sha512-k7Nwx6vuWx1IJ9Bjuf4Zt1PEllcwe7cls3VNzm4CQ1/hgtFUK2bRNG3rvnpPUhFjmqJKAKtjV576KnUkHocg/g==}
 
 snapshots:
-
-  '@actionbookdev/cli-darwin-arm64@0.7.2':
-    optional: true
-
-  '@actionbookdev/cli-darwin-x64@0.7.2':
-    optional: true
-
-  '@actionbookdev/cli-linux-arm64-gnu@0.7.2':
-    optional: true
-
-  '@actionbookdev/cli-linux-x64-gnu@0.7.2':
-    optional: true
-
-  '@actionbookdev/cli-win32-arm64@0.7.2':
-    optional: true
-
-  '@actionbookdev/cli-win32-x64@0.7.2':
-    optional: true
 
   '@ai-sdk/amazon-bedrock@3.0.72(zod@3.25.76)':
     dependencies:
