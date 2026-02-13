@@ -141,11 +141,17 @@ impl BrowserLauncher {
             "--no-default-browser-check".to_string(),
         ];
 
-        args.push("--disable-blink-features=AutomationControlled".to_string());
-        args.push("--disable-infobars".to_string());
-        args.push("--window-size=1920,1080".to_string());
-        args.push("--disable-save-password-bubble".to_string());
-        args.push("--disable-translate".to_string());
+        if self.stealth {
+            // Use enhanced stealth args learned from Camoufox
+            args.extend(super::stealth_enhanced::get_enhanced_stealth_args());
+        } else {
+            // Basic anti-detection flags
+            args.push("--disable-blink-features=AutomationControlled".to_string());
+            args.push("--disable-infobars".to_string());
+            args.push("--window-size=1920,1080".to_string());
+            args.push("--disable-save-password-bubble".to_string());
+            args.push("--disable-translate".to_string());
+        }
 
         if self.headless {
             args.push("--headless=new".to_string());

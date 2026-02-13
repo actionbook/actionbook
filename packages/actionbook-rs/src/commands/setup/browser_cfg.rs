@@ -241,6 +241,8 @@ mod tests {
             extension: false,
             extension_port: 19222,
             verbose: false,
+            camofox: false,
+            camofox_port: None,
             command: crate::cli::Commands::Config {
                 command: crate::cli::ConfigCommands::Show,
             },
@@ -269,6 +271,8 @@ mod tests {
             extension: false,
             extension_port: 19222,
             verbose: false,
+            camofox: false,
+            camofox_port: None,
             command: crate::cli::Commands::Config {
                 command: crate::cli::ConfigCommands::Show,
             },
@@ -295,6 +299,8 @@ mod tests {
             extension: false,
             extension_port: 19222,
             verbose: false,
+            camofox: false,
+            camofox_port: None,
             command: crate::cli::Commands::Config {
                 command: crate::cli::ConfigCommands::Show,
             },

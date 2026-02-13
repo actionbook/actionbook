@@ -9,6 +9,7 @@ use figment::providers::{Env, Format, Serialized, Toml};
 use figment::Figment;
 use serde::{Deserialize, Serialize};
 
+use crate::browser::BrowserBackend;
 use crate::error::{ActionbookError, Result};
 
 /// Main configuration structure
@@ -62,6 +63,51 @@ pub struct BrowserConfig {
     /// Default headless mode
     #[serde(default)]
     pub headless: bool,
+
+    /// Browser backend (cdp or camofox)
+    #[serde(default)]
+    pub backend: BrowserBackend,
+
+    /// Camoufox-specific configuration
+    #[serde(default)]
+    pub camofox: CamofoxConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CamofoxConfig {
+    /// Camoufox server port
+    #[serde(default = "default_camofox_port")]
+    pub port: u16,
+
+    /// User ID for Camoufox sessions
+    pub user_id: Option<String>,
+
+    /// Default session key
+    pub session_key: Option<String>,
+
+    /// Use WebDriver (Rust) instead of REST API (Python server)
+    #[serde(default)]
+    pub use_webdriver: bool,
+
+    /// Headless mode (for WebDriver)
+    #[serde(default)]
+    pub headless: bool,
+}
+
+impl Default for CamofoxConfig {
+    fn default() -> Self {
+        Self {
+            port: default_camofox_port(),
+            user_id: None,
+            session_key: None,
+            use_webdriver: false, // Default to REST API for backward compatibility
+            headless: false,
+        }
+    }
+}
+
+fn default_camofox_port() -> u16 {
+    9377
 }
 
 impl Default for BrowserConfig {
@@ -70,6 +116,8 @@ impl Default for BrowserConfig {
             executable: None,
             default_profile: default_profile_name(),
             headless: false,
+            backend: BrowserBackend::default(),
+            camofox: CamofoxConfig::default(),
         }
     }
 }
@@ -233,6 +281,8 @@ mod tests {
                 executable: Some("/Applications/Google Chrome.app".to_string()),
                 default_profile: "team".to_string(),
                 headless: true,
+                backend: BrowserBackend::default(),
+                camofox: CamofoxConfig::default(),
             },
             profiles: HashMap::new(),
         };
@@ -264,6 +314,8 @@ mod tests {
                 executable: None,
                 default_profile: "   ".to_string(),
                 headless: false,
+                backend: BrowserBackend::default(),
+                camofox: CamofoxConfig::default(),
             },
             profiles: HashMap::new(),
         };
