@@ -5,6 +5,5 @@
     "name": "Actionbook"
   },
   "skills": "./skills/",
-  "commands": "./commands/",
   "mcpServers": "./mcp-servers.json"
 }
