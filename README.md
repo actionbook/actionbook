@@ -15,7 +15,7 @@ Actionbook provides up-to-date action manuals and DOM structure,
 <br />
 so your agent operates any website instantly without guessing.
 
-[Website](https://actionbook.dev) · [GitHub](https://github.com/actionbook/actionbook) · [X](https://x.com/ActionbookHQ) · [Discord](https://discord.gg/7sKKp7XQ2d)
+[Website](https://actionbook.dev) · [GitHub](https://github.com/actionbook/actionbook) · [X](https://x.com/ActionbookHQ) · [Discord](https://actionbook.dev/discord)
 
 </div>
 
@@ -123,7 +123,7 @@ We move fast. Star Actionbook on Github to support and get latest information.
 
 Join the community:
 
-- [Chat with us on Discord](https://discord.gg/7sKKp7XQ2d) - Get help, share your agents, and discuss ideas
+- [Chat with us on Discord](https://actionbook.dev/discord) - Get help, share your agents, and discuss ideas
 - [Follow @ActionbookHQ on X](https://x.com/ActionbookHQ) - Product updates and announcements
 
 ## Development
