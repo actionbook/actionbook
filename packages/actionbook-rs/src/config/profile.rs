@@ -1,3 +1,4 @@
+use crate::browser::BrowserBackend;
 use serde::{Deserialize, Serialize};
 
 /// Profile configuration for a browser session
@@ -24,6 +25,11 @@ pub struct ProfileConfig {
     #[serde(default)]
     pub extra_args: Vec<String>,
 
+    /// Browser backend override for this profile
+    pub backend: Option<BrowserBackend>,
+
+    /// Camoufox port override for this profile
+    pub camofox_port: Option<u16>,
 }
 
 fn default_cdp_port() -> u16 {
@@ -39,6 +45,8 @@ impl Default for ProfileConfig {
             headless: false,
             cdp_url: None,
             extra_args: Vec::new(),
+            backend: None,
+            camofox_port: None,
         }
     }
 }
