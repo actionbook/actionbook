@@ -2,14 +2,29 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ActionbookError {
-    #[error("Browser not found. Please install Chrome, Brave, or Edge.")]
-    BrowserNotFound,
+    #[error("Browser not found: {0}")]
+    BrowserNotFound(String),
 
     #[error("Browser launch failed: {0}")]
     BrowserLaunchFailed(String),
 
     #[error("CDP connection failed: {0}")]
     CdpConnectionFailed(String),
+
+    #[error("Browser connection failed: {0}")]
+    BrowserConnectionFailed(String),
+
+    #[error("Navigation failed for URL '{0}': {1}")]
+    NavigationFailed(String, String),
+
+    #[error("Screenshot failed: {0}")]
+    ScreenshotFailed(String),
+
+    #[error("Element action failed on '{0}' (action: {1}): {2}")]
+    ElementActionFailed(String, String, String),
+
+    #[error("Content retrieval failed: {0}")]
+    ContentRetrievalFailed(String),
 
     #[error("Browser not running. Use 'actionbook browser open <url>' first.")]
     BrowserNotRunning,
@@ -44,6 +59,18 @@ pub enum ActionbookError {
 
     #[error("Timeout: {0}")]
     Timeout(String),
+
+    #[error("Camoufox server not reachable at {0}")]
+    CamofoxServerUnreachable(String),
+
+    #[error("Element ref resolution failed for selector '{0}': {1}")]
+    ElementRefResolution(String, String),
+
+    #[error("Tab not found: {0}")]
+    TabNotFound(String),
+
+    #[error("Browser operation failed: {0}")]
+    BrowserOperation(String),
 
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
