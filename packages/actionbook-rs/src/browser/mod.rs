@@ -1,9 +1,10 @@
 mod backend;
+pub mod bridge_lifecycle;
 pub mod camofox;
 pub mod camofox_webdriver;
 mod discovery;
-pub mod extension_installer;
 pub mod extension_bridge;
+pub mod extension_installer;
 pub mod fingerprint_generator; // Statistical fingerprint generation (Phase 2)
 pub mod human_behavior; // Human behavior simulation (Phase 3)
 pub mod launcher;
@@ -33,14 +34,13 @@ pub use stealth_enhanced::{
 // Re-export fingerprint generator (Phase 2)
 #[allow(unused_imports)]
 pub use fingerprint_generator::{
-    generate_with_os, FingerprintGenerator, GPU, HardwareConfig, OperatingSystem,
-    ScreenResolution,
+    generate_with_os, FingerprintGenerator, HardwareConfig, OperatingSystem, ScreenResolution, GPU,
 };
 
 // Re-export human behavior simulation (Phase 3)
 #[allow(unused_imports)]
 pub use human_behavior::{
     calculate_movement_delays, generate_mouse_trajectory, generate_scroll_delays,
-    generate_typing_delays, humanized_pause, reading_time, simulate_reading,
-    HumanBehaviorConfig, Point,
+    generate_typing_delays, humanized_pause, reading_time, simulate_reading, HumanBehaviorConfig,
+    Point,
 };
