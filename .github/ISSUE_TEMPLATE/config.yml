@@ -4,7 +4,7 @@ contact_links:
     url: https://actionbook.dev/docs
     about: Check our comprehensive documentation first
   - name: 💬 Discussions
-    url: https://discord.gg/7sKKp7XQ2d
+    url: https://actionbook.dev/discord
     about: Ask questions and discuss ideas with the community on Discord
   - name: 🔒 Security Vulnerability
     url: https://github.com/actionbook/actionbook/security/advisories/new
