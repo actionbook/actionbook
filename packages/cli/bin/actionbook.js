@@ -145,4 +145,16 @@ function run(binaryPath) {
   });
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  main,
+  isVersionOnlyFlag,
+  getBinaryPath,
+  resolvePackageDir,
+  isLikelyMusl,
+  run,
+  PLATFORM_PACKAGES,
+};

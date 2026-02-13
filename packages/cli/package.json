@@ -14,7 +14,13 @@
     "access": "public"
   },
   "scripts": {
-    "postinstall": "node scripts/postinstall.js"
+    "postinstall": "node scripts/postinstall.js",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0",
+    "@types/node": "^20.14.0",
+    "typescript": "^5.6.3"
   },
   "optionalDependencies": {
     "@actionbookdev/cli-darwin-arm64": "0.3.1",
