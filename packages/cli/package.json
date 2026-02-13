@@ -1,6 +1,6 @@
 {
   "name": "@actionbookdev/cli",
-  "version": "0.3.1",
+  "version": "0.7.2",
   "description": "CLI for Actionbook - Browser automation and action manuals for AI agents",
   "private": false,
   "bin": {
@@ -23,12 +23,12 @@
     "typescript": "^5.6.3"
   },
   "optionalDependencies": {
-    "@actionbookdev/cli-darwin-arm64": "0.3.1",
-    "@actionbookdev/cli-darwin-x64": "0.3.1",
-    "@actionbookdev/cli-linux-x64-gnu": "0.3.1",
-    "@actionbookdev/cli-linux-arm64-gnu": "0.3.1",
-    "@actionbookdev/cli-win32-x64": "0.3.1",
-    "@actionbookdev/cli-win32-arm64": "0.3.1"
+    "@actionbookdev/cli-darwin-arm64": "0.7.2",
+    "@actionbookdev/cli-darwin-x64": "0.7.2",
+    "@actionbookdev/cli-linux-x64-gnu": "0.7.2",
+    "@actionbookdev/cli-linux-arm64-gnu": "0.7.2",
+    "@actionbookdev/cli-win32-x64": "0.7.2",
+    "@actionbookdev/cli-win32-arm64": "0.7.2"
   },
   "engines": {
     "node": ">=18"

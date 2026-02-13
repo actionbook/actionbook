@@ -1,11 +1,5 @@
 packages:
   - packages/*
-  - "!packages/cli-darwin-arm64"
-  - "!packages/cli-darwin-x64"
-  - "!packages/cli-linux-x64-gnu"
-  - "!packages/cli-linux-arm64-gnu"
-  - "!packages/cli-win32-x64"
-  - "!packages/cli-win32-arm64"
   - packages/json-ui/site
   - playground/*
   - eval

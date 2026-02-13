@@ -1,6 +1,6 @@
 {
   "name": "@actionbookdev/cli-darwin-x64",
-  "version": "0.3.1",
+  "version": "0.7.2",
   "description": "Actionbook CLI native binary for macOS x64",
   "os": [
     "darwin"
