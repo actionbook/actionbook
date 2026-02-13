@@ -12,8 +12,9 @@
     "lint": "turbo lint",
     "clean": "turbo clean",
     "changeset": "changeset",
-    "version-packages": "changeset version",
-    "release": "pnpm build && changeset publish",
+    "version-packages": "changeset version && node scripts/sync-versions.js",
+    "build:release": "turbo build --filter=@actionbookdev/sdk... --filter=@actionbookdev/mcp... --filter=@actionbookdev/tools-ai-sdk... --filter=@actionbookdev/json-ui...",
+    "release": "echo 'Publishing is handled by CI. Use pnpm changeset to create a changeset.'",
     "prepare": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
