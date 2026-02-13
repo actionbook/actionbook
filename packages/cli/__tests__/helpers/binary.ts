@@ -2,6 +2,9 @@ import { execFile } from "child_process";
 import { existsSync } from "fs";
 import path from "path";
 
+const BINARY_NAME =
+  process.platform === "win32" ? "actionbook.exe" : "actionbook";
+
 /**
  * Resolve the actionbook binary path.
  * Priority: ACTIONBOOK_BINARY_PATH env > cargo debug build > empty string (skip).
@@ -19,7 +22,7 @@ export function getActionbookBinary(): string {
     "actionbook-rs",
     "target",
     "debug",
-    "actionbook"
+    BINARY_NAME
   );
   if (existsSync(cargoBinary)) {
     return cargoBinary;
@@ -34,7 +37,7 @@ export function getActionbookBinary(): string {
     "actionbook-rs",
     "target",
     "release",
-    "actionbook"
+    BINARY_NAME
   );
   if (existsSync(releaseBinary)) {
     return releaseBinary;
