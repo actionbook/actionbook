@@ -4,8 +4,12 @@
  * Post-changeset version sync script.
  *
  * Runs after `changeset version` to keep derived versions in sync:
- *   1. CLI version → 6 platform package.json (version + optionalDependencies)
+ *   1. CLI version → 6 platform package.json version
  *   2. Extension package.json version → manifest.json version
+ *
+ * Note: CLI optionalDependencies use workspace:* protocol so pnpm resolves
+ * them locally. At publish time, the publish-cli job replaces workspace:*
+ * with the actual version before npm publish.
  */
 
 const fs = require("fs");
@@ -42,21 +46,6 @@ for (const rel of PLATFORM_PACKAGES) {
   if (prev !== cliVersion) {
     console.log(`  ${rel}: ${prev} → ${cliVersion}`);
   }
-}
-
-// Sync CLI optionalDependencies to match its own version
-let cliChanged = false;
-if (cliPkg.optionalDependencies) {
-  for (const [name, ver] of Object.entries(cliPkg.optionalDependencies)) {
-    if (name.startsWith("@actionbookdev/cli-") && ver !== cliVersion) {
-      cliPkg.optionalDependencies[name] = cliVersion;
-      cliChanged = true;
-    }
-  }
-}
-if (cliChanged) {
-  write("packages/cli/package.json", cliPkg);
-  console.log(`  packages/cli/package.json: synced optionalDependencies → ${cliVersion}`);
 }
 
 console.log(`CLI sync done (v${cliVersion})`);

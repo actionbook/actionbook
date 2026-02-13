@@ -360,6 +360,21 @@ jobs:
             (cd "${pkg_dir}" && npm publish --access public --provenance)
           done
 
+      - name: Replace workspace protocol in CLI package
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('packages/cli/package.json', 'utf8'));
+            for (const [name, ver] of Object.entries(pkg.optionalDependencies || {})) {
+              if (ver.startsWith('workspace:')) {
+                pkg.optionalDependencies[name] = '${VERSION}';
+              }
+            }
+            fs.writeFileSync('packages/cli/package.json', JSON.stringify(pkg, null, 2) + '\n');
+            console.log('Replaced workspace:* with ${VERSION} in CLI optionalDependencies');
+          "
+
       - name: Publish CLI package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
