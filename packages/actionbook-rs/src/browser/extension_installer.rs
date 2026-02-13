@@ -15,14 +15,14 @@ const MAX_UNCOMPRESSED_SIZE: u64 = 50 * 1024 * 1024;
 /// Allowed download hosts (GitHub asset CDN)
 const ALLOWED_DOWNLOAD_HOSTS: &[&str] = &["github.com", "githubusercontent.com"];
 
-/// Returns the extension install directory: ~/.actionbook/extension/
+/// Returns the extension install directory: ~/.config/actionbook/extension/
 pub fn extension_dir() -> Result<PathBuf> {
-    let home_dir = dirs::home_dir().ok_or_else(|| {
+    let config_dir = dirs::config_dir().ok_or_else(|| {
         ActionbookError::ExtensionError(
-            "Could not determine home directory".to_string(),
+            "Could not determine config directory".to_string(),
         )
     })?;
-    Ok(home_dir.join(".actionbook").join("extension"))
+    Ok(config_dir.join("actionbook").join("extension"))
 }
 
 /// Check if the extension is installed (manifest.json exists on disk)
