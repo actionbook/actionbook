@@ -920,7 +920,7 @@ chrome.debugger.onDetach.addListener((source, reason) => {
 const NATIVE_HOST_NAME = "com.actionbook.bridge";
 
 // How often to poll native messaging when not connected (ms)
-const NATIVE_POLL_INTERVAL_MS = 5000;
+const NATIVE_POLL_INTERVAL_MS = 2000;
 let nativePollTimer = null;
 let nativeMessagingAvailable = true; // assume available until proven otherwise
 let nativeMessagingFailCount = 0;

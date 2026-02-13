@@ -51,6 +51,9 @@ impl ExtensionBackend {
     ///
     /// - "Extension not connected": retry up to 60 times (30s) at 500ms intervals
     ///   to wait for the extension to connect to the bridge.
+    /// - Silent retries for first 12 attempts (6s) to cover 2 extension polling cycles.
+    ///   Extension polls via Native Messaging every 2s, so 2 cycles + handshake = 6s max wait.
+    /// - After 12 failed attempts, print user-facing instructions.
     async fn send(&self, method: &str, params: Value) -> Result<Value> {
         let result = self.send_once(method, params.clone()).await;
 
@@ -58,11 +61,9 @@ impl ExtensionBackend {
             Err(ActionbookError::ExtensionError(msg))
                 if msg.contains("Extension not connected") =>
             {
-                eprintln!(
-                    "Waiting for Chrome extension to connect to the bridge (port {})...",
-                    self.port
-                );
-                eprintln!("Open Chrome with the Actionbook extension enabled.");
+                // Silent retries: 12 attempts × 500ms = 6s (covers 2 extension polling cycles of 2s each + 2s handshake)
+                const SILENT_RETRIES: u32 = 12;
+                let mut user_notified = false;
 
                 for attempt in 1..=EXTENSION_CONNECT_RETRIES {
                     tokio::time::sleep(EXTENSION_CONNECT_INTERVAL).await;
@@ -71,15 +72,25 @@ impl ExtensionBackend {
                         attempt,
                         EXTENSION_CONNECT_RETRIES
                     );
+
                     match self.send_once(method, params.clone()).await {
                         Err(ActionbookError::ExtensionError(ref m))
                             if m.contains("Extension not connected") =>
                         {
+                            // Print user-facing message only after silent retries exhausted
+                            if attempt > SILENT_RETRIES && !user_notified {
+                                eprintln!(
+                                    "Waiting for Chrome extension to connect to the bridge (port {})...",
+                                    self.port
+                                );
+                                eprintln!("Open Chrome with the Actionbook extension enabled.");
+                                user_notified = true;
+                            }
                             continue;
                         }
                         other => {
                             // Extension connected successfully
-                            if other.is_ok() {
+                            if other.is_ok() && user_notified {
                                 eprintln!("  {} Extension connected", colored::Colorize::green("✓"));
                             }
                             return other;
