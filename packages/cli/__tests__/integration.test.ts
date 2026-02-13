@@ -21,7 +21,7 @@ describe("Node.js wrapper integration", () => {
     });
   });
 
-  describe("ACTIONBOOK_BINARY_PATH", () => {
+  describe.skipIf(process.platform === "win32")("ACTIONBOOK_BINARY_PATH", () => {
     it("forwards arguments to mock binary", async () => {
       const mockBinary = path.resolve(
         __dirname,
