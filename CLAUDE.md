@@ -130,44 +130,6 @@ pnpm build            # Build AI SDK tools
 pnpm test             # Run tests
 ```
 
-**Rust CLI (packages/actionbook-rs)**:
-
-```bash
-cd packages/actionbook-rs
-
-# IMPORTANT: Always install before testing to use latest local build
-cargo install --path . --force    # Install to ~/.cargo/bin/actionbook
-
-# Or use the development script (recommended)
-../../scripts/actionbook-dev.sh install   # Build and install
-../../scripts/actionbook-dev.sh test      # Run tests
-../../scripts/actionbook-dev.sh watch     # Auto-rebuild on changes
-
-# Manual commands
-cargo build --release   # Build release binary
-cargo test              # Run tests
-cargo clean             # Clean build artifacts
-```
-
-**Development Workflow for actionbook-rs**:
-
-1. **Before testing**: Always run `cargo install --path . --force` or `./scripts/actionbook-dev.sh install`
-   - This ensures you're testing the latest local build
-   - The global `~/.cargo/bin/actionbook` will be replaced with your local changes
-   - Without this, you may be testing an old installed version
-
-2. **After making changes**: Re-install before testing CLI commands
-   ```bash
-   # Quick workflow
-   cargo install --path . --force && actionbook browser open "https://example.com"
-   ```
-
-3. **Watch mode** (auto-rebuild on file changes):
-   ```bash
-   ./scripts/actionbook-dev.sh watch
-   # Requires cargo-watch: cargo install cargo-watch
-   ```
-
 ## Key Design Decisions
 
 1. **SDK + MCP separation**: `@actionbookdev/sdk` provides core types and tool definitions; `@actionbookdev/mcp` depends on SDK for MCP protocol implementation

@@ -8,31 +8,7 @@
       "name": "actionbook",
       "source": "./",
       "description": "Up-to-date action manuals for browser automation. Get verified CSS/XPath selectors for any website directly into your agent context.",
-      "version": "0.3.0"
-    },
-    {
-      "name": "rust-learner",
-      "source": "./playground/rust-learner",
-      "description": "Learn Rust language features and crate updates using Actionbook + agent-browser.",
-      "version": "0.1.0"
-    },
-    {
-      "name": "arxiv-viewer",
-      "source": "./playground/arxiv-viewer",
-      "description": "View, search, download, and read academic papers from arXiv. Supports API queries, web scraping via Actionbook, and HTML paper reading via ar5iv.",
-      "version": "0.1.0"
-    },
-    {
-      "name": "actionbook-scraper",
-      "source": "./playground/actionbook-scraper",
-      "description": "Generate accurate web scraper code using Actionbook's verified selectors. Achieves 7.76x better data extraction accuracy compared to AI-guessed selectors.",
-      "version": "0.1.0"
-    },
-    {
-      "name": "deep-research",
-      "source": "./playground/deep-research",
-      "description": "Deep research report generator. Analyze any topic using Actionbook browser and generate beautiful HTML reports via json-ui.",
-      "version": "0.1.0"
+      "version": "0.2.0"
     }
   ]
 }
