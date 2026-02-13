@@ -65,6 +65,6 @@ jobs:
 
             ### After installing
             ```bash
-            actionbook extension serve
+            actionbook browser open https://example.com
             ```
-            The extension auto-connects via native messaging.
+            The extension auto-connects to the local bridge at `127.0.0.1:19222`.
