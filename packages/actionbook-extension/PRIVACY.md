@@ -102,8 +102,7 @@ The Extension requests the following Chrome permissions, each necessary for its 
 | `activeTab`       | Access the currently active tab for automation commands                 |
 | `scripting`       | Execute scripts in the context of web pages for automation             |
 | `offscreen`       | Keep the service worker alive for persistent WebSocket connection      |
-| `storage`         | Store bridge token and port configuration in chrome.storage.local      |
-| `nativeMessaging` | Communicate with the local Actionbook CLI for automatic token exchange |
+| `storage`         | Store local connection state for bridge communication                   |
 | `cookies`         | Read and manage cookies for web automation tasks                       |
 | `<all_urls>`      | Enable automation on any website the user chooses to automate          |
 
