@@ -449,6 +449,9 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
         }
         BrowserCommands::Viewport => viewport(cli, &*backend).await,
         BrowserCommands::Cookies { command: cmd } => cookies(cli, &*backend, cmd).await,
+        BrowserCommands::Scroll { .. } => Err(ActionbookError::Other(
+            "Scroll command is not available in this branch mode yet.".to_string(),
+        )),
         BrowserCommands::Close => close(cli, &config, &*backend, bridge_auto_started, mode).await,
         BrowserCommands::Restart => restart(cli, &*backend).await,
         // Status and Connect are handled above

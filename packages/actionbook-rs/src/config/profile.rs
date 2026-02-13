@@ -23,6 +23,7 @@ pub struct ProfileConfig {
     /// Extra browser arguments
     #[serde(default)]
     pub extra_args: Vec<String>,
+
 }
 
 fn default_cdp_port() -> u16 {

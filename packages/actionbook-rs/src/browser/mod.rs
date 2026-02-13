@@ -9,6 +9,7 @@ pub mod launcher;
 pub mod native_messaging;
 mod session;
 pub mod stealth;
+pub mod stealth_enhanced;
 
 #[allow(unused_imports)]
 pub use discovery::{discover_all_browsers, BrowserInfo, BrowserType};
