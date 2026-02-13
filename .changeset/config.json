@@ -10,15 +10,18 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
+  "privatePackages": {
+    "version": true,
+    "tag": true
+  },
   "ignore": [
-    "@actionbookdev/cli",
-    "@actionbookdev/cli-*",
-    "@actionbookdev/extension",
     "@actionbookdev/action-builder",
     "@actionbookdev/browser",
     "@actionbookdev/browser-profile",
     "@actionbookdev/db",
+    "@actionbookdev/eval",
     "@actionbookdev/knowledge-builder",
+    "@actionbookdev/playbook-builder",
     "lib-rs-scraper",
     "stagehand-agent"
   ]

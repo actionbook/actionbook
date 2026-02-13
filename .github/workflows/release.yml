@@ -10,11 +10,19 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 permissions:
   contents: write
   pull-requests: write
+  id-token: write
 
 jobs:
-  release:
-    name: Release
+  # --------------------------------------------------------------------------
+  # Job 1: Create Version PR or determine what to release
+  # --------------------------------------------------------------------------
+  version-or-release:
+    name: Version or Release
     runs-on: ubuntu-latest
+    outputs:
+      should-release: ${{ steps.changesets.outputs.hasChangesets == 'false' }}
+      cli-needs-release: ${{ steps.check-releases.outputs.cli }}
+      extension-needs-release: ${{ steps.check-releases.outputs.extension }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,17 +41,410 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build packages
-        run: pnpm build:release
-
-      - name: Create Release Pull Request or Publish
+      - name: Create Release Pull Request
+        id: changesets
         uses: changesets/action@v1
         with:
           version: pnpm version-packages
-          publish: pnpm release
           commit: "chore: version packages"
           title: "chore: version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Check which packages need release
+        id: check-releases
+        if: steps.changesets.outputs.hasChangesets == 'false'
+        run: |
+          CLI_LOCAL=$(node -e "console.log(JSON.parse(require('fs').readFileSync('packages/cli/package.json','utf8')).version)")
+          CLI_NPM=$(npm view @actionbookdev/cli version 2>/dev/null || echo "0.0.0")
+          if [ "$CLI_LOCAL" != "$CLI_NPM" ]; then
+            echo "cli=true" >> "$GITHUB_OUTPUT"
+            echo "CLI needs release: $CLI_LOCAL (local) vs $CLI_NPM (npm)"
+          else
+            echo "cli=false" >> "$GITHUB_OUTPUT"
+            echo "CLI is up to date: $CLI_LOCAL"
+          fi
+
+          EXT_LOCAL=$(node -e "console.log(JSON.parse(require('fs').readFileSync('packages/actionbook-extension/package.json','utf8')).version)")
+          EXT_TAG="actionbook-extension-v${EXT_LOCAL}"
+          if git tag -l "$EXT_TAG" | grep -q .; then
+            echo "extension=false" >> "$GITHUB_OUTPUT"
+            echo "Extension tag exists: $EXT_TAG"
+          else
+            echo "extension=true" >> "$GITHUB_OUTPUT"
+            echo "Extension needs release: $EXT_LOCAL (tag $EXT_TAG not found)"
+          fi
+
+  # --------------------------------------------------------------------------
+  # Job 2: Publish JS packages (sdk, mcp, tools-ai-sdk, json-ui)
+  # --------------------------------------------------------------------------
+  publish-js:
+    name: Publish JS Packages
+    needs: version-or-release
+    if: needs.version-or-release.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build:release
+
+      - name: Publish packages
+        env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          PACKAGES=(
+            "@actionbookdev/sdk:packages/js-sdk"
+            "@actionbookdev/mcp:packages/mcp"
+            "@actionbookdev/tools-ai-sdk:packages/tools-ai-sdk"
+            "@actionbookdev/json-ui:packages/json-ui"
+          )
+
+          for entry in "${PACKAGES[@]}"; do
+            PKG_NAME="${entry%%:*}"
+            PKG_DIR="${entry##*:}"
+
+            LOCAL_VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('${PKG_DIR}/package.json','utf8')).version)")
+            NPM_VER=$(npm view "${PKG_NAME}" version 2>/dev/null || echo "0.0.0")
+
+            if [ "$LOCAL_VER" != "$NPM_VER" ]; then
+              echo "Publishing ${PKG_NAME}@${LOCAL_VER} (npm has ${NPM_VER})..."
+              (cd "${PKG_DIR}" && npm publish --access public --provenance)
+            else
+              echo "Skipping ${PKG_NAME}@${LOCAL_VER} (already published)"
+            fi
+          done
+
+  # --------------------------------------------------------------------------
+  # Job 3: Build CLI binaries (cross-platform Rust compilation)
+  # --------------------------------------------------------------------------
+  build-cli:
+    name: Build CLI (${{ matrix.platform-suffix }})
+    needs: version-or-release
+    if: needs.version-or-release.outputs.cli-needs-release == 'true'
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            platform-suffix: darwin-arm64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            platform-suffix: darwin-x64
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            platform-suffix: linux-x64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            platform-suffix: linux-arm64
+            use-cross: true
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            platform-suffix: win32-x64
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            platform-suffix: win32-arm64
+
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: packages/actionbook-rs
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (Linux ARM64)
+        if: matrix.use-cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build (cross)
+        if: matrix.use-cross
+        working-directory: .
+        run: cross build --release --target ${{ matrix.target }} --manifest-path packages/actionbook-rs/Cargo.toml
+
+      - name: Build (native)
+        if: ${{ !matrix.use-cross }}
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Determine binary name
+        id: binary
+        shell: bash
+        run: |
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            echo "name=actionbook.exe" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=actionbook" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rename binary for platform
+        shell: bash
+        run: |
+          CANDIDATES=(
+            "target/${{ matrix.target }}/release/${{ steps.binary.outputs.name }}"
+            "../target/${{ matrix.target }}/release/${{ steps.binary.outputs.name }}"
+          )
+          SRC=""
+          for candidate in "${CANDIDATES[@]}"; do
+            if [[ -f "$candidate" ]]; then
+              SRC="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$SRC" ]]; then
+            echo "ERROR: Built binary not found in expected target directories."
+            printf 'Checked:\n  - %s\n' "${CANDIDATES[@]}"
+            exit 1
+          fi
+
+          ARTIFACT_DIR="${RUNNER_TEMP}/actionbook-binaries"
+          mkdir -p "$ARTIFACT_DIR"
+
+          if [[ "${{ matrix.platform-suffix }}" == win32-* ]]; then
+            DEST="$ARTIFACT_DIR/actionbook-${{ matrix.platform-suffix }}.exe"
+          else
+            DEST="$ARTIFACT_DIR/actionbook-${{ matrix.platform-suffix }}"
+          fi
+          cp "$SRC" "$DEST"
+          chmod +x "$DEST"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: actionbook-${{ matrix.platform-suffix }}
+          path: ${{ runner.temp }}/actionbook-binaries/actionbook-${{ matrix.platform-suffix }}*
+          if-no-files-found: error
+
+  # --------------------------------------------------------------------------
+  # Job 4: Publish CLI npm packages + GitHub Release
+  # --------------------------------------------------------------------------
+  publish-cli:
+    name: Publish CLI
+    needs: [version-or-release, build-cli]
+    if: needs.version-or-release.outputs.cli-needs-release == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Read CLI version
+        id: version
+        run: |
+          VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('packages/cli/package.json','utf8')).version)")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare platform package binaries
+        run: |
+          declare -A PLATFORM_PKG_DIRS=(
+            ["darwin-arm64"]="packages/cli-darwin-arm64"
+            ["darwin-x64"]="packages/cli-darwin-x64"
+            ["linux-x64"]="packages/cli-linux-x64-gnu"
+            ["linux-arm64"]="packages/cli-linux-arm64-gnu"
+            ["win32-x64"]="packages/cli-win32-x64"
+            ["win32-arm64"]="packages/cli-win32-arm64"
+          )
+
+          for suffix in "${!PLATFORM_PKG_DIRS[@]}"; do
+            artifact_dir="artifacts/actionbook-${suffix}"
+            package_dir="${PLATFORM_PKG_DIRS[$suffix]}"
+
+            if [[ "$suffix" == win32-* ]]; then
+              src_name="actionbook-${suffix}.exe"
+              dest_name="actionbook.exe"
+            else
+              src_name="actionbook-${suffix}"
+              dest_name="actionbook"
+            fi
+
+            cp "${artifact_dir}/${src_name}" "${package_dir}/bin/${dest_name}"
+            chmod +x "${package_dir}/bin/${dest_name}"
+            echo "Copied ${src_name} -> ${package_dir}/bin/${dest_name}"
+          done
+
+      - name: Validate platform binaries
+        run: |
+          declare -A PLATFORM_PKG_DIRS=(
+            ["darwin-arm64"]="packages/cli-darwin-arm64"
+            ["darwin-x64"]="packages/cli-darwin-x64"
+            ["linux-x64"]="packages/cli-linux-x64-gnu"
+            ["linux-arm64"]="packages/cli-linux-arm64-gnu"
+            ["win32-x64"]="packages/cli-win32-x64"
+            ["win32-arm64"]="packages/cli-win32-arm64"
+          )
+          min_size=100000
+          failures=0
+
+          for suffix in "${!PLATFORM_PKG_DIRS[@]}"; do
+            package_dir="${PLATFORM_PKG_DIRS[$suffix]}"
+
+            if [[ "$suffix" == win32-* ]]; then
+              binary_path="${package_dir}/bin/actionbook.exe"
+            else
+              binary_path="${package_dir}/bin/actionbook"
+            fi
+
+            if [[ ! -f "${binary_path}" ]]; then
+              echo "ERROR: Missing binary ${binary_path}"
+              failures=$((failures + 1))
+              continue
+            fi
+
+            size=$(stat -c%s "${binary_path}")
+            if [[ "$size" -lt "$min_size" ]]; then
+              echo "ERROR: Binary too small ${binary_path} (${size} bytes)"
+              failures=$((failures + 1))
+              continue
+            fi
+
+            echo "OK: ${binary_path} (${size} bytes)"
+          done
+
+          if [[ "$failures" -gt 0 ]]; then
+            echo "Found ${failures} platform binary validation errors"
+            exit 1
+          fi
+
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          declare -A PLATFORM_PKG_DIRS=(
+            ["darwin-arm64"]="packages/cli-darwin-arm64"
+            ["darwin-x64"]="packages/cli-darwin-x64"
+            ["linux-x64"]="packages/cli-linux-x64-gnu"
+            ["linux-arm64"]="packages/cli-linux-arm64-gnu"
+            ["win32-x64"]="packages/cli-win32-x64"
+            ["win32-arm64"]="packages/cli-win32-arm64"
+          )
+          declare -A PLATFORM_PKG_NAMES=(
+            ["darwin-arm64"]="@actionbookdev/cli-darwin-arm64"
+            ["darwin-x64"]="@actionbookdev/cli-darwin-x64"
+            ["linux-x64"]="@actionbookdev/cli-linux-x64-gnu"
+            ["linux-arm64"]="@actionbookdev/cli-linux-arm64-gnu"
+            ["win32-x64"]="@actionbookdev/cli-win32-x64"
+            ["win32-arm64"]="@actionbookdev/cli-win32-arm64"
+          )
+
+          for suffix in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64 win32-arm64; do
+            pkg_dir="${PLATFORM_PKG_DIRS[$suffix]}"
+            pkg_name="${PLATFORM_PKG_NAMES[$suffix]}"
+            echo "Publishing ${pkg_name}..."
+            (cd "${pkg_dir}" && npm publish --access public --provenance)
+          done
+
+      - name: Publish CLI package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "Publishing @actionbookdev/cli..."
+          (cd packages/cli && npm publish --access public --provenance)
+
+      - name: Create CLI GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: actionbook-cli-v${{ steps.version.outputs.version }}
+          name: Actionbook CLI v${{ steps.version.outputs.version }}
+          files: |
+            artifacts/actionbook-darwin-arm64/actionbook-darwin-arm64
+            artifacts/actionbook-darwin-x64/actionbook-darwin-x64
+            artifacts/actionbook-linux-x64/actionbook-linux-x64
+            artifacts/actionbook-linux-arm64/actionbook-linux-arm64
+            artifacts/actionbook-win32-x64/actionbook-win32-x64.exe
+            artifacts/actionbook-win32-arm64/actionbook-win32-arm64.exe
+          generate_release_notes: true
+
+  # --------------------------------------------------------------------------
+  # Job 5: Release Extension (package ZIPs + GitHub Release)
+  # --------------------------------------------------------------------------
+  release-extension:
+    name: Release Extension
+    needs: version-or-release
+    if: needs.version-or-release.outputs.extension-needs-release == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/actionbook-extension
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read extension version
+        id: version
+        run: |
+          VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('package.json','utf8')).version)")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify manifest.json version matches
+        run: |
+          MANIFEST_VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('manifest.json','utf8')).version)")
+          PKG_VERSION="${{ steps.version.outputs.version }}"
+          if [ "$MANIFEST_VERSION" != "$PKG_VERSION" ]; then
+            echo "ERROR: manifest.json version ($MANIFEST_VERSION) does not match package.json version ($PKG_VERSION)"
+            exit 1
+          fi
+          echo "Version verified: $PKG_VERSION"
+
+      - name: Package extension
+        run: node scripts/package.js
+
+      - name: Create Extension GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: actionbook-extension-v${{ steps.version.outputs.version }}
+          name: Actionbook Extension v${{ steps.version.outputs.version }}
+          files: |
+            packages/actionbook-extension/dist/actionbook-extension-v${{ steps.version.outputs.version }}.zip
+            packages/actionbook-extension/dist/actionbook-extension-v${{ steps.version.outputs.version }}-cws.zip
+          body: |
+            ## Actionbook Chrome Extension v${{ steps.version.outputs.version }}
+
+            ### Install
+
+            **Option 1: CLI (recommended)**
+            ```bash
+            actionbook extension install
+            ```
+
+            **Option 2: Manual**
+            1. Download `actionbook-extension-v${{ steps.version.outputs.version }}.zip` below
+            2. Unzip to a local folder
+            3. Open `chrome://extensions` in Chrome
+            4. Enable **Developer mode**
+            5. Click **Load unpacked** and select the unzipped folder
+
+            **Option 3: Chrome Web Store**
+            Download `actionbook-extension-v${{ steps.version.outputs.version }}-cws.zip` for Chrome Web Store submission (manifest without `key` field).
+
+            ### After installing
+            ```bash
+            actionbook browser open https://example.com
+            ```
+            The extension auto-connects to the local bridge at `127.0.0.1:19222`.
