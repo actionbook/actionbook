@@ -4,7 +4,7 @@ This demo shows how **Actionbook** helps AI Agents (like Claude Code) generate m
 
 ## Demo
 
-Watch how Actionbook helps Claude Code write a correct scraper 10× faster.
+Watch how Actionbook helps Claude Code write a correct scraper, 10x faster.
 
 https://github.com/user-attachments/assets/912b7d39-1e55-43b7-b766-344b242762e9
 
