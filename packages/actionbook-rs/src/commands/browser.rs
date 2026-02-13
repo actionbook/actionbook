@@ -517,18 +517,13 @@ fn is_extension_mode(cli: &Cli, config: &Config) -> bool {
     config.browser.mode == BrowserMode::Extension
 }
 
-/// The clap default for `--extension-port`. Must match cli.rs default_value.
-const CLI_DEFAULT_EXTENSION_PORT: u16 = 19222;
+/// Fixed bridge port used by extension mode.
+/// The extension dials ws://127.0.0.1:19222, so CLI browser commands must match.
+const FIXED_EXTENSION_PORT: u16 = 19222;
 
 /// Resolve the effective extension bridge port.
-/// Config `browser.extension.port` is the source of truth.
-/// CLI `--extension-port` overrides only when it differs from the clap default.
-fn resolve_extension_port(cli: &Cli, config: &Config) -> u16 {
-    if cli.extension_port != CLI_DEFAULT_EXTENSION_PORT {
-        cli.extension_port
-    } else {
-        config.browser.extension.port
-    }
+fn resolve_extension_port(_cli: &Cli, _config: &Config) -> u16 {
+    FIXED_EXTENSION_PORT
 }
 
 fn should_prepare_extension_runtime(command: &BrowserCommands) -> bool {
@@ -3664,23 +3659,23 @@ mod tests {
     }
 
     #[test]
-    fn extension_port_uses_config_when_cli_flag_not_set() {
+    fn extension_port_is_fixed_when_config_overrides() {
         let cli = test_cli(None, BrowserCommands::Status);
         let mut config = Config::default();
         config.browser.extension.port = 19223;
 
-        assert_eq!(resolve_extension_port(&cli, &config), 19223);
+        assert_eq!(resolve_extension_port(&cli, &config), 19222);
     }
 
     #[test]
-    fn extension_port_prefers_cli_override_when_non_default() {
+    fn extension_port_is_fixed_when_cli_overrides() {
         let mut cli = test_cli(None, BrowserCommands::Status);
         cli.extension_port = 19333;
 
         let mut config = Config::default();
         config.browser.extension.port = 19223;
 
-        assert_eq!(resolve_extension_port(&cli, &config), 19333);
+        assert_eq!(resolve_extension_port(&cli, &config), 19222);
     }
 
     #[test]

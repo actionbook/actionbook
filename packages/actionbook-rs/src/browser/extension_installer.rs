@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::Read;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -32,6 +32,35 @@ fn legacy_extension_dir() -> Option<PathBuf> {
     Some(config_dir.join("actionbook").join("extension"))
 }
 
+/// Returns true when an io::Error likely represents a cross-filesystem rename.
+fn is_cross_device_error(err: &io::Error) -> bool {
+    // EXDEV (18) on Unix, ERROR_NOT_SAME_DEVICE (17) on Windows.
+    matches!(err.raw_os_error(), Some(18) | Some(17))
+}
+
+/// Recursively copy a directory tree.
+fn copy_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        let file_type = entry.file_type()?;
+
+        if file_type.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else if file_type.is_file() {
+            fs::copy(&src_path, &dst_path)?;
+        } else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Unsupported file type in extension dir: {}", src_path.display()),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Migrate extension files from legacy config dir to ~/.actionbook/extension.
 /// Safe no-op if legacy dir does not exist or target already exists.
 fn migrate_legacy_extension_if_needed() -> Result<()> {
@@ -54,14 +83,36 @@ fn migrate_legacy_extension_if_needed() -> Result<()> {
         })?;
     }
 
-    fs::rename(&legacy_dir, &target_dir).map_err(|e| {
-        ActionbookError::ExtensionError(format!(
-            "Failed to migrate extension from {} to {}: {}",
-            legacy_dir.display(),
-            target_dir.display(),
-            e
-        ))
-    })?;
+    match fs::rename(&legacy_dir, &target_dir) {
+        Ok(_) => {}
+        Err(rename_err) => {
+            if !is_cross_device_error(&rename_err) {
+                return Err(ActionbookError::ExtensionError(format!(
+                    "Failed to migrate extension from {} to {}: {}",
+                    legacy_dir.display(),
+                    target_dir.display(),
+                    rename_err
+                )));
+            }
+
+            copy_dir_recursive(&legacy_dir, &target_dir).map_err(|e| {
+                ActionbookError::ExtensionError(format!(
+                    "Failed to migrate extension from {} to {} via copy fallback: {}",
+                    legacy_dir.display(),
+                    target_dir.display(),
+                    e
+                ))
+            })?;
+
+            fs::remove_dir_all(&legacy_dir).map_err(|e| {
+                ActionbookError::ExtensionError(format!(
+                    "Failed to remove legacy extension directory {} after migration: {}",
+                    legacy_dir.display(),
+                    e
+                ))
+            })?;
+        }
+    }
 
     Ok(())
 }
@@ -526,9 +577,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_extension_dir_is_under_config() {
+    fn test_extension_dir_is_under_actionbook_home() {
         let dir = extension_dir().expect("should resolve config dir");
-        assert!(dir.ends_with("actionbook/extension"));
+        assert!(dir.ends_with(".actionbook/extension"));
+    }
+
+    #[test]
+    fn test_is_cross_device_error_detects_known_errno() {
+        assert!(is_cross_device_error(&std::io::Error::from_raw_os_error(18)));
+        assert!(is_cross_device_error(&std::io::Error::from_raw_os_error(17)));
+        assert!(!is_cross_device_error(&std::io::Error::from_raw_os_error(2)));
     }
 
     #[test]
