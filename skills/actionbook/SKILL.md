@@ -26,16 +26,11 @@ Actionbook is a library of **pre-verified page interaction data**. `actionbook s
 ### search — Find actions by task description
 
 ```bash
-actionbook search "airbnb search for listings"
-actionbook search "airbnb" --background "I want to search for vacation rentals in Tokyo"
+actionbook search "<query>"                      # Search by task intent
 actionbook search "<query>" --domain site.com    # Filter by domain
 actionbook search "<query>" --url <url>          # Filter by URL
 actionbook search "<query>" -p 2 -s 20           # Pagination
 ```
-
-Search by **task intent** (what you want to accomplish), not element names.
-
-`--background` provides additional context to improve relevance.
 
 **Returns** for each result:
 - `ID` — use with `actionbook get "<ID>"` to retrieve full details
@@ -44,6 +39,38 @@ Search by **task intent** (what you want to accomplish), not element names.
 - `URL` — page where this action applies
 - `Health Score` — selector reliability percentage (0–100%)
 - `Updated` — last verified date
+
+### Constructing an effective search query
+
+The `query` string is the **primary signal** for finding the right action. Pack it with the user's full intent — not just a site name or a vague keyword.
+
+**Include in the query:**
+1. **Target site** — the website name or domain
+2. **Task verb** — what the user wants to do (search, book, post, filter, login, compose, etc.)
+3. **Object / context** — what they're acting on (listings, messages, flights, repositories, etc.)
+4. **Specific details** — any constraints, filters, or parameters the user mentioned (dates, location, category, language, etc.)
+
+**Rule of thumb:** Rewrite the user's request as a single descriptive sentence and use that as the query.
+
+| User says | Bad query | Good query |
+|-----------|-----------|------------|
+| "Book an Airbnb in Tokyo for next week" | `"airbnb"` | `"airbnb search listings Tokyo dates check-in check-out guests"` |
+| "Search arXiv for recent NLP papers" | `"arxiv search"` | `"arxiv advanced search papers NLP natural language processing recent"` |
+| "Send a LinkedIn connection request" | `"linkedin"` | `"linkedin send connection request invite someone"` |
+| "Post a tweet with an image" | `"twitter post"` | `"twitter compose new tweet post with image media attachment"` |
+| "Filter GitHub issues by label" | `"github issues"` | `"github repository issues filter by label search issues"` |
+
+**When the user provides extra context** (e.g., specific dates, a city name, a topic), fold it into the query even if it won't match a stored action literally — it helps the search engine rank relevant pages higher.
+
+```bash
+# User: "Help me apply for a software engineer job on LinkedIn"
+actionbook search "linkedin job search apply software engineer application form"
+
+# User: "I need to search for machine learning papers on arXiv"
+actionbook search "arxiv advanced search papers machine learning subject category"
+```
+
+If `--domain` or `--url` is known, always add them — they narrow results and improve precision.
 
 ### get — Retrieve full action details by ID
 
@@ -108,11 +135,13 @@ actionbook browser wait-nav                    # Wait for navigation
 
 `actionbook browser close` cleans up the browser session. Skip if the user requests the browser remain open.
 
-## Example
+## Examples
+
+User request: "Search arXiv for papers about Neural Networks, search in titles only"
 
 ```bash
-# 1. Search for actions
-actionbook search "arxiv advanced search papers"
+# 1. Search — include the full intent: site + task + subject + filter preference
+actionbook search "arxiv advanced search papers neural network title field" --domain arxiv.org
 
 # 2. Get details — read Page Structure Summary for selectors
 actionbook get "arxiv.org:/search/advanced:default"
