@@ -94,6 +94,19 @@ tokio-test = "0.4"
 assert_cmd = "2"
 predicates = "3"
 
+# Examples that depend on Camoufox modules (not active in refactor/browser-extension branch)
+[[example]]
+name = "enhanced_stealth_demo"
+required-features = ["camoufox-server"]
+
+[[example]]
+name = "fingerprint_generator_demo"
+required-features = ["camoufox-server"]
+
+[[example]]
+name = "human_behavior_demo"
+required-features = ["camoufox-server"]
+
 [profile.release]
 opt-level = "z"
 lto = true
