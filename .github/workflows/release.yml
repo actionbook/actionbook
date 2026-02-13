@@ -7,6 +7,10 @@ on:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   release:
     name: Release
@@ -30,7 +34,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build packages
-        run: pnpm build
+        run: pnpm build:release
 
       - name: Create Release Pull Request or Publish
         uses: changesets/action@v1

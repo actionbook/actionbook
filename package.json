@@ -13,7 +13,8 @@
     "clean": "turbo clean",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "pnpm build && changeset publish",
+    "build:release": "turbo build --filter=@actionbookdev/sdk... --filter=@actionbookdev/mcp... --filter=@actionbookdev/tools-ai-sdk... --filter=@actionbookdev/json-ui...",
+    "release": "pnpm build:release && changeset publish",
     "prepare": "git config core.hooksPath .githooks"
   },
   "devDependencies": {

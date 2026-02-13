@@ -13,6 +13,13 @@
   "ignore": [
     "@actionbookdev/cli",
     "@actionbookdev/cli-*",
-    "@actionbookdev/extension"
+    "@actionbookdev/extension",
+    "@actionbookdev/action-builder",
+    "@actionbookdev/browser",
+    "@actionbookdev/browser-profile",
+    "@actionbookdev/db",
+    "@actionbookdev/knowledge-builder",
+    "lib-rs-scraper",
+    "stagehand-agent"
   ]
 }
