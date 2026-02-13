@@ -53,11 +53,19 @@ function resolvePackageDir(packageName) {
   }
 }
 
-const binaryPath = getBinaryPath();
-if (!binaryPath) {
-  process.exit(0);
+function main() {
+  const binaryPath = getBinaryPath();
+  if (!binaryPath) {
+    process.exit(0);
+  }
+
+  if (fs.existsSync(binaryPath) && process.platform !== "win32") {
+    fs.chmodSync(binaryPath, 0o755);
+  }
 }
 
-if (fs.existsSync(binaryPath) && process.platform !== "win32") {
-  fs.chmodSync(binaryPath, 0o755);
+if (require.main === module) {
+  main();
 }
+
+module.exports = { main, getBinaryPath, resolvePackageDir, PLATFORM_PACKAGES };
