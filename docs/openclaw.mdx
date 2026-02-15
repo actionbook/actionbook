@@ -1,11 +1,9 @@
 ---
-title: 'OpenClaw Guide'
-description: 'Integrate Actionbook into OpenClaw (CLI + Skills mode)'
+title: 'Integrate with OpenClaw'
+description: 'Set up Actionbook in OpenClaw from scratch'
 ---
 
-Use this guide to connect Actionbook to OpenClaw from a clean setup.
-
-This flow is **CLI + Skills only** (no MCP path).
+Use this guide to set up Actionbook in OpenClaw.
 
 ## Step 1: Install Actionbook CLI
 
@@ -14,23 +12,21 @@ npm install -g @actionbookdev/cli
 actionbook --version
 ```
 
-## Step 2: Run `actionbook setup` (install Skills for OpenClaw)
-
-Run setup:
+## Step 2: Run `actionbook setup`
 
 ```bash
 actionbook setup
 ```
 
-During setup, make sure you install Skills to **OpenClaw global**.
+During setup, make sure Skills are installed to **OpenClaw global**.
 
-After setup, verify `actionbook` is ready in OpenClaw:
+Verify Actionbook is ready in OpenClaw:
 
 ```bash
 openclaw skills check
 ```
 
-Also run a quick CLI smoke test before changing OpenClaw browser config:
+Quick smoke test:
 
 ```bash
 actionbook search "airbnb search listings tokyo" --domain airbnb.com
@@ -38,9 +34,9 @@ actionbook search "airbnb search listings tokyo" --domain airbnb.com
 
 You should see at least one result with an `ID`.
 
-## Step 3: Disable OpenClaw default browser + force Actionbook for browser work
+## Step 3: Disable OpenClaw built-in browser and route browser tasks to Actionbook
 
-Disable OpenClaw browser tool and restart gateway:
+Disable the built-in OpenClaw browser:
 
 ```bash
 openclaw config set browser.enabled false --json
@@ -48,25 +44,16 @@ openclaw config set browser.enabled false --json
 
 Then update `tools.deny` in `~/.openclaw/openclaw.json`:
 
-- If `tools.deny` is empty/unset, set it to: `"browser"`
-- If `tools.deny` already has rules, **append** `"browser"` (do not replace existing entries)
+- If `tools.deny` is empty/unset, set it to include `"browser"`
+- If `tools.deny` already has entries, append `"browser"` (do not replace other rules)
 
-Apply by restarting gateway:
+Apply changes:
 
 ```bash
 openclaw gateway restart
 ```
 
-Rollback (if you need to restore built-in browser later):
-
-```bash
-openclaw config set browser.enabled true --json
-openclaw gateway restart
-```
-
-When rolling back, remove only `"browser"` from `tools.deny` and keep any other deny rules.
-
-Then add an instruction in the canonical OpenClaw instruction file `~/.openclaw/workspace/TOOLS.md`:
+Add this instruction to `~/.openclaw/workspace/TOOLS.md`:
 
 ```markdown
 ## Browser automation preference
@@ -75,7 +62,7 @@ Then add an instruction in the canonical OpenClaw instruction file `~/.openclaw/
 - Follow: `actionbook search` -> `actionbook get` -> operate.
 ```
 
-After updating `TOOLS.md`, restart once so the instruction is applied:
+Restart once after editing `TOOLS.md`:
 
 ```bash
 openclaw gateway restart
@@ -86,7 +73,7 @@ openclaw gateway restart
 Ask OpenClaw:
 
 ```text
-Use Actionbook in CLI + Skills mode: search first, then get the most relevant manual, then give me the exact selectors and field values to execute.
+Use Actionbook to find the best action manual for Airbnb search, then give me the exact selectors and field values to execute.
 ```
 
 ## Next Steps
