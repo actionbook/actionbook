@@ -1,11 +1,11 @@
 ---
 title: 'OpenClaw Guide'
-description: 'Integrate Actionbook into OpenClaw from scratch'
+description: 'Integrate Actionbook into OpenClaw (CLI + Skills mode)'
 ---
 
 Use this guide to connect Actionbook to OpenClaw from a clean setup.
 
-This flow is **CLI + Skills only** (no MCP configuration required).
+This flow is **CLI + Skills only** (no MCP path).
 
 ## Step 1: Install Actionbook CLI
 
@@ -14,39 +14,44 @@ npm install -g @actionbookdev/cli
 actionbook --version
 ```
 
-## Step 2: Verify Actionbook Works
+## Step 2: Run `actionbook setup` (install Skills for OpenClaw)
+
+Run setup:
 
 ```bash
-actionbook search "airbnb search listings tokyo" --domain airbnb.com
+actionbook setup
 ```
 
-You should get at least one result with an `ID`.
+During setup, make sure you install Skills to **OpenClaw global**.
 
-## Step 3: Check OpenClaw Skill Readiness
+After setup, verify `actionbook` is ready in OpenClaw:
 
 ```bash
 openclaw skills check
 ```
 
-Make sure `actionbook` appears under `Ready to use`.
+## Step 3: Disable OpenClaw default browser + force Actionbook for browser work
 
-If it does not:
+Disable OpenClaw browser tool and restart gateway:
 
 ```bash
-npm install -g @actionbookdev/cli
+openclaw config set browser.enabled false --json
+openclaw config set tools.deny '["browser"]' --json
 openclaw gateway restart
-openclaw skills check
 ```
 
-## Step 4: Use Actionbook from OpenClaw
+Then add an instruction in your OpenClaw workspace `TOOLS.md` (or your agent system prompt):
+
+```markdown
+## Browser automation preference
+- Use Actionbook CLI for all website/browser operations.
+- Do not use the built-in OpenClaw browser tool unless explicitly asked.
+- Follow: `actionbook search` -> `actionbook get` -> operate.
+```
+
+## Try it
 
 Ask OpenClaw:
-
-```text
-Use Actionbook to find the best action manual for Airbnb search, then explain which selectors to click and fill.
-```
-
-For best results, ask OpenClaw to follow the Actionbook docs workflow:
 
 ```text
 Use Actionbook in CLI + Skills mode: search first, then get the most relevant manual, then give me the exact selectors and field values to execute.
