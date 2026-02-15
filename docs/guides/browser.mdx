@@ -10,7 +10,7 @@ The `actionbook browser` command lets AI agents automate any Chromium-based brow
 | Mode | Flag | How It Works | Best For |
 |------|------|-------------|----------|
 | **Isolated** | *(default)* | Launches a new Chrome with a fresh, dedicated profile | Automated tasks, CI/CD, headless, no user data needed |
-| **Extension** | `--extension` | Connects to the user's running Chrome via extension bridge | Tasks requiring existing login sessions, cookies, personal context |
+| **Extension** | `--browser-mode=extension` | Connects to the user's running Chrome via extension bridge | Tasks requiring existing login sessions, cookies, personal context |
 
 Both modes are designed for AI agents. **Isolated** gives agents a clean, reproducible environment. **Extension** lets agents operate inside the user's real browser — ideal when the task requires existing authentication (e.g., "book my flight", "reply to that email").
 
@@ -33,7 +33,7 @@ actionbook browser close
 
 ## Extension Mode
 
-Extension mode requires a one-time setup to connect the CLI to your running Chrome.
+Extension mode requires a one-time setup to install and load the Chrome extension.
 
 <Steps>
   <Step title="Install the extension">
@@ -41,7 +41,7 @@ Extension mode requires a one-time setup to connect the CLI to your running Chro
     actionbook extension install
     ```
 
-    This downloads the latest release from GitHub and installs it to `~/.config/actionbook/extension/`.
+    This downloads the latest release from GitHub and installs it to `~/.actionbook/extension/`.
 
     <Tip>
       **Manual download:** If the CLI install fails (e.g., GitHub rate limit), download the `.zip` from [GitHub Releases](https://github.com/actionbook/actionbook/releases), unzip it, and load it manually.
@@ -59,27 +59,9 @@ Extension mode requires a one-time setup to connect the CLI to your running Chro
     ```
   </Step>
 
-  <Step title="Start the bridge server">
-    The bridge is the WebSocket relay between CLI and Chrome:
-
-    ```bash
-    actionbook extension serve
-    ```
-
-    <Note>
-      `serve` runs in the foreground. Stop it with Ctrl+C, or use `actionbook extension stop` from another terminal.
-    </Note>
-  </Step>
-
-  <Step title="Pair the extension">
-    Native Messaging usually handles pairing automatically. If not:
-
-    1. Click the Actionbook extension icon in Chrome toolbar
-    2. Copy the token (`abk_...`) from the `serve` terminal output
-    3. Paste it into the popup and click **Save**
-  </Step>
-
   <Step title="Verify the connection">
+    The bridge server auto-starts when you run any browser command in extension mode. To verify the connection manually:
+
     ```bash
     actionbook extension status
     actionbook extension ping
@@ -89,15 +71,22 @@ Extension mode requires a one-time setup to connect the CLI to your running Chro
   </Step>
 </Steps>
 
-Once paired, add `--extension` to any browser command, or set the environment variable:
+Once set up, add `--browser-mode=extension` to any browser command, or set it permanently:
 
 ```bash
-export ACTIONBOOK_EXTENSION=1
+export ACTIONBOOK_BROWSER_MODE=extension
+```
+
+Or in your config file (`~/.actionbook/config.toml`):
+
+```toml
+[browser]
+mode = "extension"
 ```
 
 ## Browser Commands
 
-All commands below work in both modes. Add `--extension` to route through the extension bridge.
+All commands below work in both modes. Add `--browser-mode=extension` to route through the extension bridge.
 
 ### Navigation
 
@@ -159,7 +148,7 @@ actionbook search "github search repos"
 # 2. Get verified selectors
 actionbook get "<area_id>"
 
-# 3. Execute (add --extension to use your own browser)
+# 3. Execute (add --browser-mode=extension to use your own browser)
 actionbook browser open "https://github.com"
 actionbook browser fill "#query-builder-test" "actionbook"
 actionbook browser click "button[type='submit']"
@@ -179,7 +168,7 @@ Follow this cleanup order:
 
 ```bash
 # 1. Release the debug connection (detaches from Chrome)
-actionbook --extension browser close
+actionbook --browser-mode=extension browser close
 
 # 2. Stop the bridge server
 actionbook extension stop
@@ -206,12 +195,11 @@ Extension mode includes multiple security layers to protect your browser.
 
 L3 operations on sensitive domains trigger a confirmation popup in the extension — you must approve them manually.
 
-### Token Authentication
+### Protocol Handshake
 
-- Sessions are authenticated with a token (`abk_` prefix)
-- Tokens expire after **30 minutes** of idle time
-- The bridge auto-rotates tokens; restart `serve` if pairing is lost
-- Token comparison uses constant-time algorithms to prevent timing attacks
+- Connections are authenticated via a protocol version handshake (minimum version: `0.2.0`)
+- Only the official Actionbook extension ID is allowed for `chrome-extension://` origins
+- Unknown client roles are rejected during the hello handshake
 
 ### Network Isolation
 
@@ -223,20 +211,15 @@ L3 operations on sensitive domains trigger a confirmation popup in the extension
 
 <AccordionGroup>
   <Accordion title="Ping failed / bridge not running">
-    - Ensure `actionbook extension serve` is running
+    - The bridge auto-starts with browser commands; try running a browser command first
     - Confirm the extension is loaded and enabled in `chrome://extensions`
     - Check that no other process is using port 19222
-    - To restart: `actionbook extension stop` then `actionbook extension serve`
-  </Accordion>
-
-  <Accordion title="Token required / pairing_required">
-    - Open the extension popup and paste the latest token from the `serve` output
-    - Tokens expire after 30 minutes of inactivity — restart the bridge
+    - To restart manually: `actionbook extension stop` then run a browser command
   </Accordion>
 
   <Accordion title="No tab attached">
     - Make sure Chrome has at least one visible, active tab
-    - Run `actionbook --extension browser open <url>` first to attach a tab
+    - Run `actionbook --browser-mode=extension browser open <url>` first to attach a tab
     - Avoid `chrome://` pages — the debugger cannot attach to them
   </Accordion>
 
@@ -246,9 +229,12 @@ L3 operations on sensitive domains trigger a confirmation popup in the extension
   </Accordion>
 
   <Accordion title="Custom port not working">
-    - The extension defaults to `ws://localhost:19222`
-    - Start the bridge with: `actionbook extension serve --port <PORT>`
-    - Pass to browser commands: `--extension-port <PORT>`
+    - The default bridge port is `19222`
+    - Set a custom port in `~/.actionbook/config.toml`:
+      ```toml
+      [browser.extension]
+      port = 19223
+      ```
   </Accordion>
 
   <Accordion title="GitHub rate limit on install">
@@ -258,7 +244,7 @@ L3 operations on sensitive domains trigger a confirmation popup in the extension
 
   <Accordion title="Offline install">
     - Download `actionbook-extension-v*.zip` from another machine
-    - Unzip to `~/.config/actionbook/extension/`
-    - Run `actionbook extension install --force` to register native messaging
+    - Unzip to `~/.actionbook/extension/`
+    - Load it as an unpacked extension in `chrome://extensions`
   </Accordion>
 </AccordionGroup>

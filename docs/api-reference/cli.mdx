@@ -53,27 +53,27 @@ Browser extension bridge management commands.
 
 ### `actionbook extension install`
 
-Download and install the Chrome extension from GitHub Releases to the local config directory (`~/.config/actionbook/extension/`).
+Download and install the Chrome extension from GitHub Releases to `~/.actionbook/extension/`.
 
 - `--force` — Reinstall even if already installed at the same or newer version
-
-### `actionbook extension serve`
-
-Start the WebSocket bridge server for CLI-to-browser communication.
-
-- `--port PORT` — WebSocket port (default: `19222`)
-
-<Note>
-  This command runs in the foreground. Keep the terminal open while using extension mode.
-</Note>
 
 ### `actionbook extension status`
 
 Check if the bridge server is running.
 
+- `--port PORT` — Bridge server port to check (default: `19222`)
+
 ### `actionbook extension ping`
 
 Send a heartbeat to the bridge server and measure round-trip latency.
+
+- `--port PORT` — Bridge server port (default: `19222`)
+
+### `actionbook extension stop`
+
+Stop the running bridge server.
+
+- `--port PORT` — Bridge server port (default: `19222`)
 
 ### `actionbook extension path`
 
@@ -82,6 +82,10 @@ Print the extension installation directory.
 ### `actionbook extension uninstall`
 
 Remove installed extension files.
+
+<Note>
+  The bridge server auto-starts when you run any browser command with `--browser-mode=extension`. Manual management with `serve`/`stop` is rarely needed.
+</Note>
 
 ---
 
@@ -132,6 +136,22 @@ actionbook browser fill [selector] [value]
 
 These flags apply to all `actionbook browser` subcommands:
 
-- `--extension` — Route browser commands through the extension bridge instead of launching a new browser. Requires `actionbook extension serve` to be running.
-- `--extension-port PORT` — Bridge server port (default: `19222`). Use when running the bridge on a non-default port.
+- `--browser-mode=extension` — Route browser commands through the extension bridge instead of launching a new browser. The bridge auto-starts when needed.
 - `--json` — Output results in JSON format.
+
+You can also set extension mode permanently via config:
+
+```toml
+# ~/.actionbook/config.toml
+[browser]
+mode = "extension"
+
+[browser.extension]
+port = 19222
+```
+
+Or via environment variable:
+
+```bash
+export ACTIONBOOK_BROWSER_MODE=extension
+```
