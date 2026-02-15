@@ -29,31 +29,20 @@ openclaw skills check
 Quick smoke test:
 
 ```bash
-actionbook search "airbnb search listings tokyo" --domain airbnb.com
+actionbook search "github repo stars" --domain github.com
 ```
 
 You should see at least one result with an `ID`.
 
-## Step 3: Disable OpenClaw built-in browser and route browser tasks to Actionbook
+## Step 3: Disable OpenClaw built-in browser and set browser workflow to Actionbook
 
-Disable the built-in OpenClaw browser:
+Disable the built-in browser:
 
 ```bash
 openclaw config set browser.enabled false --json
 ```
 
-Then update `tools.deny` in `~/.openclaw/openclaw.json`:
-
-- If `tools.deny` is empty/unset, set it to include `"browser"`
-- If `tools.deny` already has entries, append `"browser"` (do not replace other rules)
-
-Apply changes:
-
-```bash
-openclaw gateway restart
-```
-
-Add this instruction to `~/.openclaw/workspace/TOOLS.md`:
+Then add this instruction to `~/.openclaw/workspace/TOOLS.md`:
 
 ```markdown
 ## Browser automation preference
@@ -62,7 +51,7 @@ Add this instruction to `~/.openclaw/workspace/TOOLS.md`:
 - Follow: `actionbook search` -> `actionbook get` -> operate.
 ```
 
-Restart once after editing `TOOLS.md`:
+Apply changes:
 
 ```bash
 openclaw gateway restart
@@ -73,7 +62,7 @@ openclaw gateway restart
 Ask OpenClaw:
 
 ```text
-Use Actionbook to find the best action manual for Airbnb search, then give me the exact selectors and field values to execute.
+Visit github.com/actionbook/actionbook and tell me how many stars it has.
 ```
 
 ## Next Steps
