@@ -121,6 +121,15 @@ actionbook browser hover "<selector>"          # Hover
 actionbook browser press Enter                 # Press key
 ```
 
+### Scrolling
+
+```bash
+actionbook browser scroll down                 # Scroll down one viewport
+actionbook browser scroll up                   # Scroll up one viewport
+actionbook browser scroll bottom / top         # Scroll to page bottom/top
+actionbook browser scroll to "<selector>"      # Scroll element into view
+```
+
 ### Observation
 
 ```bash

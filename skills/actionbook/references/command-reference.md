@@ -112,6 +112,20 @@ actionbook browser inspect <x> <y>                     # Inspect DOM element at 
 actionbook browser inspect <x> <y> --desc "login btn"  # With description hint
 ```
 
+### Scrolling
+
+```bash
+actionbook browser scroll down                 # Scroll down one viewport height
+actionbook browser scroll down 500             # Scroll down 500px
+actionbook browser scroll up                   # Scroll up one viewport height
+actionbook browser scroll up 300               # Scroll up 300px
+actionbook browser scroll bottom               # Scroll to page bottom
+actionbook browser scroll top                  # Scroll to page top
+actionbook browser scroll to "<selector>"      # Scroll element into view (centered)
+actionbook browser scroll to "<selector>" --align start  # Align: start, center, end, nearest
+actionbook browser scroll down --smooth        # Smooth scrolling (works with all directions)
+```
+
 ### Cookie Management
 
 ```bash
@@ -121,7 +135,10 @@ actionbook browser cookies get "<name>"        # Get specific cookie by name
 actionbook browser cookies set "<name>" "<value>"              # Set cookie
 actionbook browser cookies set "<name>" "<value>" --domain ".example.com"  # Set with domain
 actionbook browser cookies delete "<name>"     # Delete specific cookie
-actionbook browser cookies clear               # Clear all cookies
+actionbook browser cookies clear               # Clear all cookies for current page
+actionbook browser cookies clear --domain ".example.com"       # Clear cookies for specific domain
+actionbook browser cookies clear --dry-run     # Preview which cookies would be cleared
+actionbook browser cookies clear -y            # Skip confirmation prompt
 ```
 
 ## Configuration
@@ -134,14 +151,20 @@ actionbook config get <key>                    # Get specific config value
 actionbook config set <key> <value>            # Set config value
 actionbook config edit                         # Open config in $EDITOR
 actionbook config path                         # Show config file location
+actionbook config reset                        # Reset configuration (delete config file)
 ```
 
 **Config keys:**
 - `api.base_url` - API endpoint (default: https://api.actionbook.dev)
 - `api.api_key` - API authentication key
+- `browser.mode` - Browser mode: `isolated` (dedicated debug browser) or `extension` (user's Chrome via bridge)
 - `browser.executable` - Browser path override
-- `browser.default_profile` - Default profile name
+- `browser.default_profile` - Default profile name (default: "actionbook")
 - `browser.headless` - Headless mode (true/false)
+- `browser.extension.port` - Extension bridge WebSocket port (default: 19222)
+- `browser.extension.auto_install` - Auto-install extension on first use (default: true)
+- `browser.backend` - Browser backend: `cdp` or `camofox`
+- `browser.camofox.port` - Camoufox server port (default: 9377)
 
 ### profile - Manage browser profiles
 
@@ -151,6 +174,34 @@ actionbook profile create <name>               # Create new profile
 actionbook profile create <name> --cdp-port 9222  # With specific CDP port
 actionbook profile delete <name>               # Delete profile
 actionbook profile show <name>                 # Show profile details
+```
+
+## Extension Management
+
+Manage the Chrome Extension bridge for controlling the user's existing browser.
+
+```bash
+actionbook extension status                    # Check if the bridge server is running
+actionbook extension status --port 19222       # Check on specific port
+actionbook extension ping                      # Ping the extension through the bridge
+actionbook extension install                   # Download and install the Chrome extension
+actionbook extension install --force           # Force reinstall even if same version
+actionbook extension stop                      # Stop the running bridge server
+actionbook extension path                      # Print the extension install directory
+actionbook extension uninstall                 # Remove the installed extension
+```
+
+## Setup
+
+Initial setup wizard for configuring Actionbook.
+
+```bash
+actionbook setup                               # Interactive setup wizard
+actionbook setup --target claude               # Set up for specific platform (claude, codex, cursor, windsurf, antigravity, opencode, standalone, all)
+actionbook setup --api-key <key>               # Provide API key non-interactively
+actionbook setup --browser isolated            # Set browser mode (isolated or extension)
+actionbook setup --non-interactive             # Skip interactive prompts
+actionbook setup --reset                       # Reset existing configuration and start fresh
 ```
 
 ## Global Flags
@@ -164,18 +215,33 @@ actionbook --verbose <command>                 # Enable verbose logging
 actionbook -P <profile> <command>              # Use specific browser profile
 actionbook --cdp <port|url> <command>          # Connect via CDP port or WebSocket URL
 actionbook --browser-path <path> <command>     # Override browser executable path
+actionbook --api-key <key> <command>           # API key for authenticated access
+actionbook --browser-mode isolated <command>   # Use dedicated debug browser (default)
+actionbook --browser-mode extension <command>  # Use Chrome Extension bridge with user's browser
+actionbook --stealth <command>                 # Enable stealth mode
+actionbook --stealth-os <os> <command>         # Stealth OS profile: windows, macos-intel, macos-arm, linux
+actionbook --stealth-gpu <gpu> <command>       # Stealth GPU profile (e.g., nvidia-rtx4080, apple-m4-max)
+actionbook --camofox <command>                 # Use Camoufox browser backend
+actionbook --camofox-port <port> <command>     # Camoufox server port
 ```
 
 ## Environment Variables
 
 ```bash
-ACTIONBOOK_API_URL="https://api.actionbook.dev"  # API endpoint
-ACTIONBOOK_API_KEY="your-key"                     # API authentication key
+ACTIONBOOK_API_KEY="your-key"                     # API key for authenticated access
 ACTIONBOOK_BROWSER_PATH="/path/to/chrome"         # Browser executable
+ACTIONBOOK_BROWSER_MODE="isolated"                # Browser mode: isolated or extension
 ACTIONBOOK_CDP="9222"                             # CDP port or WebSocket URL
 ACTIONBOOK_PROFILE="default"                      # Default profile name
 ACTIONBOOK_HEADLESS="true"                        # Headless mode
+ACTIONBOOK_STEALTH="true"                         # Enable stealth mode
+ACTIONBOOK_STEALTH_OS="macos-arm"                 # Stealth OS profile
+ACTIONBOOK_STEALTH_GPU="apple-m4-max"             # Stealth GPU profile
+ACTIONBOOK_CAMOFOX="true"                         # Use Camoufox backend
+ACTIONBOOK_CAMOFOX_PORT="9377"                    # Camoufox server port
 ```
+
+> **Note:** `ACTIONBOOK_API_URL` is recognized by the MCP Server and JS SDK (`@actionbookdev/mcp`, `@actionbookdev/sdk`) but **not** by the Rust CLI. For the CLI, use `actionbook config set api.base_url <url>` instead.
 
 ## Practical Examples
 
