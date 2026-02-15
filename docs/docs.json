@@ -70,7 +70,7 @@
     "primary": {
       "type": "button",
       "label": "Get Started",
-      "href": "/dashboard"
+      "href": "https://actionbook.dev/dashboard"
     }
   },
   "footer": {
