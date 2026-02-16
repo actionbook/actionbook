@@ -15,6 +15,16 @@ The CLI allows you (and your agents) to search for actions, inspect them, and pe
 npm install -g @actionbookdev/cli
 ```
 
+### Initial Setup (Recommended)
+
+Run setup once after installation:
+
+```bash
+actionbook setup
+```
+
+This configures API key and browser preferences, then you can use the same `actionbook browser ...` commands in daily usage.
+
 ### Core Commands
 
 #### Search Actions
@@ -49,8 +59,8 @@ actionbook browser fill 'input[name="location"]' 'Tokyo'
 ```
 
 <Tip>
-  **Want to use your existing Chrome?** Add `--extension` to any browser command
-  to connect to your current browser with all login sessions intact.
+  **Want to use your existing Chrome?** Run `actionbook setup` and choose extension mode once.
+  After that, keep using normal `actionbook browser ...` commands with your existing login sessions.
   See the [Browser Automation Guide](/guides/browser) for setup and all available commands.
 </Tip>
 
