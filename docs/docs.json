@@ -73,6 +73,9 @@
       "href": "https://actionbook.dev/dashboard"
     }
   },
+  "contextual": {
+    "options": ["copy", "view", "chatgpt", "claude", "perplexity"]
+  },
   "footer": {
     "socials": {
       "github": "https://github.com/actionbook",
