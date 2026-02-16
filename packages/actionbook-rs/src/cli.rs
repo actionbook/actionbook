@@ -182,6 +182,10 @@ pub enum Commands {
         /// Reset existing configuration and start fresh
         #[arg(long)]
         reset: bool,
+
+        /// Check if setup is complete (exit code 0 = configured, 1 = not configured)
+        #[arg(long)]
+        check: bool,
     },
 }
 
@@ -594,6 +598,7 @@ impl Cli {
                 browser,
                 non_interactive,
                 reset,
+                check,
             } => {
                 commands::setup::run(
                     self,
@@ -603,6 +608,7 @@ impl Cli {
                         browser: *browser,
                         non_interactive: *non_interactive,
                         reset: *reset,
+                        check: *check,
                     },
                 )
                 .await

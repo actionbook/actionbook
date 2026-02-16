@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import path from "path";
 import fs from "fs";
+import os from "os";
 
 const postinstallPath = path.resolve(__dirname, "..", "scripts", "postinstall.js");
 
@@ -113,6 +114,92 @@ describe("postinstall.js", () => {
           expect(chmodSpy).not.toHaveBeenCalled();
         }
       }
+    });
+  });
+
+  describe("isSetupComplete", () => {
+    let existsSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      existsSpy = vi.spyOn(fs, "existsSync");
+    });
+
+    afterEach(() => {
+      existsSpy.mockRestore();
+    });
+
+    it("returns false when config file does not exist", () => {
+      existsSpy.mockReturnValue(false);
+      expect(postinstall.isSetupComplete()).toBe(false);
+    });
+
+    it("returns true when config file exists", () => {
+      existsSpy.mockReturnValue(true);
+      expect(postinstall.isSetupComplete()).toBe(true);
+    });
+  });
+
+  describe("isNonInteractive", () => {
+    const originalEnv = process.env;
+    const originalIsTTY = process.stdout.isTTY;
+
+    afterEach(() => {
+      process.env = originalEnv;
+      Object.defineProperty(process.stdout, "isTTY", {
+        value: originalIsTTY,
+        writable: true,
+      });
+    });
+
+    it("returns true when CI=true", () => {
+      process.env = { ...originalEnv, CI: "true" };
+      Object.defineProperty(process.stdout, "isTTY", {
+        value: true,
+        writable: true,
+      });
+      expect(postinstall.isNonInteractive()).toBe(true);
+    });
+
+    it("returns true when stdout is not a TTY", () => {
+      process.env = { ...originalEnv };
+      delete process.env.CI;
+      delete process.env.NON_INTERACTIVE;
+      Object.defineProperty(process.stdout, "isTTY", {
+        value: undefined,
+        writable: true,
+      });
+      expect(postinstall.isNonInteractive()).toBe(true);
+    });
+
+    it("returns true when NON_INTERACTIVE=true", () => {
+      process.env = { ...originalEnv, NON_INTERACTIVE: "true" };
+      Object.defineProperty(process.stdout, "isTTY", {
+        value: true,
+        writable: true,
+      });
+      expect(postinstall.isNonInteractive()).toBe(true);
+    });
+  });
+
+  describe("printSetupHint", () => {
+    let consoleSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      consoleSpy.mockRestore();
+    });
+
+    it("prints nothing when setup is already complete", () => {
+      postinstall.printSetupHint(true);
+      expect(consoleSpy).not.toHaveBeenCalled();
+    });
+
+    it("prints setup hint when setup is not complete", () => {
+      postinstall.printSetupHint(false);
+      expect(consoleSpy).toHaveBeenCalled();
     });
   });
 });

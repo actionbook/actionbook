@@ -24,6 +24,7 @@ pub struct SetupArgs<'a> {
     pub browser: Option<BrowserMode>,
     pub non_interactive: bool,
     pub reset: bool,
+    pub check: bool,
 }
 
 /// Run the setup wizard. Orchestrates all steps in order.
@@ -31,9 +32,18 @@ pub struct SetupArgs<'a> {
 /// Quick mode: if `--target` is provided without other flags, only run
 /// `npx skills add` for the specified target, skipping the full wizard.
 pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
-    // Quick mode: --target only → run npx skills add and exit
+    // Check mode: inspect current setup status and exit
+    if args.check {
+        return run_check(cli);
+    }
+
+    // Quick mode: --target only (without --non-interactive) → run npx skills add and exit
+    // When --non-interactive is also provided, fall through to the full wizard
+    // so the agent gets both config setup and skills installation for the target.
     if let Some(t) = args.target {
-        return run_target_only(cli, t).await;
+        if !args.non_interactive {
+            return run_target_only(cli, t).await;
+        }
     }
 
     // Handle existing config (re-run protection)
@@ -126,7 +136,12 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
         print_step_connector();
         print_step_header(6, "Skills");
     }
-    let skills_result = mode::install_skills(cli, &env, args.non_interactive)?;
+    let skills_result = if let Some(target) = args.target {
+        // When --target is combined with --non-interactive, install skills for the specific target
+        mode::install_skills_for_target(cli, &target)?
+    } else {
+        mode::install_skills(cli, &env, args.non_interactive)?
+    };
 
     // Completion summary
     print_completion(cli, &config, &skills_result);
@@ -138,6 +153,108 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Check if setup has been completed. Outputs status and exits with
+/// code 0 if configured, or returns an error (exit code 1) if not.
+///
+/// With `--json`, outputs a structured JSON object with:
+/// - `configured`: whether a config file exists
+/// - `api_key_configured`: whether an API key is set
+/// - `browser_mode`: the configured browser mode
+/// - `config_path`: path to the config file
+/// - `setup_command`: the command to run for non-interactive setup
+fn run_check(cli: &Cli) -> Result<()> {
+    let config_path = Config::config_path();
+    let config_exists = config_path.exists();
+
+    let (api_key_configured, browser_mode, api_key_source) = if config_exists {
+        let config = Config::load()?;
+        let has_key = config.api.api_key.is_some();
+        let mode = format!("{:?}", config.browser.mode).to_lowercase();
+        let source = if has_key {
+            "config"
+        } else if std::env::var("ACTIONBOOK_API_KEY").is_ok() {
+            "env"
+        } else {
+            "none"
+        };
+        (has_key || std::env::var("ACTIONBOOK_API_KEY").is_ok(), mode, source)
+    } else {
+        let has_env_key = std::env::var("ACTIONBOOK_API_KEY").is_ok();
+        let source = if has_env_key { "env" } else { "none" };
+        (has_env_key, "not_configured".to_string(), source)
+    };
+
+    let configured = config_exists && api_key_configured;
+
+    if cli.json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "configured": configured,
+                "config_file_exists": config_exists,
+                "config_path": config_path.display().to_string(),
+                "api_key_configured": api_key_configured,
+                "api_key_source": api_key_source,
+                "browser_mode": browser_mode,
+                "setup_command": "actionbook setup --non-interactive --json",
+                "setup_with_api_key": "actionbook setup --non-interactive --json --api-key <YOUR_KEY>",
+                "available_targets": ["claude", "codex", "cursor", "windsurf", "antigravity", "opencode"],
+            })
+        );
+    } else {
+        if configured {
+            println!(
+                "  {}  Setup is complete.",
+                "✓".green()
+            );
+            println!(
+                "     Config: {}",
+                config_path.display()
+            );
+            println!(
+                "     Browser: {}",
+                browser_mode
+            );
+        } else {
+            println!(
+                "  {}  Setup is not complete.",
+                "✗".red()
+            );
+            if !config_exists {
+                println!(
+                    "     Config file not found at {}",
+                    config_path.display()
+                );
+            }
+            if !api_key_configured {
+                println!("     API key not configured");
+            }
+            println!();
+            println!("  Run setup:");
+            println!(
+                "    {} {}",
+                "$".dimmed(),
+                "actionbook setup".cyan()
+            );
+            println!();
+            println!("  For non-interactive setup (CI/agents):");
+            println!(
+                "    {} {}",
+                "$".dimmed(),
+                "actionbook setup --non-interactive --api-key <YOUR_KEY>".cyan()
+            );
+        }
+    }
+
+    if configured {
+        Ok(())
+    } else {
+        Err(ActionbookError::SetupError(
+            "Setup not complete".to_string(),
+        ))
+    }
 }
 
 const TOTAL_STEPS: u8 = 6;
