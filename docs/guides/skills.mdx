@@ -1,0 +1,44 @@
+---
+title: 'Skills'
+description: 'Install and use core Actionbook skills'
+---
+
+Skills give your AI agent reusable instructions for how to use Actionbook correctly.
+
+## Install core skills
+
+Install the Actionbook core skill:
+
+```bash
+npx skills add actionbook/actionbook
+```
+
+Install the Active Research skill:
+
+```bash
+npx skills add actionbook/active-research
+```
+
+## What each skill does
+
+### `actionbook/actionbook`
+
+Core browser-operation workflow for agents:
+
+- `actionbook search` to find relevant manuals
+- `actionbook get` to fetch verified selectors
+- execute browser actions with less selector guesswork
+
+### `actionbook/active-research`
+
+Research workflow for deep analysis and report generation:
+
+- structured multi-source collection
+- selector-aware browsing with Actionbook
+- output-ready report workflow for long-form research
+
+## Example prompt
+
+```text
+Use Actionbook skill workflow: search first, then get the best manual, then execute browser actions.
+```

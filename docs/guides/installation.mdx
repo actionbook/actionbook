@@ -1,9 +1,9 @@
 ---
 title: 'Installation'
-description: 'How to install Actionbook'
+description: 'Install Actionbook CLI and run setup'
 ---
 
-Install the Actionbook CLI to give any AI agent reliable browser automation. No API key is required for the CLI during open beta.
+Install Actionbook CLI to use Actionbook from terminal and AI agents.
 
 ## Prerequisites
 
@@ -11,28 +11,25 @@ Install the Actionbook CLI to give any AI agent reliable browser automation. No 
 
 <Tip>Check your Node.js version with `node --version`</Tip>
 
-## Install the CLI
+## Step 1: Install the CLI
 
 ```bash
 npm install -g @actionbookdev/cli
+actionbook --version
 ```
 
-The CLI uses your existing system browser (Chrome, Brave, Edge, Arc, Chromium) — no extra browser install needed.
+The CLI uses your existing system browser (Chrome, Brave, Edge, Arc, Chromium).
 
-Once installed, use the `actionbook` command directly or let your AI agent call it.
-
-## Add the Skill (Optional)
-
-For tighter AI agent integration, add the Actionbook skill to your project:
+## Step 2: Run setup
 
 ```bash
-npx skills add actionbook/actionbook
+actionbook setup
 ```
 
-## Advanced Integrations (Optional)
+Setup helps install/configure skills for your agent environment.
 
-If you need programmatic access or IDE-level integration:
+## Next
 
-- [MCP Server Guide](/guides/mcp-server) — connect Actionbook to MCP-compatible IDEs
-- [SDK Integration Guide](/guides/sdk-integration) — use `@actionbookdev/sdk` in your own code
-- [Browser Automation Guide](/guides/browser)
+- [Skills](/guides/skills)
+- [CLI Commands](/api-reference/cli)
+- [Browser Modes](/guides/browser)

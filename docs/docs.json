@@ -14,35 +14,26 @@
         "tab": "Documentation",
         "groups": [
           {
-            "group": "Welcome",
+            "group": "Getting Started",
             "pages": ["index", "quickstart", "openclaw"]
           },
           {
-            "group": "Guides",
+            "group": "CLI",
             "pages": [
               "guides/installation",
-              "guides/cli-and-skills",
-              "guides/browser",
-              "guides/mcp-server",
-              "guides/sdk-integration"
+              "guides/skills",
+              "api-reference/cli",
+              "guides/browser"
             ]
           },
           {
-            "group": "Examples",
-            "pages": ["examples"]
-          },
-          {
-            "group": "Community",
-            "pages": ["community/contributing"]
-          }
-        ]
-      },
-      {
-        "tab": "API Reference",
-        "groups": [
-          {
-            "group": "CLI",
-            "pages": ["api-reference/cli"]
+            "group": "Advanced",
+            "pages": [
+              "examples",
+              "guides/mcp-server",
+              "guides/sdk-integration",
+              "community/contributing"
+            ]
           }
         ]
       }
