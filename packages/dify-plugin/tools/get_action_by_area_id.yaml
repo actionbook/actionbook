@@ -1,0 +1,37 @@
+identity:
+  name: get_action_by_area_id
+  author: Actionbook Team
+  label:
+    en_US: Get Action Details
+    zh_CN: 获取操作详情
+  description:
+    en_US: |
+      Retrieve full action details by area ID.
+      Returns complete selector information, allowed methods, and element structure.
+    zh_CN: |
+      通过 area ID 获取完整的操作详情。
+      返回完整的选择器信息、允许的方法和元素结构。
+
+parameters:
+  - name: area_id
+    type: text-input
+    required: true
+    label:
+      en_US: Area ID
+      zh_CN: 区域 ID
+    description:
+      en_US: |
+        Area ID in format: site:path:area
+        Example: "github.com:login:email-input"
+      zh_CN: |
+        区域 ID 格式：site:path:area
+        示例："github.com:login:email-input"
+    placeholder:
+      en_US: e.g., "github.com:login:email-input"
+    form_type: text-input
+
+output:
+  type: text-output
+  label:
+    en_US: Action Details
+    zh_CN: 操作详情
