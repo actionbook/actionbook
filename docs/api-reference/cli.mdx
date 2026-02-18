@@ -47,47 +47,27 @@ actionbook get [actionId]
 actionbook get "site/airbnb.com/page/home/element/search-button"
 ```
 
-## `actionbook extension`
+## `actionbook setup`
 
-Browser extension bridge management commands.
+Initial setup wizard for API key, browser preferences, health checks, and optional skills install.
 
-### `actionbook extension install`
+Run this once, then use the same `actionbook browser ...` commands regardless of mode.
 
-Download and install the Chrome extension from GitHub Releases to the local config directory (`~/.config/actionbook/extension/`).
+**Usage:**
 
-- `--force` — Reinstall even if already installed at the same or newer version
-
-### `actionbook extension serve`
-
-Start the WebSocket bridge server for CLI-to-browser communication.
-
-- `--port PORT` — WebSocket port (default: `19222`)
-
-<Note>
-  This command runs in the foreground. Keep the terminal open while using extension mode.
-</Note>
-
-### `actionbook extension status`
-
-Check if the bridge server is running.
-
-### `actionbook extension ping`
-
-Send a heartbeat to the bridge server and measure round-trip latency.
-
-### `actionbook extension path`
-
-Print the extension installation directory.
-
-### `actionbook extension uninstall`
-
-Remove installed extension files.
+```bash
+actionbook setup
+```
 
 ---
 
 ## `actionbook browser`
 
 Browser automation commands.
+
+<Note>
+  After `actionbook setup`, browser command syntax is identical across modes.
+</Note>
 
 ### `actionbook browser open`
 
@@ -132,6 +112,4 @@ actionbook browser fill [selector] [value]
 
 These flags apply to all `actionbook browser` subcommands:
 
-- `--extension` — Route browser commands through the extension bridge instead of launching a new browser. Requires `actionbook extension serve` to be running.
-- `--extension-port PORT` — Bridge server port (default: `19222`). Use when running the bridge on a non-default port.
 - `--json` — Output results in JSON format.

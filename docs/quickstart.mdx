@@ -3,37 +3,39 @@ title: 'Quickstart'
 description: 'Get started with Actionbook in minutes'
 ---
 
-Get started with Actionbook in under 2 minutes using the CLI.
+Goal: run your first `actionbook browser` workflow with a working local setup in under 2 minutes.
 
-## Step 1: Install the CLI
+## Quick Setup (CLI)
 
-Install the CLI globally to use Actionbook from the command line or with any AI agent.
+1. Install the CLI:
 
 ```bash
 npm install -g @actionbookdev/cli
 ```
 
-The Rust-based CLI uses your existing system browser (Chrome, Brave, Edge, Arc, Chromium), so no extra browser install step is required.
-
-## Step 2: Use with Any AI Agent
-
-When working with any AI coding assistant (Claude Code, Cursor, etc.), simply add this to your prompt:
-
-```text
-Use Actionbook to understand and operate the web page.
-```
-
-The agent will automatically use the CLI to fetch action manuals and execute browser operations.
-
-## Step 3: Add the Skill (Optional)
-
-For enhanced integration with AI agents, adding the Actionbook skill is recommended:
+2. Run the setup wizard (recommended):
 
 ```bash
-npx skills add actionbook/actionbook
+actionbook setup
 ```
 
-This installs the skill configuration directly into your project's `.skills` or `.agent` directory, allowing agents to better understand how to use Actionbook's capabilities.
+`setup` configures API key, browser mode, health checks, and optional agent skill installation in one flow.
+
+3. Run your first browser commands:
+
+```bash
+actionbook browser open "https://example.com"
+actionbook browser snapshot
+actionbook browser close
+```
+
+If `snapshot` returns the page structure, your local setup is ready.
+
+## What You Have
+
+- Actionbook CLI installed
+- Local config written to `~/.actionbook/config.toml`
+- Browser automation verified with `actionbook browser ...`
 
 ## Next Steps
 

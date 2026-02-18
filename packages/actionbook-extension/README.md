@@ -10,7 +10,7 @@ Chrome extension that bridges the Actionbook CLI with your browser for AI-powere
 actionbook extension install
 ```
 
-This downloads the latest release from GitHub and installs it to `~/.config/actionbook/extension/`.
+This downloads the latest release from GitHub and installs it to `~/.actionbook/extension/`.
 
 ### Option 2: Manual download
 
@@ -50,14 +50,22 @@ actionbook extension ping
 
 ### Run commands in extension mode
 
-Add `--extension` to any browser command (or set `ACTIONBOOK_EXTENSION=1`):
+Recommended: run setup once and choose extension mode:
 
 ```bash
-actionbook --extension browser open "https://example.com"
-actionbook --extension browser fill "#username" "demo"
-actionbook --extension browser click "button[type='submit']"
-actionbook --extension browser screenshot result.png
+actionbook setup
 ```
+
+After setup, run browser commands normally (no extra mode flags):
+
+```bash
+actionbook browser open "https://example.com"
+actionbook browser fill "#username" "demo"
+actionbook browser click "button[type='submit']"
+actionbook browser screenshot result.png
+```
+
+If you need to switch modes later, run `actionbook setup` again.
 
 See the full command reference in the [main README](../../README.md).
 
@@ -103,10 +111,10 @@ The CLI and extension are versioned independently. Compatibility is guaranteed b
 
 1. **`Ping failed` / `not running`** - The bridge auto-starts with browser commands. Ensure the extension is loaded in Chrome. Check status with `actionbook extension status`.
 
-2. **Port conflict** - If the bridge fails to start, check if port 19222 is in use. Stop conflicting processes or use a different port in `~/.actionbook/config.toml`.
+2. **Port conflict** - Browser mode uses fixed bridge address `ws://127.0.0.1:19222`. If startup fails, free that port and retry (macOS/Linux: `lsof -i :19222`).
 
 3. **`No tab attached`** - Make sure Chrome has a visible tab. Run `open` or `goto` first.
 
 4. **GitHub rate limit on install** - Anonymous API allows 60 requests/hour. Wait and retry, or download the `.zip` manually from the [Releases page](https://github.com/actionbook/actionbook/releases).
 
-5. **Offline install** - Download the `.zip` from another machine, unzip to `~/.config/actionbook/extension/`, then run `actionbook extension install --force` to register native messaging.
+5. **Offline install** - Download the `.zip` from another machine, unzip to `~/.actionbook/extension/`, then load it as an unpacked extension in `chrome://extensions`.
