@@ -2526,7 +2526,8 @@ function renderNode(node: ReportJSON, options: RenderOptions = { showLanguageSwi
         const brandHeaderIndex = children.findIndex((child) => child.type === 'BrandHeader');
         renderedChildren.splice(brandHeaderIndex + 1, 0, heroHtml);
       } else {
-        renderedChildren.splice(1, 0, heroHtml);
+        const insertIndex = reportOptions.showLanguageSwitcher ? 1 : 0;
+        renderedChildren.splice(insertIndex, 0, heroHtml);
       }
       return renderedChildren.join('\n');
     }
