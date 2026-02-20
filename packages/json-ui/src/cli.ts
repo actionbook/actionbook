@@ -2467,6 +2467,32 @@ function renderHero(report: ReportJSON, title: I18nValue): string {
   </section>`;
 }
 
+type RenderOptions = {
+  showLanguageSwitcher: boolean;
+};
+
+function hasBilingualContent(value: unknown): boolean {
+  if (isI18n(value)) {
+    return Boolean(String(value.zh ?? '').trim());
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => hasBilingualContent(item));
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).some((entry) => hasBilingualContent(entry));
+  }
+
+  return false;
+}
+
+function getRenderOptions(report: ReportJSON): RenderOptions {
+  return {
+    showLanguageSwitcher: hasBilingualContent(report),
+  };
+}
+
 function renderLanguageSwitcher(extraClass = ''): string {
   const cls = extraClass ? `lang-switcher ${extraClass}` : 'lang-switcher';
   return `<div class="${cls}">
@@ -2475,17 +2501,18 @@ function renderLanguageSwitcher(extraClass = ''): string {
   </div>`;
 }
 
-function renderNode(node: ReportJSON): string {
+function renderNode(node: ReportJSON, options: RenderOptions = { showLanguageSwitcher: true }): string {
   const { type, props = {}, children = [] } = node;
-  const childrenHtml = children.map(renderNode).join('\n');
+  const childrenHtml = children.map((child) => renderNode(child, options)).join('\n');
 
   switch (type) {
     case 'Report': {
+      const reportOptions = getRenderOptions(node);
       const hasPaperHeader = children.some((child) => child.type === 'PaperHeader');
       const hasBrandHeader = children.some((child) => child.type === 'BrandHeader');
-      const renderedChildren = children.map(renderNode);
+      const renderedChildren = children.map((child) => renderNode(child, reportOptions));
 
-      if (!hasBrandHeader) {
+      if (!hasBrandHeader && reportOptions.showLanguageSwitcher) {
         renderedChildren.unshift(`<div class="fallback-lang-row">${renderLanguageSwitcher('lang-switcher-fallback')}</div>`);
       }
 
@@ -2508,7 +2535,7 @@ function renderNode(node: ReportJSON): string {
       const badge = resolveBrandBadge(props.badge);
       return `<div class="brand-header">
         <span>${renderI18n(badge)}</span>
-        ${renderLanguageSwitcher()}
+        ${options.showLanguageSwitcher ? renderLanguageSwitcher() : ''}
       </div>`;
     }
 
