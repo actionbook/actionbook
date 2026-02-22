@@ -18,20 +18,13 @@ classifiers = [
 
 dependencies = [
     "requests>=2.31.0",
-    "dify-plugin>=0.1.0",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0.0",
-    "pytest-cov>=4.1.0",
-    "ruff>=0.1.0",
+    "dify-plugin>=0.5.1,<0.6.0",
 ]
 
 [project.urls]
 Homepage = "https://actionbook.dev"
 Documentation = "https://docs.actionbook.dev"
-Repository = "https://github.com/actionbook/dify-plugins"
+Repository = "https://github.com/actionbook/actionbook"
 Issues = "https://linear.app/cue-labs"
 
 [build-system]
@@ -58,11 +51,16 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
-addopts = "-v --cov --cov-report=term-missing"
+addopts = "-v --cov --cov-report=term-missing -m 'not integration and not e2e'"
+markers = [
+    "integration: tests that make real HTTP calls to api.actionbook.dev",
+    "e2e: end-to-end tests requiring a running Dify instance",
+]
 
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
+    "pytest-timeout>=2.3.1",
     "ruff>=0.15.0",
 ]

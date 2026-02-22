@@ -1,62 +1,82 @@
 identity:
   name: search_actions
-  author: Actionbook Team
+  author: actionbook
   label:
     en_US: Search Actions
-    zh_CN: 搜索操作手册
-  description:
-    en_US: |
-      Search for website actions by keyword or context.
+    zh_Hans: Search Actions
+description:
+  human:
+    en_US: >
+      Search for website action manuals by keyword.
       Returns verified selectors and operation methods for browser automation.
-    zh_CN: |
-      通过关键词或上下文搜索网站操作手册。
-      返回验证过的选择器和操作方法，用于浏览器自动化。
+    zh_Hans: >
+      Search for website action manuals by keyword.
+      Returns verified selectors and operation methods for browser automation.
+  llm: >
+    Search the Actionbook database for verified website action manuals.
+    Use this tool FIRST when a user needs to automate browser interactions
+    (clicking buttons, filling forms, navigating pages).
 
+    HOW TO USE:
+    1. Call this tool with a descriptive keyword like "github login",
+       "google search box", or "twitter post button".
+    2. The results contain area IDs (format: "site.com:path:area_name").
+    3. Pick the most relevant area ID from the results.
+    4. Then call the "get_action_by_area_id" tool with that area ID
+       to get the full CSS/XPath selectors and interaction instructions.
+
+    TIPS:
+    - Search by task description, not element name
+      (e.g., "arxiv search papers" instead of "search button").
+    - Use the domain parameter to filter results to a specific website.
+    - Default limit is 10 results; increase if needed (max 50).
 parameters:
   - name: query
-    type: text-input
+    type: string
     required: true
     label:
       en_US: Search Query
-      zh_CN: 搜索查询
-    description:
-      en_US: |
-        Keyword or context describing the action you want to perform.
+      zh_Hans: Search Query
+    human_description:
+      en_US: >
+        Keyword or context describing the website action you need.
         Examples: "login form", "submit button", "search bar"
-      zh_CN: |
-        描述要执行操作的关键词或上下文。
-        示例："登录表单"、"提交按钮"、"搜索栏"
-    placeholder:
-      en_US: e.g., "login button on GitHub"
-    form_type: text-input
-
+      zh_Hans: >
+        Keyword or context describing the website action you need.
+        Examples: "login form", "submit button", "search bar"
+    llm_description: >
+      The search keyword describing what website element or action you need.
+      Be specific about the website and the element.
+      Examples: "github login form", "google search button",
+      "arxiv advanced search", "twitter compose tweet".
+    form: llm
   - name: domain
-    type: text-input
+    type: string
     required: false
     label:
-      en_US: Domain (Optional)
-      zh_CN: 域名（可选）
-    description:
+      en_US: Domain Filter
+      zh_Hans: Domain Filter
+    human_description:
       en_US: Filter results by website domain (e.g., "github.com")
-      zh_CN: 按网站域名过滤结果（如 "github.com"）
-    placeholder:
-      en_US: e.g., "github.com"
-    form_type: text-input
-
+      zh_Hans: Filter results by website domain (e.g., "github.com")
+    llm_description: >
+      Optional website domain to narrow search results.
+      Example: "github.com", "arxiv.org", "twitter.com".
+    form: llm
   - name: limit
-    type: number-input
+    type: number
     required: false
     default: 10
     label:
       en_US: Result Limit
-      zh_CN: 结果数量限制
-    description:
-      en_US: Maximum number of results to return (1-50)
-      zh_CN: 返回的最大结果数（1-50）
-    form_type: number-input
-
-output:
-  type: text-output
-  label:
-    en_US: Search Results
-    zh_CN: 搜索结果
+      zh_Hans: Result Limit
+    human_description:
+      en_US: Maximum number of results to return (1-50, default 10)
+      zh_Hans: Maximum number of results to return (1-50, default 10)
+    llm_description: >
+      Maximum number of results to return. Valid range: 1 to 50.
+      Default is 10. Increase for broader searches.
+    form: llm
+extra:
+  python:
+    source: tools/search_actions.py

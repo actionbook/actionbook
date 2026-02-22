@@ -1,42 +1,41 @@
 version: 0.1.0
-type: Plugin
-
-author:
-  name: Actionbook Team
-  email: support@actionbook.dev
-  homepage: https://actionbook.dev
-
+type: plugin
+author: actionbook
 name: actionbook
+created_at: "2026-02-07T00:00:00.000000000Z"
 label:
-  en_US: Actionbook
-  zh_CN: Actionbook 浏览器自动化
-
+  en_US: Actionbook Browser Automation
+  zh_Hans: Actionbook Browser Automation
 description:
-  en_US: |
-    Query verified website selectors and operation manuals for browser automation.
-    Supports AI agents building web scrapers, testing, and data extraction workflows.
-  zh_CN: |
-    查询验证过的网站选择器和操作手册，支持浏览器自动化。
-    为 AI Agent 构建爬虫、测试、数据采集工作流提供准确的页面结构信息。
-
-icon: ./_assets/icon.svg
-
+  en_US: >
+    Query verified website selectors and action manuals for browser automation.
+    Provides AI agents with accurate CSS/XPath selectors and operation methods
+    so they can precisely interact with any website without parsing page structures.
+  zh_Hans: >
+    Query verified website selectors and action manuals for browser automation.
+    Provides AI agents with accurate CSS/XPath selectors and operation methods
+    so they can precisely interact with any website without parsing page structures.
+icon: icon.svg
 tags:
-  - automation
-  - scraping
-  - testing
-  - browser
-
+  - utilities
+  - productivity
+resource:
+  memory: 1048576
+  permission:
+    tool:
+      enabled: true
+    model:
+      enabled: false
+      llm: false
 plugins:
   tools:
-    - ./provider.yaml
-
+    - provider/actionbook.yaml
 meta:
-  version: 1
+  version: 0.0.1
   arch:
     - amd64
     - arm64
   runner:
     language: python
     version: "3.12"
-    entrypoint: _plugin
+    entrypoint: main

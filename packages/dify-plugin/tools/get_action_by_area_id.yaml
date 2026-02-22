@@ -1,37 +1,59 @@
 identity:
   name: get_action_by_area_id
-  author: Actionbook Team
+  author: actionbook
   label:
     en_US: Get Action Details
-    zh_CN: 获取操作详情
-  description:
-    en_US: |
+    zh_Hans: Get Action Details
+description:
+  human:
+    en_US: >
       Retrieve full action details by area ID.
-      Returns complete selector information, allowed methods, and element structure.
-    zh_CN: |
-      通过 area ID 获取完整的操作详情。
-      返回完整的选择器信息、允许的方法和元素结构。
+      Returns complete selector information (CSS, XPath, ARIA),
+      allowed interaction methods, and element structure.
+    zh_Hans: >
+      Retrieve full action details by area ID.
+      Returns complete selector information (CSS, XPath, ARIA),
+      allowed interaction methods, and element structure.
+  llm: >
+    Get the complete action manual for a specific website element.
+    Returns detailed CSS/XPath selectors and interaction instructions
+    that you can use directly for browser automation.
 
+    IMPORTANT: You must call "search_actions" FIRST to find the area ID,
+    then pass it to this tool. Do NOT guess area IDs.
+
+    WORKFLOW:
+    1. Call "search_actions" with a keyword (e.g., "github login").
+    2. Pick the best matching area ID from the search results.
+    3. Call this tool with that area ID.
+    4. Use the returned CSS/XPath selectors to interact with the page.
+
+    The response includes:
+    - Page URL and structure
+    - UI element details (type, description)
+    - Multiple selectors (CSS, XPath, ARIA) with confidence scores
+    - Allowed interaction methods (click, type, select, etc.)
 parameters:
   - name: area_id
-    type: text-input
+    type: string
     required: true
     label:
       en_US: Area ID
-      zh_CN: 区域 ID
-    description:
-      en_US: |
-        Area ID in format: site:path:area
-        Example: "github.com:login:email-input"
-      zh_CN: |
-        区域 ID 格式：site:path:area
-        示例："github.com:login:email-input"
-    placeholder:
-      en_US: e.g., "github.com:login:email-input"
-    form_type: text-input
-
-output:
-  type: text-output
-  label:
-    en_US: Action Details
-    zh_CN: 操作详情
+      zh_Hans: Area ID
+    human_description:
+      en_US: >
+        Area ID from search_actions results.
+        Format: "site:path:area" (e.g., "github.com:login:email-input")
+      zh_Hans: >
+        Area ID from search_actions results.
+        Format: "site:path:area" (e.g., "github.com:login:email-input")
+    llm_description: >
+      The area ID obtained from search_actions results.
+      Format is "site:path:area".
+      Examples: "github.com:login:email-input",
+      "arxiv.org:/search/advanced:default".
+      You MUST call search_actions first to get valid area IDs.
+    form: llm
+extra:
+  python:
+    source: tools/get_action_by_area_id.py

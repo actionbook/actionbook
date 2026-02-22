@@ -101,6 +101,36 @@ Multi-Agent:
 3. Agent C: Extract and summarize papers
 ```
 
+## Agent Configuration
+
+When using Actionbook tools with a **Chatbot + Agent** mode application in Dify:
+
+### Recommended Settings
+
+- **Agent Strategy**: Function Calling (preferred) or ReAct
+- **Model**: GPT-4 / Claude 3.5+ (must support Function Calling)
+- **Maximum Iterations**: 5+ (set to at least 5 for chained tool calls; setting to 1 prevents tool invocation)
+
+### System Prompt Example
+
+Include in your agent's system prompt:
+
+```
+You have access to Actionbook tools for browser automation.
+When a user asks about website elements, selectors, or browser automation:
+1. Use search_actions to find relevant website selectors by keyword
+2. Use get_action_by_area_id with an area_id from the search results to get complete selector details
+```
+
+### Troubleshooting: Agent Not Calling Tools
+
+If the Agent replies directly without invoking tools:
+
+1. **Check Agent Strategy**: Must be "Function Calling" or "ReAct" (not basic chat)
+2. **Check Model**: Must support Function Calling (e.g., GPT-4, Claude 3.5+)
+3. **Check Maximum Iterations**: Must be > 1 (recommended: 5+)
+4. **Add System Prompt**: Explicitly instruct the agent to use Actionbook tools for automation queries
+
 ## Roadmap
 
 **Phase 1** (Current): Query action manuals via API

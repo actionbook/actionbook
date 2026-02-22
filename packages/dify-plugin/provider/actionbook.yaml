@@ -1,0 +1,25 @@
+identity:
+  author: actionbook
+  name: actionbook
+  label:
+    en_US: Actionbook
+    zh_Hans: Actionbook
+  description:
+    en_US: >
+      Access verified website action manuals for browser automation.
+      Provides pre-tested CSS/XPath selectors and interaction methods
+      for AI agents to precisely operate any website.
+    zh_Hans: >
+      Access verified website action manuals for browser automation.
+      Provides pre-tested CSS/XPath selectors and interaction methods
+      for AI agents to precisely operate any website.
+  icon: icon.svg
+  tags:
+    - utilities
+    - productivity
+tools:
+  - tools/search_actions.yaml
+  - tools/get_action_by_area_id.yaml
+extra:
+  python:
+    source: provider/actionbook.py
