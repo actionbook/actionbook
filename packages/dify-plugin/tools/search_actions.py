@@ -1,7 +1,6 @@
 """Search Actions Tool - Query verified website selectors."""
 
 import logging
-import sys
 from collections.abc import Generator
 from typing import Any
 
@@ -30,8 +29,7 @@ class SearchActionsTool(Tool):
         Yields:
             ToolInvokeMessage with search results as formatted text
         """
-        # Debug: log that _invoke was called (visible in Dify Cloud plugin logs)
-        print(f"[search_actions] _invoke called with parameters: {tool_parameters}", file=sys.stderr, flush=True)
+        logger.debug("_invoke called with parameters: %s", tool_parameters)
 
         try:
             query = tool_parameters.get("query", "").strip() if tool_parameters.get("query") else ""
@@ -42,7 +40,11 @@ class SearchActionsTool(Tool):
                 yield self.create_text_message("Error: 'query' parameter is required and cannot be empty.")
                 return
 
-            if not isinstance(limit, (int, float)) or limit < 1 or limit > 50:
+            try:
+                limit = int(limit)
+            except (TypeError, ValueError):
+                limit = 10
+            if limit < 1 or limit > 50:
                 limit = 10
 
             params: dict[str, Any] = {"query": query, "page_size": int(limit)}
@@ -51,7 +53,7 @@ class SearchActionsTool(Tool):
 
             headers = {"Accept": "text/plain"}
 
-            print(f"[search_actions] Making request to {API_BASE_URL}/api/search_actions with params={params}", file=sys.stderr, flush=True)
+            logger.debug("Making request to %s/api/search_actions with params=%s", API_BASE_URL, params)
 
             response = requests.get(
                 f"{API_BASE_URL}/api/search_actions",
@@ -60,7 +62,7 @@ class SearchActionsTool(Tool):
                 timeout=30,
             )
 
-            print(f"[search_actions] Response status={response.status_code}", file=sys.stderr, flush=True)
+            logger.debug("Response status=%s", response.status_code)
 
             if response.status_code == 401:
                 yield self.create_text_message("Error: Unauthorized (401). API key may be invalid.")
@@ -133,15 +135,13 @@ class SearchActionsTool(Tool):
             )
         except Exception as e:
             logger.exception("Unexpected error in search_actions")
-            print(f"[search_actions] Exception type={type(e).__name__}, message={e}", file=sys.stderr, flush=True)
             yield self.create_text_message(
                 f"Error: An unexpected error occurred ({type(e).__name__}: {e}). "
                 "Please check plugin logs for details."
             )
         except BaseException as e:
             # Catch gevent.Timeout and other non-Exception errors
-            logger.critical(f"BaseException in search_actions: {type(e).__name__}: {e}")
-            print(f"[search_actions] BaseException type={type(e).__name__}, message={e}", file=sys.stderr, flush=True)
+            logger.critical("BaseException in search_actions: %s: %s", type(e).__name__, e)
             yield self.create_text_message(
                 f"Error: A system-level error occurred ({type(e).__name__}: {e}). "
                 "This may indicate network restrictions or timeout in Dify Cloud environment. "

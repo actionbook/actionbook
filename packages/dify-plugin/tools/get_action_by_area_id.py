@@ -1,7 +1,6 @@
 """Get Action By Area ID Tool - Retrieve full action details."""
 
 import logging
-import sys
 from collections.abc import Generator
 from typing import Any
 
@@ -28,7 +27,7 @@ class GetActionByAreaIdTool(Tool):
         Yields:
             ToolInvokeMessage with full action details as formatted text
         """
-        print(f"[get_action_by_area_id] _invoke called with parameters: {tool_parameters}", file=sys.stderr, flush=True)
+        logger.debug("_invoke called with parameters: %s", tool_parameters)
 
         try:
             area_id = tool_parameters.get("area_id", "").strip() if tool_parameters.get("area_id") else ""
@@ -47,7 +46,7 @@ class GetActionByAreaIdTool(Tool):
 
             headers = {"Accept": "text/plain"}
 
-            print(f"[get_action_by_area_id] Making request to {API_BASE_URL}/api/get_action_by_area_id with area_id={area_id}", file=sys.stderr, flush=True)
+            logger.debug("Making request to %s/api/get_action_by_area_id with area_id=%s", API_BASE_URL, area_id)
 
             response = requests.get(
                 f"{API_BASE_URL}/api/get_action_by_area_id",
@@ -56,7 +55,7 @@ class GetActionByAreaIdTool(Tool):
                 timeout=30,
             )
 
-            print(f"[get_action_by_area_id] Response status={response.status_code}", file=sys.stderr, flush=True)
+            logger.debug("Response status=%s", response.status_code)
 
             if response.status_code == 404:
                 yield self.create_text_message(f"Action not found for area_id: {area_id}")
@@ -131,14 +130,12 @@ class GetActionByAreaIdTool(Tool):
             )
         except Exception as e:
             logger.exception("Unexpected error in get_action_by_area_id")
-            print(f"[get_action_by_area_id] Exception type={type(e).__name__}, message={e}", file=sys.stderr, flush=True)
             yield self.create_text_message(
                 f"Error: An unexpected error occurred ({type(e).__name__}: {e}). "
                 "Please check plugin logs for details."
             )
         except BaseException as e:
-            logger.critical(f"BaseException in get_action_by_area_id: {type(e).__name__}: {e}")
-            print(f"[get_action_by_area_id] BaseException type={type(e).__name__}, message={e}", file=sys.stderr, flush=True)
+            logger.critical("BaseException in get_action_by_area_id: %s: %s", type(e).__name__, e)
             yield self.create_text_message(
                 f"Error: A system-level error occurred ({type(e).__name__}: {e}). "
                 "This may indicate network restrictions or timeout in Dify Cloud environment. "

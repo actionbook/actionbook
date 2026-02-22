@@ -1,0 +1,75 @@
+identity:
+  name: browser_stop_session
+  author: actionbook
+  label:
+    en_US: Browser Stop Session
+    zh_Hans: Browser Stop Session
+description:
+  human:
+    en_US: >
+      Stop a cloud browser session and release its resources.
+      Call this at the end of a workflow to avoid unnecessary billing.
+      For Hyperbrowser, stopping a session also saves the Profile state
+      (cookies, localStorage) for future sessions using the same profile_id.
+    zh_Hans: >
+      停止云端浏览器会话并释放资源。
+      在工作流结束时调用此工具，避免不必要的计费。
+      对于 Hyperbrowser，停止会话还会保存 Profile 状态
+      （cookies、localStorage），供后续使用相同 profile_id 的会话恢复。
+  llm: >
+    Stop a cloud browser session when the workflow is done.
+    Always call this after completing browser automation to release resources
+    and save browser state to the profile.
+
+    Use the session_id returned by browser_create_session.
+parameters:
+  - name: provider
+    type: select
+    required: false
+    default: hyperbrowser
+    options:
+      - value: hyperbrowser
+        label:
+          en_US: Hyperbrowser
+          zh_Hans: Hyperbrowser
+      - value: steel
+        label:
+          en_US: Steel.dev (coming soon)
+          zh_Hans: Steel.dev (即将支持)
+    label:
+      en_US: Provider
+      zh_Hans: 供应商
+    human_description:
+      en_US: Cloud browser provider (must match the provider used in browser_create_session).
+      zh_Hans: 云端浏览器供应商（必须与 browser_create_session 使用的供应商一致）。
+    llm_description: >
+      Cloud browser provider. Must match the provider used in browser_create_session.
+    form: form
+  - name: api_key
+    type: string
+    required: true
+    label:
+      en_US: Provider API Key
+      zh_Hans: 供应商 API Key
+    human_description:
+      en_US: API key for the cloud browser provider (same as used in browser_create_session).
+      zh_Hans: 云端浏览器供应商的 API Key（与 browser_create_session 中使用的相同）。
+    llm_description: >
+      Provider API key. Use the same key as in browser_create_session.
+    form: llm
+  - name: session_id
+    type: string
+    required: true
+    label:
+      en_US: Session ID
+      zh_Hans: Session ID
+    human_description:
+      en_US: Session ID returned by browser_create_session.
+      zh_Hans: browser_create_session 返回的 Session ID。
+    llm_description: >
+      Session ID from the browser_create_session output. Required to identify
+      which session to stop.
+    form: llm
+extra:
+  python:
+    source: tools/browser_stop_session.py

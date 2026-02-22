@@ -1,4 +1,6 @@
 """Shared constants for Actionbook Dify Plugin."""
 
-# Actionbook API base URL
-API_BASE_URL = "https://api.actionbook.dev"
+import os
+
+# Actionbook API base URL (configurable via environment variable)
+API_BASE_URL = os.environ.get("ACTIONBOOK_API_URL", "https://api.actionbook.dev")

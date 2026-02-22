@@ -20,6 +20,9 @@ identity:
 tools:
   - tools/search_actions.yaml
   - tools/get_action_by_area_id.yaml
+  - tools/browser_create_session.yaml
+  - tools/browser_stop_session.yaml
+  - tools/browser_operator.yaml
 extra:
   python:
     source: provider/actionbook.py
