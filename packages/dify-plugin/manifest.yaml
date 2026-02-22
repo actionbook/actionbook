@@ -1,4 +1,4 @@
-version: 0.1.0
+version: 0.2.0
 type: plugin
 author: actionbook
 name: actionbook
@@ -20,7 +20,7 @@ tags:
   - utilities
   - productivity
 resource:
-  memory: 1048576
+  memory: 268435456
   permission:
     tool:
       enabled: true

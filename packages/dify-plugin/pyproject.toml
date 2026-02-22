@@ -19,6 +19,8 @@ classifiers = [
 dependencies = [
     "requests>=2.31.0",
     "dify-plugin>=0.5.1,<0.6.0",
+    "playwright>=1.40.0",
+    "hyperbrowser>=0.1.0",
 ]
 
 [project.urls]
@@ -63,4 +65,5 @@ dev = [
     "pytest-cov>=7.0.0",
     "pytest-timeout>=2.3.1",
     "ruff>=0.15.0",
+    "tenacity>=8.0.0",
 ]
