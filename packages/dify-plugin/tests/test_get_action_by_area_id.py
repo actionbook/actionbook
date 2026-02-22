@@ -258,6 +258,52 @@ Selectors:
         assert kwargs["params"]["area_id"] == "github.com:login:username-field"
         assert kwargs["headers"]["Accept"] == "text/plain"
 
+    @patch("tools.get_action_by_area_id.requests.get")
+    def test_http_403_status(self, mock_get):
+        """Test handling of HTTP 403 Forbidden status."""
+        mock_response = Mock()
+        mock_response.status_code = 403
+        mock_get.return_value = mock_response
+
+        tool_parameters = {"area_id": "github.com:login:username"}
+        result = list(self.tool._invoke(tool_parameters))
+
+        assert len(result) == 1
+        assert "403" in result[0].message.text
+
+    @patch("tools.get_action_by_area_id.requests.get")
+    def test_connection_error_ssl(self, mock_get):
+        """Test SSL-specific connection error branch."""
+        mock_get.side_effect = requests.ConnectionError("SSL certificate verify failed")
+
+        tool_parameters = {"area_id": "github.com:login:username"}
+        result = list(self.tool._invoke(tool_parameters))
+
+        assert len(result) == 1
+        assert "SSL" in result[0].message.text
+
+    @patch("tools.get_action_by_area_id.requests.get")
+    def test_connection_error_refused(self, mock_get):
+        """Test connection-refused branch."""
+        mock_get.side_effect = requests.ConnectionError("Connection refused")
+
+        tool_parameters = {"area_id": "github.com:login:username"}
+        result = list(self.tool._invoke(tool_parameters))
+
+        assert len(result) == 1
+        assert "refused" in result[0].message.text.lower()
+
+    @patch("tools.get_action_by_area_id.requests.get")
+    def test_connection_error_timeout(self, mock_get):
+        """Test connection timeout branch."""
+        mock_get.side_effect = requests.ConnectionError("Connection timeout")
+
+        tool_parameters = {"area_id": "github.com:login:username"}
+        result = list(self.tool._invoke(tool_parameters))
+
+        assert len(result) == 1
+        assert "timeout" in result[0].message.text.lower()
+
     def test_from_credentials_factory(self):
         """Test tool creation from credentials."""
         credentials = {"actionbook_api_key": "factory_key"}

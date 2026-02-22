@@ -244,6 +244,81 @@ class TestSearchActionsTool:
         assert "X-API-Key" not in kwargs["headers"]
         assert kwargs["headers"]["Accept"] == "text/plain"
 
+    @patch("tools.search_actions.requests.get")
+    def test_http_403_status(self, mock_get):
+        """Test handling of HTTP 403 Forbidden status."""
+        mock_response = Mock()
+        mock_response.status_code = 403
+        mock_get.return_value = mock_response
+
+        tool_parameters = {"query": "test"}
+        result = list(self.tool._invoke(tool_parameters))
+
+        assert len(result) == 1
+        assert "403" in result[0].message.text
+
+    @patch("tools.search_actions.requests.get")
+    def test_connection_error_ssl(self, mock_get):
+        """Test SSL-specific connection error branch."""
+        mock_get.side_effect = requests.ConnectionError("SSL certificate verify failed")
+
+        tool_parameters = {"query": "test"}
+        result = list(self.tool._invoke(tool_parameters))
+
+        assert len(result) == 1
+        assert "SSL" in result[0].message.text
+
+    @patch("tools.search_actions.requests.get")
+    def test_connection_error_refused(self, mock_get):
+        """Test connection-refused branch."""
+        mock_get.side_effect = requests.ConnectionError("Connection refused")
+
+        tool_parameters = {"query": "test"}
+        result = list(self.tool._invoke(tool_parameters))
+
+        assert len(result) == 1
+        assert "refused" in result[0].message.text.lower()
+
+    @patch("tools.search_actions.requests.get")
+    def test_connection_error_timeout(self, mock_get):
+        """Test connection timeout branch."""
+        mock_get.side_effect = requests.ConnectionError("Connection timeout")
+
+        tool_parameters = {"query": "test"}
+        result = list(self.tool._invoke(tool_parameters))
+
+        assert len(result) == 1
+        assert "timeout" in result[0].message.text.lower()
+
+    def test_float_limit_cast_to_int(self):
+        """Test that float limit is cast to int before validation."""
+        tool = _make_tool()
+        with patch("tools.search_actions.requests.get") as mock_get:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.text = "results"
+            mock_get.return_value = mock_response
+
+            # Float 5.7 should be cast to int 5
+            list(tool._invoke({"query": "test", "limit": 5.7}))
+
+            _, kwargs = mock_get.call_args
+            assert kwargs["params"]["page_size"] == 5
+
+    def test_string_limit_defaults_to_10(self):
+        """Test that non-numeric string limit defaults to 10."""
+        tool = _make_tool()
+        with patch("tools.search_actions.requests.get") as mock_get:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.text = "results"
+            mock_get.return_value = mock_response
+
+            list(tool._invoke({"query": "test", "limit": "abc"}))
+
+            _, kwargs = mock_get.call_args
+            assert kwargs["params"]["page_size"] == 10
+
     def test_from_credentials_factory(self):
         """Test tool creation from credentials."""
         credentials = {"actionbook_api_key": "factory_key"}
