@@ -51,16 +51,20 @@ class TestSearchActionsLive:
         assert "No results found" in results[0].message.text
 
     # Parameter validation – these do NOT hit the network
-    def test_empty_query_raises(self, api_key):
-        """Empty query must raise ValueError before any API call."""
+    def test_empty_query_returns_error_message(self, api_key):
+        """Empty query returns an error message (tools yield messages, don't raise)."""
         tool = _make_tool(api_key)
-        with pytest.raises(ValueError, match="query"):
-            list(tool._invoke({"query": "   "}))
+        results = list(tool._invoke({"query": "   "}))
+        assert len(results) == 1
+        assert "Error" in results[0].message.text
+        assert "query" in results[0].message.text.lower()
 
-    def test_limit_out_of_range_raises(self, api_key):
-        """limit=0 and limit=100 must raise ValueError."""
+    def test_limit_out_of_range_defaults_to_10(self, api_key):
+        """Out-of-range limits silently default to 10 (no raise)."""
         tool = _make_tool(api_key)
-        with pytest.raises(ValueError, match="limit"):
-            list(tool._invoke({"query": "test", "limit": 0}))
-        with pytest.raises(ValueError, match="50"):
-            list(tool._invoke({"query": "test", "limit": 100}))
+        # limit=0 should default to 10 and succeed
+        results = list(tool._invoke({"query": "test", "limit": 0}))
+        assert len(results) == 1
+        # limit=100 should default to 10 and succeed
+        results = list(tool._invoke({"query": "test", "limit": 100}))
+        assert len(results) == 1

@@ -168,10 +168,8 @@ class TestProviderLive:
         provider = ActionbookProvider()
         provider._validate_credentials({"actionbook_api_key": api_key})
 
-    def test_invalid_key_fails_validation(self):
-        """An obviously wrong key should raise ToolProviderCredentialValidationError."""
-        from dify_plugin.errors.tool import ToolProviderCredentialValidationError
-
+    def test_invalid_key_passes_validation(self):
+        """_validate_credentials is a no-op (public API) — even a bad key passes."""
         provider = ActionbookProvider()
-        with pytest.raises(ToolProviderCredentialValidationError):
-            provider._validate_credentials({"actionbook_api_key": "bad-key-999"})
+        # Should NOT raise — validation is a no-op for public API access
+        provider._validate_credentials({"actionbook_api_key": "bad-key-999"})

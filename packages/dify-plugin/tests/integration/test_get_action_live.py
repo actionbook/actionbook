@@ -37,24 +37,28 @@ class TestGetActionLive:
         assert len(results) == 1
         assert "not found" in results[0].message.text.lower()
 
-    # Parameter validation – no network
-    def test_empty_area_id_raises(self, api_key):
-        """Empty area_id must raise ValueError."""
+    # Parameter validation – no network (tools yield messages, don't raise)
+    def test_empty_area_id_returns_error_message(self, api_key):
+        """Empty area_id returns an error message."""
         tool = _make_get_tool(api_key)
-        with pytest.raises(ValueError, match="required"):
-            list(tool._invoke({"area_id": ""}))
+        results = list(tool._invoke({"area_id": ""}))
+        assert len(results) == 1
+        assert "Error" in results[0].message.text
+        assert "area_id" in results[0].message.text.lower()
 
-    def test_invalid_format_raises(self, api_key):
-        """area_id without 3 colon-separated parts must raise ValueError."""
+    def test_invalid_format_returns_error_message(self, api_key):
+        """area_id without 3 colon-separated parts returns an error message."""
         tool = _make_get_tool(api_key)
-        with pytest.raises(ValueError, match="Invalid area_id format"):
-            list(tool._invoke({"area_id": "only-one-part"}))
+        results = list(tool._invoke({"area_id": "only-one-part"}))
+        assert len(results) == 1
+        assert "Invalid area_id format" in results[0].message.text
 
-    def test_triple_colon_raises(self, api_key):
-        """':::' has empty parts and must raise ValueError."""
+    def test_triple_colon_returns_error_message(self, api_key):
+        """':::' has empty parts and returns an error message."""
         tool = _make_get_tool(api_key)
-        with pytest.raises(ValueError, match="non-empty"):
-            list(tool._invoke({"area_id": ":::"}))
+        results = list(tool._invoke({"area_id": ":::"}))
+        assert len(results) == 1
+        assert "Invalid area_id format" in results[0].message.text
 
 
 class TestSearchGetRoundtrip:
