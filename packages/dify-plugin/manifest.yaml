@@ -1,4 +1,4 @@
-version: 0.2.0
+version: 0.1.0
 type: plugin
 author: actionbook
 name: actionbook
@@ -31,7 +31,7 @@ plugins:
   tools:
     - provider/actionbook.yaml
 meta:
-  version: 0.0.1
+  version: 0.1.0
   arch:
     - amd64
     - arm64

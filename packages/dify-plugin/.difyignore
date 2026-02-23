@@ -1,10 +1,14 @@
 .venv/
+.DS_Store
 .pytest_cache/
 .ruff_cache/
 __pycache__/
 tests/
+scripts/
 *.pyc
 .coverage
 .env
 uv.lock
 package.json
+dist/
+.docs/

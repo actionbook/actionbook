@@ -116,10 +116,18 @@ When using Actionbook tools with a **Chatbot + Agent** mode application in Dify:
 Include in your agent's system prompt:
 
 ```
-You have access to Actionbook tools for browser automation.
-When a user asks about website elements, selectors, or browser automation:
-1. Use search_actions to find relevant website selectors by keyword
-2. Use get_action_by_area_id with an area_id from the search results to get complete selector details
+You can use Actionbook tools.
+Workflow:
+1) search_actions(query, domain?) -> pick best area_id
+2) get_action_by_area_id(area_id)
+3) browser_create_session(api_key) -> store session_id and ws_endpoint
+4) For EVERY browser_operator call, pass BOTH:
+   - session_id = from create_session
+   - cdp_url = ws_endpoint from create_session
+5) If click/fill/type fails with Element not found or Timeout:
+   - call browser_operator(action="snapshot")
+   - derive a new selector from snapshot and retry once
+6) Only call browser_stop_session after task is done or hard failure.
 ```
 
 ### Troubleshooting: Agent Not Calling Tools
@@ -130,6 +138,17 @@ If the Agent replies directly without invoking tools:
 2. **Check Model**: Must support Function Calling (e.g., GPT-4, Claude 3.5+)
 3. **Check Maximum Iterations**: Must be > 1 (recommended: 5+)
 4. **Add System Prompt**: Explicitly instruct the agent to use Actionbook tools for automation queries
+
+### Troubleshooting: Session Created But operator Fails
+
+If you see:
+- `Error: No pooled connection for session ...`
+
+Then:
+1. Ensure each `browser_operator` call includes `cdp_url=ws_endpoint` from `browser_create_session`.
+2. Keep `session_id` too (send both `session_id + cdp_url`).
+3. Ensure previous runs call `browser_stop_session`; otherwise provider may return:
+   `Maximum number of active sessions ... reached`.
 
 ## Roadmap
 
