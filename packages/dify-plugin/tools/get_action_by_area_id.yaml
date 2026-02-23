@@ -3,7 +3,7 @@ identity:
   author: actionbook
   label:
     en_US: Get Action Details
-    zh_Hans: Get Action Details
+    zh_Hans: 获取操作详情
 description:
   human:
     en_US: >
@@ -11,9 +11,9 @@ description:
       Returns complete selector information (CSS, XPath, ARIA),
       allowed interaction methods, and element structure.
     zh_Hans: >
-      Retrieve full action details by area ID.
-      Returns complete selector information (CSS, XPath, ARIA),
-      allowed interaction methods, and element structure.
+      通过 Area ID 获取完整的操作详情。
+      返回选择器信息（CSS、XPath、ARIA）、
+      允许的交互方法和元素结构。
   llm: >
     Get the complete action manual for a specific website element.
     Returns detailed CSS/XPath selectors and interaction instructions
@@ -49,8 +49,8 @@ parameters:
         Area ID from search_actions results.
         Format: "site:path:area" (e.g., "github.com:login:email-input")
       zh_Hans: >
-        Area ID from search_actions results.
-        Format: "site:path:area" (e.g., "github.com:login:email-input")
+        来自 search_actions 结果的 Area ID。
+        格式："site:path:area"（如 "github.com:login:email-input"）
     llm_description: >
       The area ID obtained from search_actions results.
       Format is "site:path:area".

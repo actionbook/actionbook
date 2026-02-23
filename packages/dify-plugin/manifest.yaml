@@ -8,13 +8,13 @@ label:
   zh_Hans: Actionbook Browser Automation
 description:
   en_US: >
-    Query verified website selectors and action manuals for browser automation.
-    Provides AI agents with accurate CSS/XPath selectors and operation methods
-    so they can precisely interact with any website without parsing page structures.
+    Browser automation toolkit for AI agents. Query verified website selectors,
+    create cloud browser sessions via Hyperbrowser, and perform page operations
+    (navigate, click, fill, snapshot) — all from Dify workflows.
   zh_Hans: >
-    Query verified website selectors and action manuals for browser automation.
-    Provides AI agents with accurate CSS/XPath selectors and operation methods
-    so they can precisely interact with any website without parsing page structures.
+    面向 AI Agent 的浏览器自动化工具包。查询已验证的网站选择器，
+    通过 Hyperbrowser 创建云端浏览器会话，并执行页面操作
+    （导航、点击、填写、快照）— 全部可在 Dify 工作流中使用。
 icon: icon.svg
 tags:
   - utilities

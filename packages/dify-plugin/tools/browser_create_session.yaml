@@ -7,27 +7,27 @@ identity:
 description:
   human:
     en_US: >
-      Start a cloud browser session via a managed provider (Hyperbrowser or Steel.dev).
-      Returns a WebSocket endpoint (cdp_url) to pass to other browser tools,
+      Start a cloud browser session via Hyperbrowser.
+      Returns a WebSocket endpoint (cdp_url) to pass to browser_operator,
       and a session_id to use with browser_stop_session when finished.
     zh_Hans: >
-      通过云端浏览器供应商（Hyperbrowser 或 Steel.dev）创建浏览器会话。
-      返回 WebSocket 端点（cdp_url）供其他浏览器工具使用，
+      通过 Hyperbrowser 创建云端浏览器会话。
+      返回 WebSocket 端点（cdp_url）供 browser_operator 使用，
       以及完成后需传给 browser_stop_session 的 session_id。
   llm: >
-    Start a cloud browser session. Returns ws_endpoint (use as cdp_url in other browser
-    tools) and session_id (use with browser_stop_session).
+    Start a cloud browser session. Returns ws_endpoint (use as cdp_url in
+    browser_operator) and session_id (use with browser_stop_session).
 
     IMPORTANT: Always call browser_stop_session with the session_id when the
     workflow is complete to release cloud resources and avoid unnecessary billing.
 
     WHEN TO USE:
-    - Before any browser operation tool (navigate, click, snapshot, etc.)
+    - Before any browser_operator call (navigate, click, snapshot, etc.)
     - Use profile_id to persist cookies/login state across multiple Dify tool calls
 
     WORKFLOW:
     1. Call browser_create_session → store ws_endpoint and session_id in variables
-    2. Call browser_navigate / browser_click / etc. with cdp_url = ws_endpoint
+    2. Call browser_operator with session_id and cdp_url = ws_endpoint
     3. Call browser_stop_session with session_id when the workflow is done
 
     STATE PERSISTENCE (Hyperbrowser):
@@ -51,8 +51,7 @@ parameters:
       en_US: Cloud browser provider. Hyperbrowser uses Profile-based persistence (no idle billing).
       zh_Hans: 云端浏览器供应商。Hyperbrowser 使用 Profile 持久化（空闲不计费）。
     llm_description: >
-      Cloud browser provider. Use "hyperbrowser" (default and recommended).
-      "steel" is not yet implemented.
+      Cloud browser provider. Use "hyperbrowser" (default and only supported provider).
     form: form
   - name: api_key
     type: secret-input

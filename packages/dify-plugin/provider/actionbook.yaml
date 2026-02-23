@@ -10,9 +10,9 @@ identity:
       Provides pre-tested CSS/XPath selectors and interaction methods
       for AI agents to precisely operate any website.
     zh_Hans: >
-      Access verified website action manuals for browser automation.
-      Provides pre-tested CSS/XPath selectors and interaction methods
-      for AI agents to precisely operate any website.
+      浏览器自动化操作手册服务。
+      提供已验证的 CSS/XPath 选择器和交互方法，
+      让 AI Agent 精准操作任意网站。
   icon: icon.svg
   tags:
     - utilities
