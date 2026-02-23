@@ -66,7 +66,7 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
             print_step_connector();
             print_step_header(3, "Browser");
         }
-        browser_cfg::configure_browser(cli, &env, args.browser, args.non_interactive, &mut config)?;
+        browser_cfg::configure_browser(cli, &env, args.browser, args.non_interactive, &mut config).await?;
 
         // Step 4: Save configuration
         if !cli.json {
@@ -74,65 +74,34 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
             print_step_header(4, "Save");
         }
 
-        // Show recap and confirm before saving (interactive only)
+        // Show recap (interactive only)
         if !cli.json && !args.non_interactive {
             let bar = "│".dimmed();
             let api_display = config
                 .api
                 .api_key
                 .as_deref()
-                .map(api_key::mask_key)
-                .unwrap_or_else(|| "not configured".to_string());
-            let browser_display = config.browser.executable.as_deref().unwrap_or("built-in");
-            let headless_display = if config.browser.headless {
-                "headless"
-            } else {
-                "visible"
+                .unwrap_or("not configured");
+            let mode_display = match config.browser.mode {
+                BrowserMode::Isolated => {
+                    let browser_name = config.browser.executable.as_deref().unwrap_or("built-in");
+                    let headless_label = if config.browser.headless { "headless" } else { "visible" };
+                    format!("isolated — {} ({})", browser_name, headless_label)
+                }
+                BrowserMode::Extension => "extension".to_string(),
             };
 
             println!("  {}  {}", bar, "Configuration summary:".dimmed());
             println!("  {}    API Key   {}", bar, api_display);
-            println!(
-                "  {}    Browser   {} ({})",
-                bar, browser_display, headless_display
-            );
+            println!("  {}    Browser   {}", bar, mode_display);
             println!(
                 "  {}    Path      {}",
                 bar,
                 Config::config_path().display().to_string().dimmed()
             );
-            println!("  {}", bar);
-
-            let choices = vec!["Save and continue", "Restart setup", "Discard and exit"];
-            let selection = Select::with_theme(&setup_theme())
-                .with_prompt(" What would you like to do?")
-                .items(&choices)
-                .default(0)
-                .report(false)
-                .interact()
-                .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
-
-            match selection {
-                0 => break config, // Save
-                1 => {
-                    // Restart: reset config and loop
-                    config = Config::default();
-                    println!("\n  {}  Restarting setup...\n", "◇".cyan());
-                    continue;
-                }
-                _ => {
-                    // Discard: clean exit
-                    println!(
-                        "\n  {}  Setup discarded. Run {} to start again.\n",
-                        "■".dimmed(),
-                        "actionbook setup".cyan()
-                    );
-                    return Ok(());
-                }
-            }
         }
 
-        // Non-interactive / JSON: save directly
+        // Save directly without confirmation
         break config;
     };
 
@@ -332,22 +301,35 @@ fn handle_existing_config(cli: &Cli, non_interactive: bool, reset: bool) -> Resu
     }
 }
 
-/// Print the welcome banner with gradient Actionbook logo.
+/// Return setup logo symbol. Prefer natural-join on UTF-8 terminals.
+fn setup_logo_symbol() -> &'static str {
+    let locale = std::env::var("LC_ALL")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .or_else(|| std::env::var("LC_CTYPE").ok().filter(|v| !v.is_empty()))
+        .or_else(|| std::env::var("LANG").ok().filter(|v| !v.is_empty()));
+
+    match locale {
+        Some(value) => {
+            let upper = value.to_uppercase();
+            if upper.contains("UTF-8") || upper.contains("UTF8") {
+                "⋈"
+            } else {
+                "><"
+            }
+        }
+        None => "><",
+    }
+}
+
+/// Print the welcome banner.
 fn print_welcome() {
     println!();
-    let lines = [
-        r"     _        _   _             _                 _     ",
-        r"    / \   ___| |_(_) ___  _ __ | |__   ___   ___ | | __ ",
-        r"   / _ \ / __| __| |/ _ \| '_ \| '_ \ / _ \ / _ \| |/ /",
-        r"  / ___ \ (__| |_| | (_) | | | | |_) | (_) | (_) |   < ",
-        r" /_/   \_\___|\__|_|\___/|_| |_|_.__/ \___/ \___/|_|\_\",
-    ];
-    // Gradient: bright_cyan → cyan → blue
-    println!("  {}", lines[0].bright_cyan().bold());
-    println!("  {}", lines[1].bright_cyan());
-    println!("  {}", lines[2].cyan());
-    println!("  {}", lines[3].cyan());
-    println!("  {}", lines[4].blue());
+    println!(
+        "  {}  {}",
+        setup_logo_symbol().cyan().bold(),
+        "Actionbook".bold()
+    );
     println!();
     println!(
         "  {}  {}  {}",
@@ -483,8 +465,10 @@ fn print_completion(cli: &Cli, config: &Config, skills_result: &mode::SkillsResu
                 "command": "setup",
                 "status": "complete",
                 "config_path": Config::config_path().display().to_string(),
+                "browser_mode": serde_json::to_value(&config.browser.mode).unwrap_or(serde_json::Value::Null),
                 "browser": config.browser.executable.as_deref().unwrap_or("built-in"),
                 "headless": config.browser.headless,
+                "extension_port": config.browser.extension.port,
                 "skills": {
                     "npx_available": skills_result.npx_available,
                     "action": format!("{}", skills_result.action),
@@ -523,19 +507,21 @@ fn print_completion(cli: &Cli, config: &Config, skills_result: &mode::SkillsResu
         .api
         .api_key
         .as_deref()
-        .map(api_key::mask_key)
-        .unwrap_or_else(|| "not configured".dimmed().to_string());
+        .unwrap_or("not configured")
+        .to_string();
 
-    let browser_name = config
-        .browser
-        .executable
-        .as_deref()
-        .map(shorten_browser_path)
-        .unwrap_or_else(|| "built-in".to_string());
-    let headless_str = if config.browser.headless {
-        "headless"
-    } else {
-        "visible"
+    let browser_display = match config.browser.mode {
+        BrowserMode::Isolated => {
+            let name = config
+                .browser
+                .executable
+                .as_deref()
+                .map(shorten_browser_path)
+                .unwrap_or_else(|| "built-in".to_string());
+            let headless_str = if config.browser.headless { "headless" } else { "visible" };
+            format!("isolated — {} ({})", name, headless_str)
+        }
+        BrowserMode::Extension => "extension".to_string(),
     };
 
     println!();
@@ -545,13 +531,7 @@ fn print_completion(cli: &Cli, config: &Config, skills_result: &mode::SkillsResu
         shorten_home_path(&Config::config_path().display().to_string())
     );
     println!("     {}  {}", "Key".dimmed(), api_display);
-    println!(
-        "     {}  {} ({})",
-        "Browser".dimmed(),
-        browser_name,
-        headless_str
-    );
-
+    println!("     {}  {}", "Browser".dimmed(), browser_display);
     // --- Next steps ---
     println!();
     println!("     {}", "Next steps".bold());

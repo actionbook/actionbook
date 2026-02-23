@@ -4,13 +4,18 @@
 
 ### Actionbook
 
+![GitHub last commit](https://img.shields.io/github/last-commit/actionbook/actionbook) [![NPM Downloads](https://img.shields.io/npm/d18m/%40actionbookdev%2Fcli)](https://www.npmjs.com/package/@actionbookdev/cli) [![npm version](https://img.shields.io/npm/v/%40actionbookdev%2Fcli)](https://www.npmjs.com/package/@actionbookdev/cli) [![skills](https://img.shields.io/badge/skills-ready-blue)](https://skills.sh/actionbook/actionbook/actionbook)
+
+
+
+
 **Browser Action Engine for AI Agents**
 <br />
 Actionbook provides up-to-date action manuals and DOM structure,
 <br />
 so your agent operates any website instantly without guessing.
 
-[Website](https://actionbook.dev) · [GitHub](https://github.com/actionbook/actionbook) · [X](https://x.com/ActionbookHQ) · [Discord](https://discord.gg/7sKKp7XQ2d)
+[Website](https://actionbook.dev) · [GitHub](https://github.com/actionbook/actionbook) · [X](https://x.com/ActionbookHQ) · [Discord](https://actionbook.dev/discord)
 
 </div>
 
@@ -23,6 +28,7 @@ so your agent operates any website instantly without guessing.
 - [Installation](#installation)
 - [Examples](#examples)
 - [Available Tools](#available-tools)
+- [Documentation](#documentation)
 - [Development](#development)
 - [Contributing](#contributing)
 
@@ -82,13 +88,15 @@ npx skills add actionbook/actionbook
 
 ## Installation
 
-Actionbook provides three integration methods:
+```bash
+# Install the Actionbook CLI globally
+npm install -g @actionbookdev/cli
 
-- **CLI (Recommended)**: Best for AI agents and general automation.
-- **MCP Server**: For AI IDEs like Cursor and Claude.
-- **JavaScript SDK**: For custom programmatic integration.
+# Initialize local configuration
+actionbook setup
+```
 
-For detailed installation instructions, please visit the [Installation Guide](https://actionbook.dev/docs/guides/installation).
+The CLI is all you need to get started. For advanced use cases, Actionbook also offers an [MCP Server](https://actionbook.dev/docs/guides/mcp-server) and [JavaScript SDK](https://actionbook.dev/docs/guides/sdk-integration).
 
 
 ## Examples
@@ -98,20 +106,24 @@ Explore real-world examples in the [Examples Documentation](https://actionbook.d
 
 ## Available Tools
 
-Actionbook provides tools for searching and retrieving action manuals.
+Actionbook provides tools for searching and retrieving action manuals. See the [CLI Reference](https://actionbook.dev/docs/api-reference/cli) for the full command list. If you're using the MCP integration, see the [MCP Tools Reference](https://actionbook.dev/docs/api-reference/mcp-tools).
 
-Check out the [CLI Reference](https://actionbook.dev/docs/api-reference/cli) and [MCP Tools Reference](https://actionbook.dev/docs/api-reference/mcp-tools).
 
+## Documentation
+
+For comprehensive guides, API references, and tutorials, visit our documentation site:
+
+**[actionbook.dev/docs](https://actionbook.dev/docs)**
 
 ## Stay tuned
 
-Star Actionbook on Github to support and get latest information.
+We move fast. Star Actionbook on Github to support and get latest information.
 
 ![Star Actionbook](https://github.com/user-attachments/assets/2d6571cb-4e12-438b-b7bf-9a4b68ef2be3)
 
 Join the community:
 
-- [Chat with us on Discord](https://discord.gg/7sKKp7XQ2d) - Get help, share your agents, and discuss ideas
+- [Chat with us on Discord](https://actionbook.dev/discord) - Get help, share your agents, and discuss ideas
 - [Follow @ActionbookHQ on X](https://x.com/ActionbookHQ) - Product updates and announcements
 
 ## Development

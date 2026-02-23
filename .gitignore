@@ -75,3 +75,4 @@ handbooks/
 .alma-snapshots
 *.difypkg
 .coverage
+store-assets/

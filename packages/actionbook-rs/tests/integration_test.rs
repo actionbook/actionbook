@@ -396,7 +396,7 @@ mod cli_integration {
             .args(["config", "path"])
             .assert()
             .success()
-            .stdout(predicate::str::contains("config"));
+            .stdout(predicate::str::contains(".actionbook"));
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
+use serde::{Deserialize, Serialize};
 
 use crate::commands;
 use crate::error::Result;
@@ -15,10 +16,15 @@ pub enum SetupTarget {
     All,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum BrowserMode {
-    Builtin,
-    System,
+    /// Launch a dedicated debug browser, control via CDP
+    #[serde(alias = "builtin")]
+    Isolated,
+    /// Use Chrome Extension bridge with user's existing browser
+    #[serde(alias = "system")]
+    Extension,
 }
 
 /// Actionbook CLI - Browser automation with zero installation
@@ -67,9 +73,29 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub json: bool,
 
+    /// Browser mode override (reads from config.toml by default)
+    #[arg(long, env = "ACTIONBOOK_BROWSER_MODE", value_enum, global = true)]
+    pub browser_mode: Option<BrowserMode>,
+
+    /// [Deprecated: use --browser-mode=extension] Route commands through Chrome Extension bridge
+    #[arg(long, env = "ACTIONBOOK_EXTENSION", global = true, hide = true)]
+    pub extension: bool,
+
+    /// [Deprecated: set port in config.toml under [browser.extension]] Extension bridge port override
+    #[arg(long, env = "ACTIONBOOK_EXTENSION_PORT", global = true, default_value = "19222", hide = true)]
+    pub extension_port: u16,
+
     /// Enable verbose output
     #[arg(short, long, global = true)]
     pub verbose: bool,
+
+    /// Use Camoufox browser backend
+    #[arg(long, env = "ACTIONBOOK_CAMOFOX", global = true)]
+    pub camofox: bool,
+
+    /// Camoufox server port
+    #[arg(long, env = "ACTIONBOOK_CAMOFOX_PORT", global = true)]
+    pub camofox_port: Option<u16>,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -127,6 +153,12 @@ pub enum Commands {
     Profile {
         #[command(subcommand)]
         command: ProfileCommands,
+    },
+
+    /// Extension bridge management (for controlling user's browser via Chrome Extension)
+    Extension {
+        #[command(subcommand)]
+        command: ExtensionCommands,
     },
 
     /// Initial setup wizard
@@ -321,6 +353,15 @@ pub enum BrowserCommands {
         command: Option<CookiesCommands>,
     },
 
+    /// Scroll the page
+    Scroll {
+        #[command(subcommand)]
+        direction: ScrollDirection,
+        /// Enable smooth scrolling
+        #[arg(long)]
+        smooth: bool,
+    },
+
     /// Close the browser
     Close,
 
@@ -358,8 +399,98 @@ pub enum CookiesCommands {
         /// Cookie name
         name: String,
     },
-    /// Clear all cookies
-    Clear,
+    /// Clear all cookies for the current page (or specified domain)
+    Clear {
+        /// Explicit domain to clear (e.g., "example.com")
+        #[arg(long)]
+        domain: Option<String>,
+        /// Preview which cookies would be cleared without deleting
+        #[arg(long)]
+        dry_run: bool,
+        /// Skip confirmation — required to actually clear
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ScrollDirection {
+    /// Scroll down by pixels
+    Down {
+        /// Number of pixels to scroll (default: one viewport height)
+        #[arg(default_value = "0")]
+        pixels: i32,
+    },
+
+    /// Scroll up by pixels
+    Up {
+        /// Number of pixels to scroll (default: one viewport height)
+        #[arg(default_value = "0")]
+        pixels: i32,
+    },
+
+    /// Scroll to the bottom of the page
+    Bottom,
+
+    /// Scroll to the top of the page
+    Top,
+
+    /// Scroll to a specific element
+    To {
+        /// CSS selector
+        selector: String,
+        /// Alignment: start, center, end, nearest
+        #[arg(long, default_value = "center")]
+        align: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ExtensionCommands {
+    #[command(hide = true)]
+    /// Start the extension bridge WebSocket server
+    ///
+    /// Note: The bridge is automatically started when needed by browser commands.
+    /// This command is provided for debugging and manual control only.
+    Serve {
+        /// Port to listen on
+        #[arg(long, default_value = "19222")]
+        port: u16,
+    },
+
+    /// Check if the bridge server is running
+    Status {
+        /// Bridge server port
+        #[arg(long, default_value = "19222")]
+        port: u16,
+    },
+
+    /// Ping the extension through the bridge
+    Ping {
+        /// Bridge server port
+        #[arg(long, default_value = "19222")]
+        port: u16,
+    },
+
+    /// Download and install the Chrome extension from GitHub
+    Install {
+        /// Force reinstall even if already installed at same version
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Stop the running bridge server
+    Stop {
+        /// Bridge server port
+        #[arg(long, default_value = "19222")]
+        port: u16,
+    },
+
+    /// Print the extension install directory path
+    Path,
+
+    /// Remove the installed extension
+    Uninstall,
 }
 
 #[derive(Subcommand)]
@@ -435,6 +566,7 @@ impl Cli {
     pub async fn run(&self) -> Result<()> {
         match &self.command {
             Commands::Browser { command } => commands::browser::run(self, command).await,
+            Commands::Extension { command } => commands::extension::run(self, command).await,
             Commands::Search {
                 query,
                 domain,

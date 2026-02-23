@@ -47,9 +47,27 @@ actionbook get [actionId]
 actionbook get "site/airbnb.com/page/home/element/search-button"
 ```
 
+## `actionbook setup`
+
+Initial setup wizard for API key, browser preferences, health checks, and optional skills install.
+
+Run this once, then use the same `actionbook browser ...` commands regardless of mode.
+
+**Usage:**
+
+```bash
+actionbook setup
+```
+
+---
+
 ## `actionbook browser`
 
 Browser automation commands.
+
+<Note>
+  After `actionbook setup`, browser command syntax is identical across modes.
+</Note>
 
 ### `actionbook browser open`
 
@@ -89,3 +107,9 @@ actionbook browser fill [selector] [value]
 
 - `selector`: The target input element selector.
 - `value`: The text value to input.
+
+### Global Flags
+
+These flags apply to all `actionbook browser` subcommands:
+
+- `--json` — Output results in JSON format.

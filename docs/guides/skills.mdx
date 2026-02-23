@@ -1,0 +1,53 @@
+---
+title: 'Skills'
+description: 'Install and use core Actionbook skills'
+---
+
+Skills give your AI agent reusable instructions for how to use Actionbook correctly.
+
+## Install Actionbook skills
+
+Use the Actionbook skills package:
+
+```bash
+npx skills add actionbook/actionbook
+```
+
+In the interactive flow, choose the skill you want to install (for example `actionbook`, `active-research`, or `extract`). If you need multiple, run the same command again and select the next skill.
+
+## What each skill does
+
+### `actionbook/actionbook`
+
+Core browser-operation workflow for agents:
+
+- `actionbook search` to find relevant manuals
+- `actionbook get` to fetch verified selectors
+- execute browser actions with less selector guesswork
+
+### `actionbook/active-research`
+
+Research workflow for deep analysis and report generation:
+
+- structured multi-source collection
+- selector-aware browsing with Actionbook
+- output-ready report workflow for long-form research
+
+### `actionbook/extract`
+
+Data extraction workflow that produces a reusable Playwright script and structured output:
+
+- obtain selectors via Actionbook (`search/get` first)
+- if selectors are sufficient, start from them and script directly
+- run lightweight mechanism probes when needed (hydration/virtualized list/pagination)
+- use snapshot/screenshot only as fallback when selectors are missing or unstable
+- generate a standalone Playwright script that handles the detected mechanisms
+- output extracted data as JSON (default) or CSV
+
+Unlike `actionbook` (interactive operation) or `active-research` (report generation), `extract` is purpose-built for **pulling structured data** from a page and leaving behind a **re-runnable script**.
+
+## Example prompt
+
+```text
+Use Actionbook skill workflow: search first, then get the best manual, then execute browser actions.
+```

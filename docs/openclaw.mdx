@@ -1,0 +1,81 @@
+---
+title: 'Integrate with OpenClaw'
+description: 'Set up Actionbook in OpenClaw from scratch'
+---
+
+Use this guide to set up Actionbook in OpenClaw.
+
+## Step 1: Install Actionbook CLI
+
+```bash
+npm install -g @actionbookdev/cli
+actionbook --version
+```
+
+## Step 2: Run `actionbook setup`
+
+```bash
+actionbook setup
+```
+
+During setup, make sure Skills are installed to **OpenClaw global**.
+
+Verify Actionbook is ready in OpenClaw:
+
+```bash
+openclaw skills check
+```
+
+Quick smoke test:
+
+```bash
+actionbook search "github repo stars" --domain github.com
+```
+
+You should see at least one result with an `ID`.
+
+## Step 3: Disable OpenClaw built-in browser and set browser workflow to Actionbook
+
+Disable the built-in browser:
+
+```bash
+openclaw config set browser.enabled false --json
+```
+
+Then add this instruction to `~/.openclaw/workspace/TOOLS.md`:
+
+```markdown
+## Browser automation preference
+- Use Actionbook CLI for all website/browser operations.
+- Do not use the built-in OpenClaw browser tool unless explicitly asked.
+- Follow: `actionbook search` -> `actionbook get` -> operate.
+```
+
+Apply changes:
+
+```bash
+openclaw gateway restart
+```
+
+## Try it
+
+Ask OpenClaw:
+
+```text
+Visit github.com/actionbook/actionbook and tell me how many stars it has.
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="CLI & Skills Guide"
+    icon="terminal"
+    href="/guides/cli-and-skills"
+  >
+    Learn the search -> get -> operate workflow
+  </Card>
+  <Card title="CLI Reference" icon="code" href="/api-reference/cli">
+    Full command reference for Actionbook CLI
+  </Card>
+</CardGroup>

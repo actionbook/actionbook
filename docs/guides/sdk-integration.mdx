@@ -1,7 +1,13 @@
 ---
-title: "JavaScript SDK"
-description: "Integrate Actionbook into your custom AI agents"
+title: 'JavaScript SDK'
+description: 'Integrate Actionbook into your custom AI agents'
 ---
+
+<Note>
+  The recommended way to get started is the [CLI](/guides/installation). The
+  JavaScript SDK is an **optional, advanced** path for developers building
+  custom AI agents programmatically.
+</Note>
 
 Use this option to integrate Actionbook directly into your custom AI agents built with any LLM framework.
 
@@ -34,6 +40,7 @@ Use this option to integrate Actionbook directly into your custom AI agents buil
       prompt: 'Search for LinkedIn message actions and get the action manual',
     })
     ```
+
   </Accordion>
 
   <Accordion title="With OpenAI SDK">
@@ -69,6 +76,7 @@ Use this option to integrate Actionbook directly into your custom AI agents buil
       messages: [{ role: 'user', content: 'Search for Google login actions' }],
     })
     ```
+
   </Accordion>
 
   <Accordion title="With Anthropic Claude SDK">
@@ -99,6 +107,7 @@ Use this option to integrate Actionbook directly into your custom AI agents buil
       messages: [{ role: 'user', content: 'Search for Twitter post actions' }],
     })
     ```
+
   </Accordion>
 
   <Accordion title="With Google Gemini SDK">
@@ -132,6 +141,7 @@ Use this option to integrate Actionbook directly into your custom AI agents buil
       config: { tools },
     })
     ```
+
   </Accordion>
 
   <Accordion title="With Stagehand">
@@ -159,6 +169,7 @@ Use this option to integrate Actionbook directly into your custom AI agents buil
 
     await agent.execute('Search for Airbnb booking actions and get the action manual')
     ```
+
   </Accordion>
 </AccordionGroup>
 
@@ -195,9 +206,10 @@ const action = await actionbook.getActionById(results[0].id)
 console.log('Action details:', action)
 
 // Access the selectors
-const selector = action.selectors.css ||
-                 action.selectors.dataTestId ||
-                 action.selectors.ariaLabel
+const selector =
+  action.selectors.css ||
+  action.selectors.dataTestId ||
+  action.selectors.ariaLabel
 
 console.log('Use this selector:', selector)
 ```
@@ -212,11 +224,11 @@ import { Actionbook } from '@actionbookdev/sdk'
 const actionbook = new Actionbook()
 
 // Description
-actionbook.searchActions.description  // "Search for action manuals by keyword"
+actionbook.searchActions.description // "Search for action manuals by keyword"
 
 // Params - JSON Schema format
-actionbook.searchActions.params.json  // { type: "object", properties: { query: { type: "string" } }, required: ["query"] }
+actionbook.searchActions.params.json // { type: "object", properties: { query: { type: "string" } }, required: ["query"] }
 
 // Params - Zod format
-actionbook.searchActions.params.zod   // z.object({ query: z.string() })
+actionbook.searchActions.params.zod // z.object({ query: z.string() })
 ```

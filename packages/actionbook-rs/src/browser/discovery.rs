@@ -51,7 +51,9 @@ pub fn discover_browser() -> Result<BrowserInfo> {
     let browsers = discover_all_browsers();
 
     if browsers.is_empty() {
-        return Err(ActionbookError::BrowserNotFound);
+        return Err(ActionbookError::BrowserNotFound(
+            "No supported browsers found. Please install Chrome, Brave, or Edge.".to_string(),
+        ));
     }
 
     // Return the first (highest priority) browser

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@latest/schema.json",
+  "changelog": [
+    "@changesets/changelog-github",
+    { "repo": "actionbook/actionbook" }
+  ],
+  "commit": false,
+  "fixed": [],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "privatePackages": {
+    "version": true,
+    "tag": true
+  },
+  "ignore": [
+    "@actionbookdev/action-builder",
+    "@actionbookdev/browser",
+    "@actionbookdev/browser-profile",
+    "@actionbookdev/db",
+    "@actionbookdev/eval",
+    "@actionbookdev/json-ui-site",
+    "@actionbookdev/knowledge-builder",
+    "@actionbookdev/knowledge-builder-any",
+    "@actionbookdev/playbook-builder",
+    "lib-rs-scraper",
+    "stagehand-agent"
+  ]
+}

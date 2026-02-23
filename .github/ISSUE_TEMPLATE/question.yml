@@ -9,14 +9,32 @@ body:
     attributes:
       value: |
         Have a question? Check our [Documentation](https://github.com/actionbook/actionbook/wiki) first!
-
         For general discussions, consider using [GitHub Discussions](https://github.com/actionbook/actionbook/discussions) instead.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know?
+      placeholder: How do I...?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context (Optional)
+      description: Provide context about what you're trying to achieve
+      placeholder: |
+        I'm trying to build an AI agent that can operate e-commerce websites...
+        I've looked at the documentation for...
+    validations:
+      required: false
 
   - type: dropdown
     id: component
     attributes:
-      label: Related Component
-      description: Which component is your question about?
+      label: Related Component (Optional)
       options:
         - "SDK (@actionbookdev/sdk)"
         - "MCP Server (@actionbookdev/mcp)"
@@ -31,49 +49,10 @@ body:
     validations:
       required: false
 
-  - type: dropdown
-    id: question-type
-    attributes:
-      label: Question Type
-      description: What type of question is this?
-      options:
-        - How to use a feature
-        - Integration with AI agents
-        - MCP protocol usage
-        - Action recording workflow
-        - Scenario knowledge extraction
-        - Database schema/queries
-        - Deployment/Configuration
-        - Best practices
-        - Troubleshooting
-        - Other
-    validations:
-      required: false
-
-  - type: textarea
-    id: question
-    attributes:
-      label: Your Question
-      description: What would you like to know?
-      placeholder: How do I...?
-    validations:
-      required: true
-
-  - type: textarea
-    id: context
-    attributes:
-      label: Context
-      description: Provide context about what you're trying to achieve
-      placeholder: |
-        I'm trying to build an AI agent that can operate e-commerce websites...
-        I've looked at the documentation for...
-    validations:
-      required: true
-
   - type: textarea
     id: what-tried
     attributes:
-      label: What I've Tried
+      label: What I've Tried (Optional)
       description: What have you already attempted?
       placeholder: |
         I tried...
@@ -94,18 +73,10 @@ body:
     validations:
       required: false
 
-  - type: input
-    id: version
-    attributes:
-      label: Component Version (if applicable)
-      placeholder: e.g., 1.2.3
-    validations:
-      required: false
-
   - type: textarea
     id: additional-context
     attributes:
-      label: Additional Context
+      label: Additional Context (Optional)
       description: Any other relevant information
       placeholder: |
         - Environment: Node.js/Browser/etc.

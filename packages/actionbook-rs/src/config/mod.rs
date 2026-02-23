@@ -9,6 +9,8 @@ use figment::providers::{Env, Format, Serialized, Toml};
 use figment::Figment;
 use serde::{Deserialize, Serialize};
 
+use crate::browser::BrowserBackend;
+use crate::cli::BrowserMode;
 use crate::error::{ActionbookError, Result};
 
 /// Main configuration structure
@@ -52,6 +54,10 @@ fn default_api_url() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrowserConfig {
+    /// Browser mode: isolated (dedicated debug browser) or extension (user's Chrome via bridge)
+    #[serde(default = "default_browser_mode")]
+    pub mode: BrowserMode,
+
     /// Browser executable path (overrides auto-discovery)
     pub executable: Option<String>,
 
@@ -62,26 +68,120 @@ pub struct BrowserConfig {
     /// Default headless mode
     #[serde(default)]
     pub headless: bool,
+
+    /// Extension bridge configuration
+    #[serde(default)]
+    pub extension: ExtensionConfig,
+
+    /// Browser backend (cdp or camofox)
+    #[serde(default)]
+    pub backend: BrowserBackend,
+
+    /// Camoufox-specific configuration
+    #[serde(default)]
+    pub camofox: CamofoxConfig,
 }
 
 impl Default for BrowserConfig {
     fn default() -> Self {
         Self {
+            mode: default_browser_mode(),
             executable: None,
             default_profile: default_profile_name(),
+            headless: false,
+            extension: ExtensionConfig::default(),
+            backend: BrowserBackend::default(),
+            camofox: CamofoxConfig::default(),
+        }
+    }
+}
+
+fn default_browser_mode() -> BrowserMode {
+    BrowserMode::Isolated
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtensionConfig {
+    /// Bridge WebSocket port
+    #[serde(default = "default_extension_port")]
+    pub port: u16,
+
+    /// Auto-install extension on first use
+    #[serde(default = "default_true")]
+    pub auto_install: bool,
+}
+
+impl Default for ExtensionConfig {
+    fn default() -> Self {
+        Self {
+            port: default_extension_port(),
+            auto_install: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CamofoxConfig {
+    /// Camoufox server port
+    #[serde(default = "default_camofox_port")]
+    pub port: u16,
+
+    /// User ID for Camoufox sessions
+    pub user_id: Option<String>,
+
+    /// Default session key
+    pub session_key: Option<String>,
+
+    /// Use WebDriver (Rust) instead of REST API (Python server)
+    #[serde(default)]
+    pub use_webdriver: bool,
+
+    /// Headless mode (for WebDriver)
+    #[serde(default)]
+    pub headless: bool,
+}
+
+impl Default for CamofoxConfig {
+    fn default() -> Self {
+        Self {
+            port: default_camofox_port(),
+            user_id: None,
+            session_key: None,
+            use_webdriver: false,
             headless: false,
         }
     }
 }
 
+fn default_extension_port() -> u16 {
+    19222
+}
+
+fn default_camofox_port() -> u16 {
+    9377
+}
+
+fn default_true() -> bool {
+    true
+}
+
 fn default_profile_name() -> String {
-    "default".to_string()
+    "actionbook".to_string()
+}
+
+fn normalize_default_profile_name(name: &str) -> String {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        default_profile_name()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 impl Default for Config {
     fn default() -> Self {
         let mut profiles = HashMap::new();
-        profiles.insert("default".to_string(), ProfileConfig::default());
+        profiles.insert(default_profile_name(), ProfileConfig::default());
 
         Self {
             api: ApiConfig::default(),
@@ -92,15 +192,25 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn effective_default_profile_name(&self) -> String {
+        normalize_default_profile_name(&self.browser.default_profile)
+    }
+
     /// Load configuration from all sources (file, env, defaults)
     pub fn load() -> Result<Self> {
         let config_path = Self::config_path();
+        let legacy_config_path = Self::legacy_config_path();
+        let config_file = if config_path.exists() {
+            config_path
+        } else {
+            legacy_config_path
+        };
 
         let config: Config = Figment::new()
             // Start with defaults
             .merge(Serialized::defaults(Config::default()))
             // Merge config file if exists
-            .merge(Toml::file(&config_path))
+            .merge(Toml::file(&config_file))
             // Merge environment variables (ACTIONBOOK_*)
             .merge(Env::prefixed("ACTIONBOOK_").split("_"))
             .extract()
@@ -111,6 +221,17 @@ impl Config {
 
     /// Get the configuration file path
     pub fn config_path() -> PathBuf {
+        Self::config_path_from_home(dirs::home_dir())
+    }
+
+    fn config_path_from_home(home_dir: Option<PathBuf>) -> PathBuf {
+        home_dir
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".actionbook")
+            .join("config.toml")
+    }
+
+    fn legacy_config_path() -> PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("actionbook")
@@ -135,13 +256,15 @@ impl Config {
 
     /// Get a profile by name, falling back to default
     pub fn get_profile(&self, name: &str) -> Result<ProfileConfig> {
+        let normalized_name = name.trim();
+
         // First check named profiles
-        if let Some(profile) = self.profiles.get(name) {
+        if let Some(profile) = self.profiles.get(normalized_name) {
             return Ok(profile.clone());
         }
 
-        // If asking for "default" and it doesn't exist, create one
-        if name == "default" {
+        // If asking for configured default profile and it doesn't exist, create an implicit one.
+        if normalized_name == self.effective_default_profile_name() {
             let mut profile = ProfileConfig::default();
 
             // Apply browser config defaults
@@ -153,7 +276,9 @@ impl Config {
             return Ok(profile);
         }
 
-        Err(ActionbookError::ProfileNotFound(name.to_string()))
+        Err(ActionbookError::ProfileNotFound(
+            normalized_name.to_string(),
+        ))
     }
 
     /// Add or update a profile
@@ -163,16 +288,114 @@ impl Config {
 
     /// Remove a profile
     pub fn remove_profile(&mut self, name: &str) -> Result<()> {
-        if name == "default" {
+        let normalized_name = name.trim();
+
+        if normalized_name == self.effective_default_profile_name() {
             return Err(ActionbookError::ConfigError(
                 "Cannot remove the default profile".to_string(),
             ));
         }
 
         self.profiles
-            .remove(name)
-            .ok_or_else(|| ActionbookError::ProfileNotFound(name.to_string()))?;
+            .remove(normalized_name)
+            .ok_or_else(|| ActionbookError::ProfileNotFound(normalized_name.to_string()))?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_uses_actionbook_profile() {
+        let config = Config::default();
+
+        assert_eq!(config.browser.default_profile, "actionbook");
+        assert!(config.profiles.contains_key("actionbook"));
+    }
+
+    #[test]
+    fn get_profile_returns_implicit_configured_default_profile() {
+        let config = Config {
+            api: ApiConfig::default(),
+            browser: BrowserConfig {
+                executable: Some("/Applications/Google Chrome.app".to_string()),
+                default_profile: "team".to_string(),
+                headless: true,
+                ..BrowserConfig::default()
+            },
+            profiles: HashMap::new(),
+        };
+
+        let profile = config.get_profile("team").unwrap();
+        assert_eq!(
+            profile.browser_path.as_deref(),
+            Some("/Applications/Google Chrome.app")
+        );
+        assert!(profile.headless);
+    }
+
+    #[test]
+    fn get_profile_returns_error_for_non_default_missing_profile() {
+        let config = Config::default();
+        let result = config.get_profile("missing-profile");
+
+        assert!(matches!(
+            result,
+            Err(ActionbookError::ProfileNotFound(name)) if name == "missing-profile"
+        ));
+    }
+
+    #[test]
+    fn get_profile_uses_actionbook_when_config_default_is_blank() {
+        let config = Config {
+            api: ApiConfig::default(),
+            browser: BrowserConfig {
+                executable: None,
+                default_profile: "   ".to_string(),
+                headless: false,
+                ..BrowserConfig::default()
+            },
+            profiles: HashMap::new(),
+        };
+
+        assert!(config.get_profile("actionbook").is_ok());
+    }
+
+    #[test]
+    fn remove_profile_blocks_configured_default_profile() {
+        let mut config = Config::default();
+        config.browser.default_profile = "team".to_string();
+        config.set_profile("team", ProfileConfig::default());
+
+        let result = config.remove_profile("team");
+        assert!(matches!(result, Err(ActionbookError::ConfigError(_))));
+    }
+
+    #[test]
+    fn remove_profile_blocks_actionbook_when_config_default_is_blank() {
+        let mut config = Config::default();
+        config.browser.default_profile = "  ".to_string();
+        config.set_profile("actionbook", ProfileConfig::default());
+
+        let result = config.remove_profile("actionbook");
+        assert!(matches!(result, Err(ActionbookError::ConfigError(_))));
+    }
+
+    #[test]
+    fn config_path_uses_dot_actionbook_under_home() {
+        let path = Config::config_path_from_home(Some(PathBuf::from("/tmp/actionbook-home")));
+        assert_eq!(
+            path,
+            PathBuf::from("/tmp/actionbook-home/.actionbook/config.toml")
+        );
+    }
+
+    #[test]
+    fn config_path_falls_back_to_current_directory_without_home() {
+        let path = Config::config_path_from_home(None);
+        assert_eq!(path, PathBuf::from("./.actionbook/config.toml"));
     }
 }

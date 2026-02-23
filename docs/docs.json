@@ -14,48 +14,25 @@
         "tab": "Documentation",
         "groups": [
           {
-            "group": "Welcome",
-            "pages": [
-              "index",
-              "quickstart"
-            ]
+            "group": "Getting Started",
+            "pages": ["index", "quickstart", "openclaw"]
           },
-          {
-            "group": "Guides",
-            "pages": [
-              "guides/installation",
-              "guides/cli-and-skills",
-              "guides/mcp-server",
-              "guides/sdk-integration"
-            ]
-          },
-          {
-            "group": "Examples",
-            "pages": [
-              "examples"
-            ]
-          },
-          {
-            "group": "Community",
-            "pages": [
-              "community/contributing"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "API Reference",
-        "groups": [
           {
             "group": "CLI",
             "pages": [
-              "api-reference/cli"
+              "guides/installation",
+              "guides/skills",
+              "api-reference/cli",
+              "guides/browser"
             ]
           },
           {
-            "group": "MCP Tools",
+            "group": "Advanced",
             "pages": [
-              "api-reference/mcp-tools"
+              "examples",
+              "guides/mcp-server",
+              "guides/sdk-integration",
+              "community/contributing"
             ]
           }
         ]
@@ -70,7 +47,7 @@
         },
         {
           "anchor": "Discord",
-          "href": "https://discord.gg/7sKKp7XQ2d",
+          "href": "https://actionbook.dev/discord",
           "icon": "discord"
         }
       ]
@@ -84,13 +61,16 @@
     "primary": {
       "type": "button",
       "label": "Get Started",
-      "href": "/quickstart"
+      "href": "https://actionbook.dev/dashboard"
     }
+  },
+  "contextual": {
+    "options": ["copy", "view", "chatgpt", "claude", "perplexity"]
   },
   "footer": {
     "socials": {
       "github": "https://github.com/actionbook",
-      "discord": "https://discord.gg/7sKKp7XQ2d",
+      "discord": "https://actionbook.dev/discord",
       "x": "https://x.com/ActionbookHQ"
     }
   }

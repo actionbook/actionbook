@@ -8,28 +8,54 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to report this bug!
+        Thanks for reporting a bug.
+        Please share only the core information; details can be added later.
 
-        Please search existing issues before creating a new one.
-
-  - type: checkboxes
-    id: prerequisites
+  - type: textarea
+    id: description
     attributes:
-      label: Prerequisites
-      description: Please confirm the following before submitting
-      options:
-        - label: I have searched existing issues to avoid duplicates
-          required: true
-        - label: I am using the latest version of the affected component
-          required: true
-        - label: I have read the documentation
-          required: true
+      label: Bug Description
+      description: What went wrong?
+      placeholder: What went wrong?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: false
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+      placeholder: The component should...
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error Logs / Stack Trace (Optional)
+      description: Include relevant errors if available
+      placeholder: Paste error logs here
+      render: shell
+    validations:
+      required: false
 
   - type: dropdown
     id: component
     attributes:
-      label: Affected Component
-      description: Which component is affected by this bug?
+      label: Affected Component (Optional)
+      description: Which component seems affected?
       options:
         - "SDK (@actionbookdev/sdk)"
         - "MCP Server (@actionbookdev/mcp)"
@@ -39,174 +65,23 @@ body:
         - "Database (services/db)"
         - "Website (apps/website)"
         - "Documentation"
-        - "Other (please specify in description)"
-    validations:
-      required: true
-
-  - type: textarea
-    id: description
-    attributes:
-      label: Bug Description
-      description: A clear and concise description of the bug
-      placeholder: What went wrong?
-    validations:
-      required: true
-
-  - type: textarea
-    id: reproduction
-    attributes:
-      label: Steps to Reproduce
-      description: Provide detailed steps to reproduce the issue
-      placeholder: |
-        1. Initialize the component with...
-        2. Call the method...
-        3. Observe the error...
-      value: |
-        1.
-        2.
-        3.
-    validations:
-      required: true
-
-  - type: textarea
-    id: expected
-    attributes:
-      label: Expected Behavior
-      description: What did you expect to happen?
-      placeholder: The component should...
-    validations:
-      required: true
-
-  - type: textarea
-    id: actual
-    attributes:
-      label: Actual Behavior
-      description: What actually happened?
-      placeholder: Instead, it...
-    validations:
-      required: true
-
-  - type: textarea
-    id: code-sample
-    attributes:
-      label: Minimal Reproducible Code
-      description: Provide a minimal code sample that reproduces the issue
-      placeholder: |
-        ```typescript
-        import { ActionbookSDK } from '@actionbookdev/sdk';
-
-        // Your code here
-        ```
-      render: typescript
+        - "Other"
     validations:
       required: false
-
-  - type: textarea
-    id: logs
-    attributes:
-      label: Error Logs / Stack Trace
-      description: Include relevant error messages or stack traces
-      placeholder: Paste error logs here
-      render: shell
-    validations:
-      required: false
-
-  - type: dropdown
-    id: severity
-    attributes:
-      label: Bug Severity
-      description: How severe is this bug?
-      options:
-        - Critical - Application crashes or data loss
-        - High - Major functionality broken
-        - Medium - Feature partially broken
-        - Low - Minor issue or inconvenience
-    validations:
-      required: true
 
   - type: input
     id: version
     attributes:
-      label: Component Version
-      description: Which version are you using?
+      label: Component Version (Optional)
       placeholder: e.g., 1.2.3
-    validations:
-      required: false
-
-  - type: dropdown
-    id: runtime
-    attributes:
-      label: Runtime Environment
-      description: Where are you running the component?
-      options:
-        - Node.js
-        - Browser
-        - Deno
-        - Bun
-        - Edge Runtime (Vercel/Cloudflare)
-        - Docker
-        - Other (please specify in additional context)
-      multiple: false
-    validations:
-      required: false
-
-  - type: input
-    id: runtime-version
-    attributes:
-      label: Runtime Version
-      description: Version of Node.js, Browser, etc.
-      placeholder: e.g., Node.js v20.10.0, Chrome 120
-    validations:
-      required: false
-
-  - type: dropdown
-    id: os
-    attributes:
-      label: Operating System
-      description: What OS are you using?
-      options:
-        - macOS
-        - Windows
-        - Linux
-        - Other (please specify)
-      multiple: false
-    validations:
-      required: false
-
-  - type: textarea
-    id: browser-details
-    attributes:
-      label: Browser Automation Details (if applicable)
-      description: For Action Builder or browser-related issues
-      placeholder: |
-        - Browser: Chrome/Firefox/Safari
-        - Playwright version: x.x.x
-        - Stagehand version: x.x.x
-        - Headless mode: yes/no
-    validations:
-      required: false
-
-  - type: textarea
-    id: database-details
-    attributes:
-      label: Database Details (if applicable)
-      description: For database-related issues
-      placeholder: |
-        - PostgreSQL version: x.x.x
-        - Drizzle ORM version: x.x.x
-        - Migration status: up-to-date/pending
     validations:
       required: false
 
   - type: textarea
     id: additional-context
     attributes:
-      label: Additional Context
-      description: |
-        Any other context, screenshots, or information that might help
-        - MCP protocol version
-        - LLM model used (if applicable)
-        - Token usage patterns
+      label: Additional Context (Optional)
+      description: Anything else that might help us debug
       placeholder: Add any other context about the problem here
     validations:
       required: false

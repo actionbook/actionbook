@@ -135,6 +135,54 @@ mod sources_command {
 
 mod browser_command {
     use super::*;
+    use std::fs;
+
+    fn setup_config(default_profile: &str) -> (tempfile::TempDir, String, String, String) {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let config_home = tmp.path().join("config");
+        let data_home = tmp.path().join("data");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&config_home).unwrap();
+        fs::create_dir_all(&data_home).unwrap();
+
+        let config_path_output = actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["config", "path"])
+            .output()
+            .unwrap();
+        assert!(
+            config_path_output.status.success(),
+            "failed to resolve config path: {}",
+            String::from_utf8_lossy(&config_path_output.stderr)
+        );
+        let config_path = String::from_utf8_lossy(&config_path_output.stdout)
+            .trim()
+            .to_string();
+        let config_file = std::path::PathBuf::from(config_path);
+        fs::create_dir_all(config_file.parent().unwrap()).unwrap();
+
+        let config = format!(
+            r#"[api]
+base_url = "https://api.actionbook.dev"
+
+[browser]
+headless = false
+default_profile = "{}"
+"#,
+            default_profile
+        );
+        fs::write(config_file, config).unwrap();
+
+        (
+            tmp,
+            home.to_string_lossy().to_string(),
+            config_home.to_string_lossy().to_string(),
+            data_home.to_string_lossy().to_string(),
+        )
+    }
 
     #[test]
     fn browser_requires_subcommand() {
@@ -281,6 +329,64 @@ mod browser_command {
             .timeout(std::time::Duration::from_secs(10))
             .assert()
             .failure();
+    }
+
+    #[test]
+    fn browser_connect_uses_config_default_profile_when_not_specified() {
+        let (_tmp, home, config_home, data_home) = setup_config("team");
+        actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args([
+                "--json",
+                "browser",
+                "connect",
+                "ws://127.0.0.1:9222/devtools/browser/test",
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("\"profile\":\"team\""));
+    }
+
+    #[test]
+    fn browser_connect_uses_env_profile_over_config_default() {
+        let (_tmp, home, config_home, data_home) = setup_config("team");
+        actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .env("ACTIONBOOK_PROFILE", "env-profile")
+            .args([
+                "--json",
+                "browser",
+                "connect",
+                "ws://127.0.0.1:9222/devtools/browser/test",
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("\"profile\":\"env-profile\""));
+    }
+
+    #[test]
+    fn browser_connect_cli_profile_overrides_env_and_config() {
+        let (_tmp, home, config_home, data_home) = setup_config("team");
+        actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .env("ACTIONBOOK_PROFILE", "env-profile")
+            .args([
+                "--json",
+                "--profile",
+                "cli-profile",
+                "browser",
+                "connect",
+                "ws://127.0.0.1:9222/devtools/browser/test",
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("\"profile\":\"cli-profile\""));
     }
 
     #[test]
