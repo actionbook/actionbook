@@ -219,12 +219,22 @@ Path A mechanism detection timing:
 - Run minimal probes either **before final script draft** or during **sample validation**.
 - If probes/sample run indicate mismatch (missing rows, unstable selectors, wrong pagination behavior), escalate to Path B targeted fallback.
 
-Fallback discovery (Path B/C):
+Fallback discovery by path:
+
+**Path B targeted fallback (only failed fields/steps):**
+
+```bash
+actionbook browser open "<url>"     # if not already open
+actionbook browser snapshot          # focus on failed field/container mapping
+# actionbook browser screenshot      # optional visual confirmation for failed area
+```
+
+**Path C full fallback (no usable coverage):**
 
 ```bash
 actionbook browser open "<url>"
-actionbook browser snapshot          # accessibility tree for selectors
-actionbook browser screenshot        # visual confirmation
+actionbook browser snapshot
+actionbook browser screenshot
 ```
 
 Mechanism probes (run when script strategy needs confirmation):
@@ -233,10 +243,11 @@ Mechanism probes (run when script strategy needs confirmation):
 # Hydration / streaming check
 actionbook browser text "<container-selector>"
 
-# Infinite scroll quick signal
-actionbook browser click "body"
+# Infinite scroll quick signal (explicit before/after decision)
+actionbook browser eval "document.querySelectorAll('<item-selector>').length"   # before
 actionbook browser press End
-actionbook browser text "<container-selector>"
+actionbook browser eval "document.querySelectorAll('<item-selector>').length"   # after
+# If count increases, treat page as lazy-load/infinite-scroll.
 ```
 
 Fallback trigger conditions:
