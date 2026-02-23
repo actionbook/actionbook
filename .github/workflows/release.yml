@@ -528,7 +528,9 @@ jobs:
 
       - name: Package dify plugin
         run: |
-          uv run dify plugin package .
+          uv tool run --python 3.12 --from dify-plugin \
+            dify plugin package "$PWD" \
+            --output_path "$PWD/dist/actionbook.difypkg"
           ls -la dist/
 
       - name: Rename artifact with version
