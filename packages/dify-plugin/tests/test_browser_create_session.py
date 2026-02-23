@@ -97,8 +97,8 @@ class TestBrowserCreateSessionTool:
         _, kwargs = mock_provider.create_session.call_args
         assert kwargs["use_proxy"] is True
 
-    @patch.dict("os.environ", {}, clear=True)
-    def test_missing_api_key_returns_error(self):
+    @patch("tools.browser_create_session.resolve_provider_api_key", return_value="")
+    def test_missing_api_key_returns_error(self, _mock_resolve):
         result = list(self.tool._invoke({"provider": "hyperbrowser"}))
         assert len(result) == 1
         assert "Error" in result[0].message.text
@@ -172,7 +172,10 @@ class TestBrowserCreateSessionTool:
             "api_key": "hb-test-key",
         }))
 
-        mock_pool.connect.assert_called_once_with("s-abc", "wss://example.com/s/abc")
+        mock_pool.connect.assert_called_once_with(
+            "s-abc", "wss://example.com/s/abc",
+            provider_name="hyperbrowser", api_key="hb-test-key",
+        )
         assert "Error" not in result[0].message.text
 
     @patch("tools.browser_create_session.pool")

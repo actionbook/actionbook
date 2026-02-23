@@ -8,7 +8,6 @@ from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
 
 from providers import SUPPORTED_PROVIDERS, get_provider
-from utils.api_key import resolve_provider_api_key
 from utils.connection_pool import pool
 
 logger = logging.getLogger(__name__)
@@ -18,30 +17,25 @@ class BrowserStopSessionTool(Tool):
     """Stop a cloud browser session and persist profile state."""
 
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage, None, None]:
-        provider_name = (tool_parameters.get("provider") or "hyperbrowser").strip()
-        if provider_name not in SUPPORTED_PROVIDERS:
-            yield self.create_text_message(
-                f"Error: Unknown provider '{provider_name}'. "
-                f"Supported: {', '.join(sorted(SUPPORTED_PROVIDERS))}"
-            )
-            return
-
-        api_key = resolve_provider_api_key(tool_parameters.get("api_key") or "")
         session_id = (tool_parameters.get("session_id") or "").strip()
-
-        if not api_key:
-            yield self.create_text_message(
-                "Error: 'api_key' is required. "
-                "Get your key at https://app.hyperbrowser.ai/"
-            )
-            return
 
         if not session_id:
             yield self.create_text_message("Error: 'session_id' is required.")
             return
 
+        # Look up provider/api_key cached when the session was created
+        session_info = pool.get_session_info(session_id)
+        if session_info is None:
+            yield self.create_text_message(
+                f"Error: No active session found for session_id '{session_id}'.\n"
+                "Was browser_create_session called first in this plugin process?"
+            )
+            return
+
+        provider_name, api_key = session_info
+
         try:
-            # Disconnect pooled CDP connection first (if any)
+            # Disconnect pooled CDP connection first
             pool.disconnect(session_id)
 
             provider = get_provider(provider_name, api_key)

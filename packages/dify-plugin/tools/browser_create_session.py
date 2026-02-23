@@ -78,7 +78,12 @@ class BrowserCreateSessionTool(Tool):
 
             # Cache CDP connection in the pool for multi-step reuse
             try:
-                pool.connect(session.session_id, session.ws_endpoint)
+                pool.connect(
+                    session.session_id,
+                    session.ws_endpoint,
+                    provider_name=provider_name,
+                    api_key=api_key,
+                )
             except Exception as pool_err:
                 logger.warning(
                     "Pool connect failed for session %s — operator will fall back to cdp_url: %s",

@@ -220,6 +220,8 @@ class ManagedConnection:
     page: _PooledPageProxy
     session_id: str
     ws_endpoint: str
+    provider_name: str = "hyperbrowser"
+    api_key: str = ""
     created_at: float = field(default_factory=time.time)
     last_used_at: float = field(default_factory=time.time)
 
@@ -259,7 +261,12 @@ class ConnectionPool:
         t.start()
 
     def connect(
-        self, session_id: str, ws_endpoint: str, timeout_ms: int = 30000
+        self,
+        session_id: str,
+        ws_endpoint: str,
+        timeout_ms: int = 30000,
+        provider_name: str = "hyperbrowser",
+        api_key: str = "",
     ) -> _PooledPageProxy:
         # Spawn worker outside the lock (expensive I/O operation).
         worker = _SubprocessWorker(
@@ -273,6 +280,8 @@ class ConnectionPool:
             page=page,
             session_id=session_id,
             ws_endpoint=ws_endpoint,
+            provider_name=provider_name,
+            api_key=api_key,
         )
 
         with self._lock:
@@ -358,6 +367,14 @@ class ConnectionPool:
     def has(self, session_id: str) -> bool:
         with self._lock:
             return session_id in self._connections
+
+    def get_session_info(self, session_id: str) -> tuple[str, str] | None:
+        """Return (provider_name, api_key) cached at create time, or None."""
+        with self._lock:
+            conn = self._connections.get(session_id)
+            if conn is None:
+                return None
+            return (conn.provider_name, conn.api_key)
 
     def _unsafe_disconnect(self, session_id: str) -> None:
         conn = self._connections.pop(session_id, None)

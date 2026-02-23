@@ -22,41 +22,9 @@ description:
     and save browser state to the profile.
 
     Use the session_id returned by browser_create_session.
+    Provider and API key are automatically resolved from the session created
+    by browser_create_session — no need to provide them again.
 parameters:
-  - name: provider
-    type: select
-    required: false
-    default: hyperbrowser
-    options:
-      - value: hyperbrowser
-        label:
-          en_US: Hyperbrowser
-          zh_Hans: Hyperbrowser
-      - value: steel
-        label:
-          en_US: Steel.dev (coming soon)
-          zh_Hans: Steel.dev (即将支持)
-    label:
-      en_US: Provider
-      zh_Hans: 供应商
-    human_description:
-      en_US: Cloud browser provider (must match the provider used in browser_create_session).
-      zh_Hans: 云端浏览器供应商（必须与 browser_create_session 使用的供应商一致）。
-    llm_description: >
-      Cloud browser provider. Must match the provider used in browser_create_session.
-    form: form
-  - name: api_key
-    type: string
-    required: true
-    label:
-      en_US: Provider API Key
-      zh_Hans: 供应商 API Key
-    human_description:
-      en_US: API key for the cloud browser provider (same as used in browser_create_session).
-      zh_Hans: 云端浏览器供应商的 API Key（与 browser_create_session 中使用的相同）。
-    llm_description: >
-      Provider API key. Use the same key as in browser_create_session.
-    form: llm
   - name: session_id
     type: string
     required: true

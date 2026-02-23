@@ -22,13 +22,12 @@ class TestBrowserStopSessionTool:
     @patch("tools.browser_stop_session.pool")
     @patch("tools.browser_stop_session.get_provider")
     def test_success(self, mock_get_provider, mock_pool):
-        """Test successful session stop."""
+        """Test successful session stop using cached provider info."""
+        mock_pool.get_session_info.return_value = ("hyperbrowser", "hb-test-key")
         mock_provider = MagicMock()
         mock_get_provider.return_value = mock_provider
 
         result = list(self.tool._invoke({
-            "provider": "hyperbrowser",
-            "api_key": "hb-test-key",
             "session_id": "s-abc",
         }))
 
@@ -39,59 +38,49 @@ class TestBrowserStopSessionTool:
         mock_pool.disconnect.assert_called_once_with("s-abc")
         mock_provider.stop_session.assert_called_once_with("s-abc")
 
-    @patch.dict("os.environ", {}, clear=True)
-    def test_missing_api_key_returns_error(self):
-        """Test error when api_key is missing."""
-        result = list(self.tool._invoke({
-            "provider": "hyperbrowser",
-            "session_id": "s-abc",
-        }))
-        assert len(result) == 1
-        assert "Error" in result[0].message.text
-        assert "api_key" in result[0].message.text
-
     def test_missing_session_id_returns_error(self):
         """Test error when session_id is missing."""
-        result = list(self.tool._invoke({
-            "provider": "hyperbrowser",
-            "api_key": "hb-test-key",
-        }))
+        result = list(self.tool._invoke({}))
         assert len(result) == 1
         assert "Error" in result[0].message.text
         assert "session_id" in result[0].message.text
 
-    def test_unknown_provider_returns_error(self):
-        """Test error for unknown provider name."""
+    @patch("tools.browser_stop_session.pool")
+    def test_unknown_session_id_returns_error(self, mock_pool):
+        """Test error when session_id is not found in pool."""
+        mock_pool.get_session_info.return_value = None
+
         result = list(self.tool._invoke({
-            "provider": "nonexistent",
-            "api_key": "hb-test-key",
-            "session_id": "s-1",
+            "session_id": "s-unknown",
         }))
         assert len(result) == 1
         assert "Error" in result[0].message.text
+        assert "s-unknown" in result[0].message.text
 
+    @patch("tools.browser_stop_session.pool")
     @patch("tools.browser_stop_session.get_provider")
-    def test_provider_exception_returns_error(self, mock_get_provider):
+    def test_provider_exception_returns_error(self, mock_get_provider, mock_pool):
         """Test error when provider.stop_session raises."""
+        mock_pool.get_session_info.return_value = ("hyperbrowser", "hb-test-key")
         mock_provider = MagicMock()
         mock_provider.stop_session.side_effect = RuntimeError("network failure")
         mock_get_provider.return_value = mock_provider
 
         result = list(self.tool._invoke({
-            "provider": "hyperbrowser",
-            "api_key": "hb-test-key",
             "session_id": "s-abc",
         }))
 
         assert len(result) == 1
         assert "Error" in result[0].message.text
 
-    def test_not_implemented_provider_returns_error(self):
-        """Test error for a registered but unimplemented provider."""
-        result = list(self.tool._invoke({
-            "provider": "steel",
-            "api_key": "hb-test-key",
-            "session_id": "s-1",
-        }))
-        assert len(result) == 1
-        assert "Error" in result[0].message.text
+    @patch("tools.browser_stop_session.pool")
+    @patch("tools.browser_stop_session.get_provider")
+    def test_uses_cached_provider_and_key(self, mock_get_provider, mock_pool):
+        """Test that provider name and api_key come from pool cache."""
+        mock_pool.get_session_info.return_value = ("steel", "steel-key-123")
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
+
+        list(self.tool._invoke({"session_id": "s-xyz"}))
+
+        mock_get_provider.assert_called_once_with("steel", "steel-key-123")

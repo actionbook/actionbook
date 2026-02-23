@@ -55,7 +55,7 @@ parameters:
       "steel" is not yet implemented.
     form: form
   - name: api_key
-    type: string
+    type: secret-input
     required: true
     label:
       en_US: Provider API Key
@@ -64,12 +64,13 @@ parameters:
       en_US: >
         API key for the cloud browser provider.
         Hyperbrowser: get from https://app.hyperbrowser.ai/
-    zh_Hans: >
+      zh_Hans: >
         云端浏览器供应商的 API Key。
         Hyperbrowser：从 https://app.hyperbrowser.ai/ 获取。
-    llm_description: >
-      API key for authenticating with the cloud browser provider.
-    form: llm
+    placeholder:
+      en_US: Enter your provider API key
+      zh_Hans: 请输入供应商 API Key
+    form: form
   - name: profile_id
     type: string
     required: false
