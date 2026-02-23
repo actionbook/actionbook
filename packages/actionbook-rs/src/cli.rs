@@ -16,35 +16,6 @@ pub enum SetupTarget {
     All,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum AgentMode {
-    /// Matches actionbook setup for Claude Code-> target
-    Claude,
-    /// Matches actionbook setup for Codex
-    Codex,
-    /// Matches actionbook setup for Cursor
-    Cursor,
-    /// Matches actionbook setup for Windsurf
-    Windsurf,
-    /// Matches actionbook setup for Antigravity
-    Antigravity,
-    /// Matches actionbook setup for Opencode
-    Opencode,
-}
-
-impl AgentMode {
-    pub fn to_setup_target(self) -> SetupTarget {
-        match self {
-            AgentMode::Claude => SetupTarget::Claude,
-            AgentMode::Codex => SetupTarget::Codex,
-            AgentMode::Cursor => SetupTarget::Cursor,
-            AgentMode::Windsurf => SetupTarget::Windsurf,
-            AgentMode::Antigravity => SetupTarget::Antigravity,
-            AgentMode::Opencode => SetupTarget::Opencode,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BrowserMode {
@@ -213,9 +184,6 @@ pub enum Commands {
         #[arg(long)]
         reset: bool,
 
-        /// Run setup optimized for agent automation (auto defaults + targeted skills)
-        #[arg(long, value_enum)]
-        agent_mode: Option<AgentMode>,
     },
 }
 
@@ -628,7 +596,6 @@ impl Cli {
                 browser,
                 non_interactive,
                 reset,
-                agent_mode,
             } => {
                 commands::setup::run(
                     self,
@@ -638,7 +605,6 @@ impl Cli {
                         browser: *browser,
                         non_interactive: *non_interactive,
                         reset: *reset,
-                        agent_mode: *agent_mode,
                     },
                 )
                 .await

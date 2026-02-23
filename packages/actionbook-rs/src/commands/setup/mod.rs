@@ -13,7 +13,7 @@ use self::theme::setup_theme;
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::api::ApiClient;
-use crate::cli::{AgentMode, BrowserMode, Cli, SetupTarget};
+use crate::cli::{BrowserMode, Cli, SetupTarget};
 use crate::config::Config;
 use crate::error::{ActionbookError, Result};
 
@@ -24,7 +24,6 @@ pub struct SetupArgs<'a> {
     pub browser: Option<BrowserMode>,
     pub non_interactive: bool,
     pub reset: bool,
-    pub agent_mode: Option<AgentMode>,
 }
 
 fn should_run_target_only(args: &SetupArgs<'_>) -> bool {
@@ -33,55 +32,28 @@ fn should_run_target_only(args: &SetupArgs<'_>) -> bool {
         && args.browser.is_none()
         && !args.non_interactive
         && !args.reset
-        && args.agent_mode.is_none()
 }
 
-fn requires_agent_api_key(target: Option<SetupTarget>) -> bool {
-    target
-        .as_ref()
-        .and_then(mode::target_to_agent_flag)
-        .is_some()
-}
 
 fn should_install_skills_for_target(target: Option<SetupTarget>) -> bool {
     !matches!(target, Some(SetupTarget::Standalone))
 }
 
-fn derive_effective_non_interactive(non_interactive_flag: bool, mode_target: Option<SetupTarget>) -> bool {
-    non_interactive_flag || mode_target.is_some()
-}
 
-fn derive_browser_flag(browser_flag: Option<BrowserMode>, mode_target: Option<SetupTarget>) -> Option<BrowserMode> {
-    if browser_flag.is_some() {
-        browser_flag
-    } else if mode_target.is_some() {
-        Some(BrowserMode::Isolated)
-    } else {
-        None
-    }
-}
 
 /// Run the setup wizard. Orchestrates all steps in order.
 ///
 /// Quick mode: if `--target` is provided without other flags, only run
 /// `npx skills add` for the specified target, skipping the full wizard.
 pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
-    if args.target.is_some() && args.agent_mode.is_some() {
-        return Err(ActionbookError::SetupError(
-            "Cannot combine --target with --agent-mode. Pick one and try again.".to_string(),
-        ));
-    }
-
     // Quick mode: --target only → run npx skills add and exit
     if should_run_target_only(&args) {
         return run_target_only(cli, args.target.expect("target exists in quick mode")).await;
     }
 
     // In full setup flow, use --target to select skills installation target.
-    let mode_target = args.agent_mode.map(|mode| mode.to_setup_target());
-    let agent_target = args.target.or(mode_target);
-    // `--target` should not force non-interactive behavior.
-    let effective_non_interactive = derive_effective_non_interactive(args.non_interactive, mode_target);
+    let agent_target = args.target;
+    let effective_non_interactive = args.non_interactive;
 
     // Handle existing config (re-run protection)
     let mut config = handle_existing_config(cli, effective_non_interactive, args.reset)?;
@@ -99,7 +71,7 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
         print_step_connector();
     }
 
-    let browser_flag = derive_browser_flag(args.browser, mode_target);
+    let browser_flag = args.browser;
 
     // Steps 2–4: configure → recap → save (with restart loop)
     let config = loop {
@@ -109,12 +81,6 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
         }
         api_key::configure_api_key(cli, &env, args.api_key, effective_non_interactive, &mut config)
             .await?;
-
-        if requires_agent_api_key(agent_target) && config.api.api_key.is_none() {
-            return Err(ActionbookError::SetupError(
-                "Agent mode requires an API key. Provide one via --api-key, ACTIONBOOK_API_KEY, or existing config.".to_string(),
-            ));
-        }
 
         // Step 3: Browser
         if !cli.json {
@@ -653,7 +619,6 @@ mod tests {
             browser: None,
             non_interactive: false,
             reset: false,
-            agent_mode: None,
         }
     }
 
@@ -681,43 +646,8 @@ mod tests {
     }
 
     #[test]
-    fn standalone_target_does_not_require_api_key() {
-        assert!(!requires_agent_api_key(Some(SetupTarget::Standalone)));
-    }
-
-    #[test]
-    fn codex_target_requires_api_key() {
-        assert!(requires_agent_api_key(Some(SetupTarget::Codex)));
-    }
-
-    #[test]
     fn standalone_target_skips_skills_install() {
         assert!(!should_install_skills_for_target(Some(SetupTarget::Standalone)));
     }
 
-    #[test]
-    fn target_does_not_force_non_interactive_without_agent_mode() {
-        assert!(!derive_effective_non_interactive(false, None));
-    }
-
-    #[test]
-    fn agent_mode_forces_non_interactive() {
-        assert!(derive_effective_non_interactive(
-            false,
-            Some(SetupTarget::Codex)
-        ));
-    }
-
-    #[test]
-    fn target_only_does_not_default_browser_mode() {
-        assert_eq!(derive_browser_flag(None, None), None);
-    }
-
-    #[test]
-    fn agent_mode_defaults_browser_to_isolated() {
-        assert_eq!(
-            derive_browser_flag(None, Some(SetupTarget::Codex)),
-            Some(BrowserMode::Isolated)
-        );
-    }
 }
