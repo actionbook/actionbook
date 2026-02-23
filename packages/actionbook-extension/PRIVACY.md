@@ -100,7 +100,6 @@ The Extension requests the following Chrome permissions, each necessary for its 
 | `debugger`        | Attach Chrome DevTools Protocol to tabs for browser automation         |
 | `tabs`            | List and query browser tabs for the local CLI to select targets        |
 | `activeTab`       | Access the currently active tab for automation commands                 |
-| `scripting`       | Execute scripts in the context of web pages for automation             |
 | `offscreen`       | Keep the service worker alive for persistent WebSocket connection      |
 | `storage`         | Store local connection state for bridge communication                   |
 | `cookies`         | Read and manage cookies for web automation tasks                       |

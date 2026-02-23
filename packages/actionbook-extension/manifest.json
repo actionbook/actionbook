@@ -8,7 +8,6 @@
     "debugger",
     "tabs",
     "activeTab",
-    "scripting",
     "offscreen",
     "storage",
     "cookies"
