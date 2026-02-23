@@ -553,10 +553,21 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      - name: Install Dify CLI
+        env:
+          DIFY_CLI_VERSION: "0.5.3"
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL \
+            "https://github.com/langgenius/dify-plugin-daemon/releases/download/${DIFY_CLI_VERSION}/dify-plugin-linux-amd64" \
+            -o "$HOME/.local/bin/dify"
+          chmod +x "$HOME/.local/bin/dify"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/dify" version
+
       - name: Package dify plugin
         run: |
-          uv tool run --python 3.12 --from dify-plugin \
-            dify plugin package "$PWD" \
+          dify plugin package "$PWD" \
             --output_path "$PWD/dist/actionbook.difypkg"
           ls -la dist/
 
