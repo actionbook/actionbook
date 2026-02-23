@@ -12,6 +12,7 @@ Docs: https://docs.hyperbrowser.ai/sessions/profiles
 """
 
 import logging
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -95,8 +96,9 @@ class HyperbrowserProvider:
         params_kwargs: dict[str, Any] = {"use_proxy": use_proxy}
 
         if profile_id:
+            normalized_profile_id = _normalize_profile_id(profile_id)
             params_kwargs["profile"] = {
-                "id": profile_id,
+                "id": normalized_profile_id,
                 "persist_changes": persist_changes,
             }
 
@@ -112,3 +114,16 @@ class HyperbrowserProvider:
     def stop_session(self, session_id: str) -> None:
         """Stop session by ID. Profile state is persisted on stop."""
         self._client.sessions.stop(session_id)
+
+
+def _normalize_profile_id(profile_id: str) -> str:
+    """Normalize arbitrary profile_id input to UUID string accepted by Hyperbrowser."""
+    raw = profile_id.strip()
+    if not raw:
+        raise ValueError("profile_id cannot be empty when provided")
+
+    try:
+        return str(uuid.UUID(raw))
+    except ValueError:
+        # Keep deterministic mapping so repeated runs reuse the same profile.
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"actionbook:{raw}"))

@@ -22,7 +22,7 @@ description:
     workflow is complete to release cloud resources and avoid unnecessary billing.
 
     WHEN TO USE:
-    - Before any browser operation tool (navigate, click, screenshot, etc.)
+    - Before any browser operation tool (navigate, click, snapshot, etc.)
     - Use profile_id to persist cookies/login state across multiple Dify tool calls
 
     WORKFLOW:
@@ -44,10 +44,6 @@ parameters:
         label:
           en_US: Hyperbrowser
           zh_Hans: Hyperbrowser
-      - value: steel
-        label:
-          en_US: Steel.dev (coming soon)
-          zh_Hans: Steel.dev (即将支持)
     label:
       en_US: Provider
       zh_Hans: 供应商

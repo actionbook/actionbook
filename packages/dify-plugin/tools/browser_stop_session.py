@@ -7,7 +7,9 @@ from typing import Any
 from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
 
-from providers import get_provider
+from providers import SUPPORTED_PROVIDERS, get_provider
+from utils.api_key import resolve_provider_api_key
+from utils.connection_pool import pool
 
 logger = logging.getLogger(__name__)
 
@@ -17,11 +19,21 @@ class BrowserStopSessionTool(Tool):
 
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage, None, None]:
         provider_name = (tool_parameters.get("provider") or "hyperbrowser").strip()
-        api_key = (tool_parameters.get("api_key") or "").strip()
+        if provider_name not in SUPPORTED_PROVIDERS:
+            yield self.create_text_message(
+                f"Error: Unknown provider '{provider_name}'. "
+                f"Supported: {', '.join(sorted(SUPPORTED_PROVIDERS))}"
+            )
+            return
+
+        api_key = resolve_provider_api_key(tool_parameters.get("api_key") or "")
         session_id = (tool_parameters.get("session_id") or "").strip()
 
         if not api_key:
-            yield self.create_text_message("Error: 'api_key' is required.")
+            yield self.create_text_message(
+                "Error: 'api_key' is required. "
+                "Get your key at https://app.hyperbrowser.ai/"
+            )
             return
 
         if not session_id:
@@ -29,6 +41,9 @@ class BrowserStopSessionTool(Tool):
             return
 
         try:
+            # Disconnect pooled CDP connection first (if any)
+            pool.disconnect(session_id)
+
             provider = get_provider(provider_name, api_key)
             provider.stop_session(session_id)
             yield self.create_text_message(
@@ -49,6 +64,7 @@ class BrowserStopSessionTool(Tool):
                 provider_name,
             )
             yield self.create_text_message(
-                f"Error: Failed to stop session '{session_id}' on '{provider_name}': "
-                f"{type(e).__name__}: {e}"
+                f"Error: Failed to stop browser session.\n"
+                f"Reason: {type(e).__name__}: {e}\n"
+                f"Verify your API key is valid and the provider service is reachable."
             )

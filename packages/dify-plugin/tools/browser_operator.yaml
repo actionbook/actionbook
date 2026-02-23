@@ -6,20 +6,21 @@ identity:
     zh_Hans: Browser Operator
 description:
   human:
-    en_US: Perform browser page operations (navigate, click, type, screenshot, etc.).
-    zh_Hans: 执行浏览器页面操作（导航、点击、输入、截图等）。
+    en_US: Perform browser page operations (navigate, click, type, snapshot, etc.).
+    zh_Hans: 执行浏览器页面操作（导航、点击、输入、快照等）。
   llm: >
     Unified browser operator for all page interactions. Choose an action and
     provide the required parameters for that action:
 
+    ACTIONS:
     - navigate: requires url. Navigates to URL; returns page title and current URL.
-    - click: requires selector. Waits for element to appear then clicks it.
+    - click: requires selector. Waits for element to appear then clicks it. If element not found, returns error — use snapshot to inspect the page and derive a correct selector.
     - type: requires selector, text. Types text character-by-character (appends to existing).
     - fill: requires selector. Optional text (empty string clears field). Clears input then fills atomically (preferred for forms).
     - select: requires selector, value. Selects an <option> by its value attribute in a <select>.
     - press_key: requires key. Sends a keyboard key (e.g. Enter, Tab, Escape, ArrowDown).
     - hover: requires selector. Moves mouse over element to trigger hover effects.
-    - screenshot: optional full_page. Captures PNG screenshot; returns image blob and current URL.
+    - snapshot: no extra params. Returns an accessibility-tree snapshot of the current page with all interactive elements labeled [ref=eN]. You can use [ref=eN] directly as a selector for click/fill/type/hover actions (e.g. selector="[ref=e5]"). This is the most reliable way to interact with elements from a snapshot.
     - get_text: optional selector. Returns visible text of a specific element or entire body.
     - get_html: optional selector. Returns HTML of a specific element or the full page.
     - wait: requires selector. Waits for element to appear in DOM within timeout.
@@ -28,19 +29,100 @@ description:
     - go_forward: no extra params. Navigates to the next page in history.
     - reload: no extra params. Reloads the current page.
 
-    Always use cdp_url from browser_create_session ws_endpoint field.
+    WHEN TO USE SNAPSHOT (important):
+    Use action=snapshot in these situations:
+    1. After navigating to a page, before performing any interaction — to understand
+       what elements are available on the current page.
+    2. When a click/fill/type action fails with "Element not found" — the selector
+       from search_actions or get_action_by_area_id may be outdated. Use snapshot
+       to see the current page elements and derive a correct selector.
+    3. When search_actions returns no results for a website — snapshot lets you
+       discover elements directly from the live page.
+    4. After a page state change (form submission, modal popup, page transition) —
+       to see the updated elements.
+
+    HOW TO USE SNAPSHOT RESULTS:
+    The snapshot output shows an accessibility tree like:
+      - heading "Welcome" [ref=e1] [level=1]
+      - textbox "Email" [ref=e2]
+      - button "Sign In" [ref=e3]
+
+    USING REFS (recommended — most reliable):
+    Use [ref=eN] directly as the selector value:
+      - To click "Sign In": selector="[ref=e3]"
+      - To fill "Email":    selector="[ref=e2]", text="user@example.com"
+      - To click a link:    selector="[ref=e1]"
+    Refs are resolved by re-walking the DOM with the same logic that generated
+    the snapshot, so they always match the correct element.
+
+    ALTERNATIVE selector formats (when refs are not available):
+      - button:has-text("Sign In")     — button containing text
+      - a:has-text("Home")             — link containing text
+      - text="exact text"              — exact text match
+      - [aria-label="Email"]           — aria label match
+      - #element-id                    — by ID
+      - //xpath/expression             — XPath selector
+
+    INVALID selector formats (NEVER use these):
+      - .nth(N)                        — NOT a valid selector
+      - :nth-match(N)                  — NOT supported
+      - :text("...")                   — use :has-text("...") instead
+
+    TIPS FOR FORMS:
+      - To submit a form, use action=press_key with key=Enter — more reliable
+        than clicking submit buttons.
+      - To fill form fields, use action=fill with [ref=eN] from the snapshot.
+
+    RECOMMENDED WORKFLOW:
+    1. search_actions → get_action_by_area_id → use returned selectors
+    2. If selectors fail or no results → snapshot → derive selectors from tree → retry
+    3. For form submission → prefer press_key Enter over clicking submit buttons
+    4. ALWAYS call browser_stop_session when done (success OR failure)
+
+    SESSION CLEANUP (critical):
+    You MUST call browser_stop_session to release the browser session when:
+    - All operations are completed successfully
+    - An error occurs and you decide to stop retrying
+    - You are returning results to the user
+    Failing to stop the session wastes cloud browser resources.
+
+    TIMEOUT NOTES:
+    - click action defaults to 10s timeout (not 30s) for faster failure feedback
+    - navigate defaults to 30s timeout
+    - You can override timeout_ms for any action
+
+    For best reliability in Dify workflows, pass BOTH session_id and cdp_url
+    (ws_endpoint from browser_create_session) on each call. session_id enables
+    pooled reuse; cdp_url provides automatic fallback if pooled state is unavailable.
 parameters:
+  - name: session_id
+    type: string
+    required: false
+    label:
+      en_US: Session ID
+      zh_Hans: 会话 ID
+    human_description:
+      en_US: Session ID from browser_create_session. Preferred for multi-step operations — reuses the same CDP connection.
+      zh_Hans: 来自 browser_create_session 的会话 ID。推荐用于多步操作 — 复用同一 CDP 连接。
+    llm_description: >
+      Session ID returned by browser_create_session. Use this for multi-step
+      workflows (navigate → fill → click → snapshot) within one session.
+      The connection is kept alive between calls. Either session_id or cdp_url
+      is required; session_id is preferred.
+    form: llm
   - name: cdp_url
     type: string
-    required: true
+    required: false
     label:
       en_US: CDP WebSocket URL
       zh_Hans: CDP WebSocket URL
     human_description:
-      en_US: WebSocket endpoint from browser_create_session (ws_endpoint field).
-      zh_Hans: 来自 browser_create_session 的 WebSocket 端点（ws_endpoint 字段）。
+      en_US: WebSocket endpoint from browser_create_session (ws_endpoint field). Fallback for one-shot operations.
+      zh_Hans: 来自 browser_create_session 的 WebSocket 端点。用于单次操作的后备方案。
     llm_description: >
-      WebSocket CDP endpoint. Use the ws_endpoint value returned by browser_create_session.
+      WebSocket CDP endpoint. Fallback when session_id is not available.
+      Each call creates a new connection and closes it after. For multi-step
+      workflows, prefer session_id instead.
     form: llm
   - name: action
     type: select
@@ -74,10 +156,10 @@ parameters:
         label:
           en_US: hover
           zh_Hans: hover
-      - value: screenshot
+      - value: snapshot
         label:
-          en_US: screenshot
-          zh_Hans: screenshot
+          en_US: snapshot
+          zh_Hans: snapshot
       - value: get_text
         label:
           en_US: get_text
@@ -183,28 +265,6 @@ parameters:
       Examples: Enter, Tab, Escape, Space, Backspace, Delete,
       ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown.
     form: llm
-  - name: full_page
-    type: select
-    required: false
-    default: "false"
-    options:
-      - value: "false"
-        label:
-          en_US: Viewport only
-          zh_Hans: 仅视口
-      - value: "true"
-        label:
-          en_US: Full page
-          zh_Hans: 完整页面
-    label:
-      en_US: Screenshot Mode
-      zh_Hans: 截图模式
-    human_description:
-      en_US: For screenshot action — capture only the visible viewport or the entire scrollable page.
-      zh_Hans: screenshot 操作 — 仅截取可见视口还是整个页面。
-    llm_description: >
-      For action=screenshot. Set to "true" to capture the full scrollable page. Default "false" captures viewport only.
-    form: llm
   - name: timeout_ms
     type: number
     required: false
@@ -217,9 +277,9 @@ parameters:
       zh_Hans: 操作超时，单位毫秒（默认 30000）。
     llm_description: >
       Timeout in milliseconds. Only used by these actions:
-      navigate (page load timeout), click (wait-for-element timeout),
-      wait (wait-for-selector timeout), wait_navigation (load timeout).
-      Ignored by other actions. Default is 30000 (30 seconds).
+      navigate (page load timeout, default 30s), click (wait-for-element timeout, default 10s),
+      wait (wait-for-selector timeout, default 30s), wait_navigation (load timeout, default 30s).
+      Ignored by other actions.
     form: llm
 extra:
   python:

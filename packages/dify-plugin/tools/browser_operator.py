@@ -6,15 +6,20 @@ All action-specific parameter validation is performed by ``_pre_validate``
 required parameters are already present.
 """
 
+import ipaddress
 import logging
+import socket
+import uuid
 from collections.abc import Callable, Generator
 from typing import Any
+from urllib.parse import urlparse
 
 from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
-from utils.cdp_client import CdpConnectionError, cdp_page
+from utils.cdp_client import validate_cdp_url
+from utils.connection_pool import ConnectionNotFound, ConnectionUnhealthy, pool
 
 logger = logging.getLogger(__name__)
 
@@ -50,23 +55,35 @@ def _handle_navigate(
 def _handle_click(
     tool: Tool, page: Any, params: dict[str, Any],
 ) -> Generator[ToolInvokeMessage, None, None]:
-    """Wait for element then click it."""
+    """Wait for element then click it. Reports failure directly for LLM to decide next step."""
     selector = (params.get("selector") or "").strip()
-    timeout_ms = _safe_timeout(params.get("timeout_ms"))
+    # Click uses a shorter default (10s) — waiting 30s for a missing element wastes time.
+    timeout_ms = _safe_timeout(params.get("timeout_ms"), default=10000)
 
-    if timeout_ms > 0:
-        try:
+    try:
+        if timeout_ms > 0:
             page.wait_for_selector(selector, timeout=float(timeout_ms))
-        except PlaywrightTimeout:
-            logger.debug("wait_for_selector failed for '%s'", selector, exc_info=True)
-            yield tool.create_text_message(
-                f"Element not found: '{selector}' within {timeout_ms}ms. "
-                "Check the selector or increase timeout_ms."
-            )
-            return
-
-    page.click(selector)
-    yield tool.create_text_message(f"Clicked: '{selector}'")
+        page.click(selector)
+        yield tool.create_text_message(f"Clicked: '{selector}'")
+    except (ConnectionNotFound, ConnectionUnhealthy):
+        raise
+    except PlaywrightTimeout:
+        logger.debug("wait_for_selector timed out for '%s'", selector, exc_info=True)
+        yield tool.create_text_message(
+            f"Element not found: '{selector}' within {timeout_ms}ms. "
+            "Use action=snapshot to see available elements, then use [ref=eN] as selector "
+            "(e.g. selector=\"[ref=e5]\"). This is the most reliable approach. "
+            "For form submission, use action=press_key key=Enter. "
+            "IMPORTANT: If giving up, call browser_stop_session."
+        )
+    except Exception as e:
+        logger.debug("click failed for '%s'", selector, exc_info=True)
+        yield tool.create_text_message(
+            f"Click failed for '{selector}': {type(e).__name__}: {e}. "
+            "Use action=snapshot then use [ref=eN] as selector for reliable element targeting. "
+            "For form submission, use action=press_key key=Enter. "
+            "IMPORTANT: If giving up, call browser_stop_session."
+        )
 
 
 def _handle_type(
@@ -77,7 +94,7 @@ def _handle_type(
     text = params.get("text") or ""
 
     page.type(selector, text)
-    yield tool.create_text_message(f"Typed into '{selector}': '{text}'")
+    yield tool.create_text_message(f"Typed {len(text)} characters into '{selector}'.")
 
 
 def _handle_fill(
@@ -88,7 +105,7 @@ def _handle_fill(
     text = params.get("text") or ""
 
     page.fill(selector, text)
-    yield tool.create_text_message(f"Filled '{selector}' with: '{text}'")
+    yield tool.create_text_message(f"Filled '{selector}' ({len(text)} chars).")
 
 
 def _handle_select(
@@ -127,37 +144,22 @@ def _handle_hover(
     yield tool.create_text_message(f"Hovered over: '{selector}'")
 
 
-def _handle_screenshot(
-    tool: Tool, page: Any, params: dict[str, Any],
-) -> Generator[ToolInvokeMessage, None, None]:
-    """Capture a screenshot; yields blob then text."""
-    full_page_raw = params.get("full_page", "false")
-    full_page = full_page_raw is True or str(full_page_raw).lower() == "true"
-
-    screenshot_bytes = page.screenshot(full_page=full_page)
-    yield tool.create_blob_message(
-        blob=screenshot_bytes,
-        meta={"mime_type": "image/png"},
-    )
-    yield tool.create_text_message(f"Screenshot captured. URL: {page.url}")
-
-
 def _handle_get_text(
     tool: Tool, page: Any, params: dict[str, Any],
 ) -> Generator[ToolInvokeMessage, None, None]:
     """Extract visible text from the page or a specific element."""
     selector = (params.get("selector") or "").strip() or None
 
-    if selector:
-        element = page.query_selector(selector)
-        if element is None:
-            yield tool.create_text_message(
-                f"No element found for selector: '{selector}'"
-            )
-            return
-        text = element.inner_text()
-    else:
-        text = page.inner_text("body")
+    try:
+        text = page.inner_text(selector or "body")
+    except Exception as e:
+        msg = (
+            f"No element found for selector: '{selector}'"
+            if selector
+            else f"Failed to read page text: {type(e).__name__}: {e}"
+        )
+        yield tool.create_text_message(msg)
+        return
 
     yield tool.create_text_message(text or "(empty)")
 
@@ -168,16 +170,16 @@ def _handle_get_html(
     """Retrieve HTML of the page or a specific element."""
     selector = (params.get("selector") or "").strip() or None
 
-    if selector:
-        element = page.query_selector(selector)
-        if element is None:
-            yield tool.create_text_message(
-                f"No element found for selector: '{selector}'"
-            )
-            return
-        html = element.inner_html()
-    else:
-        html = page.content()
+    try:
+        html = page.inner_html(selector) if selector else page.content()
+    except Exception as e:
+        msg = (
+            f"No element found for selector: '{selector}'"
+            if selector
+            else f"Failed to read page HTML: {type(e).__name__}: {e}"
+        )
+        yield tool.create_text_message(msg)
+        return
 
     yield tool.create_text_message(html or "(empty)")
 
@@ -242,6 +244,239 @@ def _handle_reload(
     yield tool.create_text_message(f"Page reloaded.\nURL: {page.url}")
 
 
+# Accessibility-tree snapshot JS — ported from actionbook-rs browser.rs
+_SNAPSHOT_JS = r"""
+(function() {
+    const SKIP_TAGS = new Set([
+        'script', 'style', 'noscript', 'template', 'svg',
+        'path', 'defs', 'clippath', 'lineargradient', 'stop',
+        'meta', 'link', 'br', 'wbr'
+    ]);
+    const INLINE_TAGS = new Set([
+        'strong', 'b', 'em', 'i', 'code', 'span', 'small',
+        'sup', 'sub', 'abbr', 'mark', 'u', 's', 'del', 'ins',
+        'time', 'q', 'cite', 'dfn', 'var', 'samp', 'kbd'
+    ]);
+    const INTERACTIVE_ROLES = new Set([
+        'button', 'link', 'textbox', 'checkbox', 'radio', 'combobox',
+        'listbox', 'menuitem', 'menuitemcheckbox', 'menuitemradio',
+        'option', 'searchbox', 'slider', 'spinbutton', 'switch',
+        'tab', 'treeitem'
+    ]);
+    const CONTENT_ROLES = new Set([
+        'heading', 'cell', 'gridcell', 'columnheader', 'rowheader',
+        'listitem', 'article', 'region', 'main', 'navigation', 'img'
+    ]);
+
+    function getRole(el) {
+        const explicit = el.getAttribute('role');
+        if (explicit) return explicit.toLowerCase();
+        const tag = el.tagName.toLowerCase();
+        if (INLINE_TAGS.has(tag)) return tag;
+        const roleMap = {
+            'a': el.hasAttribute('href') ? 'link' : 'generic',
+            'button': 'button',
+            'input': getInputRole(el),
+            'select': 'combobox',
+            'textarea': 'textbox',
+            'img': 'img',
+            'h1': 'heading', 'h2': 'heading', 'h3': 'heading',
+            'h4': 'heading', 'h5': 'heading', 'h6': 'heading',
+            'nav': 'navigation', 'main': 'main',
+            'header': 'banner', 'footer': 'contentinfo',
+            'aside': 'complementary', 'form': 'form',
+            'table': 'table',
+            'thead': 'rowgroup', 'tbody': 'rowgroup', 'tfoot': 'rowgroup',
+            'tr': 'row', 'th': 'columnheader', 'td': 'cell',
+            'ul': 'list', 'ol': 'list', 'li': 'listitem',
+            'details': 'group', 'summary': 'button',
+            'dialog': 'dialog',
+            'section': el.hasAttribute('aria-label') || el.hasAttribute('aria-labelledby') ? 'region' : 'generic',
+            'article': 'article'
+        };
+        return roleMap[tag] || 'generic';
+    }
+
+    function getInputRole(el) {
+        const type = (el.getAttribute('type') || 'text').toLowerCase();
+        const map = {
+            'text': 'textbox', 'email': 'textbox', 'password': 'textbox',
+            'search': 'searchbox', 'tel': 'textbox', 'url': 'textbox',
+            'number': 'spinbutton',
+            'checkbox': 'checkbox', 'radio': 'radio',
+            'submit': 'button', 'reset': 'button', 'button': 'button',
+            'range': 'slider'
+        };
+        return map[type] || 'textbox';
+    }
+
+    function getAccessibleName(el) {
+        const ariaLabel = el.getAttribute('aria-label');
+        if (ariaLabel) return ariaLabel.trim();
+        const labelledBy = el.getAttribute('aria-labelledby');
+        if (labelledBy) {
+            const label = document.getElementById(labelledBy);
+            if (label) return (label.textContent || '').trim().substring(0, 100);
+        }
+        const tag = el.tagName.toLowerCase();
+        if (tag === 'img') return el.getAttribute('alt') || '';
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+            if (el.id) {
+                const label = document.querySelector('label[for="' + el.id + '"]');
+                if (label) return (label.textContent || '').trim().substring(0, 100);
+            }
+            return el.getAttribute('placeholder') || el.getAttribute('title') || '';
+        }
+        if (tag === 'a' || tag === 'button' || tag === 'summary') return '';
+        if (['h1','h2','h3','h4','h5','h6'].includes(tag)) {
+            return (el.textContent || '').trim().substring(0, 150);
+        }
+        const title = el.getAttribute('title');
+        if (title) return title.trim();
+        return '';
+    }
+
+    function isHidden(el) {
+        if (el.hidden) return true;
+        if (el.getAttribute('aria-hidden') === 'true') return true;
+        const style = el.style;
+        if (style.display === 'none' || style.visibility === 'hidden') return true;
+        if (el.offsetParent === null && el.tagName.toLowerCase() !== 'body' &&
+            getComputedStyle(el).position !== 'fixed' && getComputedStyle(el).position !== 'sticky') {
+            const cs = getComputedStyle(el);
+            if (cs.display === 'none' || cs.visibility === 'hidden') return true;
+        }
+        return false;
+    }
+
+    let refCounter = 0;
+
+    function walk(el, depth) {
+        if (depth > 15) return null;
+        const tag = el.tagName.toLowerCase();
+        if (SKIP_TAGS.has(tag)) return null;
+        if (isHidden(el)) return null;
+
+        const role = getRole(el);
+        const name = getAccessibleName(el);
+        const isInteractive = INTERACTIVE_ROLES.has(role);
+        const isContent = CONTENT_ROLES.has(role);
+        const shouldRef = isInteractive || (isContent && name);
+
+        let ref = null;
+        if (shouldRef) { refCounter++; ref = 'e' + refCounter; }
+
+        const children = [];
+        for (const child of el.childNodes) {
+            if (child.nodeType === 1) {
+                const c = walk(child, depth + 1);
+                if (c) children.push(c);
+            } else if (child.nodeType === 3) {
+                const t = (child.textContent || '').trim();
+                if (t) {
+                    const content = t.length > 200 ? t.substring(0, 200) + '...' : t;
+                    children.push({ role: 'text', content });
+                }
+            }
+        }
+
+        if (role === 'generic' && !name && !ref && children.length === 1) return children[0];
+        if (role === 'generic' && !name && !ref && children.length === 0) return null;
+
+        const node = { role };
+        if (name) node.name = name;
+        if (ref) node.ref = ref;
+        if (children.length > 0) node.children = children;
+        if (role === 'link') { const href = el.getAttribute('href'); if (href) node.url = href; }
+        if (role === 'heading') { const m = tag.match(/^h(\d)$/); if (m) node.level = parseInt(m[1]); }
+        if (role === 'textbox' || role === 'searchbox') node.value = el.value || '';
+        if (role === 'checkbox' || role === 'radio' || role === 'switch') node.checked = el.checked || false;
+        return node;
+    }
+
+    const tree = walk(document.body, 0);
+    return { tree, refCount: refCounter };
+})()
+"""
+
+
+def _render_snapshot_node(node: dict[str, Any], depth: int = 0) -> str:
+    """Render a snapshot tree node as indented text lines.
+
+    Output format matches actionbook-rs render_snapshot_tree:
+      - heading "Title" [ref=e1] [level=1]
+      - button "Submit" [ref=e2]
+      - link "Home" [ref=e3]:
+        - /url: https://example.com
+        - text: Home
+    """
+    indent = "  " * depth
+    role = node.get("role", "generic")
+
+    # Text nodes
+    if role == "text":
+        content = node.get("content", "")
+        return f"{indent}- text: {content}\n" if content else ""
+
+    name = node.get("name")
+    ref_id = node.get("ref")
+    url = node.get("url")
+    children = node.get("children", [])
+    has_children = bool(children)
+
+    # Build line: - role "name" [ref=eN] [extra]
+    line = f"{indent}- {role}"
+    if name:
+        line += f' "{name}"'
+    if ref_id:
+        line += f" [ref={ref_id}]"
+
+    level = node.get("level")
+    if level is not None:
+        line += f" [level={level}]"
+    checked = node.get("checked")
+    if checked is not None:
+        line += f" [checked={'true' if checked else 'false'}]"
+    value = node.get("value")
+    if value:
+        line += f' [value="{value}"]'
+
+    if has_children or url:
+        line += ":"
+    line += "\n"
+
+    # URL for links
+    if url:
+        line += f"{indent}  - /url: {url}\n"
+
+    # Children
+    for child in children:
+        line += _render_snapshot_node(child, depth + 1)
+
+    return line
+
+
+def _handle_snapshot(
+    tool: Tool, page: Any, params: dict[str, Any],
+) -> Generator[ToolInvokeMessage, None, None]:
+    """Capture an accessibility-tree snapshot of the current page.
+
+    Returns a structured text representation of all interactive and content
+    elements with ref identifiers that can be used as selectors.
+    """
+    result = page.evaluate(_SNAPSHOT_JS)
+    tree = result.get("tree") if isinstance(result, dict) else None
+    ref_count = result.get("refCount", 0) if isinstance(result, dict) else 0
+
+    if tree is None:
+        yield tool.create_text_message("Snapshot: page is empty or could not be parsed.")
+        return
+
+    output = _render_snapshot_node(tree)
+    header = f"Page snapshot — URL: {page.url}\nInteractive elements: {ref_count}\n\n"
+    yield tool.create_text_message(header + output)
+
+
 # ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
@@ -259,7 +494,6 @@ _HANDLERS: dict[str, _HandlerFn] = {
     "select": _handle_select,
     "press_key": _handle_press_key,
     "hover": _handle_hover,
-    "screenshot": _handle_screenshot,
     "get_text": _handle_get_text,
     "get_html": _handle_get_html,
     "wait": _handle_wait,
@@ -267,7 +501,79 @@ _HANDLERS: dict[str, _HandlerFn] = {
     "go_back": _handle_go_back,
     "go_forward": _handle_go_forward,
     "reload": _handle_reload,
+    "snapshot": _handle_snapshot,
 }
+
+
+_BLOCKED_IP_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("100.64.0.0/10"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+]
+
+_BLOCKED_HOSTNAMES = frozenset({"localhost", "metadata.google.internal"})
+
+
+def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Return True if an IP belongs to blocked private/internal networks."""
+    return any(ip in net for net in _BLOCKED_IP_NETWORKS)
+
+
+def _parse_ip_host(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Parse a host string as IPv4/IPv6, including legacy IPv4 forms."""
+    try:
+        return ipaddress.ip_address(host)
+    except ValueError:
+        # socket.inet_aton accepts legacy IPv4 notations:
+        # 127.1, 2130706433, 0x7f000001, 017700000001
+        try:
+            return ipaddress.ip_address(socket.inet_aton(host))
+        except OSError:
+            return None
+
+
+def _resolve_host_ips(host: str) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    """Resolve DNS A/AAAA records and return parsed IP addresses."""
+    resolved: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
+    try:
+        for info in socket.getaddrinfo(host, None):
+            family = info[0]
+            sockaddr = info[4]
+            if family not in (socket.AF_INET, socket.AF_INET6):
+                continue
+            ip = _parse_ip_host(sockaddr[0])
+            if ip is not None:
+                resolved.add(ip)
+    except socket.gaierror:
+        return set()
+    return resolved
+
+
+def _is_ssrf_target(url: str) -> bool:
+    """Check if a URL targets a private/internal network address."""
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").strip().rstrip(".").lower()
+        if not host:
+            return False
+
+        if host in _BLOCKED_HOSTNAMES or host.endswith(".localhost"):
+            return True
+
+        direct_ip = _parse_ip_host(host)
+        if direct_ip is not None:
+            return _is_blocked_ip(direct_ip)
+
+        # Domain host: resolve and block if any answer points to internal ranges.
+        resolved_ips = _resolve_host_ips(host)
+        return any(_is_blocked_ip(ip) for ip in resolved_ips)
+    except ValueError:
+        return False
 
 
 def _pre_validate(action: str, params: dict[str, Any]) -> str | None:
@@ -286,6 +592,8 @@ def _pre_validate(action: str, params: dict[str, Any]) -> str | None:
             return "Error: 'url' is required for action 'navigate'."
         if not url.startswith(("http://", "https://")):
             return f"Error: 'url' must start with http:// or https://. Got: '{url}'"
+        if _is_ssrf_target(url):
+            return f"Error: Navigation to private/internal addresses is not permitted: '{url}'"
     elif action in ("click", "hover"):
         if not selector:
             return f"Error: 'selector' is required for action '{action}'."
@@ -313,11 +621,23 @@ def _pre_validate(action: str, params: dict[str, Any]) -> str | None:
 
 class BrowserOperatorTool(Tool):
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage, None, None]:
-        cdp_url = (tool_parameters.get("cdp_url") or "").strip()
+        session_id = (tool_parameters.get("session_id") or "").strip()
+        raw_cdp_url = (tool_parameters.get("cdp_url") or "").strip()
         action = (tool_parameters.get("action") or "").strip()
 
-        if not cdp_url:
-            yield self.create_text_message("Error: 'cdp_url' is required.")
+        # Validate cdp_url scheme early (before any pool/network work).
+        cdp_url = ""
+        if raw_cdp_url:
+            try:
+                cdp_url = validate_cdp_url(raw_cdp_url)
+            except ValueError as e:
+                yield self.create_text_message(f"Error: {e}")
+                return
+
+        if not session_id and not cdp_url:
+            yield self.create_text_message(
+                "Error: Either 'session_id' or 'cdp_url' is required."
+            )
             return
         if not action:
             yield self.create_text_message("Error: 'action' is required.")
@@ -336,13 +656,63 @@ class BrowserOperatorTool(Tool):
             return
 
         handler = _HANDLERS[action]
-        try:
-            with cdp_page(cdp_url) as page:
+
+        # Strategy:
+        # 1) Prefer existing pooled session_id connection
+        # 2) If missing/unhealthy and cdp_url exists, reconnect the pool for this session_id
+        # 3) If only cdp_url exists, create an ephemeral pooled connection for this call
+        if session_id:
+            try:
+                page = pool.get_page(session_id)
                 yield from handler(self, page, tool_parameters)
-        except CdpConnectionError as e:
-            yield self.create_text_message(f"Error: {e}")
+                return
+            except (ConnectionNotFound, ConnectionUnhealthy) as e:
+                if not cdp_url:
+                    yield self.create_text_message(
+                        f"Error: {e}\n"
+                        "Recovery hint: pass `cdp_url` using the `ws_endpoint` "
+                        "returned by browser_create_session.\n"
+                        "IMPORTANT: If you are done or giving up, call browser_stop_session to release the session."
+                    )
+                    return
+                logger.warning(
+                    "Pool lookup failed for session %s, attempting reconnect from cdp_url: %s",
+                    session_id, e,
+                )
+                try:
+                    pool.connect(session_id, cdp_url)
+                    page = pool.get_page(session_id)
+                    yield from handler(self, page, tool_parameters)
+                    return
+                except Exception as reconnect_error:
+                    yield self.create_text_message(
+                        "Error: Failed to recover browser session from `cdp_url`. "
+                        f"{type(reconnect_error).__name__}: {reconnect_error}\n"
+                        "IMPORTANT: Call browser_stop_session to release the session."
+                    )
+                    return
+            except Exception as e:
+                logger.exception(
+                    "browser_operator session_id=%s action=%s failed",
+                    session_id, action,
+                )
+                yield self.create_text_message(
+                    f"Error: Action '{action}' failed: {type(e).__name__}: {e}\n"
+                    "IMPORTANT: Call browser_stop_session to release the session."
+                )
+                return
+
+        # cdp_url-only mode: one operation in an ephemeral pooled session.
+        # This avoids direct sync Playwright calls in the current runtime thread.
+        ephemeral_session_id = f"ephemeral-{uuid.uuid4()}"
+        try:
+            pool.connect(ephemeral_session_id, cdp_url)
+            page = pool.get_page(ephemeral_session_id)
+            yield from handler(self, page, tool_parameters)
         except Exception as e:
             logger.exception("browser_operator action=%s failed", action)
             yield self.create_text_message(
                 f"Error: Action '{action}' failed: {type(e).__name__}: {e}"
             )
+        finally:
+            pool.disconnect(ephemeral_session_id)
