@@ -4,18 +4,6 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "Skip publish/release creation steps"
-        required: false
-        type: boolean
-        default: true
-      force_dify_plugin_release:
-        description: "Force run Release Dify Plugin job for branch validation"
-        required: false
-        type: boolean
-        default: true
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
@@ -33,9 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       should-release: ${{ steps.changesets.outputs.hasChangesets == 'false' }}
-      cli-needs-release: ${{ steps.manual-overrides.outputs.cli || steps.check-releases.outputs.cli }}
-      extension-needs-release: ${{ steps.manual-overrides.outputs.extension || steps.check-releases.outputs.extension }}
-      dify-plugin-needs-release: ${{ steps.manual-overrides.outputs.dify_plugin_needs_release || steps.check-releases.outputs.dify-plugin }}
+      cli-needs-release: ${{ steps.check-releases.outputs.cli }}
+      extension-needs-release: ${{ steps.check-releases.outputs.extension }}
+      dify-plugin-needs-release: ${{ steps.check-releases.outputs.dify-plugin }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -56,7 +44,6 @@ jobs:
 
       - name: Create Release Pull Request
         id: changesets
-        if: github.event_name == 'push'
         uses: changesets/action@v1
         with:
           version: pnpm version-packages
@@ -64,20 +51,6 @@ jobs:
           title: "chore: version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Manual overrides (workflow_dispatch)
-        id: manual-overrides
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          echo "cli=false" >> "$GITHUB_OUTPUT"
-          echo "extension=false" >> "$GITHUB_OUTPUT"
-          if [ "${{ inputs.force_dify_plugin_release }}" = "true" ]; then
-            echo "dify_plugin_needs_release=true" >> "$GITHUB_OUTPUT"
-            echo "Manual override: force Release Dify Plugin job"
-          else
-            echo "dify_plugin_needs_release=false" >> "$GITHUB_OUTPUT"
-            echo "Manual override: skip Release Dify Plugin job"
-          fi
 
       - name: Check which packages need release
         id: check-releases
@@ -578,7 +551,6 @@ jobs:
           mv dist/actionbook.difypkg "dist/actionbook-v${VERSION}.difypkg"
 
       - name: Create Dify Plugin GitHub Release
-        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dry_run }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: actionbook-dify-plugin-v${{ steps.version.outputs.version }}
