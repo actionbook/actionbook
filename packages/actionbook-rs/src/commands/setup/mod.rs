@@ -318,7 +318,7 @@ fn setup_logo_symbol() -> &'static str {
                 "><"
             }
         }
-        None => "⋈",
+        None => "><",
     }
 }
 
