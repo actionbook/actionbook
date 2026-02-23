@@ -47,6 +47,20 @@ fn should_install_skills_for_target(target: Option<SetupTarget>) -> bool {
     !matches!(target, Some(SetupTarget::Standalone))
 }
 
+fn derive_effective_non_interactive(non_interactive_flag: bool, mode_target: Option<SetupTarget>) -> bool {
+    non_interactive_flag || mode_target.is_some()
+}
+
+fn derive_browser_flag(browser_flag: Option<BrowserMode>, mode_target: Option<SetupTarget>) -> Option<BrowserMode> {
+    if browser_flag.is_some() {
+        browser_flag
+    } else if mode_target.is_some() {
+        Some(BrowserMode::Isolated)
+    } else {
+        None
+    }
+}
+
 /// Run the setup wizard. Orchestrates all steps in order.
 ///
 /// Quick mode: if `--target` is provided without other flags, only run
@@ -64,8 +78,10 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
     }
 
     // In full setup flow, use --target to select skills installation target.
-    let agent_target = args.target.or(args.agent_mode.map(|mode| mode.to_setup_target()));
-    let effective_non_interactive = args.non_interactive || agent_target.is_some();
+    let mode_target = args.agent_mode.map(|mode| mode.to_setup_target());
+    let agent_target = args.target.or(mode_target);
+    // `--target` should not force non-interactive behavior.
+    let effective_non_interactive = derive_effective_non_interactive(args.non_interactive, mode_target);
 
     // Handle existing config (re-run protection)
     let mut config = handle_existing_config(cli, effective_non_interactive, args.reset)?;
@@ -83,13 +99,7 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
         print_step_connector();
     }
 
-    let browser_flag = if args.browser.is_some() {
-        args.browser
-    } else if agent_target.is_some() {
-        Some(BrowserMode::Isolated)
-    } else {
-        None
-    };
+    let browser_flag = derive_browser_flag(args.browser, mode_target);
 
     // Steps 2–4: configure → recap → save (with restart loop)
     let config = loop {
@@ -683,5 +693,31 @@ mod tests {
     #[test]
     fn standalone_target_skips_skills_install() {
         assert!(!should_install_skills_for_target(Some(SetupTarget::Standalone)));
+    }
+
+    #[test]
+    fn target_does_not_force_non_interactive_without_agent_mode() {
+        assert!(!derive_effective_non_interactive(false, None));
+    }
+
+    #[test]
+    fn agent_mode_forces_non_interactive() {
+        assert!(derive_effective_non_interactive(
+            false,
+            Some(SetupTarget::Codex)
+        ));
+    }
+
+    #[test]
+    fn target_only_does_not_default_browser_mode() {
+        assert_eq!(derive_browser_flag(None, None), None);
+    }
+
+    #[test]
+    fn agent_mode_defaults_browser_to_isolated() {
+        assert_eq!(
+            derive_browser_flag(None, Some(SetupTarget::Codex)),
+            Some(BrowserMode::Isolated)
+        );
     }
 }
