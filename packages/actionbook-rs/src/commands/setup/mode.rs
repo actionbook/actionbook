@@ -102,8 +102,9 @@ pub fn install_skills(
     cli: &Cli,
     env: &EnvironmentInfo,
     non_interactive: bool,
+    target: Option<&SetupTarget>,
 ) -> Result<SkillsResult> {
-    let command_str = format_skills_command(None);
+    let command_str = format_skills_command(target);
 
     if !env.npx_available {
         // npx not available — show manual instructions
@@ -158,7 +159,7 @@ pub fn install_skills(
 
     if non_interactive {
         // Auto-install in non-interactive mode
-        return run_npx_skills(cli, None, true);
+        return run_npx_skills(cli, target, true);
     }
 
     // Interactive: prompt user
@@ -172,7 +173,7 @@ pub fn install_skills(
         .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
 
     match selection {
-        0 => run_npx_skills(cli, None, false),
+        0 => run_npx_skills(cli, target, false),
         _ => {
             if cli.json {
                 println!(

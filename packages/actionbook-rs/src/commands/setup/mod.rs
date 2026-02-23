@@ -13,7 +13,7 @@ use self::theme::setup_theme;
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::api::ApiClient;
-use crate::cli::{BrowserMode, Cli, SetupTarget};
+use crate::cli::{AgentMode, BrowserMode, Cli, SetupTarget};
 use crate::config::Config;
 use crate::error::{ActionbookError, Result};
 
@@ -24,6 +24,16 @@ pub struct SetupArgs<'a> {
     pub browser: Option<BrowserMode>,
     pub non_interactive: bool,
     pub reset: bool,
+    pub agent_mode: Option<AgentMode>,
+}
+
+fn should_run_target_only(args: &SetupArgs<'_>) -> bool {
+    args.target.is_some()
+        && args.api_key.is_none()
+        && args.browser.is_none()
+        && !args.non_interactive
+        && !args.reset
+        && args.agent_mode.is_none()
 }
 
 /// Run the setup wizard. Orchestrates all steps in order.
@@ -31,20 +41,30 @@ pub struct SetupArgs<'a> {
 /// Quick mode: if `--target` is provided without other flags, only run
 /// `npx skills add` for the specified target, skipping the full wizard.
 pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
-    // Quick mode: --target only → run npx skills add and exit
-    if let Some(t) = args.target {
-        return run_target_only(cli, t).await;
+    if args.target.is_some() && args.agent_mode.is_some() {
+        return Err(ActionbookError::SetupError(
+            "Cannot combine --target with --agent-mode. Pick one and try again.".to_string(),
+        ));
     }
 
+    // Quick mode: --target only → run npx skills add and exit
+    if should_run_target_only(&args) {
+        return run_target_only(cli, args.target.expect("target exists in quick mode")).await;
+    }
+
+    // In full setup flow, use --target to select skills installation target.
+    let agent_target = args.target.or(args.agent_mode.map(|mode| mode.to_setup_target()));
+    let effective_non_interactive = args.non_interactive || agent_target.is_some();
+
     // Handle existing config (re-run protection)
-    let mut config = handle_existing_config(cli, args.non_interactive, args.reset)?;
+    let mut config = handle_existing_config(cli, effective_non_interactive, args.reset)?;
 
     // Step 1: Welcome + environment detection
     if !cli.json {
         print_welcome();
         print_step_header(1, "Environment");
     }
-    let spinner = create_spinner(cli.json, args.non_interactive, "Scanning environment...");
+    let spinner = create_spinner(cli.json, effective_non_interactive, "Scanning environment...");
     let env = detect::detect_environment();
     finish_spinner(spinner, "Environment detected");
     detect::print_environment_report(&env, cli.json);
@@ -52,21 +72,35 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
         print_step_connector();
     }
 
+    let browser_flag = if args.browser.is_some() {
+        args.browser
+    } else if agent_target.is_some() {
+        Some(BrowserMode::Isolated)
+    } else {
+        None
+    };
+
     // Steps 2–4: configure → recap → save (with restart loop)
     let config = loop {
         // Step 2: API Key
         if !cli.json {
             print_step_header(2, "API Key");
         }
-        api_key::configure_api_key(cli, &env, args.api_key, args.non_interactive, &mut config)
+        api_key::configure_api_key(cli, &env, args.api_key, effective_non_interactive, &mut config)
             .await?;
+
+        if agent_target.is_some() && config.api.api_key.is_none() {
+            return Err(ActionbookError::SetupError(
+                "Agent mode requires an API key. Provide one via --api-key, ACTIONBOOK_API_KEY, or existing config.".to_string(),
+            ));
+        }
 
         // Step 3: Browser
         if !cli.json {
             print_step_connector();
             print_step_header(3, "Browser");
         }
-        browser_cfg::configure_browser(cli, &env, args.browser, args.non_interactive, &mut config).await?;
+        browser_cfg::configure_browser(cli, &env, browser_flag, effective_non_interactive, &mut config).await?;
 
         // Step 4: Save configuration
         if !cli.json {
@@ -75,7 +109,7 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
         }
 
         // Show recap (interactive only)
-        if !cli.json && !args.non_interactive {
+        if !cli.json && !effective_non_interactive {
             let bar = "│".dimmed();
             let api_display = config
                 .api
@@ -119,14 +153,14 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
         print_step_connector();
         print_step_header(5, "Health Check");
     }
-    run_health_check(cli, &config, args.non_interactive).await;
+    run_health_check(cli, &config, effective_non_interactive).await;
 
     // Step 6: Install Skills
     if !cli.json {
         print_step_connector();
         print_step_header(6, "Skills");
     }
-    let skills_result = mode::install_skills(cli, &env, args.non_interactive)?;
+    let skills_result = mode::install_skills(cli, &env, effective_non_interactive, agent_target.as_ref())?;
 
     // Completion summary
     print_completion(cli, &config, &skills_result);
@@ -566,4 +600,43 @@ fn shorten_browser_path(path: &str) -> String {
     }
     // Fallback: last path component
     path.rsplit('/').next().unwrap_or(path).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base_args<'a>() -> SetupArgs<'a> {
+        SetupArgs {
+            target: None,
+            api_key: None,
+            browser: None,
+            non_interactive: false,
+            reset: false,
+            agent_mode: None,
+        }
+    }
+
+    #[test]
+    fn target_only_triggers_quick_mode() {
+        let mut args = base_args();
+        args.target = Some(SetupTarget::Codex);
+        assert!(should_run_target_only(&args));
+    }
+
+    #[test]
+    fn target_with_non_interactive_runs_full_setup() {
+        let mut args = base_args();
+        args.target = Some(SetupTarget::Codex);
+        args.non_interactive = true;
+        assert!(!should_run_target_only(&args));
+    }
+
+    #[test]
+    fn target_with_browser_runs_full_setup() {
+        let mut args = base_args();
+        args.target = Some(SetupTarget::Codex);
+        args.browser = Some(BrowserMode::Isolated);
+        assert!(!should_run_target_only(&args));
+    }
 }
