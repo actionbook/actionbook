@@ -19,7 +19,7 @@ from dify_plugin.entities.tool import ToolInvokeMessage
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 from utils.cdp_client import validate_cdp_url
-from utils.connection_pool import ConnectionNotFound, ConnectionUnhealthy, pool
+from utils.connection_pool import ConnectionNotFound, ConnectionUnhealthy, WorkerTimeoutError, pool
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ def _handle_click(
         yield tool.create_text_message(f"Clicked: '{selector}'")
     except (ConnectionNotFound, ConnectionUnhealthy):
         raise
-    except PlaywrightTimeout:
+    except (PlaywrightTimeout, WorkerTimeoutError):
         logger.debug("wait_for_selector timed out for '%s'", selector, exc_info=True)
         yield tool.create_text_message(
             f"Element not found: '{selector}' within {timeout_ms}ms. "
@@ -194,7 +194,7 @@ def _handle_wait(
     try:
         page.wait_for_selector(selector, timeout=float(timeout_ms))
         yield tool.create_text_message(f"Element found: '{selector}'")
-    except PlaywrightTimeout:
+    except (PlaywrightTimeout, WorkerTimeoutError):
         logger.debug("wait_for_selector timed out for '%s'", selector, exc_info=True)
         yield tool.create_text_message(
             f"Element not found: '{selector}' within {timeout_ms}ms."
@@ -555,7 +555,23 @@ def _resolve_host_ips(host: str) -> set[ipaddress.IPv4Address | ipaddress.IPv6Ad
 
 
 def _is_ssrf_target(url: str) -> bool:
-    """Check if a URL targets a private/internal network address."""
+    """Check if a URL targets a private/internal network address.
+
+    Security note — TOCTOU / DNS rebinding limitation:
+    This function resolves DNS at validation time, but the actual navigation
+    happens later when the browser engine re-resolves the hostname. An attacker
+    could exploit DNS rebinding: first query returns a safe IP, second query
+    returns a private IP (e.g. 127.0.0.1).
+
+    Mitigation: In the Dify plugin context, navigation occurs in a remote cloud
+    browser (Hyperbrowser/Steel), not on the plugin host. DNS rebinding would
+    affect the cloud browser's network, not the plugin server. The cloud browser
+    provider's own network policies provide an additional layer of protection.
+
+    A full fix (resolve once → navigate to IP with Host header) is not feasible
+    with Playwright's navigation API. This check blocks the common case of
+    direct private IP/hostname usage.
+    """
     try:
         parsed = urlparse(url)
         host = (parsed.hostname or "").strip().rstrip(".").lower()

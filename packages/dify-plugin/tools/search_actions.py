@@ -144,11 +144,16 @@ class SearchActionsTool(Tool):
                 "Please check plugin logs for details."
             )
         except BaseException as e:
-            # Catch gevent.Timeout and other non-Exception errors
+            # Re-raise control-flow exceptions that must not be swallowed.
+            # GeneratorExit violates generator protocol; SystemExit/KeyboardInterrupt
+            # prevent clean process shutdown.
+            if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                raise
+            # Catch gevent.Timeout and other non-Exception BaseException subclasses
+            # used by Dify's runtime.
             logger.critical("BaseException in search_actions: %s: %s", type(e).__name__, e)
             yield self.create_text_message(
                 f"Error: A system-level error occurred ({type(e).__name__}: {e}). "
                 "This may indicate network restrictions or timeout in Dify Cloud environment. "
                 "Consider using Dify Self-hosted for unrestricted access."
             )
-            # DO NOT raise - let generator finish to ensure message is delivered to user

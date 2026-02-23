@@ -28,6 +28,10 @@ class ConnectionUnhealthy(Exception):
     """Raised when a pooled connection worker is no longer usable."""
 
 
+class WorkerTimeoutError(Exception):
+    """Raised when a worker operation times out (maps to PlaywrightTimeout)."""
+
+
 class _KeyboardProxy:
     def __init__(self, worker: "_SubprocessWorker") -> None:
         self._worker = worker
@@ -156,6 +160,11 @@ class _SubprocessWorker:
 
         if not resp.get("ok"):
             error = resp.get("error") or "worker command failed"
+            # Detect Playwright timeout errors so callers can handle them
+            # distinctly from other failures (e.g. show "element not found"
+            # hints instead of generic errors).
+            if "TimeoutError" in error or "Timeout " in error:
+                raise WorkerTimeoutError(error)
             raise RuntimeError(error)
         return resp.get("result")
 
@@ -284,10 +293,10 @@ class ConnectionPool:
             api_key=api_key,
         )
 
+        evicted_conn: ManagedConnection | None = None
         with self._lock:
             # Evict any existing connection for this session_id (under lock).
-            if session_id in self._connections:
-                self._unsafe_disconnect(session_id)
+            evicted_conn = self._connections.pop(session_id, None)
 
             if len(self._connections) >= self._max_size:
                 # Kill the just-spawned worker before raising.
@@ -298,6 +307,11 @@ class ConnectionPool:
                 )
 
             self._connections[session_id] = conn
+
+        # Stop evicted worker outside lock to avoid deadlock.
+        if evicted_conn is not None:
+            _stop_worker_safely(evicted_conn.worker)
+            logger.info("Pool: evicted previous connection for session")
 
         logger.info("Pool: connected session")
         return page
@@ -324,8 +338,12 @@ class ConnectionPool:
             try:
                 conn.page.evaluate("1")
             except Exception as exc:
+                # Remove from pool under lock, stop worker outside lock.
                 with self._lock:
-                    self._unsafe_disconnect(session_id)
+                    removed = self._connections.pop(session_id, None)
+                if removed is not None:
+                    _stop_worker_safely(removed.worker)
+                    logger.info("Pool: disconnected session")
                 raise ConnectionUnhealthy(
                     f"Pooled connection for session '{session_id}' is dead: {exc}"
                 ) from exc
@@ -335,16 +353,21 @@ class ConnectionPool:
 
     def disconnect(self, session_id: str) -> None:
         with self._lock:
-            if session_id not in self._connections:
+            conn = self._connections.pop(session_id, None)
+            if conn is None:
                 logger.debug("Pool: disconnect called for unknown session")
                 return
-            self._unsafe_disconnect(session_id)
+        # Stop worker outside lock to avoid deadlock with _io_lock.
+        _stop_worker_safely(conn.worker)
+        logger.info("Pool: disconnected session")
 
     def disconnect_all(self) -> None:
         with self._lock:
-            session_ids = list(self._connections.keys())
-            for sid in session_ids:
-                self._unsafe_disconnect(sid)
+            conns = list(self._connections.values())
+            self._connections.clear()
+        # Stop all workers outside lock.
+        for conn in conns:
+            _stop_worker_safely(conn.worker)
         logger.info("Pool: disconnected all sessions")
 
     def cleanup_stale(self) -> None:
@@ -355,9 +378,11 @@ class ConnectionPool:
                 for sid, conn in self._connections.items()
                 if (now - conn.last_used_at) > self._max_idle_seconds
             ]
-            for sid in stale:
-                logger.info("Pool: cleaning up stale session")
-                self._unsafe_disconnect(sid)
+            stale_conns = [self._connections.pop(sid) for sid in stale]
+        # Stop stale workers outside lock.
+        for conn in stale_conns:
+            logger.info("Pool: cleaning up stale session")
+            _stop_worker_safely(conn.worker)
 
     @property
     def size(self) -> int:
@@ -376,18 +401,19 @@ class ConnectionPool:
                 return None
             return (conn.provider_name, conn.api_key)
 
-    def _unsafe_disconnect(self, session_id: str) -> None:
-        conn = self._connections.pop(session_id, None)
-        if conn is None:
-            return
-        try:
-            conn.worker.stop()
-        except Exception as stop_err:
-            logger.debug(
-                "Pool: error stopping worker during disconnect (%s)",
-                type(stop_err).__name__,
-            )
-        logger.info("Pool: disconnected session")
+    # NOTE: _unsafe_disconnect was removed to fix a deadlock.
+    # Worker shutdown now happens outside the pool lock via _stop_worker_safely().
+
+
+def _stop_worker_safely(worker: _SubprocessWorker) -> None:
+    """Stop a worker outside any pool lock to avoid deadlock with _io_lock."""
+    try:
+        worker.stop()
+    except Exception as stop_err:
+        logger.debug(
+            "Pool: error stopping worker during disconnect (%s)",
+            type(stop_err).__name__,
+        )
 
 
 pool = ConnectionPool()
