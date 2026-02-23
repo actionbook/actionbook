@@ -1,13 +1,14 @@
 # Actionbook Dify Plugin
 
-Access verified website selectors and operation manuals directly from your Dify workflows and agents.
+Access verified website selectors and operation manuals directly from your Dify workflows and agents — with built-in cloud browser automation.
 
 ## Features
 
-- 🔍 **Search Actions**: Find website elements by keyword or context
-- 📋 **Get Action Details**: Retrieve complete selector information and allowed methods
-- ✅ **Verified Selectors**: All selectors are tested and maintained by the Actionbook community
-- 🚀 **No Browser Required**: Query manuals without launching browsers (Phase 1)
+- **Search Actions**: Find website elements by keyword or context
+- **Get Action Details**: Retrieve complete selector information and allowed methods
+- **Verified Selectors**: All selectors are tested and maintained by the Actionbook community
+- **Cloud Browser Sessions**: Create and manage cloud browser sessions via Hyperbrowser
+- **Browser Operator**: Navigate, click, fill, snapshot and more — all from Dify workflows
 
 ## Installation
 
@@ -75,22 +76,64 @@ Allowed Methods: click, type, clear
 Last Verified: 2026-02-05
 ```
 
+### browser_create_session
+
+Start a cloud browser session via a managed provider (Hyperbrowser).
+
+**Parameters**:
+- `provider` (optional, form): Cloud browser provider. Default: `hyperbrowser`
+- `api_key` (required, form): Provider API key (stored as secret)
+- `profile_id` (optional): Stable identifier for browser state persistence across sessions
+- `use_proxy` (optional, form): Route through a residential proxy. Default: `false`
+
+**Returns**: `session_id` and `ws_endpoint` (WebSocket CDP URL) for use with `browser_operator`.
+
+### browser_stop_session
+
+Stop a cloud browser session and release resources.
+
+**Parameters**:
+- `session_id` (required): Session ID from `browser_create_session`
+
+Provider and API key are automatically resolved from the session created by `browser_create_session` — no need to provide them again.
+
+### browser_operator
+
+Unified browser operator for all page interactions.
+
+**Parameters**:
+- `session_id` (optional): Session ID from `browser_create_session` (preferred for multi-step workflows)
+- `cdp_url` (optional): WebSocket CDP URL as fallback
+- `action` (required): One of: `navigate`, `click`, `type`, `fill`, `select`, `press_key`, `hover`, `snapshot`, `get_text`, `get_html`, `wait`, `wait_navigation`, `go_back`, `go_forward`, `reload`
+- `url` (optional): Target URL for `navigate`
+- `selector` (optional): CSS selector for element-targeting actions
+- `text` (optional): Text content for `type`/`fill`
+- `value` (optional): Option value for `select`
+- `key` (optional): Key name for `press_key`
+- `timeout_ms` (optional): Timeout in milliseconds (default: 30000)
+
+For best reliability, pass **both** `session_id` and `cdp_url` on each call.
+
 ## Use Cases
 
-### 1. Web Scraper Builder
+### 1. End-to-End Browser Automation
 ```
 Workflow:
-1. Use search_actions to find product listing elements
-2. Use get_action_by_area_id to get exact selectors
-3. Pass selectors to scraping tool (Phase 2: browser automation)
+1. search_actions -> find selectors for the target page
+2. browser_create_session -> get session_id + ws_endpoint
+3. browser_operator(navigate) -> go to the target page
+4. browser_operator(fill/click) -> interact using verified selectors
+5. browser_operator(snapshot) -> inspect page state if needed
+6. browser_stop_session -> release resources
 ```
 
 ### 2. Automated Testing
 ```
 Agent Flow:
 1. Search for "submit button on checkout page"
-2. Get action details for verification
-3. Generate test cases with verified selectors
+2. Get action details with verified selectors
+3. Create browser session and execute test steps
+4. Stop session and report results
 ```
 
 ### 3. Research Assistant
@@ -127,7 +170,8 @@ Workflow:
 5) If click/fill/type fails with Element not found or Timeout:
    - call browser_operator(action="snapshot")
    - derive a new selector from snapshot and retry once
-6) Only call browser_stop_session after task is done or hard failure.
+6) Only call browser_stop_session(session_id) after task is done or hard failure.
+   Provider and API key are auto-resolved — just pass session_id.
 ```
 
 ### Troubleshooting: Agent Not Calling Tools
@@ -149,13 +193,6 @@ Then:
 2. Keep `session_id` too (send both `session_id + cdp_url`).
 3. Ensure previous runs call `browser_stop_session`; otherwise provider may return:
    `Maximum number of active sessions ... reached`.
-
-## Roadmap
-
-**Phase 1** (Current): Query action manuals via API
-**Phase 2** (Coming Soon): Remote browser control via CDP
-- Connect to Browserbase / Browser.cloud
-- Fine-grained operations: click, fill, goto, snapshot, test
 
 ## Support
 

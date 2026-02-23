@@ -7,7 +7,7 @@ from typing import Any
 from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
 
-from providers import SUPPORTED_PROVIDERS, get_provider
+from providers import get_provider
 from utils.connection_pool import pool
 
 logger = logging.getLogger(__name__)
