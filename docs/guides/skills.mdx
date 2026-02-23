@@ -37,8 +37,10 @@ Research workflow for deep analysis and report generation:
 
 Data extraction workflow that produces a reusable Playwright script and structured output:
 
-- obtain selectors via Actionbook (or fall back to snapshot/screenshot)
-- detect page mechanisms (hydration, virtualized lists, infinite scroll, pagination)
+- obtain selectors via Actionbook (`search/get` first)
+- if selectors are sufficient, start from them and script directly
+- run lightweight mechanism probes when needed (hydration/virtualized list/pagination)
+- use snapshot/screenshot only as fallback when selectors are missing or unstable
 - generate a standalone Playwright script that handles the detected mechanisms
 - output extracted data as JSON (default) or CSV
 
