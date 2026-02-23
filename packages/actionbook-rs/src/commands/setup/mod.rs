@@ -36,6 +36,17 @@ fn should_run_target_only(args: &SetupArgs<'_>) -> bool {
         && args.agent_mode.is_none()
 }
 
+fn requires_agent_api_key(target: Option<SetupTarget>) -> bool {
+    target
+        .as_ref()
+        .and_then(mode::target_to_agent_flag)
+        .is_some()
+}
+
+fn should_install_skills_for_target(target: Option<SetupTarget>) -> bool {
+    !matches!(target, Some(SetupTarget::Standalone))
+}
+
 /// Run the setup wizard. Orchestrates all steps in order.
 ///
 /// Quick mode: if `--target` is provided without other flags, only run
@@ -89,7 +100,7 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
         api_key::configure_api_key(cli, &env, args.api_key, effective_non_interactive, &mut config)
             .await?;
 
-        if agent_target.is_some() && config.api.api_key.is_none() {
+        if requires_agent_api_key(agent_target) && config.api.api_key.is_none() {
             return Err(ActionbookError::SetupError(
                 "Agent mode requires an API key. Provide one via --api-key, ACTIONBOOK_API_KEY, or existing config.".to_string(),
             ));
@@ -156,11 +167,30 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
     run_health_check(cli, &config, effective_non_interactive).await;
 
     // Step 6: Install Skills
-    if !cli.json {
-        print_step_connector();
-        print_step_header(6, "Skills");
-    }
-    let skills_result = mode::install_skills(cli, &env, effective_non_interactive, agent_target.as_ref())?;
+    let skills_result = if should_install_skills_for_target(agent_target) {
+        if !cli.json {
+            print_step_connector();
+            print_step_header(6, "Skills");
+        }
+        mode::install_skills(cli, &env, effective_non_interactive, agent_target.as_ref())?
+    } else {
+        if cli.json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "step": "skills",
+                    "npx_available": true,
+                    "action": "skipped",
+                    "reason": "standalone_target",
+                })
+            );
+        }
+        mode::SkillsResult {
+            npx_available: true,
+            action: mode::SkillsAction::Skipped,
+            command: "npx skills add actionbook/actionbook".to_string(),
+        }
+    };
 
     // Completion summary
     print_completion(cli, &config, &skills_result);
@@ -638,5 +668,20 @@ mod tests {
         args.target = Some(SetupTarget::Codex);
         args.browser = Some(BrowserMode::Isolated);
         assert!(!should_run_target_only(&args));
+    }
+
+    #[test]
+    fn standalone_target_does_not_require_api_key() {
+        assert!(!requires_agent_api_key(Some(SetupTarget::Standalone)));
+    }
+
+    #[test]
+    fn codex_target_requires_api_key() {
+        assert!(requires_agent_api_key(Some(SetupTarget::Codex)));
+    }
+
+    #[test]
+    fn standalone_target_skips_skills_install() {
+        assert!(!should_install_skills_for_target(Some(SetupTarget::Standalone)));
     }
 }
