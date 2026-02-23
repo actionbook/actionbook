@@ -30,6 +30,10 @@ description:
       (e.g., "arxiv search papers" instead of "search button").
     - Use the domain parameter to filter results to a specific website.
     - Default limit is 10 results; increase if needed (max 50).
+
+    FALLBACK: If this tool returns no useful results or the returned selectors
+    don't work, use browser_operator with action=snapshot to capture the live
+    page's accessibility tree and derive selectors from it.
 parameters:
   - name: query
     type: string

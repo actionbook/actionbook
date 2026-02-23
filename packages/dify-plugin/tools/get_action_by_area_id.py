@@ -1,6 +1,7 @@
 """Get Action By Area ID Tool - Retrieve full action details."""
 
 import logging
+import re
 from collections.abc import Generator
 from typing import Any
 
@@ -9,6 +10,8 @@ from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
 
 from constants import API_BASE_URL
+
+_AREA_ID_PART_RE = re.compile(r"^[a-zA-Z0-9._\-/]+$")
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +30,10 @@ class GetActionByAreaIdTool(Tool):
         Yields:
             ToolInvokeMessage with full action details as formatted text
         """
-        logger.debug("_invoke called with parameters: %s", tool_parameters)
+        logger.debug(
+            "_invoke called, area_id_len=%d",
+            len(tool_parameters.get("area_id") or ""),
+        )
 
         try:
             area_id = tool_parameters.get("area_id", "").strip() if tool_parameters.get("area_id") else ""
@@ -41,6 +47,12 @@ class GetActionByAreaIdTool(Tool):
                 yield self.create_text_message(
                     f"Error: Invalid area_id format. Expected 'site:path:area' "
                     f"(e.g., 'github.com:login:email-input'), got: {area_id}"
+                )
+                return
+            if not all(_AREA_ID_PART_RE.match(p.strip()) for p in parts[:3]):
+                yield self.create_text_message(
+                    "Error: area_id contains invalid characters. "
+                    "Only alphanumeric, dots, hyphens, underscores, and slashes are allowed."
                 )
                 return
 

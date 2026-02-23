@@ -33,6 +33,10 @@ description:
     - UI element details (type, description)
     - Multiple selectors (CSS, XPath, ARIA) with confidence scores
     - Allowed interaction methods (click, type, select, etc.)
+
+    FALLBACK: If the returned selectors fail (element not found, page changed),
+    use browser_operator with action=snapshot to get the current page's
+    accessibility tree and derive fresh selectors from it.
 parameters:
   - name: area_id
     type: string

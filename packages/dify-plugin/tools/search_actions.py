@@ -29,7 +29,11 @@ class SearchActionsTool(Tool):
         Yields:
             ToolInvokeMessage with search results as formatted text
         """
-        logger.debug("_invoke called with parameters: %s", tool_parameters)
+        logger.debug(
+            "_invoke called, query_len=%d, has_domain=%s",
+            len(tool_parameters.get("query") or ""),
+            bool(tool_parameters.get("domain")),
+        )
 
         try:
             query = tool_parameters.get("query", "").strip() if tool_parameters.get("query") else ""
