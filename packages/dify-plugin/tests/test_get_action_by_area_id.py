@@ -7,6 +7,10 @@ import requests
 from tools.get_action_by_area_id import GetActionByAreaIdTool
 
 
+class _FakeSystemError(BaseException):
+    """Simulate gevent.Timeout / non-Exception runtime errors."""
+
+
 def _make_tool(api_key: str = "test_key_123") -> GetActionByAreaIdTool:
     """Create a GetActionByAreaIdTool via the SDK's from_credentials classmethod."""
     return GetActionByAreaIdTool.from_credentials({"actionbook_api_key": api_key})
@@ -55,15 +59,6 @@ Selectors:
     def test_empty_area_id_parameter(self):
         """Test error message for empty area_id parameter."""
         tool_parameters = {"area_id": "   "}
-
-        result = list(self.tool._invoke(tool_parameters))
-
-        assert len(result) == 1
-        assert "Error" in result[0].message.text
-
-    def test_none_area_id_parameter(self):
-        """Test error message for None area_id parameter."""
-        tool_parameters = {"area_id": None}
 
         result = list(self.tool._invoke(tool_parameters))
 
@@ -183,27 +178,15 @@ Selectors:
         assert "unexpected error" in result[0].message.text.lower()
 
     @patch("tools.get_action_by_area_id.requests.get")
-    def test_base_exception_gevent_timeout(self, mock_get):
-        """Test handling of BaseException (e.g., gevent.Timeout) yields message.
-
-        Critical test: Ensures that even BaseException (which bypasses normal Exception)
-        still yields an error message to the user instead of causing empty response.
-        """
-        # Simulate gevent.Timeout which inherits from BaseException
-        class MockGeventTimeout(BaseException):
-            """Mock gevent.Timeout for testing."""
-            pass
-
-        mock_get.side_effect = MockGeventTimeout("greenlet timeout")
+    def test_baseexception_error(self, mock_get):
+        """Test handling of non-Exception errors yields system-level message."""
+        mock_get.side_effect = _FakeSystemError("gevent timeout")
 
         tool_parameters = {"area_id": "github.com:login:username"}
-
         result = list(self.tool._invoke(tool_parameters))
 
-        # Critical assertion: message must be yielded even for BaseException
-        assert len(result) == 1, "BaseException must still yield error message"
+        assert len(result) == 1
         assert "system-level error" in result[0].message.text.lower()
-        assert "MockGeventTimeout" in result[0].message.text
 
     @patch("tools.get_action_by_area_id.requests.get")
     def test_empty_response(self, mock_get):

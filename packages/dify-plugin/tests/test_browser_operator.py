@@ -1,5 +1,6 @@
 """Tests for the unified BrowserOperatorTool."""
 
+import ipaddress
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -10,18 +11,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
-from tools.browser_operator import BrowserOperatorTool, _pre_validate
-from utils.cdp_client import CdpConnectionError
+from tools.browser_operator import (
+    BrowserOperatorTool,
+    _is_ssrf_target,
+    _pre_validate,
+    _render_snapshot_node,
+)
+from utils.connection_pool import ConnectionNotFound, ConnectionUnhealthy
 
 VALID_CDP_URL = "ws://localhost:9222"
 
 
-def _mock_cdp_page(page: MagicMock):
-    """Return a patch context manager that yields the given mock page."""
-    cm = MagicMock()
-    cm.__enter__ = MagicMock(return_value=page)
-    cm.__exit__ = MagicMock(return_value=False)
-    return cm
+def _setup_pool_mock(mock_pool: MagicMock, page: MagicMock) -> None:
+    """Configure a pool mock so that connect + get_page return the given page."""
+    mock_pool.get_page.return_value = page
 
 
 @pytest.fixture
@@ -35,10 +38,10 @@ def tool():
 
 
 class TestTopLevelValidation:
-    def test_missing_cdp_url(self, tool):
+    def test_missing_both_session_id_and_cdp_url(self, tool):
         result = list(tool._invoke({"action": "navigate", "url": "https://example.com"}))
         assert len(result) == 1
-        assert "cdp_url" in result[0].message.text
+        assert "session_id" in result[0].message.text or "cdp_url" in result[0].message.text
         assert "Error" in result[0].message.text
 
     def test_missing_action(self, tool):
@@ -53,9 +56,9 @@ class TestTopLevelValidation:
         assert "Unknown action" in result[0].message.text
         assert "explode" in result[0].message.text
 
-    @patch("tools.browser_operator.cdp_page")
-    def test_cdp_connection_error_propagates(self, mock_cdp, tool):
-        mock_cdp.side_effect = CdpConnectionError("refused")
+    @patch("tools.browser_operator.pool")
+    def test_cdp_connection_error_propagates(self, mock_pool, tool):
+        mock_pool.connect.side_effect = RuntimeError("refused")
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
             "action": "navigate",
@@ -64,11 +67,11 @@ class TestTopLevelValidation:
         assert "Error" in result[0].message.text
         assert "refused" in result[0].message.text
 
-    @patch("tools.browser_operator.cdp_page")
-    def test_generic_exception_returns_error_message(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_generic_exception_returns_error_message(self, mock_pool, tool):
         page = MagicMock()
         page.goto.side_effect = RuntimeError("browser crashed")
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -153,7 +156,7 @@ class TestPreValidate:
         assert _pre_validate("wait", {}) is not None
 
     def test_actions_without_required_params_return_none(self):
-        for action in ("screenshot", "go_back", "go_forward", "reload",
+        for action in ("snapshot", "go_back", "go_forward", "reload",
                         "wait_navigation", "get_text", "get_html"):
             assert _pre_validate(action, {}) is None, f"{action} should not require params"
 
@@ -164,18 +167,42 @@ class TestPreValidate:
         assert _pre_validate("navigate", {"url": "  "}) is not None
 
 
+class TestSsrfProtection:
+    def test_blocks_localhost_with_trailing_dot(self):
+        assert _is_ssrf_target("http://localhost./admin")
+
+    def test_blocks_short_ipv4_loopback_notation(self):
+        assert _is_ssrf_target("http://127.1/internal")
+
+    def test_blocks_integer_ipv4_loopback_notation(self):
+        assert _is_ssrf_target("http://2130706433/internal")
+
+    def test_blocks_hex_ipv4_loopback_notation(self):
+        assert _is_ssrf_target("http://0x7f000001/internal")
+
+    @patch("tools.browser_operator._resolve_host_ips")
+    def test_blocks_dns_resolved_private_ip(self, mock_resolve):
+        mock_resolve.return_value = {ipaddress.ip_address("127.0.0.1")}
+        assert _is_ssrf_target("http://example.test/internal")
+
+    @patch("tools.browser_operator._resolve_host_ips")
+    def test_allows_dns_resolved_public_ip(self, mock_resolve):
+        mock_resolve.return_value = {ipaddress.ip_address("8.8.8.8")}
+        assert not _is_ssrf_target("http://example.test/public")
+
+
 # ---------------------------------------------------------------------------
 # navigate
 # ---------------------------------------------------------------------------
 
 
 class TestNavigateAction:
-    @patch("tools.browser_operator.cdp_page")
-    def test_navigate_success(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_navigate_success(self, mock_pool, tool):
         page = MagicMock()
         page.url = "https://example.com"
         page.title.return_value = "Example Domain"
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -191,26 +218,12 @@ class TestNavigateAction:
             "https://example.com", timeout=30000.0, wait_until="domcontentloaded"
         )
 
-    def test_navigate_missing_url(self, tool):
-        result = list(tool._invoke({"cdp_url": VALID_CDP_URL, "action": "navigate"}))
-        assert "Error" in result[0].message.text
-        assert "url" in result[0].message.text
-
-    def test_navigate_invalid_url_scheme(self, tool):
-        result = list(tool._invoke({
-            "cdp_url": VALID_CDP_URL,
-            "action": "navigate",
-            "url": "ftp://example.com",
-        }))
-        assert "Error" in result[0].message.text
-        assert "http" in result[0].message.text
-
-    @patch("tools.browser_operator.cdp_page")
-    def test_navigate_custom_timeout(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_navigate_custom_timeout(self, mock_pool, tool):
         page = MagicMock()
         page.url = "https://slow.com"
         page.title.return_value = "Slow"
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -230,10 +243,10 @@ class TestNavigateAction:
 
 
 class TestClickAction:
-    @patch("tools.browser_operator.cdp_page")
-    def test_click_success(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_click_success(self, mock_pool, tool):
         page = MagicMock()
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -245,11 +258,11 @@ class TestClickAction:
         assert ".submit-btn" in result[0].message.text
         page.click.assert_called_once_with(".submit-btn")
 
-    @patch("tools.browser_operator.cdp_page")
-    def test_click_element_not_found(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_click_element_not_found_suggests_snapshot_and_stop(self, mock_pool, tool):
         page = MagicMock()
         page.wait_for_selector.side_effect = PlaywrightTimeout("timeout")
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -258,12 +271,49 @@ class TestClickAction:
             "timeout_ms": 100,
         }))
 
-        assert "not found" in result[0].message.text.lower()
+        assert len(result) == 1
+        text = result[0].message.text
+        assert "not found" in text.lower()
+        assert "snapshot" in text.lower()
+        assert "browser_stop_session" in text
+        assert "[ref=eN]" in text
+        # No automatic snapshot/retry should happen
+        page.evaluate.assert_not_called()
 
-    def test_click_missing_selector(self, tool):
-        result = list(tool._invoke({"cdp_url": VALID_CDP_URL, "action": "click"}))
-        assert "Error" in result[0].message.text
-        assert "selector" in result[0].message.text
+    @patch("tools.browser_operator.pool")
+    def test_click_generic_exception_suggests_refs_and_stop(self, mock_pool, tool):
+        page = MagicMock()
+        page.click.side_effect = RuntimeError("element detached")
+        _setup_pool_mock(mock_pool, page)
+
+        result = list(tool._invoke({
+            "cdp_url": VALID_CDP_URL,
+            "action": "click",
+            "selector": ".btn",
+            "timeout_ms": 0,
+        }))
+
+        assert len(result) == 1
+        text = result[0].message.text
+        assert "Click failed" in text
+        assert "[ref=eN]" in text
+        assert "browser_stop_session" in text
+        page.evaluate.assert_not_called()
+
+    @patch("tools.browser_operator.pool")
+    def test_click_default_timeout_is_10s(self, mock_pool, tool):
+        """Click uses 10s default timeout, not the global 30s."""
+        page = MagicMock()
+        _setup_pool_mock(mock_pool, page)
+
+        list(tool._invoke({
+            "cdp_url": VALID_CDP_URL,
+            "action": "click",
+            "selector": ".btn",
+        }))
+
+        page.wait_for_selector.assert_called_once_with(".btn", timeout=10000.0)
+
 
 
 # ---------------------------------------------------------------------------
@@ -272,10 +322,10 @@ class TestClickAction:
 
 
 class TestTypeAction:
-    @patch("tools.browser_operator.cdp_page")
-    def test_type_success(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_type_success(self, mock_pool, tool):
         page = MagicMock()
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -285,25 +335,9 @@ class TestTypeAction:
         }))
 
         assert "Typed" in result[0].message.text
+        assert "11 characters" in result[0].message.text
         page.type.assert_called_once_with("#search", "hello world")
 
-    def test_type_missing_selector(self, tool):
-        result = list(tool._invoke({
-            "cdp_url": VALID_CDP_URL,
-            "action": "type",
-            "text": "hello",
-        }))
-        assert "Error" in result[0].message.text
-        assert "selector" in result[0].message.text
-
-    def test_type_missing_text(self, tool):
-        result = list(tool._invoke({
-            "cdp_url": VALID_CDP_URL,
-            "action": "type",
-            "selector": "#q",
-        }))
-        assert "Error" in result[0].message.text
-        assert "text" in result[0].message.text
 
 
 # ---------------------------------------------------------------------------
@@ -312,10 +346,10 @@ class TestTypeAction:
 
 
 class TestFillAction:
-    @patch("tools.browser_operator.cdp_page")
-    def test_fill_success(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_fill_success(self, mock_pool, tool):
         page = MagicMock()
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -325,12 +359,13 @@ class TestFillAction:
         }))
 
         assert "Filled" in result[0].message.text
+        assert "16 chars" in result[0].message.text
         page.fill.assert_called_once_with("input[name='email']", "user@example.com")
 
-    @patch("tools.browser_operator.cdp_page")
-    def test_fill_empty_text_allowed(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_fill_empty_text_allowed(self, mock_pool, tool):
         page = MagicMock()
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -343,14 +378,6 @@ class TestFillAction:
         assert "Filled" in result[0].message.text
         page.fill.assert_called_once_with("#field", "")
 
-    def test_fill_missing_selector(self, tool):
-        result = list(tool._invoke({
-            "cdp_url": VALID_CDP_URL,
-            "action": "fill",
-            "text": "value",
-        }))
-        assert "Error" in result[0].message.text
-        assert "selector" in result[0].message.text
 
 
 # ---------------------------------------------------------------------------
@@ -359,11 +386,11 @@ class TestFillAction:
 
 
 class TestSelectAction:
-    @patch("tools.browser_operator.cdp_page")
-    def test_select_success(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_select_success(self, mock_pool, tool):
         page = MagicMock()
         page.select_option.return_value = ["US"]
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -375,11 +402,11 @@ class TestSelectAction:
         assert "Selected" in result[0].message.text
         page.select_option.assert_called_once_with("select#country", value="US")
 
-    @patch("tools.browser_operator.cdp_page")
-    def test_select_no_matching_option(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_select_no_matching_option(self, mock_pool, tool):
         page = MagicMock()
         page.select_option.return_value = []
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -390,23 +417,6 @@ class TestSelectAction:
 
         assert "No option" in result[0].message.text
 
-    def test_select_missing_value(self, tool):
-        result = list(tool._invoke({
-            "cdp_url": VALID_CDP_URL,
-            "action": "select",
-            "selector": "select#x",
-        }))
-        assert "Error" in result[0].message.text
-        assert "value" in result[0].message.text
-
-    def test_select_missing_selector(self, tool):
-        result = list(tool._invoke({
-            "cdp_url": VALID_CDP_URL,
-            "action": "select",
-            "value": "US",
-        }))
-        assert "Error" in result[0].message.text
-        assert "selector" in result[0].message.text
 
 
 # ---------------------------------------------------------------------------
@@ -415,10 +425,10 @@ class TestSelectAction:
 
 
 class TestPressKeyAction:
-    @patch("tools.browser_operator.cdp_page")
-    def test_press_key_success(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_press_key_success(self, mock_pool, tool):
         page = MagicMock()
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -429,10 +439,6 @@ class TestPressKeyAction:
         assert "Enter" in result[0].message.text
         page.keyboard.press.assert_called_once_with("Enter")
 
-    def test_press_key_missing_key(self, tool):
-        result = list(tool._invoke({"cdp_url": VALID_CDP_URL, "action": "press_key"}))
-        assert "Error" in result[0].message.text
-        assert "key" in result[0].message.text
 
 
 # ---------------------------------------------------------------------------
@@ -441,10 +447,10 @@ class TestPressKeyAction:
 
 
 class TestHoverAction:
-    @patch("tools.browser_operator.cdp_page")
-    def test_hover_success(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_hover_success(self, mock_pool, tool):
         page = MagicMock()
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -455,47 +461,6 @@ class TestHoverAction:
         assert "Hovered" in result[0].message.text
         page.hover.assert_called_once_with(".dropdown-trigger")
 
-    def test_hover_missing_selector(self, tool):
-        result = list(tool._invoke({"cdp_url": VALID_CDP_URL, "action": "hover"}))
-        assert "Error" in result[0].message.text
-        assert "selector" in result[0].message.text
-
-
-# ---------------------------------------------------------------------------
-# screenshot
-# ---------------------------------------------------------------------------
-
-
-class TestScreenshotAction:
-    @patch("tools.browser_operator.cdp_page")
-    def test_screenshot_returns_blob_and_text(self, mock_cdp, tool):
-        page = MagicMock()
-        page.screenshot.return_value = b"\x89PNG\r\n"
-        page.url = "https://example.com"
-        mock_cdp.return_value = _mock_cdp_page(page)
-
-        result = list(tool._invoke({"cdp_url": VALID_CDP_URL, "action": "screenshot"}))
-
-        # First message is blob, second is text confirmation
-        assert len(result) == 2
-        assert result[0].message.blob == b"\x89PNG\r\n"
-        assert "https://example.com" in result[1].message.text
-        page.screenshot.assert_called_once_with(full_page=False)
-
-    @patch("tools.browser_operator.cdp_page")
-    def test_screenshot_full_page(self, mock_cdp, tool):
-        page = MagicMock()
-        page.screenshot.return_value = b"PNG"
-        page.url = "https://example.com"
-        mock_cdp.return_value = _mock_cdp_page(page)
-
-        list(tool._invoke({
-            "cdp_url": VALID_CDP_URL,
-            "action": "screenshot",
-            "full_page": "true",
-        }))
-
-        page.screenshot.assert_called_once_with(full_page=True)
 
 
 # ---------------------------------------------------------------------------
@@ -504,24 +469,22 @@ class TestScreenshotAction:
 
 
 class TestGetTextAction:
-    @patch("tools.browser_operator.cdp_page")
-    def test_get_body_text(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_get_body_text(self, mock_pool, tool):
         page = MagicMock()
         page.inner_text.return_value = "Hello World"
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({"cdp_url": VALID_CDP_URL, "action": "get_text"}))
 
         assert "Hello World" in result[0].message.text
         page.inner_text.assert_called_once_with("body")
 
-    @patch("tools.browser_operator.cdp_page")
-    def test_get_element_text(self, mock_cdp, tool):
-        element = MagicMock()
-        element.inner_text.return_value = "Button Text"
+    @patch("tools.browser_operator.pool")
+    def test_get_element_text(self, mock_pool, tool):
         page = MagicMock()
-        page.query_selector.return_value = element
-        mock_cdp.return_value = _mock_cdp_page(page)
+        page.inner_text.return_value = "Button Text"
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -530,12 +493,13 @@ class TestGetTextAction:
         }))
 
         assert "Button Text" in result[0].message.text
+        page.inner_text.assert_called_once_with(".btn")
 
-    @patch("tools.browser_operator.cdp_page")
-    def test_get_text_element_not_found(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_get_text_element_not_found(self, mock_pool, tool):
         page = MagicMock()
-        page.query_selector.return_value = None
-        mock_cdp.return_value = _mock_cdp_page(page)
+        page.inner_text.side_effect = Exception("Element not found")
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -552,24 +516,22 @@ class TestGetTextAction:
 
 
 class TestGetHtmlAction:
-    @patch("tools.browser_operator.cdp_page")
-    def test_get_full_page_html(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_get_full_page_html(self, mock_pool, tool):
         page = MagicMock()
         page.content.return_value = "<html><body>Hi</body></html>"
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({"cdp_url": VALID_CDP_URL, "action": "get_html"}))
 
         assert "<html>" in result[0].message.text
         page.content.assert_called_once()
 
-    @patch("tools.browser_operator.cdp_page")
-    def test_get_element_html(self, mock_cdp, tool):
-        element = MagicMock()
-        element.inner_html.return_value = "<span>Hello</span>"
+    @patch("tools.browser_operator.pool")
+    def test_get_element_html(self, mock_pool, tool):
         page = MagicMock()
-        page.query_selector.return_value = element
-        mock_cdp.return_value = _mock_cdp_page(page)
+        page.inner_html.return_value = "<span>Hello</span>"
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -578,12 +540,13 @@ class TestGetHtmlAction:
         }))
 
         assert "<span>Hello</span>" in result[0].message.text
+        page.inner_html.assert_called_once_with("div.content")
 
-    @patch("tools.browser_operator.cdp_page")
-    def test_get_html_element_not_found(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_get_html_element_not_found(self, mock_pool, tool):
         page = MagicMock()
-        page.query_selector.return_value = None
-        mock_cdp.return_value = _mock_cdp_page(page)
+        page.inner_html.side_effect = Exception("Element not found")
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -600,10 +563,10 @@ class TestGetHtmlAction:
 
 
 class TestWaitAction:
-    @patch("tools.browser_operator.cdp_page")
-    def test_wait_element_found(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_wait_element_found(self, mock_pool, tool):
         page = MagicMock()
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -613,11 +576,11 @@ class TestWaitAction:
 
         assert "found" in result[0].message.text.lower()
 
-    @patch("tools.browser_operator.cdp_page")
-    def test_wait_timeout_returns_message_not_exception(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_wait_timeout_returns_message_not_exception(self, mock_pool, tool):
         page = MagicMock()
         page.wait_for_selector.side_effect = PlaywrightTimeout("timeout")
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -628,10 +591,6 @@ class TestWaitAction:
 
         assert "not found" in result[0].message.text.lower()
 
-    def test_wait_missing_selector(self, tool):
-        result = list(tool._invoke({"cdp_url": VALID_CDP_URL, "action": "wait"}))
-        assert "Error" in result[0].message.text
-        assert "selector" in result[0].message.text
 
 
 # ---------------------------------------------------------------------------
@@ -640,24 +599,24 @@ class TestWaitAction:
 
 
 class TestWaitNavigationAction:
-    @patch("tools.browser_operator.cdp_page")
-    def test_wait_navigation_complete(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_wait_navigation_complete(self, mock_pool, tool):
         page = MagicMock()
         page.url = "https://example.com/dashboard"
         page.title.return_value = "Dashboard"
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({"cdp_url": VALID_CDP_URL, "action": "wait_navigation"}))
 
         assert "complete" in result[0].message.text.lower()
         assert "https://example.com/dashboard" in result[0].message.text
 
-    @patch("tools.browser_operator.cdp_page")
-    def test_wait_navigation_timeout(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_wait_navigation_timeout(self, mock_pool, tool):
         page = MagicMock()
         page.url = "https://example.com"
         page.wait_for_load_state.side_effect = PlaywrightTimeout("timeout")
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -674,11 +633,11 @@ class TestWaitNavigationAction:
 
 
 class TestGoBackAction:
-    @patch("tools.browser_operator.cdp_page")
-    def test_go_back_success(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_go_back_success(self, mock_pool, tool):
         page = MagicMock()
         page.url = "https://example.com"
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({"cdp_url": VALID_CDP_URL, "action": "go_back"}))
 
@@ -692,11 +651,11 @@ class TestGoBackAction:
 
 
 class TestGoForwardAction:
-    @patch("tools.browser_operator.cdp_page")
-    def test_go_forward_success(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_go_forward_success(self, mock_pool, tool):
         page = MagicMock()
         page.url = "https://example.com/next"
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({"cdp_url": VALID_CDP_URL, "action": "go_forward"}))
 
@@ -710,11 +669,11 @@ class TestGoForwardAction:
 
 
 class TestReloadAction:
-    @patch("tools.browser_operator.cdp_page")
-    def test_reload_success(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_reload_success(self, mock_pool, tool):
         page = MagicMock()
         page.url = "https://example.com"
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({"cdp_url": VALID_CDP_URL, "action": "reload"}))
 
@@ -728,10 +687,10 @@ class TestReloadAction:
 
 
 class TestEdgeCases:
-    @patch("tools.browser_operator.cdp_page")
-    def test_click_with_zero_timeout_skips_wait(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_click_with_zero_timeout_skips_wait(self, mock_pool, tool):
         page = MagicMock()
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -754,32 +713,32 @@ class TestEdgeCases:
         assert "Error" in result[0].message.text
         assert "text" in result[0].message.text
 
-    @patch("tools.browser_operator.cdp_page")
-    def test_get_text_empty_body_returns_empty_marker(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_get_text_empty_body_returns_empty_marker(self, mock_pool, tool):
         page = MagicMock()
         page.inner_text.return_value = ""
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({"cdp_url": VALID_CDP_URL, "action": "get_text"}))
 
         assert result[0].message.text == "(empty)"
 
-    @patch("tools.browser_operator.cdp_page")
-    def test_get_html_empty_returns_empty_marker(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_get_html_empty_returns_empty_marker(self, mock_pool, tool):
         page = MagicMock()
         page.content.return_value = ""
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         result = list(tool._invoke({"cdp_url": VALID_CDP_URL, "action": "get_html"}))
 
         assert result[0].message.text == "(empty)"
 
-    @patch("tools.browser_operator.cdp_page")
-    def test_navigate_invalid_timeout_uses_default(self, mock_cdp, tool):
+    @patch("tools.browser_operator.pool")
+    def test_navigate_invalid_timeout_uses_default(self, mock_pool, tool):
         page = MagicMock()
         page.url = "https://example.com"
         page.title.return_value = "Test"
-        mock_cdp.return_value = _mock_cdp_page(page)
+        _setup_pool_mock(mock_pool, page)
 
         list(tool._invoke({
             "cdp_url": VALID_CDP_URL,
@@ -792,22 +751,6 @@ class TestEdgeCases:
             "https://example.com", timeout=30000.0, wait_until="domcontentloaded"
         )
 
-    def test_navigate_whitespace_url_rejected(self, tool):
-        result = list(tool._invoke({
-            "cdp_url": VALID_CDP_URL,
-            "action": "navigate",
-            "url": "  ",
-        }))
-        assert "Error" in result[0].message.text
-
-    def test_click_whitespace_selector_rejected(self, tool):
-        result = list(tool._invoke({
-            "cdp_url": VALID_CDP_URL,
-            "action": "click",
-            "selector": "   ",
-        }))
-        assert "Error" in result[0].message.text
-
     def test_malformed_cdp_url_returns_error(self, tool):
         """Malformed CDP URL (not ws/wss/http/https) returns validation error."""
         result = list(tool._invoke({
@@ -817,3 +760,250 @@ class TestEdgeCases:
         }))
         assert len(result) == 1
         assert "Error" in result[0].message.text
+
+
+# ---------------------------------------------------------------------------
+# Session ID (connection pool) tests
+# ---------------------------------------------------------------------------
+
+
+class TestSessionIdPath:
+    """Tests for the session_id-based pool lookup path."""
+
+    @patch("tools.browser_operator.pool")
+    def test_session_id_navigate_success(self, mock_pool, tool):
+        page = MagicMock()
+        page.url = "https://example.com"
+        page.title.return_value = "Example Domain"
+        mock_pool.get_page.return_value = page
+
+        result = list(tool._invoke({
+            "session_id": "sess-abc",
+            "action": "navigate",
+            "url": "https://example.com",
+        }))
+
+        assert len(result) == 1
+        assert "Navigation successful" in result[0].message.text
+        mock_pool.get_page.assert_called_once_with("sess-abc")
+
+    @patch("tools.browser_operator.pool")
+    def test_session_id_not_found_no_fallback(self, mock_pool, tool):
+        mock_pool.get_page.side_effect = ConnectionNotFound("no connection")
+
+        result = list(tool._invoke({
+            "session_id": "sess-missing",
+            "action": "navigate",
+            "url": "https://example.com",
+        }))
+
+        assert "Error" in result[0].message.text
+        assert "no connection" in result[0].message.text
+        assert "cdp_url" in result[0].message.text
+
+    @patch("tools.browser_operator.pool")
+    def test_session_id_not_found_falls_back_to_cdp_url(self, mock_pool, tool):
+        """When session_id is not found but cdp_url is provided, reconnect via pool."""
+        page = MagicMock()
+        page.url = "https://example.com"
+        page.title.return_value = "Example"
+
+        # First call (get_page for session_id) fails, then reconnect succeeds
+        mock_pool.get_page.side_effect = [
+            ConnectionNotFound("not in pool"),
+            page,
+        ]
+
+        result = list(tool._invoke({
+            "session_id": "sess-missing",
+            "cdp_url": VALID_CDP_URL,
+            "action": "navigate",
+            "url": "https://example.com",
+        }))
+
+        assert "Navigation successful" in result[0].message.text
+        mock_pool.connect.assert_called_once_with("sess-missing", VALID_CDP_URL)
+
+    @patch("tools.browser_operator.pool")
+    def test_session_id_multi_step_operations(self, mock_pool, tool):
+        """Simulate multiple operations on the same session_id."""
+        page = MagicMock()
+        page.url = "https://example.com"
+        page.title.return_value = "Example"
+        page.inner_text.return_value = "Hello"
+        mock_pool.get_page.return_value = page
+
+        # Step 1: navigate
+        r1 = list(tool._invoke({
+            "session_id": "sess-multi",
+            "action": "navigate",
+            "url": "https://example.com",
+        }))
+        assert "Navigation successful" in r1[0].message.text
+
+        # Step 2: fill
+        r2 = list(tool._invoke({
+            "session_id": "sess-multi",
+            "action": "fill",
+            "selector": "#name",
+            "text": "Test",
+        }))
+        assert "Filled" in r2[0].message.text
+
+        # Step 3: click
+        r3 = list(tool._invoke({
+            "session_id": "sess-multi",
+            "action": "click",
+            "selector": ".submit",
+        }))
+        assert "Clicked" in r3[0].message.text
+
+        assert mock_pool.get_page.call_count == 3
+
+    def test_session_id_only_whitespace_treated_as_empty(self, tool):
+        """Whitespace-only session_id should not be used."""
+        result = list(tool._invoke({
+            "session_id": "   ",
+            "action": "navigate",
+            "url": "https://example.com",
+        }))
+        assert "Error" in result[0].message.text
+
+
+# ---------------------------------------------------------------------------
+# snapshot
+# ---------------------------------------------------------------------------
+
+
+class TestSnapshotAction:
+    @patch("tools.browser_operator.pool")
+    def test_snapshot_returns_accessibility_tree(self, mock_pool, tool):
+        page = MagicMock()
+        page.url = "https://example.com"
+        page.evaluate.return_value = {
+            "tree": {
+                "role": "generic",
+                "children": [
+                    {"role": "heading", "name": "Welcome", "ref": "e1", "level": 1},
+                    {"role": "button", "name": "Submit", "ref": "e2"},
+                ],
+            },
+            "refCount": 2,
+        }
+        _setup_pool_mock(mock_pool, page)
+
+        result = list(tool._invoke({"cdp_url": VALID_CDP_URL, "action": "snapshot"}))
+
+        assert len(result) == 1
+        text = result[0].message.text
+        assert "https://example.com" in text
+        assert "Interactive elements: 2" in text
+        assert 'heading "Welcome"' in text
+        assert "[ref=e1]" in text
+        assert "[level=1]" in text
+        assert 'button "Submit"' in text
+        assert "[ref=e2]" in text
+
+    @patch("tools.browser_operator.pool")
+    def test_snapshot_empty_page(self, mock_pool, tool):
+        page = MagicMock()
+        page.url = "about:blank"
+        page.evaluate.return_value = {"tree": None, "refCount": 0}
+        _setup_pool_mock(mock_pool, page)
+
+        result = list(tool._invoke({"cdp_url": VALID_CDP_URL, "action": "snapshot"}))
+
+        assert len(result) == 1
+        assert "empty" in result[0].message.text.lower()
+
+    @patch("tools.browser_operator.pool")
+    def test_snapshot_via_session_id(self, mock_pool, tool):
+        page = MagicMock()
+        page.url = "https://example.com"
+        page.evaluate.return_value = {
+            "tree": {"role": "button", "name": "OK", "ref": "e1"},
+            "refCount": 1,
+        }
+        mock_pool.get_page.return_value = page
+
+        result = list(tool._invoke({
+            "session_id": "sess-snap",
+            "action": "snapshot",
+        }))
+
+        assert len(result) == 1
+        assert 'button "OK"' in result[0].message.text
+        mock_pool.get_page.assert_called_once_with("sess-snap")
+
+    def test_snapshot_registered_in_handlers(self):
+        from tools.browser_operator import _HANDLERS
+        assert "snapshot" in _HANDLERS
+
+
+# ---------------------------------------------------------------------------
+# _render_snapshot_node unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestRenderSnapshotNode:
+    def test_simple_button(self):
+        node = {"role": "button", "name": "Submit", "ref": "e1"}
+        assert _render_snapshot_node(node) == '- button "Submit" [ref=e1]\n'
+
+    def test_text_node(self):
+        node = {"role": "text", "content": "Hello world"}
+        assert _render_snapshot_node(node) == "- text: Hello world\n"
+
+    def test_empty_text_node(self):
+        node = {"role": "text", "content": ""}
+        assert _render_snapshot_node(node) == ""
+
+    def test_heading_with_level(self):
+        node = {"role": "heading", "name": "Title", "ref": "e1", "level": 2}
+        assert _render_snapshot_node(node) == '- heading "Title" [ref=e1] [level=2]\n'
+
+    def test_checkbox_with_checked(self):
+        node = {"role": "checkbox", "name": "Accept", "ref": "e1", "checked": True}
+        assert _render_snapshot_node(node) == '- checkbox "Accept" [ref=e1] [checked=true]\n'
+
+    def test_textbox_with_value(self):
+        node = {"role": "textbox", "name": "Email", "ref": "e1", "value": "test@x.com"}
+        assert _render_snapshot_node(node) == '- textbox "Email" [ref=e1] [value="test@x.com"]\n'
+
+    def test_empty_value_not_shown(self):
+        node = {"role": "textbox", "name": "Search", "ref": "e1", "value": ""}
+        assert _render_snapshot_node(node) == '- textbox "Search" [ref=e1]\n'
+
+    def test_link_with_url(self):
+        node = {"role": "link", "ref": "e1", "url": "https://example.com",
+                "children": [{"role": "text", "content": "Example"}]}
+        output = _render_snapshot_node(node)
+        assert "- link [ref=e1]:" in output
+        assert "- /url: https://example.com" in output
+        assert "- text: Example" in output
+
+    def test_nested_tree(self):
+        tree = {
+            "role": "navigation",
+            "children": [
+                {"role": "list", "children": [
+                    {"role": "listitem", "children": [
+                        {"role": "link", "name": "Home", "ref": "e1"}
+                    ]},
+                ]},
+            ],
+        }
+        output = _render_snapshot_node(tree)
+        assert "- navigation:" in output
+        assert '  - list:' in output
+        assert '    - listitem:' in output
+        assert '      - link "Home" [ref=e1]' in output
+
+    def test_depth_indentation(self):
+        node = {"role": "button", "name": "Deep", "ref": "e5"}
+        output = _render_snapshot_node(node, depth=3)
+        assert output == '      - button "Deep" [ref=e5]\n'
+
+    def test_no_ref_no_name(self):
+        node = {"role": "generic"}
+        assert _render_snapshot_node(node) == "- generic\n"

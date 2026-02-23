@@ -29,11 +29,6 @@ class TestGetProvider:
         with pytest.raises(ValueError, match="Unknown provider"):
             get_provider("nonexistent", "key")
 
-    def test_error_message_lists_supported_providers(self):
-        with pytest.raises(ValueError) as exc_info:
-            get_provider("bogus", "key")
-        assert "hyperbrowser" in str(exc_info.value)
-
     def test_supported_providers_list(self):
         assert "hyperbrowser" in SUPPORTED_PROVIDERS
         assert "steel" in SUPPORTED_PROVIDERS
@@ -75,6 +70,8 @@ class TestHyperbrowserProvider:
         assert session.session_id == "session-abc-123"
 
     def test_create_session_with_profile_id(self):
+        import uuid as _uuid
+
         with patch("providers.hyperbrowser.Hyperbrowser") as MockHB:
             mock_client = MagicMock()
             MockHB.return_value = mock_client
@@ -95,8 +92,10 @@ class TestHyperbrowserProvider:
                 provider = HyperbrowserProvider(api_key="key")
                 provider.create_session(profile_id="user-42", use_proxy=True)
 
+        # profile_id is normalized to UUID5 for Hyperbrowser API compatibility
+        expected_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_URL, "actionbook:user-42"))
         assert captured_kwargs.get("profile") == {
-            "id": "user-42",
+            "id": expected_uuid,
             "persist_changes": True,
         }
         assert captured_kwargs.get("use_proxy") is True

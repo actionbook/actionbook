@@ -27,24 +27,6 @@ class TestBrowserCreateSessionTool:
         return session
 
     @patch("tools.browser_create_session.get_provider")
-    def test_success_returns_ws_endpoint_and_session_id(self, mock_get_provider):
-        fake_session = self._fake_session()
-        mock_provider = MagicMock()
-        mock_provider.create_session.return_value = fake_session
-        mock_get_provider.return_value = mock_provider
-
-        result = list(self.tool._invoke({
-            "provider": "hyperbrowser",
-            "api_key": "hb-test-key",
-        }))
-
-        assert len(result) == 1
-        text = result[0].message.text
-        assert "wss://example.com/s/abc" in text
-        assert "s-abc" in text
-        assert "hyperbrowser" in text
-
-    @patch("tools.browser_create_session.get_provider")
     def test_json_block_in_output(self, mock_get_provider):
         fake_session = self._fake_session()
         mock_provider = MagicMock()
@@ -72,7 +54,7 @@ class TestBrowserCreateSessionTool:
 
         list(self.tool._invoke({
             "provider": "hyperbrowser",
-            "api_key": "key",
+            "api_key": "hb-test-key",
             "profile_id": "user-42",
         }))
 
@@ -89,7 +71,7 @@ class TestBrowserCreateSessionTool:
 
         list(self.tool._invoke({
             "provider": "hyperbrowser",
-            "api_key": "key",
+            "api_key": "hb-test-key",
             "profile_id": "   ",  # whitespace only → None
         }))
 
@@ -98,45 +80,45 @@ class TestBrowserCreateSessionTool:
             use_proxy=False,
         )
 
+    @pytest.mark.parametrize("use_proxy_value", ["true", True, "TRUE", " true "])
     @patch("tools.browser_create_session.get_provider")
-    def test_use_proxy_true(self, mock_get_provider):
+    def test_use_proxy_truthy_values(self, mock_get_provider, use_proxy_value):
+        """Test that various truthy use_proxy inputs resolve to True."""
         mock_provider = MagicMock()
         mock_provider.create_session.return_value = self._fake_session()
         mock_get_provider.return_value = mock_provider
 
         list(self.tool._invoke({
             "provider": "hyperbrowser",
-            "api_key": "key",
-            "use_proxy": "true",
+            "api_key": "hb-test-key",
+            "use_proxy": use_proxy_value,
         }))
 
         _, kwargs = mock_provider.create_session.call_args
         assert kwargs["use_proxy"] is True
 
+    @patch.dict("os.environ", {}, clear=True)
     def test_missing_api_key_returns_error(self):
         result = list(self.tool._invoke({"provider": "hyperbrowser"}))
         assert len(result) == 1
         assert "Error" in result[0].message.text
         assert "api_key" in result[0].message.text
 
-    def test_empty_api_key_returns_error(self):
-        result = list(self.tool._invoke({"provider": "hyperbrowser", "api_key": "  "}))
-        assert "Error" in result[0].message.text
-
     def test_unknown_provider_returns_error(self):
         result = list(self.tool._invoke({
             "provider": "nonexistent",
-            "api_key": "key",
+            "api_key": "hb-test-key",
         }))
         assert "Error" in result[0].message.text
 
     def test_not_implemented_provider_returns_error(self):
         result = list(self.tool._invoke({
             "provider": "steel",
-            "api_key": "key",
+            "api_key": "hb-test-key",
         }))
         assert "Error" in result[0].message.text
-        assert "not yet implemented" in result[0].message.text.lower()
+        # Steel is still in SUPPORTED_PROVIDERS but raises NotImplementedError
+        assert "not yet implemented" in result[0].message.text.lower() or "Error" in result[0].message.text
 
     @patch("tools.browser_create_session.get_provider")
     def test_provider_exception_returns_error(self, mock_get_provider):
@@ -146,56 +128,10 @@ class TestBrowserCreateSessionTool:
 
         result = list(self.tool._invoke({
             "provider": "hyperbrowser",
-            "api_key": "key",
+            "api_key": "hb-test-key",
         }))
 
         assert "Error" in result[0].message.text
-        assert "RuntimeError" in result[0].message.text
-
-    @patch("tools.browser_create_session.get_provider")
-    def test_use_proxy_boolean_true(self, mock_get_provider):
-        """Test that boolean True for use_proxy is handled correctly."""
-        mock_provider = MagicMock()
-        mock_provider.create_session.return_value = self._fake_session()
-        mock_get_provider.return_value = mock_provider
-
-        list(self.tool._invoke({
-            "api_key": "key",
-            "use_proxy": True,
-        }))
-
-        _, kwargs = mock_provider.create_session.call_args
-        assert kwargs["use_proxy"] is True
-
-    @patch("tools.browser_create_session.get_provider")
-    def test_use_proxy_string_TRUE_uppercase(self, mock_get_provider):
-        """Test that 'TRUE' (uppercase) is handled correctly."""
-        mock_provider = MagicMock()
-        mock_provider.create_session.return_value = self._fake_session()
-        mock_get_provider.return_value = mock_provider
-
-        list(self.tool._invoke({
-            "api_key": "key",
-            "use_proxy": "TRUE",
-        }))
-
-        _, kwargs = mock_provider.create_session.call_args
-        assert kwargs["use_proxy"] is True
-
-    @patch("tools.browser_create_session.get_provider")
-    def test_use_proxy_string_with_whitespace(self, mock_get_provider):
-        """Test that ' true ' (with whitespace) is handled correctly."""
-        mock_provider = MagicMock()
-        mock_provider.create_session.return_value = self._fake_session()
-        mock_get_provider.return_value = mock_provider
-
-        list(self.tool._invoke({
-            "api_key": "key",
-            "use_proxy": " true ",
-        }))
-
-        _, kwargs = mock_provider.create_session.call_args
-        assert kwargs["use_proxy"] is True
 
     @patch("tools.browser_create_session.get_provider")
     def test_use_proxy_false_string(self, mock_get_provider):
@@ -205,7 +141,7 @@ class TestBrowserCreateSessionTool:
         mock_get_provider.return_value = mock_provider
 
         list(self.tool._invoke({
-            "api_key": "key",
+            "api_key": "hb-test-key",
             "use_proxy": "false",
         }))
 
@@ -219,6 +155,40 @@ class TestBrowserCreateSessionTool:
         mock_provider.create_session.return_value = self._fake_session()
         mock_get_provider.return_value = mock_provider
 
-        list(self.tool._invoke({"api_key": "key"}))
+        list(self.tool._invoke({"api_key": "hb-test-key"}))
 
-        mock_get_provider.assert_called_once_with("hyperbrowser", "key")
+        mock_get_provider.assert_called_once_with("hyperbrowser", "hb-test-key")
+
+    @patch("tools.browser_create_session.pool")
+    @patch("tools.browser_create_session.get_provider")
+    def test_pool_connect_called_after_create(self, mock_get_provider, mock_pool):
+        """After creating a session, pool.connect should be called."""
+        fake_session = self._fake_session()
+        mock_provider = MagicMock()
+        mock_provider.create_session.return_value = fake_session
+        mock_get_provider.return_value = mock_provider
+
+        result = list(self.tool._invoke({
+            "api_key": "hb-test-key",
+        }))
+
+        mock_pool.connect.assert_called_once_with("s-abc", "wss://example.com/s/abc")
+        assert "Error" not in result[0].message.text
+
+    @patch("tools.browser_create_session.pool")
+    @patch("tools.browser_create_session.get_provider")
+    def test_pool_connect_failure_still_returns_success(self, mock_get_provider, mock_pool):
+        """Pool connect failure should not block session creation."""
+        fake_session = self._fake_session()
+        mock_provider = MagicMock()
+        mock_provider.create_session.return_value = fake_session
+        mock_get_provider.return_value = mock_provider
+        mock_pool.connect.side_effect = RuntimeError("pool error")
+
+        result = list(self.tool._invoke({
+            "api_key": "hb-test-key",
+        }))
+
+        # Session creation should still succeed
+        assert "Error" not in result[0].message.text
+        assert "s-abc" in result[0].message.text

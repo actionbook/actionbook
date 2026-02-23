@@ -7,7 +7,7 @@ Tests are split into two categories:
    (each tool call = one CDP connect/disconnect cycle).
 
 2. **Playwright direct tests**: Keep a single CDP connection open for multi-step
-   workflows (navigate → click → fill → screenshot). This is how real browser
+   workflows (navigate → click → fill → snapshot). This is how real browser
    automation works — the Dify workflow would need to keep the connection alive.
 
 Run with:
@@ -214,8 +214,8 @@ class TestToolSingleOperation:
                 "session_id": session["session_id"],
             })
 
-    def test_screenshot(self, hyperbrowser_api_key):
-        """screenshot action returns a valid PNG blob."""
+    def test_snapshot(self, hyperbrowser_api_key):
+        """snapshot action returns accessibility tree text."""
         create_tool = _make_create_tool()
         operator_tool = _make_operator_tool()
         stop_tool = _make_stop_tool()
@@ -229,13 +229,13 @@ class TestToolSingleOperation:
         try:
             result = _invoke_with_retry(operator_tool, {
                 "cdp_url": session["ws_endpoint"],
-                "action": "screenshot",
+                "action": "snapshot",
             })
 
-            assert len(result) == 2
-            blob = result[0].message.blob
-            assert len(blob) > 100, "Screenshot blob too small"
-            assert blob[:4] == b"\x89PNG"
+            assert len(result) == 1
+            text = result[0].message.text
+            assert "Page snapshot" in text
+            assert "Interactive elements" in text
         finally:
             _invoke_with_retry(stop_tool, {
                 "provider": "hyperbrowser",
@@ -260,8 +260,8 @@ class TestPlaywrightDirect:
     would execute when keeping a single CDP connection alive.
     """
 
-    def test_navigate_read_text_screenshot(self, hyperbrowser_session):
-        """Navigate → read text → screenshot lifecycle."""
+    def test_navigate_read_text_snapshot(self, hyperbrowser_session):
+        """Navigate → read text → snapshot lifecycle."""
         ws = hyperbrowser_session["ws_endpoint"]
 
         with sync_playwright() as p:
@@ -278,10 +278,9 @@ class TestPlaywrightDirect:
                 body = page.inner_text("body")
                 assert "Example Domain" in body
 
-                # Screenshot
-                screenshot = page.screenshot()
-                assert len(screenshot) > 100
-                assert screenshot[:4] == b"\x89PNG"
+                # Snapshot
+                snap = page.accessibility.snapshot()
+                assert snap is not None
             finally:
                 browser.close()
 

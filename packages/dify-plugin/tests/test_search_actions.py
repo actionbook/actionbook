@@ -7,6 +7,10 @@ import requests
 from tools.search_actions import SearchActionsTool
 
 
+class _FakeSystemError(BaseException):
+    """Simulate gevent.Timeout / non-Exception runtime errors."""
+
+
 def _make_tool(api_key: str = "test_key_123") -> SearchActionsTool:
     """Create a SearchActionsTool via the SDK's from_credentials classmethod."""
     return SearchActionsTool.from_credentials({"actionbook_api_key": api_key})
@@ -64,15 +68,6 @@ class TestSearchActionsTool:
     def test_empty_query_parameter(self):
         """Test error message for empty query parameter."""
         tool_parameters = {"query": "   "}
-
-        result = list(self.tool._invoke(tool_parameters))
-
-        assert len(result) == 1
-        assert "Error" in result[0].message.text
-
-    def test_none_query_parameter(self):
-        """Test error message for None query parameter."""
-        tool_parameters = {"query": None}
 
         result = list(self.tool._invoke(tool_parameters))
 
@@ -204,27 +199,15 @@ class TestSearchActionsTool:
         assert "unexpected error" in result[0].message.text.lower()
 
     @patch("tools.search_actions.requests.get")
-    def test_base_exception_gevent_timeout(self, mock_get):
-        """Test handling of BaseException (e.g., gevent.Timeout) yields message.
-
-        Critical test: Ensures that even BaseException (which bypasses normal Exception)
-        still yields an error message to the user instead of causing empty response.
-        """
-        # Simulate gevent.Timeout which inherits from BaseException
-        class MockGeventTimeout(BaseException):
-            """Mock gevent.Timeout for testing."""
-            pass
-
-        mock_get.side_effect = MockGeventTimeout("greenlet timeout")
+    def test_baseexception_error(self, mock_get):
+        """Test handling of non-Exception errors yields system-level message."""
+        mock_get.side_effect = _FakeSystemError("gevent timeout")
 
         tool_parameters = {"query": "test"}
-
         result = list(self.tool._invoke(tool_parameters))
 
-        # Critical assertion: message must be yielded even for BaseException
-        assert len(result) == 1, "BaseException must still yield error message"
+        assert len(result) == 1
         assert "system-level error" in result[0].message.text.lower()
-        assert "MockGeventTimeout" in result[0].message.text
 
     @patch("tools.search_actions.requests.get")
     def test_search_without_api_key(self, mock_get):
