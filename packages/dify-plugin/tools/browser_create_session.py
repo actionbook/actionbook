@@ -85,10 +85,29 @@ class BrowserCreateSessionTool(Tool):
                     api_key=api_key,
                 )
             except Exception as pool_err:
-                logger.warning(
-                    "Pool connect failed; browser_operator will rely on cdp_url fallback (%s).",
-                    type(pool_err).__name__,
-                )
+                logger.error("Pool connect failed after remote session creation.")
+                cleanup_failed = False
+                try:
+                    provider.stop_session(session.session_id)
+                except Exception:
+                    cleanup_failed = True
+                    logger.error("Failed to clean up remote session after pool connect failure.")
+
+                if cleanup_failed:
+                    yield self.create_text_message(
+                        "Error: Failed to initialize local session cache after creating remote session.\n"
+                        f"Reason: {type(pool_err).__name__}: {pool_err}\n"
+                        "Automatic remote cleanup also failed, so the session may still be running.\n"
+                        f"Session ID: {session.session_id}\n"
+                        "Please retry browser_stop_session with this session_id to avoid resource leakage."
+                    )
+                else:
+                    yield self.create_text_message(
+                        "Error: Failed to initialize local session cache after creating remote session.\n"
+                        f"Reason: {type(pool_err).__name__}: {pool_err}\n"
+                        "The remote session was closed automatically."
+                    )
+                return
 
             result = {
                 "ws_endpoint": session.ws_endpoint,

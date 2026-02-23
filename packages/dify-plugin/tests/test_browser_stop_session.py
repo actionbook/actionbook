@@ -35,8 +35,8 @@ class TestBrowserStopSessionTool:
         text = result[0].message.text
         assert "stopped" in text.lower()
         assert "s-abc" in text
-        mock_pool.disconnect.assert_called_once_with("s-abc")
         mock_provider.stop_session.assert_called_once_with("s-abc")
+        mock_pool.disconnect.assert_called_once_with("s-abc")
 
     def test_missing_session_id_returns_error(self):
         """Test error when session_id is missing."""
@@ -72,6 +72,26 @@ class TestBrowserStopSessionTool:
 
         assert len(result) == 1
         assert "Error" in result[0].message.text
+        mock_pool.disconnect.assert_not_called()
+
+    @patch("tools.browser_stop_session.pool")
+    @patch("tools.browser_stop_session.get_provider")
+    def test_disconnect_happens_after_remote_stop(self, mock_get_provider, mock_pool):
+        mock_pool.get_session_info.return_value = ("hyperbrowser", "hb-test-key")
+        mock_provider = MagicMock()
+
+        def _stop_side_effect(_session_id):
+            mock_pool.disconnect.assert_not_called()
+
+        mock_provider.stop_session.side_effect = _stop_side_effect
+        mock_get_provider.return_value = mock_provider
+
+        list(self.tool._invoke({
+            "session_id": "s-abc",
+        }))
+
+        mock_provider.stop_session.assert_called_once_with("s-abc")
+        mock_pool.disconnect.assert_called_once_with("s-abc")
 
     @patch("tools.browser_stop_session.pool")
     @patch("tools.browser_stop_session.get_provider")

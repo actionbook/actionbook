@@ -35,22 +35,15 @@ class BrowserStopSessionTool(Tool):
         provider_name, api_key = session_info
 
         try:
-            # Disconnect pooled CDP connection first
-            pool.disconnect(session_id)
-
             provider = get_provider(provider_name, api_key)
             provider.stop_session(session_id)
-            yield self.create_text_message(
-                f"Session stopped.\n"
-                f"Provider:   {provider_name}\n"
-                f"Session ID: {session_id}\n\n"
-                "Profile state has been persisted (if a profile_id was used)."
-            )
 
         except NotImplementedError as e:
             yield self.create_text_message(f"Error: Provider not yet implemented. {e}")
+            return
         except ValueError as e:
             yield self.create_text_message(f"Error: {e}")
+            return
         except Exception as e:
             logger.error("Failed to stop browser session.")
             yield self.create_text_message(
@@ -58,3 +51,16 @@ class BrowserStopSessionTool(Tool):
                 f"Reason: {type(e).__name__}: {e}\n"
                 f"Verify your API key is valid and the provider service is reachable."
             )
+            return
+
+        try:
+            pool.disconnect(session_id)
+        except Exception:
+            logger.warning("Failed to disconnect local session after remote stop.")
+
+        yield self.create_text_message(
+            f"Session stopped.\n"
+            f"Provider:   {provider_name}\n"
+            f"Session ID: {session_id}\n\n"
+            "Profile state has been persisted (if a profile_id was used)."
+        )

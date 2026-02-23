@@ -26,8 +26,9 @@ class TestBrowserCreateSessionTool:
         session.session_id = session_id
         return session
 
+    @patch("tools.browser_create_session.pool")
     @patch("tools.browser_create_session.get_provider")
-    def test_json_block_in_output(self, mock_get_provider):
+    def test_json_block_in_output(self, mock_get_provider, _mock_pool):
         fake_session = self._fake_session()
         mock_provider = MagicMock()
         mock_provider.create_session.return_value = fake_session
@@ -180,8 +181,10 @@ class TestBrowserCreateSessionTool:
 
     @patch("tools.browser_create_session.pool")
     @patch("tools.browser_create_session.get_provider")
-    def test_pool_connect_failure_still_returns_success(self, mock_get_provider, mock_pool):
-        """Pool connect failure should not block session creation."""
+    def test_pool_connect_failure_returns_error_and_rolls_back_remote_session(
+        self, mock_get_provider, mock_pool,
+    ):
+        """Pool connect failure should fail fast and stop the remote session."""
         fake_session = self._fake_session()
         mock_provider = MagicMock()
         mock_provider.create_session.return_value = fake_session
@@ -192,6 +195,28 @@ class TestBrowserCreateSessionTool:
             "api_key": "hb-test-key",
         }))
 
-        # Session creation should still succeed
-        assert "Error" not in result[0].message.text
-        assert "s-abc" in result[0].message.text
+        assert "Error" in result[0].message.text
+        assert "pool error" in result[0].message.text
+        assert "closed automatically" in result[0].message.text
+        mock_provider.stop_session.assert_called_once_with("s-abc")
+
+    @patch("tools.browser_create_session.pool")
+    @patch("tools.browser_create_session.get_provider")
+    def test_pool_connect_failure_and_cleanup_failure_returns_recovery_hint(
+        self, mock_get_provider, mock_pool,
+    ):
+        fake_session = self._fake_session()
+        mock_provider = MagicMock()
+        mock_provider.create_session.return_value = fake_session
+        mock_provider.stop_session.side_effect = RuntimeError("provider stop failed")
+        mock_get_provider.return_value = mock_provider
+        mock_pool.connect.side_effect = RuntimeError("pool error")
+
+        result = list(self.tool._invoke({
+            "api_key": "hb-test-key",
+        }))
+
+        text = result[0].message.text
+        assert "Error" in text
+        assert "Automatic remote cleanup also failed" in text
+        assert "s-abc" in text
