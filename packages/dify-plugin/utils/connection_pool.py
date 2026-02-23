@@ -299,7 +299,7 @@ class ConnectionPool:
 
             self._connections[session_id] = conn
 
-        logger.info("Pool: connected session %s", session_id)
+        logger.info("Pool: connected session")
         return page
 
     _HEALTH_CHECK_INTERVAL = 30.0  # seconds idle before running a health check
@@ -336,7 +336,7 @@ class ConnectionPool:
     def disconnect(self, session_id: str) -> None:
         with self._lock:
             if session_id not in self._connections:
-                logger.debug("Pool: disconnect called for unknown session %s", session_id)
+                logger.debug("Pool: disconnect called for unknown session")
                 return
             self._unsafe_disconnect(session_id)
 
@@ -356,7 +356,7 @@ class ConnectionPool:
                 if (now - conn.last_used_at) > self._max_idle_seconds
             ]
             for sid in stale:
-                logger.info("Pool: cleaning up stale session %s", sid)
+                logger.info("Pool: cleaning up stale session")
                 self._unsafe_disconnect(sid)
 
     @property
@@ -382,9 +382,12 @@ class ConnectionPool:
             return
         try:
             conn.worker.stop()
-        except Exception:
-            logger.debug("Pool: error stopping worker for %s", session_id, exc_info=True)
-        logger.info("Pool: disconnected session %s", session_id)
+        except Exception as stop_err:
+            logger.debug(
+                "Pool: error stopping worker during disconnect (%s)",
+                type(stop_err).__name__,
+            )
+        logger.info("Pool: disconnected session")
 
 
 pool = ConnectionPool()

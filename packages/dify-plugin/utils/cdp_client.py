@@ -30,9 +30,8 @@ def validate_cdp_url(cdp_url: str) -> str:
         host = (parsed.hostname or "").lower()
         if host not in ("localhost", "127.0.0.1", "::1"):
             logger.warning(
-                "Insecure CDP connection to non-localhost host '%s'. "
-                "Consider using wss:// or https:// for remote connections.",
-                host,
+                "Insecure CDP connection to non-localhost host. "
+                "Consider using wss:// or https:// for remote connections."
             )
 
     return url

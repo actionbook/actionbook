@@ -3,6 +3,7 @@
 import ipaddress
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -25,6 +26,14 @@ VALID_CDP_URL = "ws://localhost:9222"
 def _setup_pool_mock(mock_pool: MagicMock, page: MagicMock) -> None:
     """Configure a pool mock so that connect + get_page return the given page."""
     mock_pool.get_page.return_value = page
+
+
+def _extract_message_url(message: str) -> str:
+    """Extract URL value from tool output lines like 'URL: https://example.com'."""
+    for line in message.splitlines():
+        if "URL: " in line:
+            return line.split("URL: ", 1)[1].strip()
+    return ""
 
 
 @pytest.fixture
@@ -212,7 +221,7 @@ class TestNavigateAction:
 
         assert len(result) == 1
         assert "Navigation successful" in result[0].message.text
-        assert "https://example.com" in result[0].message.text
+        assert urlparse(_extract_message_url(result[0].message.text)).hostname == "example.com"
         assert "Example Domain" in result[0].message.text
         page.goto.assert_called_once_with(
             "https://example.com", timeout=30000.0, wait_until="domcontentloaded"
@@ -896,7 +905,7 @@ class TestSnapshotAction:
 
         assert len(result) == 1
         text = result[0].message.text
-        assert "https://example.com" in text
+        assert urlparse(_extract_message_url(text)).hostname == "example.com"
         assert "Interactive elements: 2" in text
         assert 'heading "Welcome"' in text
         assert "[ref=e1]" in text

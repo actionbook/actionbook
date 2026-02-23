@@ -676,8 +676,7 @@ class BrowserOperatorTool(Tool):
                     )
                     return
                 logger.warning(
-                    "Pool lookup failed for session %s, attempting reconnect from cdp_url: %s",
-                    session_id, e,
+                    "Pool lookup failed; attempting reconnect from cdp_url for session recovery."
                 )
                 try:
                     pool.connect(session_id, cdp_url)
@@ -692,9 +691,10 @@ class BrowserOperatorTool(Tool):
                     )
                     return
             except Exception as e:
-                logger.exception(
-                    "browser_operator session_id=%s action=%s failed",
-                    session_id, action,
+                logger.error(
+                    "browser_operator action=%s failed (%s)",
+                    action,
+                    type(e).__name__,
                 )
                 yield self.create_text_message(
                     f"Error: Action '{action}' failed: {type(e).__name__}: {e}\n"
@@ -710,7 +710,11 @@ class BrowserOperatorTool(Tool):
             page = pool.get_page(ephemeral_session_id)
             yield from handler(self, page, tool_parameters)
         except Exception as e:
-            logger.exception("browser_operator action=%s failed", action)
+            logger.error(
+                "browser_operator action=%s failed (%s)",
+                action,
+                type(e).__name__,
+            )
             yield self.create_text_message(
                 f"Error: Action '{action}' failed: {type(e).__name__}: {e}"
             )

@@ -37,7 +37,7 @@ Selectors:
 """
         mock_get.return_value = mock_response
 
-        tool_parameters = {"area_id": "github.com:login:username-field"}
+        tool_parameters = {"area_id": "github-site:login:username-field"}
 
         result = list(self.tool._invoke(tool_parameters))
 

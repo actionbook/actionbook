@@ -17,6 +17,7 @@ Run with:
 import logging
 import ssl
 import time
+from urllib.parse import urlparse
 
 import pytest
 from playwright.sync_api import sync_playwright
@@ -325,22 +326,22 @@ class TestPlaywrightDirect:
 
                 # Page 1
                 page.goto("https://example.com", wait_until="domcontentloaded", timeout=30000)
-                assert "example.com" in page.url
+                assert urlparse(page.url).hostname == "example.com"
 
                 # Page 2
                 page.goto("https://httpbin.org/html", wait_until="domcontentloaded", timeout=30000)
-                assert "httpbin.org" in page.url
+                assert urlparse(page.url).hostname == "httpbin.org"
 
                 # Go back via JS (avoids Playwright's navigation wait which times
                 # out on back-forward cache hits in remote browsers)
                 page.evaluate("() => window.history.back()")
                 page.wait_for_timeout(2000)
-                assert "example.com" in page.url
+                assert urlparse(page.url).hostname == "example.com"
 
                 # Go forward via JS
                 page.evaluate("() => window.history.forward()")
                 page.wait_for_timeout(2000)
-                assert "httpbin.org" in page.url
+                assert urlparse(page.url).hostname == "httpbin.org"
             finally:
                 browser.close()
 

@@ -86,8 +86,8 @@ class BrowserCreateSessionTool(Tool):
                 )
             except Exception as pool_err:
                 logger.warning(
-                    "Pool connect failed for session %s — operator will fall back to cdp_url: %s",
-                    session.session_id, pool_err,
+                    "Pool connect failed; browser_operator will rely on cdp_url fallback (%s).",
+                    type(pool_err).__name__,
                 )
 
             result = {
@@ -113,7 +113,11 @@ class BrowserCreateSessionTool(Tool):
         except ValueError as e:
             yield self.create_text_message(f"Error: {e}")
         except Exception as e:
-            logger.exception("Failed to create browser session with provider '%s'", provider_name)
+            logger.error(
+                "Failed to create browser session with provider '%s' (%s)",
+                provider_name,
+                type(e).__name__,
+            )
             yield self.create_text_message(
                 f"Error: Failed to create browser session.\n"
                 f"Reason: {type(e).__name__}: {e}\n"
