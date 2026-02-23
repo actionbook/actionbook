@@ -567,6 +567,7 @@ jobs:
 
       - name: Package dify plugin
         run: |
+          mkdir -p dist
           dify plugin package "$PWD" \
             --output_path "$PWD/dist/actionbook.difypkg"
           ls -la dist/
