@@ -52,11 +52,7 @@ class BrowserStopSessionTool(Tool):
         except ValueError as e:
             yield self.create_text_message(f"Error: {e}")
         except Exception as e:
-            logger.error(
-                "Failed to stop browser session on provider '%s' (%s)",
-                provider_name,
-                type(e).__name__,
-            )
+            logger.error("Failed to stop browser session.")
             yield self.create_text_message(
                 f"Error: Failed to stop browser session.\n"
                 f"Reason: {type(e).__name__}: {e}\n"

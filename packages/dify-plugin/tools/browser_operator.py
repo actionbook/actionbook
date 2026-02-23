@@ -691,11 +691,7 @@ class BrowserOperatorTool(Tool):
                     )
                     return
             except Exception as e:
-                logger.error(
-                    "browser_operator action=%s failed (%s)",
-                    action,
-                    type(e).__name__,
-                )
+                logger.error("browser_operator session action failed.")
                 yield self.create_text_message(
                     f"Error: Action '{action}' failed: {type(e).__name__}: {e}\n"
                     "IMPORTANT: Call browser_stop_session to release the session."
@@ -710,11 +706,7 @@ class BrowserOperatorTool(Tool):
             page = pool.get_page(ephemeral_session_id)
             yield from handler(self, page, tool_parameters)
         except Exception as e:
-            logger.error(
-                "browser_operator action=%s failed (%s)",
-                action,
-                type(e).__name__,
-            )
+            logger.error("browser_operator action failed.")
             yield self.create_text_message(
                 f"Error: Action '{action}' failed: {type(e).__name__}: {e}"
             )
