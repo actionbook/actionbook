@@ -23,6 +23,7 @@ jobs:
       should-release: ${{ steps.changesets.outputs.hasChangesets == 'false' }}
       cli-needs-release: ${{ steps.check-releases.outputs.cli }}
       extension-needs-release: ${{ steps.check-releases.outputs.extension }}
+      dify-plugin-needs-release: ${{ steps.check-releases.outputs.dify-plugin }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -73,6 +74,16 @@ jobs:
           else
             echo "extension=true" >> "$GITHUB_OUTPUT"
             echo "Extension needs release: $EXT_LOCAL (tag $EXT_TAG not found)"
+          fi
+
+          DIFY_LOCAL=$(node -e "console.log(JSON.parse(require('fs').readFileSync('packages/dify-plugin/package.json','utf8')).version)")
+          DIFY_TAG="actionbook-dify-plugin-v${DIFY_LOCAL}"
+          if git tag -l "$DIFY_TAG" | grep -q .; then
+            echo "dify-plugin=false" >> "$GITHUB_OUTPUT"
+            echo "Dify plugin tag exists: $DIFY_TAG"
+          else
+            echo "dify-plugin=true" >> "$GITHUB_OUTPUT"
+            echo "Dify plugin needs release: $DIFY_LOCAL (tag $DIFY_TAG not found)"
           fi
 
   # --------------------------------------------------------------------------
@@ -463,3 +474,85 @@ jobs:
             actionbook browser open https://example.com
             ```
             The extension auto-connects to the local bridge at `127.0.0.1:19222`.
+
+  # --------------------------------------------------------------------------
+  # Job 6: Release Dify Plugin (package .difypkg + GitHub Release)
+  # --------------------------------------------------------------------------
+  release-dify-plugin:
+    name: Release Dify Plugin
+    needs: version-or-release
+    if: needs.version-or-release.outputs.dify-plugin-needs-release == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/dify-plugin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Read dify-plugin version
+        id: version
+        run: |
+          VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('package.json','utf8')).version)")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify manifest.yaml version matches
+        run: |
+          PKG_VERSION="${{ steps.version.outputs.version }}"
+          ROOT_VERSION=$(grep -m1 '^version:' manifest.yaml | awk '{gsub(/"/,"",$2); print $2}')
+          META_VERSION=$(awk '/^meta:/{found=1} found && /^  version:/{gsub(/"/,"",$2); print $2; exit}' manifest.yaml)
+          if [ "$ROOT_VERSION" != "$PKG_VERSION" ]; then
+            echo "ERROR: manifest.yaml root version ($ROOT_VERSION) != package.json ($PKG_VERSION)"
+            exit 1
+          fi
+          if [ "$META_VERSION" != "$PKG_VERSION" ]; then
+            echo "ERROR: manifest.yaml meta.version ($META_VERSION) != package.json ($PKG_VERSION)"
+            exit 1
+          fi
+          echo "Version verified: $PKG_VERSION"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Package dify plugin
+        run: |
+          uv run dify plugin package .
+          ls -la dist/
+
+      - name: Rename artifact with version
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          mv dist/actionbook.difypkg "dist/actionbook-v${VERSION}.difypkg"
+
+      - name: Create Dify Plugin GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: actionbook-dify-plugin-v${{ steps.version.outputs.version }}
+          name: Actionbook Dify Plugin v${{ steps.version.outputs.version }}
+          files: |
+            packages/dify-plugin/dist/actionbook-v${{ steps.version.outputs.version }}.difypkg
+          body: |
+            ## Actionbook Dify Plugin v${{ steps.version.outputs.version }}
+
+            ### Install
+
+            **Option 1: Upload to Dify**
+            1. Download `actionbook-v${{ steps.version.outputs.version }}.difypkg` below
+            2. Go to your Dify instance → Plugins
+            3. Upload the `.difypkg` file
+
+            **Option 2: Dify Marketplace**
+            Search for "Actionbook" in the Dify plugin marketplace.
+          generate_release_notes: true

@@ -69,3 +69,64 @@ if (manifest.version !== extVersion) {
 }
 
 console.log(`Extension sync done (v${extVersion})`);
+
+// ---------------------------------------------------------------------------
+// 3. Sync dify-plugin package.json version → manifest.yaml + pyproject.toml
+// ---------------------------------------------------------------------------
+
+const difyPkgPath = path.join(ROOT, "packages/dify-plugin/package.json");
+const difyManifestPath = path.join(ROOT, "packages/dify-plugin/manifest.yaml");
+const difyPyprojectPath = path.join(ROOT, "packages/dify-plugin/pyproject.toml");
+
+const difyPkg = JSON.parse(fs.readFileSync(difyPkgPath, "utf8"));
+const difyVersion = difyPkg.version;
+
+// Sync manifest.yaml (two version fields: root version + meta.version)
+let manifestYaml = fs.readFileSync(difyManifestPath, "utf8");
+let difyChanged = false;
+
+const rootVersionMatch = manifestYaml.match(/^version:\s*(.+)$/m);
+if (!rootVersionMatch) {
+  throw new Error("manifest.yaml: root 'version:' field not found");
+}
+if (rootVersionMatch[1].trim() !== difyVersion) {
+  manifestYaml = manifestYaml.replace(
+    /^(version:\s*).+$/m,
+    `$1${difyVersion}`
+  );
+  difyChanged = true;
+}
+
+const metaVersionMatch = manifestYaml.match(/(meta:\s*\n\s+version:\s*)(.+)/);
+if (!metaVersionMatch) {
+  throw new Error("manifest.yaml: 'meta.version' field not found");
+}
+if (metaVersionMatch[2].trim() !== difyVersion) {
+  manifestYaml = manifestYaml.replace(
+    /(meta:\s*\n\s+version:\s*).+/,
+    `$1${difyVersion}`
+  );
+  difyChanged = true;
+}
+
+if (difyChanged) {
+  fs.writeFileSync(difyManifestPath, manifestYaml);
+  console.log(`  packages/dify-plugin/manifest.yaml: → ${difyVersion}`);
+}
+
+// Sync pyproject.toml version
+let pyproject = fs.readFileSync(difyPyprojectPath, "utf8");
+const pyVersionMatch = pyproject.match(/^version\s*=\s*"(.+)"/m);
+if (!pyVersionMatch) {
+  throw new Error("pyproject.toml: 'version' field not found");
+}
+if (pyVersionMatch[1] !== difyVersion) {
+  pyproject = pyproject.replace(
+    /^(version\s*=\s*").+(")/m,
+    `$1${difyVersion}$2`
+  );
+  fs.writeFileSync(difyPyprojectPath, pyproject);
+  console.log(`  packages/dify-plugin/pyproject.toml: → ${difyVersion}`);
+}
+
+console.log(`Dify plugin sync done (v${difyVersion})`);
