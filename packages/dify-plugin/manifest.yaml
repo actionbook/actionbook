@@ -16,6 +16,8 @@ description:
     通过 Hyperbrowser 创建云端浏览器会话，并执行页面操作
     （导航、点击、填写、快照）— 全部可在 Dify 工作流中使用。
 icon: icon.svg
+privacy: PRIVACY.md
+repo: https://github.com/actionbook/actionbook
 tags:
   - utilities
   - productivity

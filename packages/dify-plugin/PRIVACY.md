@@ -1,33 +1,49 @@
 # Privacy Policy - Actionbook Dify Plugin
 
-## Data Collection
+## Overview
 
-The Actionbook Dify Plugin does not collect, store, or transmit any user data beyond what is necessary for API communication.
+This policy describes what data the Actionbook Dify Plugin processes when tools are executed in Dify.
 
-### Information Processed
+## Information Processed
 
-- **API Key**: Stored securely by Dify (encrypted at rest)
-- **Search Queries**: Sent to Actionbook API for processing (not logged or stored)
-- **Area IDs**: Used only for retrieving action details
+Depending on which tools are used, the plugin may process:
 
-### Third-Party Services
+- **Search query text** (for `search_actions`)
+- **Area IDs** (for `get_action_by_area_id`)
+- **Cloud browser credentials and session data** (for browser tools), including:
+  - provider API key (e.g., Hyperbrowser API key)
+  - session ID / WebSocket endpoint
+  - optional `profile_id` used for browser state persistence
+- **Website interaction data** needed to perform browser actions (URL, selectors, typed text, snapshots/HTML/text outputs)
 
-This plugin communicates with:
-- **Actionbook API** (`https://api.actionbook.dev`): Retrieves verified website selectors
+## Third-Party Services
 
-### Data Retention
+This plugin may communicate with:
 
-- No user data is stored by the plugin
-- API requests are logged by Actionbook for service monitoring (7-day retention)
+- **Actionbook API** (`https://api.actionbook.dev`) for action search and action detail lookup
+- **Hyperbrowser API** (when browser session tools are used) for cloud browser session lifecycle
+- **Target websites** that the workflow/agent navigates to via browser automation
 
-### Security
+## Data Storage and Retention
 
-- All API communication uses HTTPS encryption
-- API keys are never logged or exposed in responses
-- No cookies or tracking mechanisms
+- The plugin code does **not** implement a standalone user database.
+- Runtime/session data may exist in Dify runtime context and/or cloud browser provider session state while a workflow is running.
+- If a stable `profile_id` is used, browser state (for example cookies/localStorage) can be persisted by the browser provider for reuse across sessions.
+- Actionbook service-side logging/retention is controlled by Actionbook service policy.
 
-### Changes
+## Logging
 
-Updates to this privacy policy will be announced in plugin release notes.
+- The plugin includes technical logging for debugging and error handling.
+- Logs may include limited operational context (for example query length, area ID, status code, or error category).
+- Secrets should not be intentionally printed in plaintext by plugin responses.
 
-**Last Updated**: 2026-02-07
+## Security
+
+- Network communication uses HTTPS endpoints where supported by upstream services.
+- Credentials are handled through Dify plugin credential/tool parameter mechanisms.
+
+## Changes
+
+Updates to this privacy policy will be reflected in plugin releases.
+
+**Last Updated**: 2026-02-24
