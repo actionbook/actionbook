@@ -1,5 +1,18 @@
 # @actionbookdev/cli
 
+## 0.7.5
+
+### Patch Changes
+
+- [#159](https://github.com/actionbook/actionbook/pull/159) [`6ad3b57`](https://github.com/actionbook/actionbook/commit/6ad3b5708af1b16548c61e9f60121f72368229e5) Thanks [@Senke0x](https://github.com/Senke0x)! - Refine `actionbook setup` behavior for agent and non-interactive workflows:
+
+  - remove `--agent-mode` and keep setup targeting via `--target`
+  - keep `--target` quick mode only when used alone
+  - run full setup when `--target` is combined with setup flags (for example `--non-interactive`, `--browser`, `--api-key`)
+  - avoid forcing non-interactive/browser defaults from `--target`
+  - preserve standalone target behavior by skipping skills integration in full setup
+  - improve setup help text with agent-friendly non-interactive examples
+
 ## 0.7.4
 
 ### Patch Changes
