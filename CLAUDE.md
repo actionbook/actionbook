@@ -179,6 +179,44 @@ The following packages are published to npm:
 | `packages/cli`         | `@actionbookdev/cli`        | Command line interface                            |
 | `packages/tools-ai-sdk`| `@actionbookdev/tools-ai-sdk` | Vercel AI SDK tools integration                 |
 
+## Release Workflow
+
+This project uses **Changesets** for versioning and **GitHub Actions** for automated publishing. Manual publishing is not supported — all releases go through CI.
+
+### Developer Steps
+
+```bash
+# 1. After making changes, create a changeset
+pnpm changeset
+# Select affected packages, semver bump type (major/minor/patch), and description
+
+# 2. Commit the generated .changeset/*.md file along with your changes
+git add .changeset/*.md
+git commit -m "[scope]feat: description"
+
+# 3. Push/merge to main — CI handles the rest
+```
+
+### CI Release Process (Two-Phase)
+
+**Phase 1 — Version PR**: When changesets are detected on `main`, CI automatically creates a "Version Packages" PR that updates package versions, CHANGELOGs, and runs `scripts/sync-versions.js` to keep derived manifests in sync.
+
+**Phase 2 — Publish**: After the Version PR is merged (no pending changesets), CI compares local versions against the npm registry and publishes only changed packages:
+
+| Type | Packages | Publish Target |
+|------|----------|----------------|
+| JS packages | `sdk`, `mcp`, `tools-ai-sdk`, `json-ui` | npm (`npm publish --provenance`) |
+| CLI | `@actionbookdev/cli` + 6 platform packages | Rust cross-compile → npm + GitHub Release |
+| Extension | `actionbook-extension` | ZIP → GitHub Release |
+| Dify Plugin | `dify-plugin` | `.difypkg` → GitHub Release |
+
+### Version Sync
+
+`scripts/sync-versions.js` runs automatically after `changeset version` to sync:
+- CLI main version → 6 platform-specific `package.json` files
+- Extension `package.json` → `manifest.json`
+- Dify plugin `package.json` → `manifest.yaml` + `pyproject.toml`
+
 ## Git Commit Message Convention
 
 **IMPORTANT**: This is a monorepo. All commit messages MUST follow this format:
