@@ -1,6 +1,6 @@
 [project]
 name = "actionbook-dify-plugin"
-version = "0.1.0"
+version = "0.1.1"
 description = "Actionbook plugin for Dify - Browser automation manuals"
 authors = [
     {name = "Actionbook Team", email = "support@actionbook.dev"}
