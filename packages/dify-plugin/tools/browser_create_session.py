@@ -10,7 +10,28 @@ from dify_plugin.entities.tool import ToolInvokeMessage
 
 from providers import SUPPORTED_PROVIDERS, get_provider
 from utils.api_key import resolve_provider_api_key
-from utils.connection_pool import pool
+
+# Lazy import — avoid loading connection_pool at module level.
+# connection_pool spawns a background cleanup thread on import,
+# which may fail in Dify Cloud's serverless runtime.
+import threading
+
+pool = None  # Module-level alias set by _ensure_pool(); patchable by tests.
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def _ensure_pool():
+    """Thread-safe lazy import of connection pool."""
+    global pool, _pool
+    if _pool is not None:
+        return
+    with _pool_lock:
+        if _pool is not None:
+            return
+        from utils.connection_pool import pool as _p
+        _pool = _p
+        pool = _p
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +50,10 @@ class BrowserCreateSessionTool(Tool):
 
         api_key = resolve_provider_api_key(tool_parameters.get("api_key") or "")
         profile_id = (tool_parameters.get("profile_id") or "").strip() or None
-        use_proxy = str(tool_parameters.get("use_proxy", "false")).lower().strip() == "true"
+        # Dify's type coercion is unreliable (string "false" → bool True),
+        # so we manually parse the value as a string comparison.
+        raw_proxy = tool_parameters.get("use_proxy", "false")
+        use_proxy = str(raw_proxy).lower().strip() == "true"
 
         if not api_key:
             yield self.create_text_message(
@@ -37,6 +61,16 @@ class BrowserCreateSessionTool(Tool):
                 "Get your key at https://app.hyperbrowser.ai/"
             )
             return
+
+        if pool is None:
+            try:
+                _ensure_pool()
+            except Exception as e:
+                yield self.create_text_message(
+                    f"Error: Browser pool unavailable: {type(e).__name__}: {e}\n"
+                    "This environment may not support browser tools."
+                )
+                return
 
         try:
             provider = get_provider(provider_name, api_key)
@@ -135,6 +169,9 @@ class BrowserCreateSessionTool(Tool):
             logger.error("Failed to create browser session.")
             yield self.create_text_message(
                 f"Error: Failed to create browser session.\n"
-                f"Reason: {type(e).__name__}: {e}\n"
-                f"Verify your API key is valid and the provider service is reachable."
+                f"Provider: {provider_name}\n"
+                f"Exception: {type(e).__name__}: {e}\n\n"
+                "If this is a network error, Dify Cloud may be blocking access to "
+                "the Hyperbrowser API. "
+                "Consider using Dify Self-hosted for unrestricted network access."
             )
