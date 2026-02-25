@@ -129,4 +129,14 @@ if (pyVersionMatch[1] !== difyVersion) {
   console.log(`  packages/dify-plugin/pyproject.toml: → ${difyVersion}`);
 }
 
+// Regenerate uv.lock so the lockfile version stays in sync with pyproject.toml
+const { execSync } = require("child_process");
+const difyPluginDir = path.join(ROOT, "packages/dify-plugin");
+try {
+  execSync("uv lock", { cwd: difyPluginDir, stdio: "inherit" });
+  console.log("  uv.lock regenerated");
+} catch (e) {
+  console.error("  WARNING: failed to run 'uv lock':", e.message);
+}
+
 console.log(`Dify plugin sync done (v${difyVersion})`);
