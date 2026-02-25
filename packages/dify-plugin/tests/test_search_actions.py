@@ -2,6 +2,7 @@
 
 from unittest.mock import Mock, patch
 
+import pytest
 import requests
 
 from tools.search_actions import SearchActionsTool
@@ -209,15 +210,13 @@ class TestSearchActionsTool:
         assert "unexpected error" in result[0].message.text.lower()
 
     @patch("tools.search_actions.requests.get")
-    def test_baseexception_error(self, mock_get):
-        """Test handling of non-Exception errors yields system-level message."""
+    def test_baseexception_propagates(self, mock_get):
+        """Test that non-Exception BaseException subclasses propagate uncaught."""
         mock_get.side_effect = _FakeSystemError("gevent timeout")
 
         tool_parameters = {"query": "test"}
-        result = list(self.tool._invoke(tool_parameters))
-
-        assert len(result) == 1
-        assert "unexpected error" in result[0].message.text.lower()
+        with pytest.raises(_FakeSystemError, match="gevent timeout"):
+            list(self.tool._invoke(tool_parameters))
 
     @patch("tools.search_actions.requests.get")
     def test_search_without_api_key(self, mock_get):

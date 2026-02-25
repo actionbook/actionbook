@@ -2,6 +2,7 @@
 
 from unittest.mock import Mock, patch
 
+import pytest
 import requests
 
 from tools.get_action_by_area_id import GetActionByAreaIdTool
@@ -188,15 +189,13 @@ Selectors:
         assert "something broke" in result[0].message.text
 
     @patch("tools.get_action_by_area_id.requests.get")
-    def test_baseexception_error(self, mock_get):
-        """Test handling of non-Exception errors yields BaseException message."""
+    def test_baseexception_propagates(self, mock_get):
+        """Test that non-Exception BaseException subclasses propagate uncaught."""
         mock_get.side_effect = _FakeSystemError("gevent timeout")
 
         tool_parameters = {"area_id": "github.com:login:username"}
-        result = list(self.tool._invoke(tool_parameters))
-
-        assert len(result) == 1
-        assert "gevent timeout" in result[0].message.text
+        with pytest.raises(_FakeSystemError, match="gevent timeout"):
+            list(self.tool._invoke(tool_parameters))
 
     @patch("tools.get_action_by_area_id.requests.get")
     def test_empty_response(self, mock_get):

@@ -1,6 +1,7 @@
 """Browser Stop Session Tool — release a managed cloud browser session."""
 
 import logging
+import threading
 from collections.abc import Generator
 from typing import Any
 
@@ -8,7 +9,26 @@ from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
 
 from providers import get_provider
-from utils.connection_pool import pool
+
+# Lazy import — avoid loading connection_pool at module level.
+# connection_pool spawns a background cleanup thread on import,
+# which may fail in Dify Cloud's serverless runtime.
+pool = None  # Module-level alias set by _ensure_pool(); patchable by tests.
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def _ensure_pool():
+    """Thread-safe lazy import of connection pool."""
+    global pool, _pool
+    if _pool is not None:
+        return
+    with _pool_lock:
+        if _pool is not None:
+            return
+        from utils.connection_pool import pool as _p
+        _pool = _p
+        pool = _p
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +37,16 @@ class BrowserStopSessionTool(Tool):
     """Stop a cloud browser session and persist profile state."""
 
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage, None, None]:
+        if pool is None:
+            try:
+                _ensure_pool()
+            except Exception as e:
+                yield self.create_text_message(
+                    f"Error: Browser pool unavailable: {type(e).__name__}: {e}\n"
+                    "This environment may not support browser tools."
+                )
+                return
+
         session_id = (tool_parameters.get("session_id") or "").strip()
 
         if not session_id:

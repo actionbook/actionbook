@@ -748,6 +748,15 @@ class BrowserOperatorTool(Tool):
         # 2) If missing/unhealthy and cdp_url exists, reconnect the pool for this session_id
         # 3) If only cdp_url exists, create an ephemeral pooled connection for this call
         if session_id:
+            # Snapshot provider metadata *before* get_page(), because
+            # ConnectionUnhealthy evicts the connection (and its metadata)
+            # from the pool before raising.  Without this, a reconnect via
+            # pool.connect() would use default empty values, causing
+            # browser_stop_session to fail later (remote session leak).
+            _session_meta = pool.get_session_info(session_id)
+            _recover_provider = _session_meta[0] if _session_meta else "hyperbrowser"
+            _recover_api_key = _session_meta[1] if _session_meta else ""
+
             try:
                 page = pool.get_page(session_id)
                 yield from handler(self, page, tool_parameters)
@@ -765,7 +774,11 @@ class BrowserOperatorTool(Tool):
                     "Pool lookup failed; attempting reconnect from cdp_url for session recovery."
                 )
                 try:
-                    pool.connect(session_id, cdp_url)
+                    pool.connect(
+                        session_id, cdp_url,
+                        provider_name=_recover_provider,
+                        api_key=_recover_api_key,
+                    )
                     page = pool.get_page(session_id)
                     yield from handler(self, page, tool_parameters)
                     return

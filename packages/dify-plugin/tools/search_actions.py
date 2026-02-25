@@ -120,11 +120,3 @@ class SearchActionsTool(Tool):
             yield self.create_text_message(
                 "Error: An unexpected error occurred while searching actions."
             )
-        except BaseException as e:
-            if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
-                raise
-            logger.critical("BaseException in search_actions: %s: %s", type(e).__name__, e)
-            yield self.create_text_message(
-                "Error: An unexpected error occurred.\n\n"
-                "This may indicate network restrictions or gevent.Timeout in Dify Cloud."
-            )

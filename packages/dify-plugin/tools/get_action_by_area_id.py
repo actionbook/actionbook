@@ -122,10 +122,3 @@ class GetActionByAreaIdTool(Tool):
             yield self.create_text_message(
                 f"Error: {type(e).__name__}: {e}"
             )
-        except BaseException as e:
-            if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
-                raise
-            logger.critical("BaseException in get_action_by_area_id: %s: %s", type(e).__name__, e)
-            yield self.create_text_message(
-                f"Error: {type(e).__name__}: {e}"
-            )

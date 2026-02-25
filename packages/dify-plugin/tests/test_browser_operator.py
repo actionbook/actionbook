@@ -812,10 +812,17 @@ class TestSessionIdPath:
 
     @patch("tools.browser_operator.pool")
     def test_session_id_not_found_falls_back_to_cdp_url(self, mock_pool, tool):
-        """When session_id is not found but cdp_url is provided, reconnect via pool."""
+        """When session_id is not found but cdp_url is provided, reconnect via pool.
+
+        Reconnect must forward the provider metadata cached at session creation
+        so that browser_stop_session can correctly stop the remote session.
+        """
         page = MagicMock()
         page.url = "https://example.com"
         page.title.return_value = "Example"
+
+        # get_session_info returns cached provider metadata
+        mock_pool.get_session_info.return_value = ("hyperbrowser", "hb-key-123")
 
         # First call (get_page for session_id) fails, then reconnect succeeds
         mock_pool.get_page.side_effect = [
@@ -831,7 +838,11 @@ class TestSessionIdPath:
         }))
 
         assert "Navigation successful" in result[0].message.text
-        mock_pool.connect.assert_called_once_with("sess-missing", VALID_CDP_URL)
+        mock_pool.connect.assert_called_once_with(
+            "sess-missing", VALID_CDP_URL,
+            provider_name="hyperbrowser",
+            api_key="hb-key-123",
+        )
 
     @patch("tools.browser_operator.pool")
     def test_session_id_multi_step_operations(self, mock_pool, tool):
