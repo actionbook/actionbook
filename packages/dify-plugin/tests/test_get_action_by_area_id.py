@@ -35,6 +35,7 @@ Selectors:
   - CSS: #login_field
   - XPath: //input[@name='login']
 """
+        mock_response.headers = {"Content-Type": "text/plain"}
         mock_get.return_value = mock_response
 
         tool_parameters = {"area_id": "github-site:login:username-field"}
@@ -89,6 +90,8 @@ Selectors:
         """Test handling of non-existent action."""
         mock_response = Mock()
         mock_response.status_code = 404
+        mock_response.text = ""
+        mock_response.headers = {"Content-Type": "application/json"}
         mock_get.return_value = mock_response
 
         tool_parameters = {"area_id": "example.com:page:nonexistent"}
@@ -104,6 +107,8 @@ Selectors:
         """Test handling of invalid API key returns error message."""
         mock_response = Mock()
         mock_response.status_code = 401
+        mock_response.text = ""
+        mock_response.headers = {"Content-Type": "application/json"}
         mock_get.return_value = mock_response
 
         tool_parameters = {"area_id": "github.com:login:username"}
@@ -118,6 +123,8 @@ Selectors:
         """Test handling of rate limit errors."""
         mock_response = Mock()
         mock_response.status_code = 429
+        mock_response.text = ""
+        mock_response.headers = {"Content-Type": "application/json"}
         mock_get.return_value = mock_response
 
         tool_parameters = {"area_id": "github.com:login:username"}
@@ -132,6 +139,8 @@ Selectors:
         """Test handling of API unavailability."""
         mock_response = Mock()
         mock_response.status_code = 500
+        mock_response.text = ""
+        mock_response.headers = {"Content-Type": "application/json"}
         mock_get.return_value = mock_response
 
         tool_parameters = {"area_id": "github.com:login:username"}
@@ -139,7 +148,7 @@ Selectors:
         result = list(self.tool._invoke(tool_parameters))
 
         assert len(result) == 1
-        assert "server error" in result[0].message.text
+        assert "server error" in result[0].message.text.lower()
 
     @patch("tools.get_action_by_area_id.requests.get")
     def test_connection_error(self, mock_get):
@@ -151,7 +160,7 @@ Selectors:
         result = list(self.tool._invoke(tool_parameters))
 
         assert len(result) == 1
-        assert "Cannot connect" in result[0].message.text
+        assert "ConnectionError" in result[0].message.text
 
     @patch("tools.get_action_by_area_id.requests.get")
     def test_timeout_error(self, mock_get):
@@ -163,7 +172,7 @@ Selectors:
         result = list(self.tool._invoke(tool_parameters))
 
         assert len(result) == 1
-        assert "timed out" in result[0].message.text
+        assert "timed out" in result[0].message.text.lower()
 
     @patch("tools.get_action_by_area_id.requests.get")
     def test_unexpected_error(self, mock_get):
@@ -175,18 +184,19 @@ Selectors:
         result = list(self.tool._invoke(tool_parameters))
 
         assert len(result) == 1
-        assert "unexpected error" in result[0].message.text.lower()
+        assert "RuntimeError" in result[0].message.text
+        assert "something broke" in result[0].message.text
 
     @patch("tools.get_action_by_area_id.requests.get")
     def test_baseexception_error(self, mock_get):
-        """Test handling of non-Exception errors yields system-level message."""
+        """Test handling of non-Exception errors yields BaseException message."""
         mock_get.side_effect = _FakeSystemError("gevent timeout")
 
         tool_parameters = {"area_id": "github.com:login:username"}
         result = list(self.tool._invoke(tool_parameters))
 
         assert len(result) == 1
-        assert "system-level error" in result[0].message.text.lower()
+        assert "gevent timeout" in result[0].message.text
 
     @patch("tools.get_action_by_area_id.requests.get")
     def test_empty_response(self, mock_get):
@@ -194,6 +204,7 @@ Selectors:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.text = ""
+        mock_response.headers = {"Content-Type": "text/plain"}
         mock_get.return_value = mock_response
 
         tool_parameters = {"area_id": "github.com:login:username"}
@@ -201,7 +212,6 @@ Selectors:
         result = list(self.tool._invoke(tool_parameters))
 
         assert len(result) == 1
-        # Updated assertion to match new SSRF-aware error message
         assert "empty response" in result[0].message.text.lower()
         assert ("SSRF proxy" in result[0].message.text or
                 "Self-hosted" in result[0].message.text)
@@ -212,6 +222,7 @@ Selectors:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.text = "Site: github.com\nElement: username-field"
+        mock_response.headers = {"Content-Type": "text/plain"}
         mock_get.return_value = mock_response
 
         tool = _make_tool(api_key="")
@@ -230,6 +241,7 @@ Selectors:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.text = "test result"
+        mock_response.headers = {"Content-Type": "text/plain"}
         mock_get.return_value = mock_response
 
         tool_parameters = {"area_id": "github.com:login:username-field"}
@@ -246,6 +258,8 @@ Selectors:
         """Test handling of HTTP 403 Forbidden status."""
         mock_response = Mock()
         mock_response.status_code = 403
+        mock_response.text = ""
+        mock_response.headers = {"Content-Type": "application/json"}
         mock_get.return_value = mock_response
 
         tool_parameters = {"area_id": "github.com:login:username"}
@@ -256,7 +270,7 @@ Selectors:
 
     @patch("tools.get_action_by_area_id.requests.get")
     def test_connection_error_ssl(self, mock_get):
-        """Test SSL-specific connection error branch."""
+        """Test SSL-specific connection error includes error message."""
         mock_get.side_effect = requests.ConnectionError("SSL certificate verify failed")
 
         tool_parameters = {"area_id": "github.com:login:username"}
@@ -267,7 +281,7 @@ Selectors:
 
     @patch("tools.get_action_by_area_id.requests.get")
     def test_connection_error_refused(self, mock_get):
-        """Test connection-refused branch."""
+        """Test connection-refused error includes error message."""
         mock_get.side_effect = requests.ConnectionError("Connection refused")
 
         tool_parameters = {"area_id": "github.com:login:username"}
@@ -278,7 +292,7 @@ Selectors:
 
     @patch("tools.get_action_by_area_id.requests.get")
     def test_connection_error_timeout(self, mock_get):
-        """Test connection timeout branch."""
+        """Test connection timeout error includes error message."""
         mock_get.side_effect = requests.ConnectionError("Connection timeout")
 
         tool_parameters = {"area_id": "github.com:login:username"}
@@ -294,3 +308,18 @@ Selectors:
 
         assert isinstance(tool, GetActionByAreaIdTool)
         assert tool.runtime.credentials["actionbook_api_key"] == "factory_key"
+
+    @patch("tools.get_action_by_area_id.requests.get")
+    def test_html_response_returns_misroute_error(self, mock_get):
+        """HTML response should return actionable base URL guidance."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.text = "<!DOCTYPE html><html><body>Redirecting</body></html>"
+        mock_response.headers = {"Content-Type": "text/html; charset=utf-8"}
+        mock_get.return_value = mock_response
+
+        result = list(self.tool._invoke({"area_id": "github.com:login:username"}))
+
+        assert len(result) == 1
+        assert "HTML page" in result[0].message.text
+        assert "ACTIONBOOK_API_URL" in result[0].message.text

@@ -49,3 +49,16 @@ class TestActionbookProvider:
 
         with pytest.raises(Exception, match="Cannot reach"):
             provider._validate_credentials({})
+
+    @patch("provider.actionbook.requests.get")
+    def test_html_response_raises_misroute_error(self, mock_get):
+        """HTML responses should be treated as endpoint misconfiguration."""
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            text="<!DOCTYPE html><html><body>not api</body></html>",
+            headers={"Content-Type": "text/html; charset=utf-8"},
+        )
+        provider = ActionbookProvider()
+
+        with pytest.raises(Exception, match="HTML page"):
+            provider._validate_credentials({})
