@@ -4,11 +4,10 @@ requires-python = ">=3.12"
 
 [[package]]
 name = "actionbook-dify-plugin"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "dify-plugin" },
-    { name = "hyperbrowser" },
     { name = "playwright" },
     { name = "requests" },
 ]
@@ -25,7 +24,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "dify-plugin", specifier = ">=0.5.1,<0.6.0" },
-    { name = "hyperbrowser", specifier = ">=0.1.0" },
     { name = "playwright", specifier = ">=1.40.0" },
     { name = "requests", specifier = ">=2.31.0" },
 ]
@@ -415,20 +413,6 @@ wheels = [
 ]
 
 [[package]]
-name = "hyperbrowser"
-version = "0.83.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "httpx" },
-    { name = "jsonref" },
-    { name = "pydantic" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/7e/c0/8c84c28971b55ba38c882183de7ea21af9bdb84522f0b6fd678c2791edc1/hyperbrowser-0.83.3.tar.gz", hash = "sha256:6410a0b616f7d9ddec50e5e2cb0ba948a316b48e099664b1b5b672048df564bd", size = 34315, upload-time = "2026-02-18T06:15:05.802Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b2/72/3297144ba34afc0895e1abb91c7700e7e0249a5ed7c04c542aef9faa2d2b/hyperbrowser-0.83.3-py3-none-any.whl", hash = "sha256:ecc72598728c4ef209a52ba170635e696fd41ea472bd7d272b813984446c7788", size = 72016, upload-time = "2026-02-18T06:15:04.78Z" },
-]
-
-[[package]]
 name = "idna"
 version = "3.11"
 source = { registry = "https://pypi.org/simple" }
@@ -465,15 +449,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/df/bf/f7da0350254c0ed7c72f3e33cef02e048281fec7ecec5f032d4aac52226b/jinja2-3.1.6.tar.gz", hash = "sha256:0137fb05990d35f1275a587e9aee6d56da821fc83491a0fb838183be43f66d6d", size = 245115, upload-time = "2025-03-05T20:05:02.478Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/62/a1/3d680cbfd5f4b8f15abc1d571870c5fc3e594bb582bc3b64ea099db13e56/jinja2-3.1.6-py3-none-any.whl", hash = "sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67", size = 134899, upload-time = "2025-03-05T20:05:00.369Z" },
-]
-
-[[package]]
-name = "jsonref"
-version = "1.1.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/aa/0d/c1f3277e90ccdb50d33ed5ba1ec5b3f0a242ed8c1b1a85d3afeb68464dca/jsonref-1.1.0.tar.gz", hash = "sha256:32fe8e1d85af0fdefbebce950af85590b22b60f9e95443176adbde4e1ecea552", size = 8814, upload-time = "2023-01-16T16:10:04.455Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/0c/ec/e1db9922bceb168197a558a2b8c03a7963f1afe93517ddd3cf99f202f996/jsonref-1.1.0-py3-none-any.whl", hash = "sha256:590dc7773df6c21cbf948b5dac07a72a251db28b0238ceecce0a2abfa8ec30a9", size = 9425, upload-time = "2023-01-16T16:10:02.255Z" },
 ]
 
 [[package]]

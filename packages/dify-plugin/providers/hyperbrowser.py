@@ -5,10 +5,14 @@ Each Dify tool call creates a NEW session but loads the same Profile,
 restoring cookies / localStorage from the previous call.
 Only active session time is billed — idle waiting between calls is free.
 
-CDP connection: ws_endpoint is returned directly by the SDK.
+CDP connection: ws_endpoint is returned directly by the API.
 No additional SDK calls needed after create_session().
 
+Uses direct HTTP API calls instead of the hyperbrowser SDK to avoid
+extra dependencies in Dify Cloud's serverless runtime.
+
 Docs: https://docs.hyperbrowser.ai/sessions/profiles
+API:  https://docs.hyperbrowser.ai/api-reference
 """
 
 import logging
@@ -16,16 +20,12 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-# Module-level conditional import so tests can patch providers.hyperbrowser.Hyperbrowser
-# and providers.hyperbrowser.CreateSessionParams.
-try:
-    from hyperbrowser import Hyperbrowser
-    from hyperbrowser.models import CreateSessionParams
-except ImportError:
-    Hyperbrowser = None  # type: ignore[assignment, misc]
-    CreateSessionParams = None  # type: ignore[assignment, misc]
+import requests
 
 logger = logging.getLogger(__name__)
+
+_API_BASE = "https://api.hyperbrowser.ai"
+_TIMEOUT = 30
 
 
 @dataclass
@@ -34,7 +34,7 @@ class HyperbrowserSession:
 
     _ws_endpoint: str
     _session_id: str
-    _client: Any  # hyperbrowser.Hyperbrowser instance
+    _api_key: str
 
     @property
     def ws_endpoint(self) -> str:
@@ -47,7 +47,12 @@ class HyperbrowserSession:
     def stop(self) -> None:
         """Stop session and persist Profile state."""
         try:
-            self._client.sessions.stop(self._session_id)
+            resp = requests.put(
+                f"{_API_BASE}/api/session/{self._session_id}/stop",
+                headers={"x-api-key": self._api_key},
+                timeout=_TIMEOUT,
+            )
+            resp.raise_for_status()
         except Exception:
             logger.exception("Failed to stop Hyperbrowser session %s", self._session_id)
             raise
@@ -55,7 +60,7 @@ class HyperbrowserSession:
 
 class HyperbrowserProvider:
     """
-    Cloud browser provider backed by Hyperbrowser.
+    Cloud browser provider backed by Hyperbrowser REST API.
 
     Session persistence strategy (Dify workflow context):
     - Pass a stable profile_id (e.g., f"dify-{workflow_id}-{user_id}")
@@ -67,12 +72,7 @@ class HyperbrowserProvider:
     """
 
     def __init__(self, api_key: str) -> None:
-        if Hyperbrowser is None:
-            raise ImportError(
-                "hyperbrowser package is not installed. "
-                "Add 'hyperbrowser>=0.1.0' to pyproject.toml dependencies."
-            )
-        self._client = Hyperbrowser(api_key=api_key)
+        self._api_key = api_key
 
     def create_session(
         self,
@@ -82,38 +82,64 @@ class HyperbrowserProvider:
         **kwargs: Any,
     ) -> HyperbrowserSession:
         """
-        Create a Hyperbrowser session.
+        Create a Hyperbrowser session via REST API.
 
         Args:
-            profile_id:      Profile ID for persistent state. Recommended for
-                             workflows that need to maintain login across tool calls.
-                             Example: "dify-user-abc123"
-            use_proxy:       Route through a residential proxy (helps bypass
-                             geo-restrictions and bot detection).
-            persist_changes: Whether to save browser state to the Profile when the
-                             session is stopped. Only relevant when profile_id is set.
+            profile_id:      Profile ID for persistent state.
+            use_proxy:       Route through a residential proxy.
+            persist_changes: Save browser state to Profile on stop.
         """
-        params_kwargs: dict[str, Any] = {"use_proxy": use_proxy}
+        body: dict[str, Any] = {"useProxy": use_proxy}
 
         if profile_id:
             normalized_profile_id = _normalize_profile_id(profile_id)
-            params_kwargs["profile"] = {
+            body["profile"] = {
                 "id": normalized_profile_id,
-                "persist_changes": persist_changes,
+                "persistChanges": persist_changes,
             }
 
-        params = CreateSessionParams(**params_kwargs)
-        session = self._client.sessions.create(params=params)
+        url = f"{_API_BASE}/api/session"
+        resp = requests.post(
+            url,
+            headers={
+                "x-api-key": self._api_key,
+                "Content-Type": "application/json",
+            },
+            json=body,
+            timeout=_TIMEOUT,
+        )
+
+        if not resp.ok:
+            body_preview = resp.text[:300] if resp.text else "(empty)"
+            raise RuntimeError(
+                f"Hyperbrowser API error: HTTP {resp.status_code}\n"
+                f"Response: {body_preview}"
+            )
+
+        data = resp.json()
+
+        session_id = data.get("id") or data.get("sessionId", "")
+        ws_endpoint = data.get("wsEndpoint") or data.get("sessionWebsocketUrl", "")
+
+        if not session_id or not ws_endpoint:
+            raise RuntimeError(
+                f"Hyperbrowser API returned incomplete session data: {data}"
+            )
 
         return HyperbrowserSession(
-            _ws_endpoint=session.ws_endpoint,
-            _session_id=session.id,
-            _client=self._client,
+            _ws_endpoint=ws_endpoint,
+            _session_id=session_id,
+            _api_key=self._api_key,
         )
 
     def stop_session(self, session_id: str) -> None:
         """Stop session by ID. Profile state is persisted on stop."""
-        self._client.sessions.stop(session_id)
+        resp = requests.put(
+            f"{_API_BASE}/api/session/{session_id}/stop",
+            headers={"x-api-key": self._api_key},
+            timeout=_TIMEOUT,
+        )
+        resp.raise_for_status()
 
 
 def _normalize_profile_id(profile_id: str) -> str:
@@ -125,5 +151,4 @@ def _normalize_profile_id(profile_id: str) -> str:
     try:
         return str(uuid.UUID(raw))
     except ValueError:
-        # Keep deterministic mapping so repeated runs reuse the same profile.
         return str(uuid.uuid5(uuid.NAMESPACE_URL, f"actionbook:{raw}"))

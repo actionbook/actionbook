@@ -1,10 +1,12 @@
 """Tests for browser provider abstraction."""
 
 import sys
+import uuid as _uuid
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, Mock
 
 import pytest
+import requests
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -21,8 +23,7 @@ from providers.steel import SteelProvider
 
 class TestGetProvider:
     def test_returns_hyperbrowser_provider(self):
-        with patch("providers.hyperbrowser.HyperbrowserProvider.__init__", return_value=None):
-            provider = get_provider("hyperbrowser", "test-key")
+        provider = get_provider("hyperbrowser", "test-key")
         assert isinstance(provider, HyperbrowserProvider)
 
     def test_raises_for_unknown_provider(self):
@@ -35,105 +36,111 @@ class TestGetProvider:
 
 
 # ---------------------------------------------------------------------------
-# HyperbrowserProvider
+# HyperbrowserProvider (HTTP API)
 # ---------------------------------------------------------------------------
 
 
 class TestHyperbrowserProvider:
-    def _make_provider(self, api_key: str = "hb-test-key") -> HyperbrowserProvider:
-        with patch("providers.hyperbrowser.Hyperbrowser") as MockHB:
-            MockHB.return_value = MagicMock()
-            provider = HyperbrowserProvider(api_key=api_key)
-        return provider
+    def test_init_stores_api_key(self):
+        provider = HyperbrowserProvider(api_key="test-key")
+        assert provider._api_key == "test-key"
 
-    def test_init_creates_client(self):
-        with patch("providers.hyperbrowser.Hyperbrowser") as MockHB:
-            HyperbrowserProvider(api_key="test-key")
-        MockHB.assert_called_once_with(api_key="test-key")
+    @patch("providers.hyperbrowser.requests.post")
+    def test_create_session_returns_session(self, mock_post):
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "id": "session-abc-123",
+            "wsEndpoint": "wss://example.com/session/abc",
+        }
+        mock_resp.raise_for_status = Mock()
+        mock_post.return_value = mock_resp
 
-    def test_create_session_returns_session(self):
-        with patch("providers.hyperbrowser.Hyperbrowser") as MockHB:
-            mock_client = MagicMock()
-            MockHB.return_value = mock_client
-
-            fake_session = MagicMock()
-            fake_session.ws_endpoint = "wss://example.com/session/abc"
-            fake_session.id = "session-abc-123"
-            mock_client.sessions.create.return_value = fake_session
-
-            with patch("providers.hyperbrowser.CreateSessionParams") as MockParams:
-                MockParams.return_value = MagicMock()
-                provider = HyperbrowserProvider(api_key="key")
-                session = provider.create_session()
+        provider = HyperbrowserProvider(api_key="key")
+        session = provider.create_session()
 
         assert session.ws_endpoint == "wss://example.com/session/abc"
         assert session.session_id == "session-abc-123"
 
-    def test_create_session_with_profile_id(self):
-        import uuid as _uuid
-
-        with patch("providers.hyperbrowser.Hyperbrowser") as MockHB:
-            mock_client = MagicMock()
-            MockHB.return_value = mock_client
-
-            fake_session = MagicMock()
-            fake_session.ws_endpoint = "wss://example.com/s/xyz"
-            fake_session.id = "session-xyz"
-            mock_client.sessions.create.return_value = fake_session
-
-            with patch("providers.hyperbrowser.CreateSessionParams") as MockParams:
-                captured_kwargs = {}
-
-                def capture(**kwargs):
-                    captured_kwargs.update(kwargs)
-                    return MagicMock()
-
-                MockParams.side_effect = capture
-                provider = HyperbrowserProvider(api_key="key")
-                provider.create_session(profile_id="user-42", use_proxy=True)
-
-        # profile_id is normalized to UUID5 for Hyperbrowser API compatibility
-        expected_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_URL, "actionbook:user-42"))
-        assert captured_kwargs.get("profile") == {
-            "id": expected_uuid,
-            "persist_changes": True,
+    @patch("providers.hyperbrowser.requests.post")
+    def test_create_session_with_profile_id(self, mock_post):
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "id": "session-xyz",
+            "wsEndpoint": "wss://example.com/s/xyz",
         }
-        assert captured_kwargs.get("use_proxy") is True
+        mock_resp.raise_for_status = Mock()
+        mock_post.return_value = mock_resp
 
-    def test_create_session_no_profile_when_profile_id_is_none(self):
-        with patch("providers.hyperbrowser.Hyperbrowser") as MockHB:
-            mock_client = MagicMock()
-            MockHB.return_value = mock_client
-            mock_client.sessions.create.return_value = MagicMock(
-                ws_endpoint="wss://x", id="s1"
-            )
+        provider = HyperbrowserProvider(api_key="key")
+        provider.create_session(profile_id="user-42", use_proxy=True)
 
-            with patch("providers.hyperbrowser.CreateSessionParams") as MockParams:
-                captured_kwargs = {}
+        _, kwargs = mock_post.call_args
+        body = kwargs["json"]
+        expected_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_URL, "actionbook:user-42"))
+        assert body["profile"] == {
+            "id": expected_uuid,
+            "persistChanges": True,
+        }
+        assert body["useProxy"] is True
 
-                def capture(**kwargs):
-                    captured_kwargs.update(kwargs)
-                    return MagicMock()
+    @patch("providers.hyperbrowser.requests.post")
+    def test_create_session_no_profile_when_profile_id_is_none(self, mock_post):
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "id": "s1",
+            "wsEndpoint": "wss://x",
+        }
+        mock_resp.raise_for_status = Mock()
+        mock_post.return_value = mock_resp
 
-                MockParams.side_effect = capture
-                provider = HyperbrowserProvider(api_key="key")
-                provider.create_session(profile_id=None)
+        provider = HyperbrowserProvider(api_key="key")
+        provider.create_session(profile_id=None)
 
-        assert "profile" not in captured_kwargs
+        _, kwargs = mock_post.call_args
+        body = kwargs["json"]
+        assert "profile" not in body
 
-    def test_stop_session_calls_client(self):
-        with patch("providers.hyperbrowser.Hyperbrowser") as MockHB:
-            mock_client = MagicMock()
-            MockHB.return_value = mock_client
-            provider = HyperbrowserProvider(api_key="key")
-            provider.stop_session("session-xyz")
+    @patch("providers.hyperbrowser.requests.put")
+    def test_stop_session_calls_api(self, mock_put):
+        mock_resp = Mock()
+        mock_resp.raise_for_status = Mock()
+        mock_put.return_value = mock_resp
 
-        mock_client.sessions.stop.assert_called_once_with("session-xyz")
+        provider = HyperbrowserProvider(api_key="key")
+        provider.stop_session("session-xyz")
 
-    def test_import_error_when_package_missing(self):
-        with patch("providers.hyperbrowser.Hyperbrowser", None):
-            with pytest.raises(ImportError, match="hyperbrowser package is not installed"):
-                HyperbrowserProvider(api_key="key")
+        mock_put.assert_called_once()
+        args, kwargs = mock_put.call_args
+        assert "session-xyz/stop" in args[0]
+        assert kwargs["headers"]["x-api-key"] == "key"
+
+    @patch("providers.hyperbrowser.requests.post")
+    def test_create_session_incomplete_data_raises(self, mock_post):
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"id": "s1"}  # missing wsEndpoint
+        mock_resp.raise_for_status = Mock()
+        mock_post.return_value = mock_resp
+
+        provider = HyperbrowserProvider(api_key="key")
+        with pytest.raises(RuntimeError, match="incomplete session data"):
+            provider.create_session()
+
+    @patch("providers.hyperbrowser.requests.post")
+    def test_create_session_http_error_raises(self, mock_post):
+        mock_resp = Mock()
+        mock_resp.ok = False
+        mock_resp.status_code = 403
+        mock_resp.text = "Forbidden"
+        mock_resp.url = "https://api.hyperbrowser.ai/api/session"
+        mock_post.return_value = mock_resp
+
+        provider = HyperbrowserProvider(api_key="key")
+        with pytest.raises(RuntimeError, match="HTTP 403"):
+            provider.create_session()
 
 
 # ---------------------------------------------------------------------------
@@ -143,11 +150,10 @@ class TestHyperbrowserProvider:
 
 class TestHyperbrowserSession:
     def _make_session(self) -> HyperbrowserSession:
-        mock_client = MagicMock()
         return HyperbrowserSession(
             _ws_endpoint="wss://example.com/session/abc",
             _session_id="session-abc",
-            _client=mock_client,
+            _api_key="test-key",
         )
 
     def test_ws_endpoint_property(self):
@@ -158,19 +164,30 @@ class TestHyperbrowserSession:
         s = self._make_session()
         assert s.session_id == "session-abc"
 
-    def test_stop_calls_client(self):
-        mock_client = MagicMock()
+    @patch("providers.hyperbrowser.requests.put")
+    def test_stop_calls_api(self, mock_put):
+        mock_resp = Mock()
+        mock_resp.raise_for_status = Mock()
+        mock_put.return_value = mock_resp
+
         s = HyperbrowserSession(
-            _ws_endpoint="wss://x", _session_id="s-1", _client=mock_client
+            _ws_endpoint="wss://x", _session_id="s-1", _api_key="key"
         )
         s.stop()
-        mock_client.sessions.stop.assert_called_once_with("s-1")
 
-    def test_stop_re_raises_on_client_error(self):
-        mock_client = MagicMock()
-        mock_client.sessions.stop.side_effect = Exception("network error")
-        s = HyperbrowserSession(_ws_endpoint="wss://x", _session_id="s-1", _client=mock_client)
-        # Should log AND re-raise so callers know the stop failed
+        mock_put.assert_called_once()
+        args, _ = mock_put.call_args
+        assert "s-1/stop" in args[0]
+
+    @patch("providers.hyperbrowser.requests.put")
+    def test_stop_re_raises_on_api_error(self, mock_put):
+        mock_resp = Mock()
+        mock_resp.raise_for_status.side_effect = Exception("network error")
+        mock_put.return_value = mock_resp
+
+        s = HyperbrowserSession(
+            _ws_endpoint="wss://x", _session_id="s-1", _api_key="key"
+        )
         with pytest.raises(Exception, match="network error"):
             s.stop()
 
