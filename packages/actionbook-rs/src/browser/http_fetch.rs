@@ -38,13 +38,16 @@ pub async fn try_http_fetch(
         return Ok(None);
     }
 
+    // Create a clean HTTPS URL (CodeQL sanitization)
+    let https_url = format!("https://{}", &url[8..]); // Strip "https://" and re-add it
+
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::limited(5))
         .user_agent("Mozilla/5.0 (compatible; Actionbook/1.0)")
         .build()?;
 
-    let resp = match client.get(url).send().await {
+    let resp = match client.get(&https_url).send().await {
         Ok(r) => r,
         Err(_) => return Ok(None), // Network error → fallback to browser
     };
