@@ -591,7 +591,6 @@ actionbook browser snapshot --filter interactive --max-tokens 300
 - Constructing URLs manually from search snippets instead of clicking links
 - Using only one search query angle (always use 4+ diverse queries)
 - Not checking for 404 pages before extracting content
-- Using bilingual `{ "en": "...", "zh": "..." }` objects in report JSON — use plain English strings
 
 ## json-ui Report Template
 
@@ -730,20 +729,17 @@ When analyzing academic papers, use a richer template with:
 | `MetricsGrid.value` as number | Render error | `value` must be a **string** (e.g., `"58.5"` not `58.5`) |
 | Missing `BrandHeader`/`BrandFooter` | Report looks broken | Always include both |
 | `Table` row values as object | `[object Object]` in cells | Row cell values must be **plain strings** |
-| Using bilingual `{en, zh}` objects | Unnecessary complexity | Use **plain English strings** by default |
 | Very long Prose content | Truncated render | Split into multiple Prose blocks or use subsections |
 
-### Text Fields — English Only
+### Text Fields
 
-**Default to plain English strings for all text fields.** Do NOT use bilingual `{ "en": "...", "zh": "..." }` objects unless the user explicitly requests multi-language output.
+All text fields should use **plain English strings**.
 
 ```json
 { "title": "Key Findings" }
 ```
 
-**Exceptions (always plain strings regardless):**
-- `MetricsGrid` props `value` and `suffix` must always be plain strings.
-- `Table` row cell values must be plain strings.
+**Note:** `MetricsGrid` props `value` and `suffix`, and `Table` row cell values must always be plain strings.
 
 ## Academic Paper Support
 
