@@ -1209,7 +1209,11 @@ mod extension_command {
 
     #[test]
     fn extension_stop_when_not_running() {
+        let (_tmp, home, config_home, data_home) = create_isolated_env();
         actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
             .args(["extension", "stop"])
             .timeout(std::time::Duration::from_secs(10))
             .assert()
@@ -1245,19 +1249,17 @@ mod setup_command {
             .timeout(std::time::Duration::from_secs(120))
             .output()
             .unwrap();
-        // On Unix, code() returns None when killed by signal (e.g. timeout).
-        // We accept 0, 1, or signal-killed (None → treat as acceptable).
-        if let Some(code) = output.status.code() {
-            assert!(
-                code == 0 || code == 1,
-                "Unexpected exit code: {}.\nstdout: {}\nstderr: {}",
-                code,
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr),
-            );
-        }
-        // If code is None (signal), that's acceptable — the process was killed
-        // by the test timeout, which is expected behavior for long-running setup.
+        let code = output.status.code().expect(
+            "setup command was killed by signal (likely timed out); \
+             it should exit within 120s instead of hanging",
+        );
+        assert!(
+            code == 0 || code == 1,
+            "Unexpected exit code: {}.\nstdout: {}\nstderr: {}",
+            code,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
     }
 
     #[test]

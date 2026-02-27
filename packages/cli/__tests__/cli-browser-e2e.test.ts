@@ -722,13 +722,17 @@ describe.skipIf(!hasBinary || !runBrowserTests)(
     });
 
     // ── 2P. browser cookies parameter variants E2E (3 tests) ────
+    // NOTE: --domain and --dry-run flags on cookies clear/set are only supported
+    // in extension mode (--extension). In headless mode these commands will fail
+    // with a non-zero exit code. The tests accept graceful failure (exit != 2)
+    // so they pass in headless mode but only exercise real logic in extension mode.
 
-    describe("browser cookies parameter variants", () => {
+    describe("browser cookies parameter variants (extension-mode-only)", () => {
       beforeAll(async () => {
         await headless(["browser", "goto", "https://example.com"]);
       });
 
-      it("sets a cookie with --domain", async () => {
+      it("sets a cookie with --domain (requires extension mode)", async () => {
         const result = await headless([
           "browser",
           "cookies",
@@ -738,9 +742,8 @@ describe.skipIf(!hasBinary || !runBrowserTests)(
           "--domain",
           "example.com",
         ]);
-        // --domain may require extension mode; accept graceful failure
+        // --domain requires extension mode; accept graceful failure in headless
         if (result.exitCode === 0) {
-          // Verify cookie was set
           const after = await headless([
             "browser",
             "cookies",
@@ -749,13 +752,12 @@ describe.skipIf(!hasBinary || !runBrowserTests)(
           ]);
           expect(after.stdout).toContain("domain_value");
         } else {
-          // Not a CLI parse error
+          // Not a CLI parse error — expected failure in headless mode
           expect(result.exitCode).not.toBe(2);
         }
       });
 
-      it("clears cookies with --dry-run", async () => {
-        // Set a cookie so there's something to preview
+      it("clears cookies with --dry-run (requires extension mode)", async () => {
         await headless([
           "browser",
           "cookies",
@@ -769,9 +771,8 @@ describe.skipIf(!hasBinary || !runBrowserTests)(
           "clear",
           "--dry-run",
         ]);
-        // --dry-run may not be supported on older builds
+        // --dry-run requires extension mode; in headless this will fail
         if (result.exitCode === 0) {
-          // Verify --dry-run did NOT actually delete cookies
           const after = await headless([
             "browser",
             "cookies",
@@ -780,12 +781,11 @@ describe.skipIf(!hasBinary || !runBrowserTests)(
           ]);
           expect(after.stdout).toContain("should_remain");
         } else {
-          // Older binary: just verify the flag is accepted at CLI parse level (exit 2 = parse error)
           expect(result.exitCode).not.toBe(2);
         }
       });
 
-      it("clears cookies with --domain", async () => {
+      it("clears cookies with --domain (requires extension mode)", async () => {
         await headless([
           "browser",
           "cookies",
@@ -803,7 +803,7 @@ describe.skipIf(!hasBinary || !runBrowserTests)(
           "example.com",
           "--yes",
         ]);
-        // --domain on clear may not be supported on older builds
+        // --domain on clear requires extension mode
         if (result.exitCode === 0) {
           const after = await headless([
             "browser",
