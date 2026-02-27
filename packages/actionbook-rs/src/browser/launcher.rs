@@ -78,6 +78,68 @@ fn find_free_port() -> Option<u16> {
         .map(|addr| addr.port())
 }
 
+/// Strip deprecated Chrome flags that trigger the "unsupported command-line flag" warning.
+///
+/// - `--disable-blink-features=AutomationControlled`: remove only the `AutomationControlled`
+///   token; preserve other comma-separated tokens. Drop the arg entirely when no tokens remain.
+/// - `--disable-infobars` (with or without `=<value>`): drop entirely.
+fn sanitize_deprecated_flags(args: &mut Vec<String>) {
+    const BLINK_PREFIX: &str = "--disable-blink-features=";
+    const BLINK_FLAG: &str = "--disable-blink-features";
+
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+
+        // Handle --disable-infobars and --disable-infobars=<value>
+        if arg == "--disable-infobars" || arg.starts_with("--disable-infobars=") {
+            args.remove(i);
+            continue;
+        }
+
+        // Handle --disable-blink-features=... (equals form)
+        if let Some(value) = arg.strip_prefix(BLINK_PREFIX) {
+            let filtered: Vec<String> = value
+                .split(',')
+                .map(|t| t.trim())
+                .filter(|token| *token != "AutomationControlled")
+                .map(|t| t.to_string())
+                .collect();
+            if filtered.is_empty() {
+                args.remove(i);
+                continue;
+            }
+            args[i] = format!("{}{}", BLINK_PREFIX, filtered.join(","));
+            i += 1;
+            continue;
+        }
+
+        // Handle --disable-blink-features <value> (split form: flag and value as separate args)
+        if arg == BLINK_FLAG {
+            if i + 1 >= args.len() || args[i + 1].starts_with('-') {
+                // No following value or next arg is another flag — remove dangling flag
+                args.remove(i);
+                continue;
+            }
+            let filtered: Vec<String> = args[i + 1]
+                .split(',')
+                .map(|t| t.trim())
+                .filter(|token| *token != "AutomationControlled")
+                .map(|t| t.to_string())
+                .collect();
+            if filtered.is_empty() {
+                // Remove both flag and value
+                args.remove(i);
+                args.remove(i);
+                continue;
+            }
+            args[i + 1] = filtered.join(",");
+        }
+
+        i += 1;
+    }
+}
+
 /// Browser launcher that starts a browser with CDP enabled
 pub struct BrowserLauncher {
     browser_info: BrowserInfo,
@@ -229,6 +291,9 @@ impl BrowserLauncher {
 
         // Add extra args
         args.extend(self.extra_args.clone());
+
+        // Strip deprecated flags that trigger Chrome's "unsupported command-line flag" warning
+        sanitize_deprecated_flags(&mut args);
 
         args
     }
@@ -652,5 +717,138 @@ mod tests {
             !args.contains(&"--disable-infobars".to_string()),
             "disable-infobars should NOT be set (deprecated in Chrome 76+)"
         );
+    }
+
+    #[test]
+    fn build_args_strips_deprecated_flags_from_extra_args() {
+        let dir = PathBuf::from("/tmp/test-profile");
+        let mut launcher = test_launcher_with_user_data_dir(dir);
+        launcher.extra_args = vec![
+            "--disable-blink-features=AutomationControlled".to_string(),
+            "--disable-infobars".to_string(),
+            "--lang=en-US".to_string(),
+        ];
+        let args = launcher.build_args();
+
+        assert!(
+            !args.iter().any(|a| a.contains("AutomationControlled")),
+            "AutomationControlled injected via extra_args must be stripped"
+        );
+        assert!(
+            !args.contains(&"--disable-infobars".to_string()),
+            "disable-infobars injected via extra_args must be stripped"
+        );
+        assert!(
+            args.contains(&"--lang=en-US".to_string()),
+            "non-deprecated extra args must be preserved"
+        );
+    }
+
+    #[test]
+    fn sanitize_mixed_blink_features_preserves_other_tokens() {
+        let mut args = vec![
+            "--disable-blink-features=TranslateUI,AutomationControlled,Foo".to_string(),
+        ];
+        sanitize_deprecated_flags(&mut args);
+        assert_eq!(args, vec!["--disable-blink-features=TranslateUI,Foo"]);
+    }
+
+    #[test]
+    fn sanitize_single_token_blink_feature_removes_arg() {
+        let mut args = vec![
+            "--disable-blink-features=AutomationControlled".to_string(),
+            "--lang=en-US".to_string(),
+        ];
+        sanitize_deprecated_flags(&mut args);
+        assert_eq!(args, vec!["--lang=en-US"]);
+    }
+
+    #[test]
+    fn sanitize_unrelated_arg_with_substring_remains() {
+        let mut args = vec![
+            "--my-flag=AutomationControlled".to_string(),
+            "--some-AutomationControlled-thing".to_string(),
+        ];
+        sanitize_deprecated_flags(&mut args);
+        assert_eq!(
+            args,
+            vec![
+                "--my-flag=AutomationControlled",
+                "--some-AutomationControlled-thing",
+            ]
+        );
+    }
+
+    #[test]
+    fn sanitize_disable_infobars_variants_removed() {
+        let mut args = vec![
+            "--disable-infobars".to_string(),
+            "--disable-infobars=true".to_string(),
+            "--keep-me".to_string(),
+        ];
+        sanitize_deprecated_flags(&mut args);
+        assert_eq!(args, vec!["--keep-me"]);
+    }
+
+    #[test]
+    fn sanitize_split_form_blink_keeps_other_tokens() {
+        let mut args = vec![
+            "--disable-blink-features".to_string(),
+            "TranslateUI,AutomationControlled,Foo".to_string(),
+            "--lang=en-US".to_string(),
+        ];
+        sanitize_deprecated_flags(&mut args);
+        assert_eq!(
+            args,
+            vec![
+                "--disable-blink-features",
+                "TranslateUI,Foo",
+                "--lang=en-US",
+            ]
+        );
+    }
+
+    #[test]
+    fn sanitize_split_form_blink_only_target_removes_both() {
+        let mut args = vec![
+            "--keep-me".to_string(),
+            "--disable-blink-features".to_string(),
+            "AutomationControlled".to_string(),
+            "--lang=en-US".to_string(),
+        ];
+        sanitize_deprecated_flags(&mut args);
+        assert_eq!(args, vec!["--keep-me", "--lang=en-US"]);
+    }
+
+    #[test]
+    fn sanitize_spaced_tokens_removes_target() {
+        let mut args = vec![
+            "--disable-blink-features=TranslateUI, AutomationControlled, Foo".to_string(),
+        ];
+        sanitize_deprecated_flags(&mut args);
+        assert_eq!(args, vec!["--disable-blink-features=TranslateUI,Foo"]);
+    }
+
+    #[test]
+    fn sanitize_split_blink_followed_by_another_flag_removes_dangling() {
+        let mut args = vec![
+            "--keep-me".to_string(),
+            "--disable-blink-features".to_string(),
+            "--disable-infobars".to_string(),
+            "--lang=en-US".to_string(),
+        ];
+        sanitize_deprecated_flags(&mut args);
+        assert_eq!(args, vec!["--keep-me", "--lang=en-US"]);
+    }
+
+    #[test]
+    fn sanitize_split_blink_followed_by_unrelated_flag_keeps_flag() {
+        let mut args = vec![
+            "--keep-me".to_string(),
+            "--disable-blink-features".to_string(),
+            "--lang=en-US".to_string(),
+        ];
+        sanitize_deprecated_flags(&mut args);
+        assert_eq!(args, vec!["--keep-me", "--lang=en-US"]);
     }
 }
