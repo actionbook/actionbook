@@ -85,6 +85,7 @@ fn find_free_port() -> Option<u16> {
 /// - `--disable-infobars` (with or without `=<value>`): drop entirely.
 fn sanitize_deprecated_flags(args: &mut Vec<String>) {
     const BLINK_PREFIX: &str = "--disable-blink-features=";
+    const BLINK_FLAG: &str = "--disable-blink-features";
 
     let mut i = 0;
     while i < args.len() {
@@ -96,17 +97,44 @@ fn sanitize_deprecated_flags(args: &mut Vec<String>) {
             continue;
         }
 
-        // Handle --disable-blink-features=...
+        // Handle --disable-blink-features=... (equals form)
         if let Some(value) = arg.strip_prefix(BLINK_PREFIX) {
-            let filtered: Vec<&str> = value
+            let filtered: Vec<String> = value
                 .split(',')
+                .map(|t| t.trim())
                 .filter(|token| *token != "AutomationControlled")
+                .map(|t| t.to_string())
                 .collect();
             if filtered.is_empty() {
                 args.remove(i);
                 continue;
             }
             args[i] = format!("{}{}", BLINK_PREFIX, filtered.join(","));
+            i += 1;
+            continue;
+        }
+
+        // Handle --disable-blink-features <value> (split form: flag and value as separate args)
+        if arg == BLINK_FLAG {
+            if i + 1 < args.len() {
+                let filtered: Vec<String> = args[i + 1]
+                    .split(',')
+                    .map(|t| t.trim())
+                    .filter(|token| *token != "AutomationControlled")
+                    .map(|t| t.to_string())
+                    .collect();
+                if filtered.is_empty() {
+                    // Remove both flag and value
+                    args.remove(i);
+                    args.remove(i);
+                    continue;
+                }
+                args[i + 1] = filtered.join(",");
+            } else {
+                // Flag with no following value — remove the dangling flag
+                args.remove(i);
+                continue;
+            }
         }
 
         i += 1;
@@ -761,5 +789,44 @@ mod tests {
         ];
         sanitize_deprecated_flags(&mut args);
         assert_eq!(args, vec!["--keep-me"]);
+    }
+
+    #[test]
+    fn sanitize_split_form_blink_keeps_other_tokens() {
+        let mut args = vec![
+            "--disable-blink-features".to_string(),
+            "TranslateUI,AutomationControlled,Foo".to_string(),
+            "--lang=en-US".to_string(),
+        ];
+        sanitize_deprecated_flags(&mut args);
+        assert_eq!(
+            args,
+            vec![
+                "--disable-blink-features",
+                "TranslateUI,Foo",
+                "--lang=en-US",
+            ]
+        );
+    }
+
+    #[test]
+    fn sanitize_split_form_blink_only_target_removes_both() {
+        let mut args = vec![
+            "--keep-me".to_string(),
+            "--disable-blink-features".to_string(),
+            "AutomationControlled".to_string(),
+            "--lang=en-US".to_string(),
+        ];
+        sanitize_deprecated_flags(&mut args);
+        assert_eq!(args, vec!["--keep-me", "--lang=en-US"]);
+    }
+
+    #[test]
+    fn sanitize_spaced_tokens_removes_target() {
+        let mut args = vec![
+            "--disable-blink-features=TranslateUI, AutomationControlled, Foo".to_string(),
+        ];
+        sanitize_deprecated_flags(&mut args);
+        assert_eq!(args, vec!["--disable-blink-features=TranslateUI,Foo"]);
     }
 }
