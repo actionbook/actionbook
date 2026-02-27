@@ -42,12 +42,14 @@ pub async fn run(
     } else {
         println!("{}", result);
 
-        // Print next step hint
-        println!(
-            "\n{} {}",
-            "Next step:".cyan(),
-            "actionbook get \"<area_id>\"".white()
-        );
+        // Print next step hint only when there are results
+        if !result.contains("Total: 0") {
+            println!(
+                "\n{} {}",
+                "Next step:".cyan(),
+                "actionbook get \"<area_id>\"".white()
+            );
+        }
     }
 
     Ok(())
