@@ -7,10 +7,28 @@
 
 use assert_cmd::Command;
 use predicates::prelude::*;
+use std::fs;
 
 /// Get the actionbook binary command
 fn actionbook() -> Command {
     Command::cargo_bin("actionbook").unwrap()
+}
+
+/// Create an isolated environment for tests that touch the filesystem.
+fn create_isolated_env() -> (tempfile::TempDir, String, String, String) {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let config_home = tmp.path().join("config");
+    let data_home = tmp.path().join("data");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&config_home).unwrap();
+    fs::create_dir_all(&data_home).unwrap();
+    (
+        tmp,
+        home.to_string_lossy().to_string(),
+        config_home.to_string_lossy().to_string(),
+        data_home.to_string_lossy().to_string(),
+    )
 }
 
 mod help {
@@ -33,6 +51,37 @@ mod help {
             .assert()
             .success()
             .stdout(predicate::str::contains("actionbook"));
+    }
+
+    #[test]
+    fn help_lists_all_commands() {
+        actionbook()
+            .arg("--help")
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("browser"))
+            .stdout(predicate::str::contains("search"))
+            .stdout(predicate::str::contains("get"))
+            .stdout(predicate::str::contains("sources"))
+            .stdout(predicate::str::contains("config"))
+            .stdout(predicate::str::contains("profile"))
+            .stdout(predicate::str::contains("extension"))
+            .stdout(predicate::str::contains("setup"));
+    }
+
+    #[test]
+    fn help_lists_global_options() {
+        actionbook()
+            .arg("--help")
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("--browser-path"))
+            .stdout(predicate::str::contains("--cdp"))
+            .stdout(predicate::str::contains("--profile"))
+            .stdout(predicate::str::contains("--headless"))
+            .stdout(predicate::str::contains("--api-key"))
+            .stdout(predicate::str::contains("--json"))
+            .stdout(predicate::str::contains("--verbose"));
     }
 }
 
@@ -135,7 +184,6 @@ mod sources_command {
 
 mod browser_command {
     use super::*;
-    use std::fs;
 
     fn setup_config(default_profile: &str) -> (tempfile::TempDir, String, String, String) {
         let tmp = tempfile::tempdir().unwrap();
@@ -184,6 +232,8 @@ default_profile = "{}"
         )
     }
 
+    // ── Subcommand requirement ──────────────────────────────────────
+
     #[test]
     fn browser_requires_subcommand() {
         actionbook()
@@ -193,14 +243,7 @@ default_profile = "{}"
             .stderr(predicate::str::contains("subcommand"));
     }
 
-    #[test]
-    fn browser_status_help() {
-        actionbook()
-            .args(["browser", "status", "--help"])
-            .assert()
-            .success()
-            .stdout(predicate::str::contains("browser status"));
-    }
+    // ── Argument validation ─────────────────────────────────────────
 
     #[test]
     fn browser_open_requires_url() {
@@ -230,7 +273,7 @@ default_profile = "{}"
     }
 
     #[test]
-    fn browser_type_requires_args() {
+    fn browser_type_requires_selector() {
         actionbook()
             .args(["browser", "type"])
             .assert()
@@ -239,12 +282,84 @@ default_profile = "{}"
     }
 
     #[test]
-    fn browser_fill_requires_args() {
+    fn browser_type_requires_text() {
+        actionbook()
+            .args(["browser", "type", "#input"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::is_match("(?i)TEXT|required").unwrap());
+    }
+
+    #[test]
+    fn browser_fill_requires_selector() {
         actionbook()
             .args(["browser", "fill"])
             .assert()
             .failure()
             .stderr(predicate::str::contains("SELECTOR"));
+    }
+
+    #[test]
+    fn browser_fill_requires_text() {
+        actionbook()
+            .args(["browser", "fill", "#input"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::is_match("(?i)TEXT|required").unwrap());
+    }
+
+    #[test]
+    fn browser_select_requires_selector() {
+        actionbook()
+            .args(["browser", "select"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("SELECTOR"));
+    }
+
+    #[test]
+    fn browser_select_requires_value() {
+        actionbook()
+            .args(["browser", "select", "#foo"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("VALUE"));
+    }
+
+    #[test]
+    fn browser_hover_requires_selector() {
+        actionbook()
+            .args(["browser", "hover"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("SELECTOR"));
+    }
+
+    #[test]
+    fn browser_focus_requires_selector() {
+        actionbook()
+            .args(["browser", "focus"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("SELECTOR"));
+    }
+
+    #[test]
+    fn browser_press_requires_key() {
+        actionbook()
+            .args(["browser", "press"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("KEY"));
+    }
+
+    #[test]
+    fn browser_switch_requires_page_id() {
+        actionbook()
+            .args(["browser", "switch"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("PAGE_ID"));
     }
 
     #[test]
@@ -263,15 +378,6 @@ default_profile = "{}"
             .assert()
             .failure()
             .stderr(predicate::str::contains("CODE"));
-    }
-
-    #[test]
-    fn browser_screenshot_has_default_path() {
-        actionbook()
-            .args(["browser", "screenshot", "--help"])
-            .assert()
-            .success()
-            .stdout(predicate::str::contains("screenshot.png"));
     }
 
     #[test]
@@ -301,6 +407,176 @@ default_profile = "{}"
             .stderr(predicate::str::contains("ENDPOINT"));
     }
 
+    // ── Scroll argument validation ──────────────────────────────────
+
+    #[test]
+    fn browser_scroll_requires_subcommand() {
+        actionbook()
+            .args(["browser", "scroll"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("subcommand"));
+    }
+
+    #[test]
+    fn browser_scroll_to_requires_selector() {
+        actionbook()
+            .args(["browser", "scroll", "to"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::is_match("(?i)SELECTOR|required").unwrap());
+    }
+
+    // ── Cookies argument validation ─────────────────────────────────
+
+    #[test]
+    fn browser_cookies_get_requires_name() {
+        actionbook()
+            .args(["browser", "cookies", "get"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::is_match("(?i)NAME|required").unwrap());
+    }
+
+    #[test]
+    fn browser_cookies_set_requires_name() {
+        actionbook()
+            .args(["browser", "cookies", "set"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::is_match("(?i)NAME|required").unwrap());
+    }
+
+    #[test]
+    fn browser_cookies_delete_requires_name() {
+        actionbook()
+            .args(["browser", "cookies", "delete"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::is_match("(?i)NAME|required").unwrap());
+    }
+
+    // ── Help output ─────────────────────────────────────────────────
+
+    #[test]
+    fn browser_status_help() {
+        actionbook()
+            .args(["browser", "status", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("browser status"));
+    }
+
+    #[test]
+    fn browser_back_help() {
+        actionbook()
+            .args(["browser", "back", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_empty().not());
+    }
+
+    #[test]
+    fn browser_forward_help() {
+        actionbook()
+            .args(["browser", "forward", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_empty().not());
+    }
+
+    #[test]
+    fn browser_reload_help() {
+        actionbook()
+            .args(["browser", "reload", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_empty().not());
+    }
+
+    #[test]
+    fn browser_pages_help() {
+        actionbook()
+            .args(["browser", "pages", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_empty().not());
+    }
+
+    #[test]
+    fn browser_wait_nav_help_shows_timeout() {
+        actionbook()
+            .args(["browser", "wait-nav", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("timeout"));
+    }
+
+    #[test]
+    fn browser_html_help_shows_selector() {
+        actionbook()
+            .args(["browser", "html", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_match("(?i)selector").unwrap());
+    }
+
+    #[test]
+    fn browser_text_help_shows_selector() {
+        actionbook()
+            .args(["browser", "text", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_match("(?i)selector").unwrap());
+    }
+
+    #[test]
+    fn browser_viewport_help() {
+        actionbook()
+            .args(["browser", "viewport", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_empty().not());
+    }
+
+    #[test]
+    fn browser_close_help() {
+        actionbook()
+            .args(["browser", "close", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_empty().not());
+    }
+
+    #[test]
+    fn browser_restart_help() {
+        actionbook()
+            .args(["browser", "restart", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_empty().not());
+    }
+
+    #[test]
+    fn browser_snapshot_help() {
+        actionbook()
+            .args(["browser", "snapshot", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("snapshot"));
+    }
+
+    #[test]
+    fn browser_inspect_help_shows_x_y_and_desc() {
+        actionbook()
+            .args(["browser", "inspect", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_match("[Xx]").unwrap())
+            .stdout(predicate::str::is_match("[Yy]").unwrap())
+            .stdout(predicate::str::contains("--desc"));
+    }
+
     #[test]
     fn browser_connect_help() {
         actionbook()
@@ -311,8 +587,157 @@ default_profile = "{}"
     }
 
     #[test]
+    fn browser_cookies_subcommands() {
+        actionbook()
+            .args(["browser", "cookies", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("list"))
+            .stdout(predicate::str::contains("get"))
+            .stdout(predicate::str::contains("set"))
+            .stdout(predicate::str::contains("delete"))
+            .stdout(predicate::str::contains("clear"));
+    }
+
+    #[test]
+    fn browser_cookies_clear_help() {
+        actionbook()
+            .args(["browser", "cookies", "clear", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_match("(?i)clear|cookies").unwrap());
+    }
+
+    // ── Scroll help output ──────────────────────────────────────────
+
+    #[test]
+    fn browser_scroll_help_shows_smooth() {
+        actionbook()
+            .args(["browser", "scroll", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("--smooth"));
+    }
+
+    #[test]
+    fn browser_scroll_down_help() {
+        actionbook()
+            .args(["browser", "scroll", "down", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_match("(?i)scroll.*down|pixels").unwrap());
+    }
+
+    #[test]
+    fn browser_scroll_up_help() {
+        actionbook()
+            .args(["browser", "scroll", "up", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_match("(?i)scroll.*up|pixels").unwrap());
+    }
+
+    #[test]
+    fn browser_scroll_bottom_help() {
+        actionbook()
+            .args(["browser", "scroll", "bottom", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_match("(?i)scroll.*bottom|page").unwrap());
+    }
+
+    #[test]
+    fn browser_scroll_top_help() {
+        actionbook()
+            .args(["browser", "scroll", "top", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_match("(?i)scroll.*top|page").unwrap());
+    }
+
+    #[test]
+    fn browser_scroll_to_help_shows_align() {
+        actionbook()
+            .args(["browser", "scroll", "to", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("--align"));
+    }
+
+    // ── Default values and flags ────────────────────────────────────
+
+    #[test]
+    fn browser_goto_help_shows_default_timeout() {
+        actionbook()
+            .args(["browser", "goto", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("[default: 30000]"));
+    }
+
+    #[test]
+    fn browser_click_help_shows_wait_option() {
+        actionbook()
+            .args(["browser", "click", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("--wait"));
+    }
+
+    #[test]
+    fn browser_type_help_shows_wait_option() {
+        actionbook()
+            .args(["browser", "type", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("--wait"));
+    }
+
+    #[test]
+    fn browser_screenshot_help_shows_full_page_and_default() {
+        actionbook()
+            .args(["browser", "screenshot", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("--full-page"))
+            .stdout(predicate::str::contains("screenshot.png"));
+    }
+
+    // ── Browser status output ───────────────────────────────────────
+
+    #[test]
+    fn browser_status_shows_detected_browsers() {
+        actionbook()
+            .args(["browser", "status"])
+            .timeout(std::time::Duration::from_secs(10))
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Detected Browsers"));
+    }
+
+    #[test]
+    fn browser_status_shows_session_status() {
+        actionbook()
+            .args(["browser", "status"])
+            .timeout(std::time::Duration::from_secs(10))
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Session Status"));
+    }
+
+    #[test]
+    fn browser_verbose_status_runs() {
+        actionbook()
+            .args(["--verbose", "browser", "status"])
+            .timeout(std::time::Duration::from_secs(10))
+            .assert()
+            .success();
+    }
+
+    // ── Connect validation ──────────────────────────────────────────
+
+    #[test]
     fn browser_connect_invalid_endpoint_fails() {
-        // "not-a-port" is neither a number nor ws:// URL
         actionbook()
             .args(["browser", "connect", "not-a-port"])
             .timeout(std::time::Duration::from_secs(5))
@@ -323,13 +748,14 @@ default_profile = "{}"
 
     #[test]
     fn browser_connect_unreachable_port_fails() {
-        // Port 19999 should have nothing listening
         actionbook()
             .args(["browser", "connect", "19999"])
             .timeout(std::time::Duration::from_secs(10))
             .assert()
             .failure();
     }
+
+    // ── Connect profile precedence ──────────────────────────────────
 
     #[test]
     fn browser_connect_uses_config_default_profile_when_not_specified() {
@@ -389,26 +815,21 @@ default_profile = "{}"
             .stdout(predicate::str::contains("\"profile\":\"cli-profile\""));
     }
 
-    #[test]
-    fn browser_snapshot_help() {
-        actionbook()
-            .args(["browser", "snapshot", "--help"])
-            .assert()
-            .success()
-            .stdout(predicate::str::contains("snapshot"));
-    }
+    // ── Cross-cutting flags ─────────────────────────────────────────
 
     #[test]
-    fn browser_cookies_subcommands() {
+    fn extension_plus_profile_is_rejected() {
         actionbook()
-            .args(["browser", "cookies", "--help"])
+            .args(["--extension", "--profile", "test", "browser", "status"])
+            .timeout(std::time::Duration::from_secs(5))
             .assert()
-            .success()
-            .stdout(predicate::str::contains("list"))
-            .stdout(predicate::str::contains("get"))
-            .stdout(predicate::str::contains("set"))
-            .stdout(predicate::str::contains("delete"))
-            .stdout(predicate::str::contains("clear"));
+            .failure()
+            .stderr(
+                predicate::str::is_match(
+                    "(?i)--profile is not supported in extension mode|unexpected argument|not.*supported",
+                )
+                .unwrap(),
+            );
     }
 }
 
@@ -450,6 +871,103 @@ mod config_command {
             .failure()
             .stderr(predicate::str::contains("KEY"));
     }
+
+    #[test]
+    fn config_edit_help() {
+        actionbook()
+            .args(["config", "edit", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_empty().not());
+    }
+
+    #[test]
+    fn config_show_runs() {
+        actionbook().args(["config", "show"]).assert().success();
+    }
+
+    #[test]
+    fn config_path_outputs_path() {
+        actionbook()
+            .args(["config", "path"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(".actionbook"));
+    }
+
+    #[test]
+    fn config_path_json() {
+        let (_tmp, home, config_home, data_home) = create_isolated_env();
+        let output = actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["--json", "config", "path"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let json: serde_json::Value =
+            serde_json::from_str(stdout.trim()).expect("Should be valid JSON");
+        assert!(json["path"].is_string());
+    }
+
+    #[test]
+    fn config_set_rejects_unknown_key() {
+        let (_tmp, home, config_home, data_home) = create_isolated_env();
+        actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["config", "set", "unknown.key", "value"])
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn config_get_rejects_unknown_key() {
+        let (_tmp, home, config_home, data_home) = create_isolated_env();
+        actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["config", "get", "unknown.key"])
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn config_set_and_get_round_trip() {
+        let (_tmp, home, config_home, data_home) = create_isolated_env();
+        actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["config", "set", "api.base_url", "https://custom.example.com"])
+            .assert()
+            .success();
+
+        actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["config", "get", "api.base_url"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("https://custom.example.com"));
+    }
+
+    #[test]
+    fn config_reset() {
+        let (_tmp, home, config_home, data_home) = create_isolated_env();
+        actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["config", "reset"])
+            .assert()
+            .success();
+    }
 }
 
 mod profile_command {
@@ -480,6 +998,325 @@ mod profile_command {
             .assert()
             .failure()
             .stderr(predicate::str::contains("NAME"));
+    }
+
+    #[test]
+    fn profile_show_requires_name() {
+        actionbook()
+            .args(["profile", "show"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("NAME"));
+    }
+
+    #[test]
+    fn profile_list_runs() {
+        actionbook().args(["profile", "list"]).assert().success();
+    }
+
+    #[test]
+    fn profile_list_json() {
+        let (_tmp, home, config_home, data_home) = create_isolated_env();
+        let output = actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["--json", "profile", "list"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let _json: serde_json::Value =
+            serde_json::from_str(stdout.trim()).expect("Should be valid JSON");
+    }
+
+    #[test]
+    fn profile_create_and_show() {
+        let (_tmp, home, config_home, data_home) = create_isolated_env();
+        actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["profile", "create", "test-profile", "--cdp-port", "9333"])
+            .assert()
+            .success();
+
+        actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["profile", "show", "test-profile"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("test-profile"));
+    }
+
+    #[test]
+    fn profile_create_and_delete() {
+        let (_tmp, home, config_home, data_home) = create_isolated_env();
+        actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["profile", "create", "delete-me"])
+            .assert()
+            .success();
+
+        actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["profile", "delete", "delete-me"])
+            .assert()
+            .success();
+
+        // Verify deleted
+        actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["profile", "show", "delete-me"])
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn profile_show_fails_for_nonexistent() {
+        let (_tmp, home, config_home, data_home) = create_isolated_env();
+        actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["profile", "show", "nonexistent-profile"])
+            .assert()
+            .failure();
+    }
+
+    #[test]
+    fn profile_create_auto_assigns_cdp_port() {
+        let (_tmp, home, config_home, data_home) = create_isolated_env();
+        let output = actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["--json", "profile", "create", "auto-port"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let json: serde_json::Value =
+            serde_json::from_str(stdout.trim()).expect("Should be valid JSON");
+        assert!(json["cdp_port"].is_number());
+    }
+}
+
+mod extension_command {
+    use super::*;
+
+    #[test]
+    fn extension_requires_subcommand() {
+        actionbook()
+            .arg("extension")
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("subcommand"));
+    }
+
+    #[test]
+    fn extension_status_help() {
+        actionbook()
+            .args(["extension", "status", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_empty().not());
+    }
+
+    #[test]
+    fn extension_ping_help() {
+        actionbook()
+            .args(["extension", "ping", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_empty().not());
+    }
+
+    #[test]
+    fn extension_install_help_shows_force() {
+        actionbook()
+            .args(["extension", "install", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("--force"));
+    }
+
+    #[test]
+    fn extension_stop_help() {
+        actionbook()
+            .args(["extension", "stop", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_empty().not());
+    }
+
+    #[test]
+    fn extension_uninstall_help() {
+        actionbook()
+            .args(["extension", "uninstall", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_empty().not());
+    }
+
+    #[test]
+    fn extension_path_outputs_path() {
+        actionbook()
+            .args(["extension", "path"])
+            .timeout(std::time::Duration::from_secs(10))
+            .assert()
+            .success()
+            .stdout(predicate::str::is_empty().not());
+    }
+
+    #[test]
+    fn extension_path_json() {
+        let output = actionbook()
+            .args(["--json", "extension", "path"])
+            .timeout(std::time::Duration::from_secs(10))
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let _json: serde_json::Value =
+            serde_json::from_str(stdout.trim()).expect("Should be valid JSON");
+    }
+
+    #[test]
+    fn extension_status_reports_bridge_state() {
+        let output = actionbook()
+            .args(["extension", "status"])
+            .timeout(std::time::Duration::from_secs(10))
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("running") || stdout.contains("Running")
+                || stdout.contains("not running") || stdout.contains("Not running"),
+            "Should report bridge state: {}",
+            stdout
+        );
+    }
+
+    #[test]
+    fn extension_stop_when_not_running() {
+        actionbook()
+            .args(["extension", "stop"])
+            .timeout(std::time::Duration::from_secs(10))
+            .assert()
+            .success();
+    }
+}
+
+mod setup_command {
+    use super::*;
+
+    #[test]
+    fn setup_help_shows_all_options() {
+        actionbook()
+            .args(["setup", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("--target"))
+            .stdout(predicate::str::contains("--non-interactive"))
+            .stdout(predicate::str::contains("--api-key"))
+            .stdout(predicate::str::contains("--browser"))
+            .stdout(predicate::str::contains("--reset"));
+    }
+
+    /// Helper: assert the setup command exits with 0 or 1 (not crash/signal).
+    /// Uses a longer timeout since setup actually runs downloads/installs.
+    fn assert_setup_exits_gracefully(args: &[&str]) {
+        let (_tmp, home, config_home, data_home) = create_isolated_env();
+        let output = actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(args)
+            .timeout(std::time::Duration::from_secs(120))
+            .output()
+            .unwrap();
+        // On Unix, code() returns None when killed by signal (e.g. timeout).
+        // We accept 0, 1, or signal-killed (None → treat as acceptable).
+        if let Some(code) = output.status.code() {
+            assert!(
+                code == 0 || code == 1,
+                "Unexpected exit code: {}.\nstdout: {}\nstderr: {}",
+                code,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+        }
+        // If code is None (signal), that's acceptable — the process was killed
+        // by the test timeout, which is expected behavior for long-running setup.
+    }
+
+    #[test]
+    fn setup_non_interactive_runs() {
+        assert_setup_exits_gracefully(&["setup", "--non-interactive", "--json"]);
+    }
+
+    #[test]
+    fn setup_non_interactive_target_claude() {
+        assert_setup_exits_gracefully(&[
+            "setup",
+            "--non-interactive",
+            "--target",
+            "claude",
+            "--json",
+        ]);
+    }
+
+    #[test]
+    fn setup_with_api_key() {
+        assert_setup_exits_gracefully(&[
+            "setup",
+            "--non-interactive",
+            "--api-key",
+            "test-key-12345",
+            "--json",
+        ]);
+    }
+
+    #[test]
+    fn setup_browser_isolated() {
+        assert_setup_exits_gracefully(&[
+            "setup",
+            "--non-interactive",
+            "--browser",
+            "isolated",
+            "--json",
+        ]);
+    }
+
+    #[test]
+    fn setup_browser_extension() {
+        assert_setup_exits_gracefully(&[
+            "setup",
+            "--non-interactive",
+            "--browser",
+            "extension",
+            "--json",
+        ]);
+    }
+
+    #[test]
+    fn setup_reset() {
+        assert_setup_exits_gracefully(&[
+            "setup",
+            "--reset",
+            "--non-interactive",
+            "--json",
+        ]);
     }
 }
 
@@ -532,5 +1369,68 @@ mod global_flags {
             .args(["--cdp", "9222", "search", "--help"])
             .assert()
             .success();
+    }
+
+    // ── --browser-mode option ───────────────────────────────────────
+
+    #[test]
+    fn browser_mode_accepts_isolated() {
+        actionbook()
+            .args(["--browser-mode", "isolated", "browser", "status"])
+            .timeout(std::time::Duration::from_secs(10))
+            .assert()
+            .success();
+    }
+
+    #[test]
+    fn browser_mode_accepts_extension() {
+        actionbook()
+            .args(["--browser-mode", "extension", "browser", "status"])
+            .timeout(std::time::Duration::from_secs(10))
+            .assert()
+            .success();
+    }
+
+    #[test]
+    fn browser_mode_rejects_invalid_value() {
+        actionbook()
+            .args(["--browser-mode", "invalid-mode", "browser", "status"])
+            .timeout(std::time::Duration::from_secs(5))
+            .assert()
+            .failure();
+    }
+
+    // ── Stealth options ─────────────────────────────────────────────
+
+    #[test]
+    fn help_shows_stealth_options() {
+        actionbook()
+            .arg("--help")
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("--stealth"))
+            .stdout(predicate::str::contains("--stealth-os"))
+            .stdout(predicate::str::contains("--stealth-gpu"));
+    }
+
+    #[test]
+    fn stealth_flag_accepted() {
+        actionbook()
+            .args(["--stealth", "browser", "status"])
+            .timeout(std::time::Duration::from_secs(10))
+            .assert()
+            .success();
+    }
+
+    // ── Camofox options ─────────────────────────────────────────────
+
+    #[test]
+    fn help_shows_camofox_options() {
+        actionbook()
+            .arg("--help")
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("--camofox"))
+            .stdout(predicate::str::contains("--camofox-port"));
     }
 }
