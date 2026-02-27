@@ -493,7 +493,7 @@ actionbook browser open "https://example.com"
 | **Navigator Override** | Spoofs `navigator.webdriver`, `platform`, `hardwareConcurrency`, `deviceMemory` |
 | **WebGL Emulation** | Overrides WebGL renderer/vendor to match selected GPU |
 | **Plugin Spoofing** | Injects fake Chrome plugins (PDF, Native Client) |
-| **Chrome Flags** | `--disable-blink-features=AutomationControlled`, `--disable-infobars` |
+| **Webdriver Masking** | `navigator.webdriver` override via CDP script injection (no unsupported Chrome flags) |
 | **Persistent Injection** | Uses `Page.addScriptToEvaluateOnNewDocument` for cross-navigation persistence |
 
 ### Available Profiles

@@ -230,6 +230,9 @@ impl BrowserLauncher {
         // Add extra args
         args.extend(self.extra_args.clone());
 
+        // Strip deprecated flags that trigger Chrome's "unsupported command-line flag" warning
+        args.retain(|a| !a.contains("AutomationControlled") && a != "--disable-infobars");
+
         args
     }
 
@@ -651,6 +654,31 @@ mod tests {
         assert!(
             !args.contains(&"--disable-infobars".to_string()),
             "disable-infobars should NOT be set (deprecated in Chrome 76+)"
+        );
+    }
+
+    #[test]
+    fn build_args_strips_deprecated_flags_from_extra_args() {
+        let dir = PathBuf::from("/tmp/test-profile");
+        let mut launcher = test_launcher_with_user_data_dir(dir);
+        launcher.extra_args = vec![
+            "--disable-blink-features=AutomationControlled".to_string(),
+            "--disable-infobars".to_string(),
+            "--lang=en-US".to_string(),
+        ];
+        let args = launcher.build_args();
+
+        assert!(
+            !args.iter().any(|a| a.contains("AutomationControlled")),
+            "AutomationControlled injected via extra_args must be stripped"
+        );
+        assert!(
+            !args.contains(&"--disable-infobars".to_string()),
+            "disable-infobars injected via extra_args must be stripped"
+        );
+        assert!(
+            args.contains(&"--lang=en-US".to_string()),
+            "non-deprecated extra args must be preserved"
         );
     }
 }
