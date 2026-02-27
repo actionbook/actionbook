@@ -40,5 +40,13 @@ describe.skipIf(!hasBinary)("get command", () => {
       });
       expect(result.exitCode).toBe(1);
     });
+
+    it("returns output with --json flag for invalid area_id", async () => {
+      const result = await runCli(
+        ["--json", "get", "invalid-area-id-xyz"],
+        { env: isolatedEnv.env, timeout: 30000 }
+      );
+      expect(result.exitCode).toBe(1);
+    });
   });
 });

@@ -31,6 +31,7 @@ describe.skipIf(!hasBinary)("search command", () => {
       expect(result.stdout).toContain("--domain");
       expect(result.stdout).toContain("--page");
       expect(result.stdout).toContain("--page-size");
+      expect(result.stdout).toContain("--url");
     });
   });
 
@@ -67,6 +68,24 @@ describe.skipIf(!hasBinary)("search command", () => {
       );
       // Empty results should not be an error
       expect(result.exitCode).toBe(0);
+    });
+
+    it("searches with --url filter", async () => {
+      const result = await runCli(
+        ["search", "airbnb", "--url", "https://www.airbnb.com/", "--page-size", "1"],
+        { env: isolatedEnv.env, timeout: 30000 }
+      );
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("outputs JSON with --json flag", async () => {
+      const result = await runCli(
+        ["--json", "search", "airbnb", "--page-size", "1"],
+        { env: isolatedEnv.env, timeout: 30000 }
+      );
+      expect(result.exitCode).toBe(0);
+      // search output is API text response, --json may or may not change format
+      // Just verify it doesn't crash
     });
   });
 });

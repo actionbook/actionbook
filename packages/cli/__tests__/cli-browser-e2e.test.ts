@@ -390,6 +390,279 @@ describe.skipIf(!hasBinary || !runBrowserTests)(
       });
     });
 
+    // ── 2H-2. browser inspect (1 test) ─────────────────────────
+
+    describe("browser inspect", () => {
+      beforeAll(async () => {
+        await headless(["browser", "goto", "https://example.com"]);
+      });
+
+      it("inspects element at coordinates", async () => {
+        const result = await headless(["browser", "inspect", "100", "100"]);
+        expect(result.exitCode).toBe(0);
+      });
+    });
+
+    // ── 2I. browser scroll (5 tests) ─────────────────────────────
+
+    describe("browser scroll", () => {
+      beforeAll(async () => {
+        // Use a page with enough content to scroll
+        await headless([
+          "browser",
+          "goto",
+          "https://the-internet.herokuapp.com",
+        ]);
+      });
+
+      it("scrolls down", async () => {
+        const result = await headless(["browser", "scroll", "down"]);
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("scrolls up", async () => {
+        const result = await headless(["browser", "scroll", "up"]);
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("scrolls to bottom", async () => {
+        const result = await headless(["browser", "scroll", "bottom"]);
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("scrolls to top", async () => {
+        const result = await headless(["browser", "scroll", "top"]);
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("scrolls to a specific element", async () => {
+        const result = await headless([
+          "browser",
+          "scroll",
+          "to",
+          "h1",
+        ]);
+        expect(result.exitCode).toBe(0);
+      });
+    });
+
+    // ── 2J. browser restart (1 test) ─────────────────────────────
+
+    describe("browser restart", () => {
+      it("restarts browser and can continue operating", async () => {
+        const restartResult = await headless(
+          ["browser", "restart"],
+          60000
+        );
+        expect(restartResult.exitCode).toBe(0);
+
+        // Verify browser is functional after restart
+        const gotoResult = await headless([
+          "browser",
+          "goto",
+          "https://example.com",
+        ]);
+        expect(gotoResult.exitCode).toBe(0);
+      });
+    });
+
+    // ── 2K. browser type E2E (1 test) ──────────────────────────
+
+    describe("browser type", () => {
+      beforeAll(async () => {
+        await headless([
+          "browser",
+          "goto",
+          "https://the-internet.herokuapp.com/login",
+        ]);
+      });
+
+      it("types text into an element", async () => {
+        const result = await headless([
+          "browser",
+          "type",
+          "--wait",
+          "5000",
+          "#username",
+          "appended-text",
+        ]);
+        expect(result.exitCode).toBe(0);
+      });
+    });
+
+    // ── 2L. browser select/hover/focus/press E2E (4 tests) ──────
+
+    describe("element interaction — select, hover, focus, press", () => {
+      beforeAll(async () => {
+        await headless([
+          "browser",
+          "goto",
+          "https://the-internet.herokuapp.com/dropdown",
+        ]);
+      });
+
+      it("selects a dropdown option", async () => {
+        const result = await headless([
+          "browser",
+          "select",
+          "#dropdown",
+          "1",
+        ]);
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("hovers over an element", async () => {
+        const result = await headless(["browser", "hover", "#dropdown"]);
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("focuses on an element", async () => {
+        const result = await headless(["browser", "focus", "#dropdown"]);
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("presses a keyboard key", async () => {
+        const result = await headless(["browser", "press", "Tab"]);
+        expect(result.exitCode).toBe(0);
+      });
+    });
+
+    // ── 2M. browser wait-nav E2E (1 test) ────────────────────────
+
+    describe("browser wait-nav", () => {
+      it("wait-nav completes on already loaded page", async () => {
+        await headless(["browser", "goto", "https://example.com"]);
+        const result = await headless([
+          "browser",
+          "wait-nav",
+          "--timeout",
+          "5000",
+        ]);
+        // wait-nav on an already-loaded page should succeed or timeout gracefully
+        expect([0, 1]).toContain(result.exitCode);
+      });
+    });
+
+    // ── 2N. browser inspect --desc E2E (1 test) ─────────────────
+
+    describe("browser inspect --desc", () => {
+      beforeAll(async () => {
+        await headless(["browser", "goto", "https://example.com"]);
+      });
+
+      it("inspects element at coordinates with --desc", async () => {
+        const result = await headless([
+          "browser",
+          "inspect",
+          "100",
+          "100",
+          "--desc",
+          "looking for header element",
+        ]);
+        expect(result.exitCode).toBe(0);
+      });
+    });
+
+    // ── 2O. browser scroll parameter variants E2E (5 tests) ─────
+
+    describe("browser scroll parameter variants", () => {
+      beforeAll(async () => {
+        await headless([
+          "browser",
+          "goto",
+          "https://the-internet.herokuapp.com",
+        ]);
+      });
+
+      it("scrolls down with custom pixel count", async () => {
+        const result = await headless(["browser", "scroll", "down", "200"]);
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("scrolls up with custom pixel count", async () => {
+        const result = await headless(["browser", "scroll", "up", "100"]);
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("scrolls with --smooth flag", async () => {
+        const result = await headless([
+          "browser",
+          "scroll",
+          "--smooth",
+          "down",
+          "300",
+        ]);
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("scrolls to element with --align start", async () => {
+        const result = await headless([
+          "browser",
+          "scroll",
+          "to",
+          "h1",
+          "--align",
+          "start",
+        ]);
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("scrolls to element with --align end", async () => {
+        const result = await headless([
+          "browser",
+          "scroll",
+          "to",
+          "h1",
+          "--align",
+          "end",
+        ]);
+        expect(result.exitCode).toBe(0);
+      });
+    });
+
+    // ── 2P. browser cookies parameter variants E2E (3 tests) ────
+
+    describe("browser cookies parameter variants", () => {
+      beforeAll(async () => {
+        await headless(["browser", "goto", "https://example.com"]);
+      });
+
+      it("sets a cookie with --domain", async () => {
+        const result = await headless([
+          "browser",
+          "cookies",
+          "set",
+          "domain_cookie",
+          "domain_value",
+          "--domain",
+          "example.com",
+        ]);
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("clears cookies with --dry-run", async () => {
+        const result = await headless([
+          "browser",
+          "cookies",
+          "clear",
+          "--dry-run",
+        ]);
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("clears cookies with --domain", async () => {
+        const result = await headless([
+          "browser",
+          "cookies",
+          "clear",
+          "--domain",
+          "example.com",
+          "--yes",
+        ]);
+        expect(result.exitCode).toBe(0);
+      });
+    });
+
     // ── 2H. Tab management (3 tests) ────────────────────────────
 
     describe("tab management", () => {
@@ -427,6 +700,15 @@ describe.skipIf(!hasBinary || !runBrowserTests)(
           const result = await headless(["browser", "switch", pageId]);
           expect(result.exitCode).toBe(0);
         }
+      });
+    });
+
+    // ── 2Q. browser close (1 test) — MUST be last ──────────────
+
+    describe("browser close", () => {
+      it("closes the browser", async () => {
+        const result = await headless(["browser", "close"]);
+        expect(result.exitCode).toBe(0);
       });
     });
   }

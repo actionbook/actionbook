@@ -72,6 +72,172 @@ describe.skipIf(!hasBinary)("browser command — Tier 1 (no browser required)", 
     });
   });
 
+  // ── 1A-1b. browser type/fill argument validation ─────────────────
+
+  describe("argument validation — browser type and fill", () => {
+    it("browser type requires SELECTOR", async () => {
+      const result = await runCli(["browser", "type"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toMatch(/SELECTOR|required/i);
+    });
+
+    it("browser type requires TEXT", async () => {
+      const result = await runCli(["browser", "type", "#input"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toMatch(/TEXT|required/i);
+    });
+
+    it("browser fill requires SELECTOR", async () => {
+      const result = await runCli(["browser", "fill"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toMatch(/SELECTOR|required/i);
+    });
+
+    it("browser fill requires TEXT", async () => {
+      const result = await runCli(["browser", "fill", "#input"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toMatch(/TEXT|required/i);
+    });
+  });
+
+  // ── 1A-2. browser inspect argument validation ────────────────────
+
+  describe("argument validation — browser inspect", () => {
+    it("browser inspect without arguments should fail", async () => {
+      const result = await runCli(["browser", "inspect"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toMatch(/X|required/i);
+    });
+
+    it("browser inspect --help shows X, Y and --desc option", async () => {
+      const result = await runCli(["browser", "inspect", "--help"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toMatch(/[Xx]/);
+      expect(result.stdout).toMatch(/[Yy]/);
+      expect(result.stdout).toContain("--desc");
+    });
+  });
+
+  // ── 1A-3. browser scroll argument validation ────────────────────
+
+  describe("argument validation — browser scroll", () => {
+    it("browser scroll without subcommand should fail", async () => {
+      const result = await runCli(["browser", "scroll"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain("subcommand");
+    });
+
+    it("browser scroll down --help shows description", async () => {
+      const result = await runCli(["browser", "scroll", "down", "--help"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toMatch(/[Ss]croll.*down|pixels/i);
+    });
+
+    it("browser scroll up --help shows description", async () => {
+      const result = await runCli(["browser", "scroll", "up", "--help"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toMatch(/[Ss]croll.*up|pixels/i);
+    });
+
+    it("browser scroll bottom --help shows description", async () => {
+      const result = await runCli(["browser", "scroll", "bottom", "--help"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toMatch(/[Ss]croll.*bottom|page/i);
+    });
+
+    it("browser scroll top --help shows description", async () => {
+      const result = await runCli(["browser", "scroll", "top", "--help"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toMatch(/[Ss]croll.*top|page/i);
+    });
+
+    it("browser scroll to --help shows --align option", async () => {
+      const result = await runCli(["browser", "scroll", "to", "--help"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("--align");
+    });
+
+    it("browser scroll to without selector should fail", async () => {
+      const result = await runCli(["browser", "scroll", "to"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toMatch(/SELECTOR|required/i);
+    });
+
+    it("browser scroll --help shows --smooth option", async () => {
+      const result = await runCli(["browser", "scroll", "--help"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("--smooth");
+    });
+  });
+
+  // ── 1A-4. browser restart help ──────────────────────────────────
+
+  describe("help output — browser restart", () => {
+    it("browser restart --help shows description", async () => {
+      const result = await runCli(["browser", "restart", "--help"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ── 1A-5. browser cookies argument validation ───────────────────
+
+  describe("argument validation — browser cookies subcommands", () => {
+    it("browser cookies get without name should fail", async () => {
+      const result = await runCli(["browser", "cookies", "get"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toMatch(/NAME|required/i);
+    });
+
+    it("browser cookies set without arguments should fail", async () => {
+      const result = await runCli(["browser", "cookies", "set"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toMatch(/NAME|required/i);
+    });
+
+    it("browser cookies delete without name should fail", async () => {
+      const result = await runCli(["browser", "cookies", "delete"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toMatch(/NAME|required/i);
+    });
+  });
+
   // ── 1B. Help output verification (8 tests) ────────────────────────
 
   describe("help output — untested subcommands", () => {
@@ -217,9 +383,25 @@ describe.skipIf(!hasBinary)("browser command — Tier 1 (no browser required)", 
     });
   });
 
-  // ── 1E. browser connect error handling (2 tests) ──────────────────
+  // ── 1E. browser connect validation (4 tests) ────────────────────
 
-  describe("browser connect errors", () => {
+  describe("browser connect validation", () => {
+    it("browser connect --help shows endpoint argument", async () => {
+      const result = await runCli(["browser", "connect", "--help"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toMatch(/endpoint/i);
+    });
+
+    it("browser connect requires ENDPOINT argument", async () => {
+      const result = await runCli(["browser", "connect"], {
+        env: isolatedEnv.env,
+      });
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toMatch(/ENDPOINT|required/i);
+    });
+
     it("rejects invalid endpoint format", async () => {
       const result = await runCli(["browser", "connect", "not-a-port"], {
         env: isolatedEnv.env,
