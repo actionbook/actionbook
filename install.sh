@@ -17,6 +17,8 @@ set -euo pipefail
 
 REPO="actionbook/actionbook"
 BINARY_NAME="actionbook"
+TMPDIR_CLEANUP=""
+trap 'rm -rf "$TMPDIR_CLEANUP"' EXIT
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
 VERSION=""
@@ -133,7 +135,7 @@ download_and_verify() {
 
   local tmpdir
   tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$tmpdir"' EXIT
+  TMPDIR_CLEANUP="$tmpdir"
 
   info "Downloading ${asset_name}..."
   curl -fsSL -o "${tmpdir}/${asset_name}" "$download_url" \
