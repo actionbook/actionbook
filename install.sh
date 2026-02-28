@@ -28,10 +28,18 @@ BIN_DIR="/usr/local/bin"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --version)
+      if [[ $# -lt 2 || "$2" == --* ]]; then
+        echo "Error: --version requires a value (e.g. --version 0.8.1)" >&2
+        exit 1
+      fi
       VERSION="$2"
       shift 2
       ;;
     --bin-dir)
+      if [[ $# -lt 2 || "$2" == --* ]]; then
+        echo "Error: --bin-dir requires a value (e.g. --bin-dir ~/.local/bin)" >&2
+        exit 1
+      fi
       BIN_DIR="$2"
       shift 2
       ;;
@@ -152,7 +160,7 @@ download_and_verify() {
 
   info "Verifying checksum..."
   local expected actual
-  expected="$(grep "  ${asset_name}$" "${tmpdir}/SHA256SUMS" | awk '{print $1}')"
+  expected="$(grep "  ${asset_name}$" "${tmpdir}/SHA256SUMS" | awk '{print $1}' || true)"
   if [[ -z "$expected" ]]; then
     error "No checksum entry found for ${asset_name} in SHA256SUMS."
   fi
