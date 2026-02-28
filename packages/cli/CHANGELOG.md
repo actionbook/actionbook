@@ -1,5 +1,18 @@
 # @actionbookdev/cli
 
+## 0.8.1
+
+### Patch Changes
+
+- [#173](https://github.com/actionbook/actionbook/pull/173) [`a68fb6a`](https://github.com/actionbook/actionbook/commit/a68fb6a06f9fec17f440541a34464c308237ff03) Thanks [@Senke0x](https://github.com/Senke0x)! - Fix extension mode connectivity and harden bridge security:
+
+  - Unify extension commands through `ExtensionBackend` with 30-second connection retry, fixing immediate "Extension not connected" failure when Chrome extension needs 2-6s to connect via Native Messaging
+  - Restrict extension bridge auth to exact Actionbook extension ID (`native_messaging::EXTENSION_ID`), preventing other Chrome extensions from impersonating the bridge client
+  - Harden extension bridge against spoofing and PID race conditions
+  - Fix extension disconnect race, PID overflow guard, and bridge port constant
+  - Resolve PID lifecycle, SIGKILL safety, mode priority, and config preservation bugs
+  - Restore extension mode end-to-end pipeline and v0.7.5 setup wizard compatibility
+
 ## 0.8.0
 
 ### Minor Changes
