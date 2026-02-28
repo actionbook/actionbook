@@ -622,23 +622,24 @@ async fn handle_connection(stream: TcpStream, state: Arc<Mutex<BridgeState>>) {
     }
 
     // Validate token or origin depending on client role.
-    // Extension clients skip token but must prove chrome-extension:// origin.
+    // Extension clients skip token but must prove they are the Actionbook extension
+    // by matching the exact chrome-extension://<EXTENSION_ID> origin.
     // CLI / other clients must provide a valid token.
     if client_role == "extension" {
-        let has_extension_origin = connection_origin
+        let expected_origin = format!("chrome-extension://{}", super::native_messaging::EXTENSION_ID);
+        let origin_matches = connection_origin
             .as_deref()
-            .map(|o| o.starts_with("chrome-extension://"))
+            .map(|o| o.eq_ignore_ascii_case(&expected_origin))
             .unwrap_or(false);
-        if !has_extension_origin {
+        if !origin_matches {
             tracing::warn!(
-                "Rejected client claiming extension role without chrome-extension:// origin \
-                 (origin={:?})",
-                connection_origin
+                "Rejected extension client: origin {:?} does not match expected {}",
+                connection_origin, expected_origin
             );
             let err_msg = serde_json::json!({
                 "type": "hello_error",
                 "error": "invalid_origin",
-                "message": "Extension clients must connect via a chrome-extension:// origin.",
+                "message": "Extension origin does not match the Actionbook extension ID.",
             });
             let _ = write
                 .send(Message::Text(err_msg.to_string().into()))
@@ -1291,25 +1292,35 @@ mod tests {
 
     #[test]
     fn test_extension_origin_required() {
-        // No origin → should NOT qualify as chrome-extension
+        use super::super::native_messaging::EXTENSION_ID;
+        let expected = format!("chrome-extension://{}", EXTENSION_ID);
+
+        // No origin → rejected
         let no_origin: Option<&str> = None;
-        let has_ext_origin = no_origin
-            .map(|o| o.starts_with("chrome-extension://"))
+        let matches = no_origin
+            .map(|o| o.eq_ignore_ascii_case(&expected))
             .unwrap_or(false);
-        assert!(!has_ext_origin);
+        assert!(!matches);
 
-        // localhost origin → should NOT qualify as chrome-extension
+        // localhost origin → rejected
         let localhost_origin = Some("http://localhost:8080");
-        let has_ext_origin = localhost_origin
-            .map(|o| o.starts_with("chrome-extension://"))
+        let matches = localhost_origin
+            .map(|o| o.eq_ignore_ascii_case(&expected))
             .unwrap_or(false);
-        assert!(!has_ext_origin);
+        assert!(!matches);
 
-        // Valid chrome-extension origin
-        let ext_origin = Some("chrome-extension://dpfioflkmnkklgjldmaggkodhlidkdcd");
-        let has_ext_origin = ext_origin
-            .map(|o| o.starts_with("chrome-extension://"))
+        // Random other extension → rejected
+        let other_ext = Some("chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let matches = other_ext
+            .map(|o| o.eq_ignore_ascii_case(&expected))
             .unwrap_or(false);
-        assert!(has_ext_origin);
+        assert!(!matches);
+
+        // Exact Actionbook extension origin → accepted
+        let ext_origin = Some(expected.as_str());
+        let matches = ext_origin
+            .map(|o| o.eq_ignore_ascii_case(&expected))
+            .unwrap_or(false);
+        assert!(matches);
     }
 }
