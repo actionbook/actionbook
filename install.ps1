@@ -31,6 +31,14 @@ $ErrorActionPreference = "Stop"
 $Repo = "actionbook/actionbook"
 $BinaryName = "actionbook.exe"
 
+# On Windows PowerShell 5.1, Invoke-WebRequest defaults to the IE parser; pass
+# -UseBasicParsing to avoid that dependency.  On pwsh 6+ the flag is accepted
+# but unnecessary.  Build a reusable splat so every call stays compatible.
+$WebRequestParams = @{}
+if ($PSVersionTable.PSVersion.Major -le 5) {
+    $WebRequestParams["UseBasicParsing"] = $true
+}
+
 # ── Defaults ──────────────────────────────────────────────────────────────────
 if (-not $BinDir) {
     $BinDir = Join-Path $env:USERPROFILE ".actionbook\bin"
@@ -57,15 +65,20 @@ function Resolve-Version {
         $script:Version = $Version -replace '^v', ''
     } else {
         Write-Info "Fetching latest release version..."
-        try {
-            $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases" `
-                -Headers @{ "User-Agent" = "actionbook-installer" } `
-                -UseBasicParsing
-        } catch {
-            Write-Err "Failed to fetch releases from GitHub: $_"
+        # Paginate up to 5 pages (100 per page) to find the latest CLI release
+        # in case non-CLI releases push it off the first page.
+        $latest = $null
+        for ($page = 1; $page -le 5 -and -not $latest; $page++) {
+            try {
+                $releases = Invoke-RestMethod `
+                    -Uri "https://api.github.com/repos/$Repo/releases?per_page=100&page=$page" `
+                    -Headers @{ "User-Agent" = "actionbook-installer" }
+            } catch {
+                Write-Err "Failed to fetch releases from GitHub: $_"
+            }
+            if (-not $releases -or $releases.Count -eq 0) { break }
+            $latest = $releases | Where-Object { $_.tag_name -match '^actionbook-cli-v' } | Select-Object -First 1
         }
-
-        $latest = $releases | Where-Object { $_.tag_name -match '^actionbook-cli-v' } | Select-Object -First 1
         if (-not $latest) {
             Write-Err "Could not determine latest release version."
         }
@@ -91,14 +104,14 @@ function Install-Binary {
     try {
         Write-Info "Downloading $assetName..."
         try {
-            Invoke-WebRequest -Uri $downloadUrl -OutFile (Join-Path $tmpDir $assetName) -UseBasicParsing
+            Invoke-WebRequest -Uri $downloadUrl -OutFile (Join-Path $tmpDir $assetName) @WebRequestParams
         } catch {
             Write-Err "Failed to download binary from $downloadUrl`n$_"
         }
 
         Write-Info "Downloading SHA256SUMS..."
         try {
-            Invoke-WebRequest -Uri $checksumsUrl -OutFile (Join-Path $tmpDir "SHA256SUMS") -UseBasicParsing
+            Invoke-WebRequest -Uri $checksumsUrl -OutFile (Join-Path $tmpDir "SHA256SUMS") @WebRequestParams
         } catch {
             Write-Err "Failed to download checksums from $checksumsUrl`n$_"
         }

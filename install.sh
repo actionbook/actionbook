@@ -101,12 +101,17 @@ resolve_version() {
     VERSION="${VERSION#v}"
   else
     info "Fetching latest release version..."
-    # Use GitHub API to get the latest release matching our tag pattern
-    local latest_tag
-    latest_tag="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" \
-      | grep -o '"tag_name": *"actionbook-cli-v[^"]*"' \
-      | head -1 \
-      | sed 's/.*"actionbook-cli-v\([^"]*\)"/\1/')"
+    # Use GitHub API to find the most recent release matching actionbook-cli-v*.
+    # The /releases endpoint returns 30 items per page; the latest CLI release
+    # may not be on the first page, so we paginate up to 5 pages.
+    local latest_tag="" page=1
+    while [[ -z "$latest_tag" && $page -le 5 ]]; do
+      latest_tag="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=100&page=${page}" \
+        | grep -o '"tag_name": *"actionbook-cli-v[^"]*"' \
+        | head -1 \
+        | sed 's/.*"actionbook-cli-v\([^"]*\)"/\1/')"
+      page=$((page + 1))
+    done
 
     if [[ -z "$latest_tag" ]]; then
       error "Could not determine latest release version."
