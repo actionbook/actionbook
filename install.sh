@@ -109,7 +109,7 @@ resolve_version() {
       latest_tag="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=100&page=${page}" \
         | grep -o '"tag_name": *"actionbook-cli-v[^"]*"' \
         | head -1 \
-        | sed 's/.*"actionbook-cli-v\([^"]*\)"/\1/')"
+        | sed 's/.*"actionbook-cli-v\([^"]*\)"/\1/' || true)"
       page=$((page + 1))
     done
 
