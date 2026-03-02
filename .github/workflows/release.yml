@@ -445,6 +445,91 @@ jobs:
             artifacts/checksums/SHA256SUMS
           generate_release_notes: true
 
+      - name: Update Homebrew formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="actionbook-cli-v${VERSION}"
+
+          # Read SHA256SUMS generated earlier in this job
+          CHECKSUMS_FILE="artifacts/checksums/SHA256SUMS"
+          if [[ ! -f "$CHECKSUMS_FILE" ]]; then
+            echo "WARNING: SHA256SUMS not found, skipping Homebrew formula update"
+            exit 0
+          fi
+
+          get_sha() {
+            local asset="$1"
+            grep "  ${asset}$" "$CHECKSUMS_FILE" | cut -d' ' -f1
+          }
+
+          SHA_DARWIN_ARM64=$(get_sha "actionbook-darwin-arm64")
+          SHA_DARWIN_X64=$(get_sha "actionbook-darwin-x64")
+          SHA_LINUX_ARM64=$(get_sha "actionbook-linux-arm64")
+          SHA_LINUX_X64=$(get_sha "actionbook-linux-x64")
+
+          # Generate the updated formula
+          cat > /tmp/actionbook.rb << RUBY_EOF
+          # typed: false
+          # frozen_string_literal: true
+
+          # Formula auto-updated by actionbook/actionbook release CI.
+          # Manual edits will be overwritten on the next release.
+          class Actionbook < Formula
+            desc "CLI for Actionbook - run AI actions from your terminal"
+            homepage "https://actionbook.dev"
+            version "${VERSION}"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/actionbook/actionbook/releases/download/${TAG}/actionbook-darwin-arm64"
+                sha256 "${SHA_DARWIN_ARM64}"
+              else
+                url "https://github.com/actionbook/actionbook/releases/download/${TAG}/actionbook-darwin-x64"
+                sha256 "${SHA_DARWIN_X64}"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.arm?
+                url "https://github.com/actionbook/actionbook/releases/download/${TAG}/actionbook-linux-arm64"
+                sha256 "${SHA_LINUX_ARM64}"
+              else
+                url "https://github.com/actionbook/actionbook/releases/download/${TAG}/actionbook-linux-x64"
+                sha256 "${SHA_LINUX_X64}"
+              end
+            end
+
+            def install
+              binary_name = "actionbook"
+              if OS.mac?
+                bin.install (Hardware::CPU.arm? ? "actionbook-darwin-arm64" : "actionbook-darwin-x64") => binary_name
+              else
+                bin.install (Hardware::CPU.arm? ? "actionbook-linux-arm64" : "actionbook-linux-x64") => binary_name
+              end
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/actionbook --version")
+            end
+          end
+          RUBY_EOF
+
+          # Remove leading whitespace (heredoc indentation)
+          sed -i "s/^          //" /tmp/actionbook.rb
+
+          # Push to homebrew-tap repo
+          cd "$(mktemp -d)"
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/actionbook/homebrew-tap.git" .
+          cp /tmp/actionbook.rb Formula/actionbook.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/actionbook.rb
+          git commit -m "actionbook ${VERSION}" || echo "No changes to commit"
+          git push
+
   # --------------------------------------------------------------------------
   # Job 5: Release Extension (package ZIPs + GitHub Release)
   # --------------------------------------------------------------------------
