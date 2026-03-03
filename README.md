@@ -92,21 +92,31 @@ npx skills add actionbook/actionbook
 
 ## Installation
 
-```bash
-# macOS / Linux
-curl -fsSL https://actionbook.dev/install.sh | bash
+### macOS / Linux
 
-# Windows (PowerShell)
+```bash
+curl -fsSL https://actionbook.dev/install.sh | bash
+```
+
+### Windows
+
+```powershell
 irm https://actionbook.dev/install.ps1 | iex
 ```
 
-Then run setup:
+### npm
+
+```bash
+npm install -g @actionbookdev/cli
+```
+
+### Setup
 
 ```bash
 actionbook setup
 ```
 
-For alternative install methods (Homebrew, npm) and upgrade instructions, see the [Installation Guide](https://actionbook.dev/docs/guides/installation).
+For more install options (Homebrew, from source) and upgrade instructions, see the [Installation Guide](https://actionbook.dev/docs/guides/installation).
 
 The CLI is all you need to get started. For advanced use cases, Actionbook also offers an [MCP Server](https://actionbook.dev/docs/guides/mcp-server) and [JavaScript SDK](https://actionbook.dev/docs/guides/sdk-integration).
 
