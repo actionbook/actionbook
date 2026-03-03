@@ -117,54 +117,64 @@ fn env_bool(key: &str) -> bool {
 }
 
 async fn fetch_latest_version() -> Result<Version, ()> {
-    let url = format!(
-        "https://api.github.com/repos/{}/releases?per_page=50",
-        GITHUB_REPO
-    );
+    // The repository can contain many non-CLI releases. Paginate to avoid
+    // missing the latest `actionbook-cli-v*` tag when it is not on page 1.
+    const PER_PAGE: u32 = 100;
+    const MAX_PAGES: u32 = 5;
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(HTTP_TIMEOUT_SECS))
         .build()
         .map_err(|_| ())?;
 
-    let resp = client
-        .get(url)
-        .header("User-Agent", "actionbook-update-notifier")
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await
-        .map_err(|_| ())?;
+    for page in 1..=MAX_PAGES {
+        let url = format!(
+            "https://api.github.com/repos/{}/releases?per_page={}&page={}",
+            GITHUB_REPO, PER_PAGE, page
+        );
 
-    if !resp.status().is_success() {
-        return Err(());
-    }
+        let resp = client
+            .get(url)
+            .header("User-Agent", "actionbook-update-notifier")
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .await
+            .map_err(|_| ())?;
 
-    let releases: Vec<serde_json::Value> = resp.json().await.map_err(|_| ())?;
-
-    for release in releases {
-        let is_draft = release
-            .get("draft")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let is_prerelease = release
-            .get("prerelease")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        if is_draft || is_prerelease {
-            continue;
+        if !resp.status().is_success() {
+            return Err(());
         }
 
-        let tag = release
-            .get("tag_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        if !tag.starts_with(RELEASE_TAG_PREFIX) {
-            continue;
+        let releases: Vec<serde_json::Value> = resp.json().await.map_err(|_| ())?;
+        if releases.is_empty() {
+            break;
         }
 
-        let version_str = tag.trim_start_matches(RELEASE_TAG_PREFIX);
-        if let Ok(version) = Version::parse(version_str) {
-            return Ok(version);
+        for release in releases {
+            let is_draft = release
+                .get("draft")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let is_prerelease = release
+                .get("prerelease")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if is_draft || is_prerelease {
+                continue;
+            }
+
+            let tag = release
+                .get("tag_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if !tag.starts_with(RELEASE_TAG_PREFIX) {
+                continue;
+            }
+
+            let version_str = tag.trim_start_matches(RELEASE_TAG_PREFIX);
+            if let Ok(version) = Version::parse(version_str) {
+                return Ok(version);
+            }
         }
     }
 
