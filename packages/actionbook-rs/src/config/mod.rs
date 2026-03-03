@@ -24,6 +24,10 @@ pub struct Config {
     #[serde(default)]
     pub browser: BrowserConfig,
 
+    /// Update notifier configuration
+    #[serde(default)]
+    pub updates: UpdatesConfig,
+
     /// Named profiles
     #[serde(default)]
     pub profiles: HashMap<String, ProfileConfig>,
@@ -50,6 +54,30 @@ impl Default for ApiConfig {
 
 fn default_api_url() -> String {
     "https://api.actionbook.dev".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdatesConfig {
+    /// Enable update reminder notices
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Minimum interval between update checks (seconds)
+    #[serde(default = "default_update_check_interval_seconds")]
+    pub check_interval_seconds: u64,
+}
+
+impl Default for UpdatesConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            check_interval_seconds: default_update_check_interval_seconds(),
+        }
+    }
+}
+
+fn default_update_check_interval_seconds() -> u64 {
+    12 * 60 * 60
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,6 +218,7 @@ impl Default for Config {
         Self {
             api: ApiConfig::default(),
             browser: BrowserConfig::default(),
+            updates: UpdatesConfig::default(),
             profiles,
         }
     }
@@ -330,6 +359,7 @@ mod tests {
                 headless: true,
                 ..BrowserConfig::default()
             },
+            updates: UpdatesConfig::default(),
             profiles: HashMap::new(),
         };
 
@@ -362,6 +392,7 @@ mod tests {
                 headless: false,
                 ..BrowserConfig::default()
             },
+            updates: UpdatesConfig::default(),
             profiles: HashMap::new(),
         };
 

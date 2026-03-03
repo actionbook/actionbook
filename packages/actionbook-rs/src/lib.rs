@@ -8,3 +8,4 @@ pub mod error;
 
 mod api;
 pub mod commands;
+mod update_notifier;

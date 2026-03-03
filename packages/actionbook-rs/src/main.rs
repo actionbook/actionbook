@@ -4,6 +4,7 @@ mod cli;
 mod commands;
 mod config;
 mod error;
+mod update_notifier;
 
 use clap::Parser;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};

@@ -252,7 +252,9 @@ pub enum Commands {
     },
 
     /// Initial setup wizard
-    #[command(after_help = "Agent-friendly non-interactive examples:\n  actionbook setup --non-interactive --target codex --browser isolated --api-key $ACTIONBOOK_API_KEY --json\n  actionbook setup --non-interactive --target claude --browser extension --json\n\nTips:\n  --target selects skill installation target agent type.\n  --non-interactive disables prompts (agent-safe).\n  --json emits machine-readable setup results.")]
+    #[command(
+        after_help = "Agent-friendly non-interactive examples:\n  actionbook setup --non-interactive --target codex --browser isolated --api-key $ACTIONBOOK_API_KEY --json\n  actionbook setup --non-interactive --target claude --browser extension --json\n\nTips:\n  --target selects skill installation target agent type.\n  --non-interactive disables prompts (agent-safe).\n  --json emits machine-readable setup results."
+    )]
     Setup {
         /// Skill installation target agent type. If used alone, runs quick install (`npx skills add`) and exits.
         #[arg(short, long, value_enum)]
@@ -273,7 +275,6 @@ pub enum Commands {
         /// Reset existing configuration and start fresh
         #[arg(long)]
         reset: bool,
-
     },
 }
 
@@ -859,6 +860,8 @@ pub enum ProfileCommands {
 
 impl Cli {
     pub async fn run(&self) -> Result<()> {
+        crate::update_notifier::maybe_notify(self).await;
+
         match &self.command {
             Commands::Browser { command } => commands::browser::run(self, command).await,
             Commands::Extension { command } => commands::extension::run(self, command).await,
@@ -903,9 +906,7 @@ impl Cli {
             Commands::Record { url, output } => {
                 commands::record::run(self, url, output.as_deref()).await
             }
-            Commands::Replay { file, dry_run } => {
-                commands::replay::run(self, file, *dry_run).await
-            }
+            Commands::Replay { file, dry_run } => commands::replay::run(self, file, *dry_run).await,
             Commands::Validate { area_id, report } => {
                 commands::validate::run(self, area_id, *report).await
             }
