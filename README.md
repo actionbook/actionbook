@@ -63,7 +63,11 @@ Get started with Actionbook in under 2 minutes:
 **Step 1: Install the CLI**
 
 ```bash
-npm install -g @actionbookdev/cli
+# macOS / Linux
+curl -fsSL https://actionbook.dev/install.sh | bash
+
+# Windows (PowerShell)
+irm https://actionbook.dev/install.ps1 | iex
 ```
 
 The Rust-based CLI uses your existing system browser (Chrome, Brave, Edge, Arc, Chromium), so no extra browser install step is required.
@@ -89,11 +93,20 @@ npx skills add actionbook/actionbook
 ## Installation
 
 ```bash
-npm install -g @actionbookdev/cli
+# macOS / Linux
+curl -fsSL https://actionbook.dev/install.sh | bash
+
+# Windows (PowerShell)
+irm https://actionbook.dev/install.ps1 | iex
+```
+
+Then run setup:
+
+```bash
 actionbook setup
 ```
 
-For alternative install methods (Homebrew, shell script, Windows) and upgrade instructions, see the [Installation Guide](https://actionbook.dev/docs/guides/installation).
+For alternative install methods (Homebrew, npm) and upgrade instructions, see the [Installation Guide](https://actionbook.dev/docs/guides/installation).
 
 The CLI is all you need to get started. For advanced use cases, Actionbook also offers an [MCP Server](https://actionbook.dev/docs/guides/mcp-server) and [JavaScript SDK](https://actionbook.dev/docs/guides/sdk-integration).
 
