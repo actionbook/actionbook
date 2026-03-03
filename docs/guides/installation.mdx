@@ -5,16 +5,41 @@ description: 'Install Actionbook CLI and run setup'
 
 Install Actionbook CLI to use Actionbook from terminal and AI agents.
 
-## Prerequisites
-
-- <Icon icon="check" color="#22c55e" /> **Node.js** >= v18.0.0 ([Download](https://nodejs.org))
-
-<Tip>Check your Node.js version with `node --version`</Tip>
-
 ## Step 1: Install the CLI
 
+Choose the method that works best for you:
+
+<Tabs>
+  <Tab title="Homebrew (macOS/Linux)">
+    ```bash
+    brew tap actionbook/tap
+    brew install actionbook
+    ```
+    Upgrade later with `brew upgrade actionbook`.
+  </Tab>
+  <Tab title="Shell Script (macOS/Linux)">
+    ```bash
+    curl -fsSL https://actionbook.dev/install.sh | bash
+    ```
+    Re-run the same command to upgrade.
+  </Tab>
+  <Tab title="PowerShell (Windows)">
+    ```powershell
+    irm https://actionbook.dev/install.ps1 | iex
+    ```
+    Re-run the same command to upgrade.
+  </Tab>
+  <Tab title="npm">
+    ```bash
+    npm install -g @actionbookdev/cli
+    ```
+    Requires Node.js >= v18. Upgrade with `npm install -g @actionbookdev/cli@latest`.
+  </Tab>
+</Tabs>
+
+Verify the installation:
+
 ```bash
-npm install -g @actionbookdev/cli
 actionbook --version
 ```
 
@@ -27,6 +52,18 @@ actionbook setup
 ```
 
 Setup helps install/configure skills for your agent environment.
+
+## Building from Source
+
+If you prefer to build from source:
+
+```bash
+git clone https://github.com/actionbook/actionbook.git
+cd actionbook/packages/actionbook-rs
+cargo install --path . --locked
+```
+
+Requires Rust 1.70+ and Cargo.
 
 ## Next
 
