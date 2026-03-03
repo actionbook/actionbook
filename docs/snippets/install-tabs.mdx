@@ -1,0 +1,27 @@
+<Tabs>
+  <Tab title="Shell Script (macOS/Linux)">
+    ```bash
+    curl -fsSL https://actionbook.dev/install.sh | bash
+    ```
+    Re-run the same command to upgrade.
+  </Tab>
+  <Tab title="npm">
+    ```bash
+    npm install -g @actionbookdev/cli
+    ```
+    Requires Node.js >= v18. Upgrade with `npm install -g @actionbookdev/cli@latest`.
+  </Tab>
+  <Tab title="Homebrew (macOS/Linux)">
+    ```bash
+    brew tap actionbook/tap
+    brew install actionbook
+    ```
+    Upgrade later with `brew upgrade actionbook`.
+  </Tab>
+  <Tab title="PowerShell (Windows)">
+    ```powershell
+    irm https://actionbook.dev/install.ps1 | iex
+    ```
+    Re-run the same command to upgrade.
+  </Tab>
+</Tabs>
