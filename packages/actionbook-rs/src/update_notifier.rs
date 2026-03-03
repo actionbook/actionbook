@@ -127,6 +127,8 @@ async fn fetch_latest_version() -> Result<Version, ()> {
         .build()
         .map_err(|_| ())?;
 
+    let mut latest: Option<Version> = None;
+
     for page in 1..=MAX_PAGES {
         let url = format!(
             "https://api.github.com/repos/{}/releases?per_page={}&page={}",
@@ -150,35 +152,51 @@ async fn fetch_latest_version() -> Result<Version, ()> {
             break;
         }
 
-        for release in releases {
-            let is_draft = release
-                .get("draft")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let is_prerelease = release
-                .get("prerelease")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            if is_draft || is_prerelease {
-                continue;
-            }
-
-            let tag = release
-                .get("tag_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if !tag.starts_with(RELEASE_TAG_PREFIX) {
-                continue;
-            }
-
-            let version_str = tag.trim_start_matches(RELEASE_TAG_PREFIX);
-            if let Ok(version) = Version::parse(version_str) {
-                return Ok(version);
-            }
+        if let Some(page_latest) = max_cli_version_in_releases(&releases) {
+            latest = match latest {
+                Some(current) => Some(std::cmp::max(current, page_latest)),
+                None => Some(page_latest),
+            };
         }
     }
 
-    Err(())
+    latest.ok_or(())
+}
+
+fn max_cli_version_in_releases(releases: &[serde_json::Value]) -> Option<Version> {
+    let mut latest: Option<Version> = None;
+
+    for release in releases {
+        let is_draft = release
+            .get("draft")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let is_prerelease = release
+            .get("prerelease")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if is_draft || is_prerelease {
+            continue;
+        }
+
+        let tag = release
+            .get("tag_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if !tag.starts_with(RELEASE_TAG_PREFIX) {
+            continue;
+        }
+
+        let version_str = tag.trim_start_matches(RELEASE_TAG_PREFIX);
+        if let Ok(version) = Version::parse(version_str) {
+            latest = match latest {
+                Some(current) => Some(std::cmp::max(current, version)),
+                None => Some(version),
+            };
+        }
+    }
+
+    latest
 }
 
 fn detect_install_channel() -> InstallChannel {
@@ -294,6 +312,30 @@ mod tests {
             upgrade_command(InstallChannel::Npm),
             "npm install -g @actionbookdev/cli"
         );
+    }
+
+    #[test]
+    fn max_cli_version_uses_semver_max_not_first_match() {
+        let releases = vec![
+            serde_json::json!({ "tag_name": "actionbook-cli-v0.8.2", "draft": false, "prerelease": false }),
+            serde_json::json!({ "tag_name": "actionbook-cli-v0.8.10", "draft": false, "prerelease": false }),
+            serde_json::json!({ "tag_name": "actionbook-cli-v0.8.3", "draft": false, "prerelease": false }),
+        ];
+
+        let latest = max_cli_version_in_releases(&releases).unwrap();
+        assert_eq!(latest, Version::parse("0.8.10").unwrap());
+    }
+
+    #[test]
+    fn max_cli_version_ignores_non_cli_and_prerelease_tags() {
+        let releases = vec![
+            serde_json::json!({ "tag_name": "actionbook-extension-v0.1.0", "draft": false, "prerelease": false }),
+            serde_json::json!({ "tag_name": "actionbook-cli-v0.9.0", "draft": false, "prerelease": true }),
+            serde_json::json!({ "tag_name": "actionbook-cli-v0.8.9", "draft": false, "prerelease": false }),
+        ];
+
+        let latest = max_cli_version_in_releases(&releases).unwrap();
+        assert_eq!(latest, Version::parse("0.8.9").unwrap());
     }
 
     #[test]
