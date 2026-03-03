@@ -4,6 +4,27 @@ CLI for Actionbook - Browser automation and action manuals for AI agents. Powere
 
 ## Installation
 
+### Homebrew (macOS / Linux)
+
+```bash
+brew tap actionbook/tap
+brew install actionbook
+```
+
+### Shell Script (macOS / Linux)
+
+```bash
+curl -fsSL https://actionbook.dev/install.sh | bash
+```
+
+### PowerShell (Windows)
+
+```powershell
+irm https://actionbook.dev/install.ps1 | iex
+```
+
+### npm
+
 ```bash
 npm install -g @actionbookdev/cli
 ```
@@ -13,6 +34,25 @@ Or use directly with npx:
 ```bash
 npx @actionbookdev/cli search "airbnb search"
 ```
+
+### Building from Source
+
+```bash
+git clone https://github.com/actionbook/actionbook.git
+cd actionbook/packages/actionbook-rs
+cargo install --path . --locked
+```
+
+## Upgrading
+
+| Install method | Upgrade command |
+|----------------|-----------------|
+| Homebrew | `brew upgrade actionbook` |
+| Shell script | Re-run the install command |
+| npm | `npm install -g @actionbookdev/cli@latest` |
+| Source | `git pull && cargo install --path . --locked` |
+
+The CLI will notify you when a newer version is available.
 
 ## Platform Binaries
 
