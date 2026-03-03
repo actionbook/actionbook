@@ -1,6 +1,6 @@
 {
   "name": "@actionbookdev/cli",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "description": "CLI for Actionbook - Browser automation and action manuals for AI agents",
   "private": false,
   "bin": {
