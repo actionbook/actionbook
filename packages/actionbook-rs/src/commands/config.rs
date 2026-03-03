@@ -44,6 +44,18 @@ async fn set(_cli: &Cli, key: &str, value: &str) -> Result<()> {
                 ActionbookError::ConfigError("headless must be true or false".to_string())
             })?
         }
+        "updates.enabled" => {
+            config.updates.enabled = value.parse().map_err(|_| {
+                ActionbookError::ConfigError("updates.enabled must be true or false".to_string())
+            })?
+        }
+        "updates.check_interval_seconds" => {
+            config.updates.check_interval_seconds = value.parse().map_err(|_| {
+                ActionbookError::ConfigError(
+                    "updates.check_interval_seconds must be a positive integer".to_string(),
+                )
+            })?
+        }
         _ => {
             return Err(ActionbookError::ConfigError(format!(
                 "Unknown config key: {}",
@@ -67,6 +79,8 @@ async fn get(cli: &Cli, key: &str) -> Result<()> {
         "browser.executable" => config.browser.executable.clone(),
         "browser.default_profile" => Some(config.browser.default_profile.clone()),
         "browser.headless" => Some(config.browser.headless.to_string()),
+        "updates.enabled" => Some(config.updates.enabled.to_string()),
+        "updates.check_interval_seconds" => Some(config.updates.check_interval_seconds.to_string()),
         _ => {
             return Err(ActionbookError::ConfigError(format!(
                 "Unknown config key: {}",
