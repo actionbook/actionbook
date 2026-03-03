@@ -63,16 +63,6 @@ Get started with Actionbook in under 2 minutes:
 **Step 1: Install the CLI**
 
 ```bash
-# macOS / Linux (Homebrew)
-brew tap actionbook/tap && brew install actionbook
-
-# macOS / Linux (shell script)
-curl -fsSL https://actionbook.dev/install.sh | bash
-
-# Windows (PowerShell)
-irm https://actionbook.dev/install.ps1 | iex
-
-# npm (all platforms, requires Node.js >= 18)
 npm install -g @actionbookdev/cli
 ```
 
@@ -99,18 +89,11 @@ npx skills add actionbook/actionbook
 ## Installation
 
 ```bash
-# Homebrew (recommended for macOS/Linux)
-brew tap actionbook/tap && brew install actionbook
-
-# Shell script (macOS/Linux)
-curl -fsSL https://actionbook.dev/install.sh | bash
-
-# npm (all platforms)
 npm install -g @actionbookdev/cli
-
-# Initialize local configuration
 actionbook setup
 ```
+
+For alternative install methods (Homebrew, shell script, Windows) and upgrade instructions, see the [Installation Guide](https://actionbook.dev/docs/guides/installation).
 
 The CLI is all you need to get started. For advanced use cases, Actionbook also offers an [MCP Server](https://actionbook.dev/docs/guides/mcp-server) and [JavaScript SDK](https://actionbook.dev/docs/guides/sdk-integration).
 
