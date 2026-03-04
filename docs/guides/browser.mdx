@@ -33,7 +33,7 @@ Create or edit `~/.actionbook/config.toml`:
 mode = "extension"
 
 [browser.extension]
-# Auto-install extension on first use (default: true)
+# Auto-install local debug fallback when Web Store install is unavailable
 auto_install = true
 ```
 
@@ -72,39 +72,36 @@ actionbook browser close
 If you've configured `mode = "extension"` in your config file, you only need to perform this one-time setup.
 
 <Steps>
-  <Step title="Install the extension">
-    ```bash
-    actionbook extension install
-    ```
-
-    This downloads the latest release from GitHub and installs it to `~/.actionbook/extension/`.
-
-    <Tip>
-      **Manual download:** If the CLI install fails (e.g., GitHub rate limit), download the `.zip` from [GitHub Releases](https://github.com/actionbook/actionbook/releases), unzip it, and load it manually.
-    </Tip>
+  <Step title="Install from Chrome Web Store (recommended)">
+    1. Open [Actionbook on Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo)
+    2. Click **Add to Chrome**
+    3. Confirm **Add extension**
   </Step>
 
-  <Step title="Load into Chrome">
-    1. Open `chrome://extensions` in Chrome
-    2. Enable **Developer mode** (top-right toggle)
-    3. Click **Load unpacked**
-    4. Select the directory printed by:
-
-    ```bash
-    actionbook extension path
-    ```
-  </Step>
-
-  <Step title="Run any browser command">
-    The bridge auto-starts in the background when you run any browser command:
-
+  <Step title="Verify with any browser command">
     ```bash
     actionbook browser open "https://example.com"
     actionbook browser snapshot
     ```
 
-    The extension will auto-connect within a few seconds.
+    The bridge auto-starts in the background and the extension auto-connects within a few seconds.
+  </Step>
 
+  <Step title="Fallback: local debug install (only if Web Store install fails)">
+    1. Install the fallback package:
+
+    ```bash
+    actionbook extension install
+    ```
+
+    2. Open `chrome://extensions`
+    3. Enable **Developer mode**
+    4. Click **Load unpacked**
+    5. Select the path from:
+
+    ```bash
+    actionbook extension path
+    ```
   </Step>
 </Steps>
 
@@ -242,7 +239,8 @@ L3 operations on sensitive domains trigger a confirmation popup in the extension
   <Accordion title="Extension popup shows 'Waiting for bridge' or keeps reconnecting">
     - This usually means the WebSocket handshake did not complete
     - Update CLI: `npm update -g @actionbookdev/cli`
-    - Reinstall extension if needed: `actionbook extension install --force`, then reload it in `chrome://extensions`
+    - Reinstall from [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo)
+    - If needed, use fallback install: `actionbook extension install --force`, then reload it in `chrome://extensions`
     - Click **Connect** in the extension popup to retry
   </Accordion>
 
@@ -264,11 +262,11 @@ L3 operations on sensitive domains trigger a confirmation popup in the extension
     - Then retry your browser command; the bridge will auto-start again
   </Accordion>
 
-  <Accordion title="GitHub rate limit on install">
-    - Anonymous GitHub API allows 60 requests/hour
-    - Wait and retry, or download the `.zip` manually from [GitHub Releases](https://github.com/actionbook/actionbook/releases)
-    - Unzip to `~/.actionbook/extension/`
-    - Load the extension manually in `chrome://extensions` (Developer mode > Load unpacked)
+  <Accordion title="Chrome Web Store install failed">
+    - Retry Web Store install: [Actionbook on Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo)
+    - Use local debug fallback: `actionbook extension install`
+    - Load it manually from `chrome://extensions` with **Load unpacked**
+    - If GitHub API is rate-limited during fallback, wait and retry or download from [GitHub Releases](https://github.com/actionbook/actionbook/releases)
   </Accordion>
 
 </AccordionGroup>

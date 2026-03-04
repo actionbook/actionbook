@@ -8,6 +8,9 @@ use crate::cli::{BrowserMode, Cli};
 use crate::config::Config;
 use crate::error::{ActionbookError, Result};
 
+const CHROME_WEB_STORE_URL: &str =
+    "https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo";
+
 /// Configure browser mode (isolated vs extension), executable, and headless preference.
 ///
 /// Interactive flow:
@@ -76,10 +79,18 @@ pub async fn configure_browser(
                     serde_json::json!({
                         "step": "browser",
                         "mode": "extension",
+                        "recommended_install_source": "chrome_web_store",
+                        "web_store_url": CHROME_WEB_STORE_URL,
+                        "fallback_auto_install": config.browser.extension.auto_install,
                     })
                 );
             } else {
                 println!("  {}  Using extension mode", "◇".green());
+                println!(
+                    "  {}  Install extension from Chrome Web Store: {}",
+                    "│".dimmed(),
+                    CHROME_WEB_STORE_URL.cyan()
+                );
             }
         }
         return Ok(());
@@ -101,7 +112,7 @@ pub async fn configure_browser(
 fn select_browser_mode(cli: &Cli) -> Result<BrowserMode> {
     let options = vec![
         "isolated   — Launch dedicated browser (clean environment, no setup needed)",
-        "extension  — Control your existing Chrome (requires extension install)",
+        "extension  — Control your existing Chrome (install from Chrome Web Store)",
     ];
 
     let selection = Select::with_theme(&setup_theme())
@@ -218,10 +229,12 @@ fn configure_isolated(cli: &Cli, env: &EnvironmentInfo, config: &mut Config) -> 
     Ok(())
 }
 
-/// Configure extension mode: auto-install if needed, show setup guidance.
+/// Configure extension mode:
+/// - Prefer Chrome Web Store install
+/// - Use local debug install as fallback when needed
 async fn configure_extension(cli: &Cli, config: &mut Config) -> Result<()> {
     let ext_dir = extension_installer::extension_dir()?;
-    let installed = extension_installer::is_installed();
+    let installed_local = extension_installer::is_installed();
 
     if cli.json {
         println!(
@@ -229,70 +242,121 @@ async fn configure_extension(cli: &Cli, config: &mut Config) -> Result<()> {
             serde_json::json!({
                 "step": "browser",
                 "mode": "extension",
-                "extension_installed": installed,
+                "recommended_install_source": "chrome_web_store",
+                "web_store_url": CHROME_WEB_STORE_URL,
+                "local_fallback_installed": installed_local,
+                "fallback_auto_install": config.browser.extension.auto_install,
                 "extension_port": config.browser.extension.port,
             })
         );
         return Ok(());
     }
 
-    // Auto-install extension if not present and auto_install is enabled
-    if !installed && config.browser.extension.auto_install {
-        println!(
-            "  {}  Extension not found. Downloading from GitHub...",
-            "⏳".yellow()
-        );
+    println!("  {}", "│".dimmed());
+    println!(
+        "  {}  {}",
+        "│".dimmed(),
+        "Install Actionbook extension from Chrome Web Store (recommended):".dimmed()
+    );
+    println!(
+        "  {}  1. Open {} in Chrome",
+        "│".dimmed(),
+        CHROME_WEB_STORE_URL.cyan()
+    );
+    println!(
+        "  {}  2. Click \"Add to Chrome\" → \"Add extension\"",
+        "│".dimmed()
+    );
+    println!(
+        "  {}  3. Keep Chrome open and run {}",
+        "│".dimmed(),
+        "actionbook browser open https://example.com".cyan()
+    );
 
-        match extension_installer::download_and_install(false).await {
-            Ok(version) => {
-                println!(
-                    "  {}  Extension v{} installed at {}",
-                    "✓".green(),
-                    version,
-                    ext_dir.display()
-                );
-            }
-            Err(e) => {
-                println!(
-                    "  {}  Failed to auto-install extension: {}",
-                    "✗".red(),
-                    e
-                );
-                println!(
-                    "  {}  Please run {} manually",
-                    "→".yellow(),
-                    "actionbook extension install".cyan()
-                );
+    let web_store_installed = select_yes_no(
+        " Installed from Chrome Web Store successfully?",
+        true,
+    )?;
+
+    if web_store_installed {
+        println!(
+            "  {}  Great. Extension mode will use your Chrome extension directly.",
+            "◇".green()
+        );
+        return Ok(());
+    }
+
+    println!(
+        "  {}  Web Store install failed. Falling back to local debug install.",
+        "■".yellow()
+    );
+
+    if config.browser.extension.auto_install {
+        if installed_local {
+            println!(
+                "  {}  auto_install=true, local fallback is already installed.",
+                "◇".green()
+            );
+        } else {
+            println!(
+                "  {}  auto_install=true, running fallback: {}",
+                "⏳".yellow(),
+                "actionbook extension install".cyan()
+            );
+
+            match extension_installer::download_and_install(false).await {
+                Ok(version) => {
+                    println!(
+                        "  {}  Fallback extension v{} installed at {}",
+                        "✓".green(),
+                        version,
+                        ext_dir.display()
+                    );
+                }
+                Err(e) => {
+                    println!("  {}  Fallback install failed: {}", "✗".red(), e);
+                    println!(
+                        "  {}  Please run {} manually",
+                        "→".yellow(),
+                        "actionbook extension install --force".cyan()
+                    );
+                }
             }
         }
-    } else if installed {
+    } else {
+        println!(
+            "  {}  auto_install=false, skipping automatic fallback install.",
+            "◇".yellow()
+        );
+        println!(
+            "  {}  Run {} if you want local debug fallback.",
+            "→".yellow(),
+            "actionbook extension install".cyan()
+        );
+    }
+
+    if installed_local || extension_installer::is_installed() {
         if let Some(version) = extension_installer::installed_version() {
             println!(
-                "  {}  Extension v{} installed at {}",
+                "  {}  Local fallback extension v{} available at {}",
                 "◇".green(),
                 version,
                 ext_dir.display()
             );
         } else {
             println!(
-                "  {}  Extension installed at {}",
+                "  {}  Local fallback extension available at {}",
                 "◇".green(),
                 ext_dir.display()
             );
         }
-    } else {
-        println!(
-            "  {}  Extension not found. Run {} to install.",
-            "■".yellow(),
-            "actionbook extension install".cyan()
-        );
     }
 
     println!("  {}", "│".dimmed());
     println!(
         "  {}  {}",
         "│".dimmed(),
-        "To use extension mode:".dimmed()
+        "Fallback (local debug) setup:".dimmed()
     );
     println!(
         "  {}  1. Open {} in Chrome",
@@ -309,11 +373,54 @@ async fn configure_extension(cli: &Cli, config: &mut Config) -> Result<()> {
         ext_dir.display().to_string().cyan()
     );
     println!(
-        "  {}  4. The extension auto-connects when you run browser commands",
-        "│".dimmed()
+        "  {}  4. Run {} to verify connection",
+        "│".dimmed(),
+        "actionbook browser open https://example.com".cyan()
     );
 
+    let fallback_ready = select_yes_no(
+        " Completed local debug fallback setup successfully?",
+        true,
+    )?;
+
+    if !fallback_ready {
+        println!();
+        println!("  {}", "✖ Extension setup incomplete".red().bold());
+        println!();
+        println!("  Actionbook could not finish installing the Chrome extension.");
+        println!();
+        println!("  You can try one of the following options:");
+        println!();
+        println!("  1) Retry actionbook setup using isolated browser mode (recommended)");
+        println!();
+        println!("     This runs Actionbook in a separate browser environment.");
+        println!();
+        println!("  2) Contact us on Discord");
+        println!();
+        println!("     {}", "https://actionbook.dev/discord".cyan());
+
+        return Err(ActionbookError::SetupError(
+            "Extension setup incomplete".to_string(),
+        ));
+    }
+
     Ok(())
+}
+
+/// Visible yes/no picker to avoid ambiguous TTY behavior in Confirm input mode.
+fn select_yes_no(prompt: &str, default_yes: bool) -> Result<bool> {
+    let options = vec!["yes", "no"];
+    let default = if default_yes { 0 } else { 1 };
+
+    let selection = Select::with_theme(&setup_theme())
+        .with_prompt(prompt)
+        .items(&options)
+        .default(default)
+        .report(false)
+        .interact()
+        .map_err(|e| ActionbookError::SetupError(format!("Prompt failed: {}", e)))?;
+
+    Ok(selection == 0)
 }
 
 fn apply_browser_mode(

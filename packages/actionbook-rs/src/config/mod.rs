@@ -134,7 +134,7 @@ pub struct ExtensionConfig {
     #[serde(default = "default_extension_port")]
     pub port: u16,
 
-    /// Auto-install extension on first use
+    /// Auto-install local debug extension fallback when Web Store install is unavailable
     #[serde(default = "default_true")]
     pub auto_install: bool,
 }

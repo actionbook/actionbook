@@ -435,11 +435,11 @@ mod tests {
 async fn install(cli: &Cli, force: bool) -> Result<()> {
     let dir = extension_installer::extension_dir()?;
 
-    // Download from GitHub (handles version comparison internally —
+    // Fallback local-debug install from GitHub (handles version comparison internally —
     // returns AlreadyUpToDate when installed version >= latest)
     if !cli.json {
         println!(
-            "  {} Checking for latest extension release...",
+            "  {} Installing local debug fallback extension package...",
             "◆".cyan()
         );
     }
@@ -463,7 +463,7 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
                 );
             } else {
                 println!(
-                    "  {} Extension v{} is already up to date",
+                    "  {} Local fallback extension v{} is already up to date",
                     "✓".green(),
                     current,
                 );
@@ -490,7 +490,7 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
     } else {
         println!();
         println!(
-            "  {} Extension v{} installed successfully",
+            "  {} Local fallback extension v{} installed successfully",
             "✓".green(),
             version
         );
@@ -498,15 +498,22 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
 
         println!();
         println!("  {}", "Next steps:".bold());
-        println!("  1. Open {} in Chrome", "chrome://extensions".cyan());
-        println!("  2. Enable {}", "Developer mode".bold());
         println!(
-            "  3. Click {} and select:",
+            "  1. Open {} and install from Chrome Web Store (recommended)",
+            "https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo".cyan()
+        );
+        println!(
+            "  2. If Web Store install is unavailable, open {}",
+            "chrome://extensions".cyan()
+        );
+        println!("  3. Enable {}", "Developer mode".bold());
+        println!(
+            "  4. Click {} and select:",
             "Load unpacked".bold()
         );
         println!("     {}", dir.display().to_string().dimmed());
         println!(
-            "  4. Run any browser command (bridge auto-starts):"
+            "  5. Run any browser command (bridge auto-starts):"
         );
         println!(
             "     {}",

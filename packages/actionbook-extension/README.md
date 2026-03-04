@@ -4,15 +4,21 @@ Chrome extension that bridges the Actionbook CLI with your browser for AI-powere
 
 ## Installation
 
-### Option 1: CLI (recommended)
+### Option 1: Chrome Web Store (recommended)
+
+1. Open [Actionbook on Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo)
+2. Click **Add to Chrome**
+3. Confirm **Add extension**
+
+### Option 2: CLI fallback (local debug install)
 
 ```bash
 actionbook extension install
 ```
 
-This downloads the latest release from GitHub and installs it to `~/.actionbook/extension/`.
+This installs the local debug fallback package to `~/.actionbook/extension/`.
 
-### Option 2: Manual download
+### Option 3: Manual download
 
 1. Go to [GitHub Releases](https://github.com/actionbook/actionbook/releases)
 2. Find the latest `actionbook-extension-v*` release
@@ -115,6 +121,6 @@ The CLI and extension are versioned independently. Compatibility is guaranteed b
 
 3. **`No tab attached`** - Make sure Chrome has a visible tab. Run `open` or `goto` first.
 
-4. **GitHub rate limit on install** - Anonymous API allows 60 requests/hour. Wait and retry, or download the `.zip` manually from the [Releases page](https://github.com/actionbook/actionbook/releases).
+4. **Web Store install failed** - Use fallback `actionbook extension install`, then load it from `chrome://extensions` with **Load unpacked**.
 
 5. **Offline install** - Download the `.zip` from another machine, unzip to `~/.actionbook/extension/`, then load it as an unpacked extension in `chrome://extensions`.

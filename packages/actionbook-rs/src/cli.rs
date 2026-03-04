@@ -768,7 +768,7 @@ pub enum ExtensionCommands {
         port: u16,
     },
 
-    /// Download and install the Chrome extension from GitHub
+    /// Install local debug extension fallback package from GitHub
     Install {
         /// Force reinstall even if already installed at same version
         #[arg(long)]
