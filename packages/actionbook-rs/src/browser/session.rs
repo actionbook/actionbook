@@ -33,6 +33,9 @@ struct SessionState {
     cdp_url: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     active_page_id: Option<String>,
+    /// Path to custom application (for Electron apps launched via app launch)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    custom_app_path: Option<String>,
 }
 
 /// Stealth configuration for session manager
@@ -144,6 +147,7 @@ impl SessionManager {
             pid: None,
             cdp_url: cdp_url.to_string(),
             active_page_id: None,
+            custom_app_path: None,
         };
         self.save_session_state(&state)
     }
@@ -232,6 +236,7 @@ impl SessionManager {
             pid: None, // TODO: get actual PID
             cdp_url: cdp_url.clone(),
             active_page_id: None,
+            custom_app_path: None,
         };
         self.save_session_state(&state)?;
 
@@ -242,6 +247,117 @@ impl SessionManager {
         self.apply_stealth_js(&state).await;
 
         Ok(result)
+    }
+
+    /// Launch a custom app (Electron/etc.) and connect to its CDP endpoint
+    pub async fn launch_custom_app(
+        &self,
+        profile_name: &str,
+        executable_path: &str,
+        extra_args: Vec<String>,
+        port: Option<u16>,
+    ) -> Result<(Browser, Handler)> {
+        use std::process::{Command, Stdio};
+
+        // Determine CDP port
+        let cdp_port = port.unwrap_or_else(|| {
+            // Find a free port if not specified
+            if super::launcher::is_port_available(9222) {
+                9222
+            } else {
+                super::launcher::find_free_port().unwrap_or(9223)
+            }
+        });
+
+        // Build command with CDP port
+        let mut args = vec![format!("--remote-debugging-port={}", cdp_port)];
+        args.extend(extra_args);
+
+        tracing::info!(
+            "Launching custom app: {} with args: {:?}",
+            executable_path,
+            args
+        );
+
+        // Spawn the process
+        let _child = Command::new(executable_path)
+            .args(&args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| {
+                ActionbookError::BrowserLaunchFailed(format!(
+                    "Failed to launch custom app {}: {}",
+                    executable_path, e
+                ))
+            })?;
+
+        // Wait for CDP to be ready
+        let cdp_url = self.wait_for_cdp_ready(cdp_port).await?;
+
+        // Save session state
+        let state = SessionState {
+            profile_name: profile_name.to_string(),
+            cdp_port,
+            pid: None,
+            cdp_url: cdp_url.clone(),
+            active_page_id: None,
+            custom_app_path: Some(executable_path.to_string()),
+        };
+        self.save_session_state(&state)?;
+
+        // Connect to the app
+        let result = self.connect_to_session(&state).await?;
+
+        // Apply stealth JS overrides
+        self.apply_stealth_js(&state).await;
+
+        Ok(result)
+    }
+
+    /// Wait for CDP endpoint to become available (reused from launcher pattern)
+    async fn wait_for_cdp_ready(&self, cdp_port: u16) -> Result<String> {
+        use tokio::time::sleep;
+
+        let url = format!("http://127.0.0.1:{}/json/version", cdp_port);
+
+        // Build client with NO_PROXY for localhost
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
+        // Try for up to 10 seconds
+        for i in 0..20 {
+            sleep(Duration::from_millis(500)).await;
+
+            match client.get(&url).send().await {
+                Ok(response) if response.status().is_success() => {
+                    let json: serde_json::Value = response.json().await.map_err(|e| {
+                        ActionbookError::CdpConnectionFailed(format!(
+                            "Failed to parse CDP response: {}",
+                            e
+                        ))
+                    })?;
+
+                    if let Some(ws_url) = json.get("webSocketDebuggerUrl").and_then(|v| v.as_str())
+                    {
+                        tracing::info!("CDP ready at: {}", ws_url);
+                        return Ok(ws_url.to_string());
+                    }
+                }
+                Ok(_) => {
+                    tracing::debug!("CDP not ready yet (attempt {})", i + 1);
+                }
+                Err(e) => {
+                    tracing::debug!("CDP connection attempt {} failed: {}", i + 1, e);
+                }
+            }
+        }
+
+        Err(ActionbookError::CdpConnectionFailed(
+            "Timeout waiting for CDP to be ready".to_string(),
+        ))
     }
 
     /// Apply stealth JavaScript overrides to the browser via CDP

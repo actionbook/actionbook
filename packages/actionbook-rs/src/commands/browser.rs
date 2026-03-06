@@ -290,7 +290,7 @@ async fn ensure_cdp_override(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-fn effective_profile_name<'a>(cli: &'a Cli, config: &'a Config) -> &'a str {
+pub(crate) fn effective_profile_name<'a>(cli: &'a Cli, config: &'a Config) -> &'a str {
     cli.profile
         .as_deref()
         .map(str::trim)
@@ -641,7 +641,7 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
     }
 }
 
-async fn status(cli: &Cli, config: &Config) -> Result<()> {
+pub(crate) async fn status(cli: &Cli, config: &Config) -> Result<()> {
     // Show API key status
     println!("{}", "API Key:".bold());
     let api_key = cli.api_key.as_deref().or(config.api.api_key.as_deref());
@@ -753,7 +753,7 @@ async fn status(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
+pub(crate) async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
     let normalized_url = normalize_navigation_url(url)?;
     let normalized_url = if cli.rewrite_urls {
         let (rewritten, was_rewritten) = crate::browser::url_rewrite::maybe_rewrite(&normalized_url);
@@ -883,7 +883,7 @@ async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
     Ok(())
 }
 
-async fn goto(cli: &Cli, config: &Config, url: &str, _timeout_ms: u64) -> Result<()> {
+pub(crate) async fn goto(cli: &Cli, config: &Config, url: &str, _timeout_ms: u64) -> Result<()> {
     let normalized_url = normalize_navigation_url(url)?;
     let normalized_url = if cli.rewrite_urls {
         let (rewritten, was_rewritten) = crate::browser::url_rewrite::maybe_rewrite(&normalized_url);
@@ -963,7 +963,7 @@ async fn goto(cli: &Cli, config: &Config, url: &str, _timeout_ms: u64) -> Result
     Ok(())
 }
 
-async fn back(cli: &Cli, config: &Config) -> Result<()> {
+pub(crate) async fn back(cli: &Cli, config: &Config) -> Result<()> {
     if cli.extension {
         extension_eval(cli, "history.back()").await?;
 
@@ -989,7 +989,7 @@ async fn back(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn forward(cli: &Cli, config: &Config) -> Result<()> {
+pub(crate) async fn forward(cli: &Cli, config: &Config) -> Result<()> {
     if cli.extension {
         extension_eval(cli, "history.forward()").await?;
 
@@ -1015,7 +1015,7 @@ async fn forward(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn reload(cli: &Cli, config: &Config) -> Result<()> {
+pub(crate) async fn reload(cli: &Cli, config: &Config) -> Result<()> {
     if cli.extension {
         extension_send(cli, "Page.reload", serde_json::json!({})).await?;
 
@@ -1041,7 +1041,7 @@ async fn reload(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn pages(cli: &Cli, config: &Config) -> Result<()> {
+pub(crate) async fn pages(cli: &Cli, config: &Config) -> Result<()> {
     if cli.extension {
         let result = extension_send(
             cli,
@@ -1115,7 +1115,7 @@ async fn pages(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn switch(cli: &Cli, _config: &Config, page_id: &str) -> Result<()> {
+pub(crate) async fn switch(cli: &Cli, _config: &Config, page_id: &str) -> Result<()> {
     if cli.extension {
         // In extension mode, page_id is expected to be a tab ID (numeric)
         let tab_id: u64 = page_id.strip_prefix("tab:").unwrap_or(page_id).parse().map_err(|_| {
@@ -1157,7 +1157,7 @@ async fn switch(cli: &Cli, _config: &Config, page_id: &str) -> Result<()> {
     Ok(())
 }
 
-async fn wait(cli: &Cli, config: &Config, selector: &str, timeout_ms: u64) -> Result<()> {
+pub(crate) async fn wait(cli: &Cli, config: &Config, selector: &str, timeout_ms: u64) -> Result<()> {
     if cli.extension {
         let resolve_js = js_resolve_selector(selector);
         let poll_js = format!(
@@ -1211,7 +1211,7 @@ async fn wait(cli: &Cli, config: &Config, selector: &str, timeout_ms: u64) -> Re
     Ok(())
 }
 
-async fn wait_nav(cli: &Cli, config: &Config, timeout_ms: u64) -> Result<()> {
+pub(crate) async fn wait_nav(cli: &Cli, config: &Config, timeout_ms: u64) -> Result<()> {
     if cli.extension {
         // Poll document.readyState until "complete" or timeout
         let poll_js = format!(
@@ -1270,7 +1270,7 @@ async fn wait_nav(cli: &Cli, config: &Config, timeout_ms: u64) -> Result<()> {
     Ok(())
 }
 
-async fn click(
+pub(crate) async fn click(
     cli: &Cli,
     config: &Config,
     selector: Option<&str>,
@@ -1438,7 +1438,7 @@ async fn click(
     Ok(())
 }
 
-async fn type_text(
+pub(crate) async fn type_text(
     cli: &Cli,
     config: &Config,
     selector: Option<&str>,
@@ -1641,7 +1641,7 @@ async fn type_text(
     Ok(())
 }
 
-async fn fill(
+pub(crate) async fn fill(
     cli: &Cli,
     config: &Config,
     selector: Option<&str>,
@@ -1780,7 +1780,7 @@ async fn fill(
     Ok(())
 }
 
-async fn select(cli: &Cli, config: &Config, selector: &str, value: &str) -> Result<()> {
+pub(crate) async fn select(cli: &Cli, config: &Config, selector: &str, value: &str) -> Result<()> {
     if cli.extension {
         let resolve_js = js_resolve_selector(selector);
         let escaped_value = escape_js_string(value);
@@ -1846,7 +1846,7 @@ async fn select(cli: &Cli, config: &Config, selector: &str, value: &str) -> Resu
     Ok(())
 }
 
-async fn hover(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
+pub(crate) async fn hover(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
     if cli.extension {
         let resolve_js = js_resolve_selector(selector);
         let hover_js = format!(
@@ -1904,7 +1904,7 @@ async fn hover(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
     Ok(())
 }
 
-async fn focus(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
+pub(crate) async fn focus(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
     if cli.extension {
         let resolve_js = js_resolve_selector(selector);
         let focus_js = format!(
@@ -1960,7 +1960,7 @@ async fn focus(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
     Ok(())
 }
 
-async fn press(cli: &Cli, config: &Config, key: &str) -> Result<()> {
+pub(crate) async fn press(cli: &Cli, config: &Config, key: &str) -> Result<()> {
     if cli.extension {
         let escaped_key = escape_js_string(key);
         let press_js = format!(
@@ -2035,7 +2035,7 @@ async fn press(cli: &Cli, config: &Config, key: &str) -> Result<()> {
     Ok(())
 }
 
-async fn screenshot(cli: &Cli, config: &Config, path: &str, full_page: bool) -> Result<()> {
+pub(crate) async fn screenshot(cli: &Cli, config: &Config, path: &str, full_page: bool) -> Result<()> {
     if cli.extension {
         if cli.camofox {
             // Route through Extension Bridge with Camoufox backend
@@ -2187,7 +2187,7 @@ async fn screenshot(cli: &Cli, config: &Config, path: &str, full_page: bool) -> 
     Ok(())
 }
 
-async fn pdf(cli: &Cli, config: &Config, path: &str) -> Result<()> {
+pub(crate) async fn pdf(cli: &Cli, config: &Config, path: &str) -> Result<()> {
     if cli.extension {
         let result = extension_send(cli, "Page.printToPDF", serde_json::json!({})).await?;
         let b64_data = result
@@ -2253,7 +2253,7 @@ async fn pdf(cli: &Cli, config: &Config, path: &str) -> Result<()> {
     Ok(())
 }
 
-async fn eval(cli: &Cli, config: &Config, code: &str) -> Result<()> {
+pub(crate) async fn eval(cli: &Cli, config: &Config, code: &str) -> Result<()> {
     let value = if cli.extension {
         let result = extension_send(
             cli,
@@ -2292,7 +2292,7 @@ async fn eval(cli: &Cli, config: &Config, code: &str) -> Result<()> {
     Ok(())
 }
 
-async fn html(cli: &Cli, config: &Config, selector: Option<&str>) -> Result<()> {
+pub(crate) async fn html(cli: &Cli, config: &Config, selector: Option<&str>) -> Result<()> {
     if cli.extension {
         if cli.camofox {
             // Route through Extension Bridge with Camoufox backend
@@ -2376,7 +2376,7 @@ async fn html(cli: &Cli, config: &Config, selector: Option<&str>) -> Result<()> 
     Ok(())
 }
 
-async fn text(cli: &Cli, config: &Config, selector: Option<&str>, mode: &str) -> Result<()> {
+pub(crate) async fn text(cli: &Cli, config: &Config, selector: Option<&str>, mode: &str) -> Result<()> {
     if cli.extension {
         // Extension mode: always uses JS-based extraction
         let js = match selector {
@@ -2476,7 +2476,7 @@ fn save_last_snapshot(nodes: &[crate::browser::snapshot::A11yNode]) {
     }
 }
 
-async fn snapshot(
+pub(crate) async fn snapshot(
     cli: &Cli,
     config: &Config,
     interactive: bool,
@@ -2770,7 +2770,7 @@ async fn snapshot_js_fallback(
     Ok(())
 }
 
-async fn inspect(cli: &Cli, config: &Config, x: f64, y: f64, desc: Option<&str>) -> Result<()> {
+pub(crate) async fn inspect(cli: &Cli, config: &Config, x: f64, y: f64, desc: Option<&str>) -> Result<()> {
     if cli.extension {
         // In extension mode, use JS elementFromPoint + gather info
         let inspect_js = format!(
@@ -3085,7 +3085,7 @@ async fn inspect(cli: &Cli, config: &Config, x: f64, y: f64, desc: Option<&str>)
     Ok(())
 }
 
-async fn viewport(cli: &Cli, config: &Config) -> Result<()> {
+pub(crate) async fn viewport(cli: &Cli, config: &Config) -> Result<()> {
     if cli.extension {
         let value = extension_eval(
             cli,
@@ -3142,7 +3142,7 @@ async fn viewport(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn cookies(cli: &Cli, config: &Config, command: &Option<CookiesCommands>) -> Result<()> {
+pub(crate) async fn cookies(cli: &Cli, config: &Config, command: &Option<CookiesCommands>) -> Result<()> {
     if cli.extension {
         return cookies_extension(cli, command).await;
     }
@@ -3533,7 +3533,7 @@ async fn cookies_extension(cli: &Cli, command: &Option<CookiesCommands>) -> Resu
     Ok(())
 }
 
-async fn scroll(
+pub(crate) async fn scroll(
     cli: &Cli,
     config: &Config,
     direction: &crate::cli::ScrollDirection,
@@ -3658,7 +3658,7 @@ fn resolve_session_tag(cli: &Cli) -> String {
 ///
 /// Combines I2 (HTTP degradation), I3 (session tags), I4 (URL rewriting),
 /// and I5 (domain-aware wait hints) into a single high-level command.
-async fn fetch(
+pub(crate) async fn fetch(
     cli: &Cli,
     config: &Config,
     url: &str,
@@ -3807,24 +3807,80 @@ async fn fetch_via_browser(
         },
     };
 
-    let mut driver = create_browser_driver(&temp_cli, &fetch_config).await?;
+    // For CDP backend, we need to start the browser session first
+    // Otherwise disable_animations() and other methods will fail with BrowserNotRunning
+    match BrowserDriver::from_config(&fetch_config, &fetch_config.get_profile(&profile_name).unwrap(), &temp_cli).await? {
+        BrowserDriver::Cdp(session_mgr) => {
+            // Start browser session
+            let (browser, mut handler) = session_mgr.get_or_create_session(Some(&profile_name)).await?;
 
-    // Apply resource blocking
-    apply_resource_blocking(&temp_cli, &mut driver).await;
+            // Spawn handler in background
+            tokio::spawn(async move {
+                while handler.next().await.is_some() {}
+            });
 
-    // Apply animation disabling
-    if let Err(e) = driver.disable_animations().await {
-        tracing::warn!("[{}] Failed to disable animations: {}", session_tag, e);
+            // Create driver from existing session manager
+            let mut driver = BrowserDriver::Cdp(session_mgr);
+
+            // Apply resource blocking
+            apply_resource_blocking(&temp_cli, &mut driver).await;
+
+            // Apply animation disabling
+            if let Err(e) = driver.disable_animations().await {
+                tracing::warn!("[{}] Failed to disable animations: {}", session_tag, e);
+            }
+
+            // Apply dialog auto-dismissal
+            if let Err(e) = driver.enable_dialog_auto_dismiss().await {
+                tracing::warn!("[{}] Failed to enable dialog auto-dismiss: {}", session_tag, e);
+            }
+
+            // Navigate
+            tracing::info!("[{}] navigating to {}", session_tag, url);
+            driver.goto(url).await?;
+
+            // Continue with rest of fetch logic using driver
+            return complete_fetch(driver, url, format, max_tokens, session_tag, cli, profile_name, fetch_config).await;
+        }
+        #[cfg(feature = "camoufox")]
+        driver @ (BrowserDriver::Camofox(_) | BrowserDriver::CamofoxWebDriver(_)) => {
+            // Camoufox doesn't have the same session state requirements
+            let mut driver = driver;
+
+            // Apply resource blocking
+            apply_resource_blocking(&temp_cli, &mut driver).await;
+
+            // Apply animation disabling
+            if let Err(e) = driver.disable_animations().await {
+                tracing::warn!("[{}] Failed to disable animations: {}", session_tag, e);
+            }
+
+            // Apply dialog auto-dismissal
+            if let Err(e) = driver.enable_dialog_auto_dismiss().await {
+                tracing::warn!("[{}] Failed to enable dialog auto-dismiss: {}", session_tag, e);
+            }
+
+            // Navigate
+            tracing::info!("[{}] navigating to {}", session_tag, url);
+            driver.goto(url).await?;
+
+            // Continue with rest of fetch logic using driver
+            return complete_fetch(driver, url, format, max_tokens, session_tag, cli, profile_name, fetch_config).await;
+        }
     }
+}
 
-    // Apply dialog auto-dismissal
-    if let Err(e) = driver.enable_dialog_auto_dismiss().await {
-        tracing::warn!("[{}] Failed to enable dialog auto-dismiss: {}", session_tag, e);
-    }
-
-    // Navigate
-    tracing::info!("[{}] navigating to {}", session_tag, url);
-    driver.goto(url).await?;
+/// Complete the fetch operation after navigation
+async fn complete_fetch(
+    mut driver: BrowserDriver,
+    url: &str,
+    format: &str,
+    max_tokens: Option<usize>,
+    session_tag: &str,
+    cli: &Cli,
+    profile_name: String,
+    config: Config,
+) -> Result<()> {
 
     // I5: Domain-aware wait
     let wait_ms =
@@ -3941,7 +3997,7 @@ async fn fetch_via_browser(
     }
 
     // Clean up: close the session
-    let session_manager = create_session_manager(&temp_cli, &fetch_config);
+    let session_manager = SessionManager::new(config.clone());
     if let Err(e) = session_manager.close_session(Some(&profile_name)).await {
         tracing::debug!("[{}] cleanup: {}", session_tag, e);
     }
@@ -3958,7 +4014,7 @@ async fn fetch_via_browser(
     Ok(())
 }
 
-async fn upload(
+pub(crate) async fn upload(
     cli: &Cli,
     config: &Config,
     files: &[String],
@@ -4086,7 +4142,7 @@ async fn upload(
     Ok(())
 }
 
-async fn close(cli: &Cli, config: &Config) -> Result<()> {
+pub(crate) async fn close(cli: &Cli, config: &Config) -> Result<()> {
     if cli.extension {
         // Best-effort detach: bridge may already be down, so ignore errors
         if let Err(e) = extension_send(cli, "Extension.detachTab", serde_json::json!({})).await {
@@ -4128,7 +4184,7 @@ async fn close(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn fingerprint(cli: &Cli, config: &Config, command: &FingerprintCommands) -> Result<()> {
+pub(crate) async fn fingerprint(cli: &Cli, config: &Config, command: &FingerprintCommands) -> Result<()> {
     match command {
         FingerprintCommands::Rotate { os, screen } => {
             use crate::browser::fingerprint_generator::{
@@ -4192,7 +4248,7 @@ async fn fingerprint(cli: &Cli, config: &Config, command: &FingerprintCommands) 
 
 // ========== H1: Console Log Capture ==========
 
-async fn console_log(cli: &Cli, config: &Config, duration_ms: u64, level: &str) -> Result<()> {
+pub(crate) async fn console_log(cli: &Cli, config: &Config, duration_ms: u64, level: &str) -> Result<()> {
     if cli.extension {
         return Err(ActionbookError::FeatureNotSupported(
             "Console capture is not supported in extension mode".to_string(),
@@ -4258,7 +4314,7 @@ async fn console_log(cli: &Cli, config: &Config, duration_ms: u64, level: &str) 
 
 // ========== H2: Network Idle Wait ==========
 
-async fn wait_idle(cli: &Cli, config: &Config, timeout_ms: u64, idle_ms: u64) -> Result<()> {
+pub(crate) async fn wait_idle(cli: &Cli, config: &Config, timeout_ms: u64, idle_ms: u64) -> Result<()> {
     if cli.extension {
         return Err(ActionbookError::FeatureNotSupported(
             "Network idle wait is not supported in extension mode".to_string(),
@@ -4278,7 +4334,7 @@ async fn wait_idle(cli: &Cli, config: &Config, timeout_ms: u64, idle_ms: u64) ->
 
 // ========== H4: Element Info ==========
 
-async fn info(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
+pub(crate) async fn info(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
     if cli.extension {
         let js = format!(
             r#"(function() {{
@@ -4354,7 +4410,7 @@ async fn info(cli: &Cli, config: &Config, selector: &str) -> Result<()> {
 
 // ========== H5: Local Storage Management ==========
 
-async fn storage(cli: &Cli, config: &Config, command: &StorageCommands) -> Result<()> {
+pub(crate) async fn storage(cli: &Cli, config: &Config, command: &StorageCommands) -> Result<()> {
     match command {
         StorageCommands::Get { key, session } => {
             let storage_type = if *session { "sessionStorage" } else { "localStorage" };
@@ -4525,7 +4581,7 @@ fn resolve_device(name: &str) -> Result<(u32, u32, f64, bool, Option<&'static st
     }
 }
 
-async fn emulate(cli: &Cli, config: &Config, device: &str) -> Result<()> {
+pub(crate) async fn emulate(cli: &Cli, config: &Config, device: &str) -> Result<()> {
     let (width, height, scale, mobile, ua) = resolve_device(device)?;
 
     if cli.extension {
@@ -4567,7 +4623,7 @@ async fn emulate(cli: &Cli, config: &Config, device: &str) -> Result<()> {
 
 // ========== H7: Wait for JS Condition ==========
 
-async fn wait_fn(
+pub(crate) async fn wait_fn(
     cli: &Cli,
     config: &Config,
     expression: &str,
@@ -4625,7 +4681,7 @@ async fn wait_fn(
     Ok(())
 }
 
-async fn restart(cli: &Cli, config: &Config) -> Result<()> {
+pub(crate) async fn restart(cli: &Cli, config: &Config) -> Result<()> {
     if cli.extension {
         // In extension mode, reload the page as a "restart"
         extension_send(cli, "Page.reload", serde_json::json!({})).await?;
@@ -4663,7 +4719,7 @@ async fn restart(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn connect(cli: &Cli, config: &Config, endpoint: &str) -> Result<()> {
+pub(crate) async fn connect(cli: &Cli, config: &Config, endpoint: &str) -> Result<()> {
     let profile_name = effective_profile_name(cli, config);
     let (cdp_port, cdp_url) = resolve_cdp_endpoint(endpoint).await?;
 
@@ -4690,7 +4746,7 @@ async fn connect(cli: &Cli, config: &Config, endpoint: &str) -> Result<()> {
     Ok(())
 }
 
-async fn tab_command(cli: &Cli, config: &Config, cmd: &TabCommands) -> Result<()> {
+pub(crate) async fn tab_command(cli: &Cli, config: &Config, cmd: &TabCommands) -> Result<()> {
     match cmd {
         TabCommands::List => tab_list(cli, config).await,
         TabCommands::New { url } => tab_new(cli, config, url.as_deref()).await,
@@ -4700,7 +4756,7 @@ async fn tab_command(cli: &Cli, config: &Config, cmd: &TabCommands) -> Result<()
     }
 }
 
-async fn tab_list(cli: &Cli, config: &Config) -> Result<()> {
+pub(crate) async fn tab_list(cli: &Cli, config: &Config) -> Result<()> {
     if cli.extension {
         // Extension mode
         let result = extension_send(cli, "Extension.listTabs", serde_json::json!({})).await?;
@@ -4752,7 +4808,7 @@ async fn tab_list(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn tab_new(cli: &Cli, config: &Config, url: Option<&str>) -> Result<()> {
+pub(crate) async fn tab_new(cli: &Cli, config: &Config, url: Option<&str>) -> Result<()> {
     if cli.extension {
         let params = if let Some(url) = url {
             serde_json::json!({ "url": url })
@@ -4789,7 +4845,7 @@ async fn tab_new(cli: &Cli, config: &Config, url: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-async fn tab_switch(cli: &Cli, config: &Config, page_id: &str) -> Result<()> {
+pub(crate) async fn tab_switch(cli: &Cli, config: &Config, page_id: &str) -> Result<()> {
     if cli.extension {
         let tab_id: u64 = page_id.parse()
             .map_err(|_| ActionbookError::InvalidArgument("Invalid tab ID".to_string()))?;
@@ -4825,7 +4881,7 @@ async fn tab_switch(cli: &Cli, config: &Config, page_id: &str) -> Result<()> {
     Ok(())
 }
 
-async fn tab_close(cli: &Cli, config: &Config, page_id: Option<&str>) -> Result<()> {
+pub(crate) async fn tab_close(cli: &Cli, config: &Config, page_id: Option<&str>) -> Result<()> {
     if cli.extension {
         let tab_id = if let Some(id) = page_id {
             id.parse::<u64>()
@@ -4867,7 +4923,7 @@ async fn tab_close(cli: &Cli, config: &Config, page_id: Option<&str>) -> Result<
     Ok(())
 }
 
-async fn tab_active(cli: &Cli, config: &Config) -> Result<()> {
+pub(crate) async fn tab_active(cli: &Cli, config: &Config) -> Result<()> {
     if cli.extension {
         let result = extension_send(cli, "Extension.getActiveTab", serde_json::json!({})).await?;
 
