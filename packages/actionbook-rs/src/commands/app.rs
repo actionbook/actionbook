@@ -58,17 +58,11 @@ pub async fn run(cli: &Cli, command: &AppCommands) -> Result<()> {
             .await
         }
         AppCommands::Type { selector, text, wait, ref_id, human } => {
-            // Validate: text is required unless using --ref mode
-            if text.is_none() && ref_id.is_none() {
-                return Err(ActionbookError::InvalidArgument(
-                    "Text is required. Use --ref <ID> to type into a snapshot reference, or provide text directly.".to_string()
-                ));
-            }
             crate::commands::browser::type_text(
                 cli,
                 &config,
                 selector.as_deref(),
-                text.as_deref().unwrap_or(""),
+                text,
                 *wait,
                 ref_id.as_deref(),
                 *human,
@@ -76,17 +70,11 @@ pub async fn run(cli: &Cli, command: &AppCommands) -> Result<()> {
             .await
         }
         AppCommands::Fill { selector, text, wait, ref_id } => {
-            // Validate: text is required unless using --ref mode
-            if text.is_none() && ref_id.is_none() {
-                return Err(ActionbookError::InvalidArgument(
-                    "Text is required. Use --ref <ID> to fill a snapshot reference, or provide text directly.".to_string()
-                ));
-            }
             crate::commands::browser::fill(
                 cli,
                 &config,
                 selector.as_deref(),
-                text.as_deref().unwrap_or(""),
+                text,
                 *wait,
                 ref_id.as_deref(),
             )
@@ -252,15 +240,16 @@ async fn launch(cli: &Cli, config: &Config, app_name: &str) -> Result<()> {
 
 /// Attach to a running application
 async fn attach(cli: &Cli, config: &Config, target: &str) -> Result<()> {
-    // Determine if target is a port number or WebSocket URL
-    let endpoint = if target.parse::<u16>().is_ok() {
-        // It's a port number - pass as-is (don't convert to HTTP URL)
-        target.to_string()
+    // Parse target and try to infer app path for better restart support
+    let (endpoint, inferred_app_path) = if let Ok(port) = target.parse::<u16>() {
+        // It's a port number - try to infer app from CDP info
+        let app_path = try_infer_app_from_port(port).await;
+        (port.to_string(), app_path)
     } else if target.starts_with("ws://") || target.starts_with("wss://") {
-        // It's already a WebSocket URL
-        target.to_string()
+        // WebSocket URL - cannot infer app path reliably
+        (target.to_string(), None)
     } else if target.starts_with("http://") || target.starts_with("https://") {
-        // It's an HTTP URL - extract port number
+        // HTTP URL - extract port and try to infer app
         let port = target
             .split("://")
             .nth(1)
@@ -273,7 +262,8 @@ async fn attach(cli: &Cli, config: &Config, target: &str) -> Result<()> {
                     target
                 ))
             })?;
-        port.to_string()
+        let app_path = try_infer_app_from_port(port).await;
+        (port.to_string(), app_path)
     } else {
         // Try to find app by name
         let apps = discover_electron_apps();
@@ -297,43 +287,72 @@ async fn attach(cli: &Cli, config: &Config, target: &str) -> Result<()> {
 
         // Try to auto-detect CDP port (common ports: 9222-9225)
         println!("Scanning for active CDP ports...");
+        let mut found_ports = Vec::new();
+
         for port in [9222, 9223, 9224, 9225] {
-            if is_cdp_port_responding(port).await {
-                println!("{} Detected CDP port: {}", "✓".green(), port);
-
-                // Connect and save session with app path
-                let profile_name = crate::commands::browser::effective_profile_name(cli, config);
-                let (cdp_port, cdp_url) = crate::commands::browser::resolve_cdp_endpoint(&port.to_string()).await?;
-
-                let session_manager = SessionManager::new(config.clone());
-                let app_path_str = app.path.to_str().map(|s| s.to_string());
-                session_manager.save_external_session_with_app(
-                    profile_name,
-                    cdp_port,
-                    &cdp_url,
-                    app_path_str,
-                )?;
-
-                if cli.json {
+            if let Some(cdp_info) = get_cdp_info(port).await {
+                // Verify this port belongs to the target app
+                if cdp_info_matches_app(&cdp_info, &app.name) {
                     println!(
-                        "{}",
-                        serde_json::json!({
-                            "success": true,
-                            "app_name": app.name,
-                            "app_path": app.path,
-                            "profile": profile_name,
-                            "cdp_port": cdp_port,
-                            "cdp_url": cdp_url
-                        })
+                        "{} Detected CDP port {} for {}",
+                        "✓".green(),
+                        port,
+                        app.name
                     );
+                    found_ports.push((port, cdp_info));
                 } else {
-                    println!("{} Connected to {} at port {}", "✓".green(), app.name, cdp_port);
-                    println!("  WebSocket URL: {}", cdp_url);
-                    println!("  Profile: {}", profile_name);
+                    // Port is active but for different app
+                    if let Some(browser) = cdp_info.get("Browser").and_then(|v| v.as_str()) {
+                        println!(
+                            "{} Port {} is active but belongs to: {}",
+                            "ℹ".blue(),
+                            port,
+                            browser
+                        );
+                    }
                 }
-
-                return Ok(());
             }
+        }
+
+        if let Some((port, _cdp_info)) = found_ports.first() {
+            // Connect and save session with app path
+            let profile_name = crate::commands::browser::effective_profile_name(cli, config);
+            let (cdp_port, cdp_url) =
+                crate::commands::browser::resolve_cdp_endpoint(&port.to_string()).await?;
+
+            let session_manager = SessionManager::new(config.clone());
+            let app_path_str = app.path.to_str().map(|s| s.to_string());
+            session_manager.save_external_session_with_app(
+                profile_name,
+                cdp_port,
+                &cdp_url,
+                app_path_str,
+            )?;
+
+            if cli.json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "success": true,
+                        "app_name": app.name,
+                        "app_path": app.path,
+                        "profile": profile_name,
+                        "cdp_port": cdp_port,
+                        "cdp_url": cdp_url
+                    })
+                );
+            } else {
+                println!(
+                    "{} Connected to {} at port {}",
+                    "✓".green(),
+                    app.name,
+                    cdp_port
+                );
+                println!("  WebSocket URL: {}", cdp_url);
+                println!("  Profile: {}", profile_name);
+            }
+
+            return Ok(());
         }
 
         return Err(ActionbookError::ConfigError(format!(
@@ -344,41 +363,128 @@ async fn attach(cli: &Cli, config: &Config, target: &str) -> Result<()> {
         )));
     };
 
-    // Delegate to browser connect command (for port/URL endpoints)
-    crate::commands::browser::connect(cli, config, &endpoint).await
+    // Connect and save session with inferred app path (if any)
+    let profile_name = crate::commands::browser::effective_profile_name(cli, config);
+    let (cdp_port, cdp_url) = crate::commands::browser::resolve_cdp_endpoint(&endpoint).await?;
+
+    let session_manager = SessionManager::new(config.clone());
+    session_manager.save_external_session_with_app(
+        profile_name,
+        cdp_port,
+        &cdp_url,
+        inferred_app_path.clone(),
+    )?;
+
+    if cli.json {
+        let mut json_output = serde_json::json!({
+            "success": true,
+            "profile": profile_name,
+            "cdp_port": cdp_port,
+            "cdp_url": cdp_url
+        });
+        if let Some(app_path) = inferred_app_path {
+            json_output["app_path"] = serde_json::json!(app_path);
+            json_output["note"] = serde_json::json!("App path inferred from CDP info");
+        }
+        println!("{}", serde_json::to_string_pretty(&json_output)?);
+    } else {
+        println!("{} Connected to CDP at port {}", "✓".green(), cdp_port);
+        println!("  WebSocket URL: {}", cdp_url);
+        println!("  Profile: {}", profile_name);
+        if let Some(app_path) = inferred_app_path {
+            println!("  {} Inferred app path: {}", "ℹ".blue(), app_path);
+        } else {
+            println!(
+                "  {} Could not infer app path from CDP. Restart will use browser mode.",
+                "⚠".yellow()
+            );
+        }
+    }
+
+    Ok(())
 }
 
-/// Check if a CDP port is responding with valid CDP protocol
-async fn is_cdp_port_responding(port: u16) -> bool {
+/// Try to infer app path from CDP port by matching against known apps
+async fn try_infer_app_from_port(port: u16) -> Option<String> {
+    let cdp_info = get_cdp_info(port).await?;
+    let apps = discover_electron_apps();
+
+    // Try to match CDP info against known apps
+    for app in &apps {
+        if cdp_info_matches_app(&cdp_info, &app.name) {
+            return app.path.to_str().map(|s| s.to_string());
+        }
+    }
+
+    // If we found Electron but can't match to specific app, return None
+    // (User can still use it, but restart will be in browser mode)
+    None
+}
+
+/// Get CDP info from a port, returns JSON response if valid
+async fn get_cdp_info(port: u16) -> Option<serde_json::Value> {
     use std::time::Duration;
 
-    let client = match reqwest::Client::builder()
+    let client = reqwest::Client::builder()
         .no_proxy()
         .timeout(Duration::from_secs(1))
         .build()
-    {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
+        .ok()?;
 
     // Check /json/version endpoint for CDP protocol
-    let response = match client
+    let response = client
         .get(format!("http://127.0.0.1:{}/json/version", port))
         .send()
         .await
-    {
-        Ok(r) if r.status().is_success() => r,
-        _ => return false,
-    };
+        .ok()?;
 
-    // Verify response is valid CDP JSON with webSocketDebuggerUrl field
-    if let Ok(json) = response.json::<serde_json::Value>().await {
-        json.get("webSocketDebuggerUrl").is_some()
-            || json.get("Browser").is_some()
-            || json.get("Protocol-Version").is_some()
-    } else {
-        false
+    if !response.status().is_success() {
+        return None;
     }
+
+    // Parse and verify response is valid CDP JSON
+    let json = response.json::<serde_json::Value>().await.ok()?;
+
+    // Verify it has CDP-specific fields
+    if json.get("webSocketDebuggerUrl").is_some()
+        || json.get("Browser").is_some()
+        || json.get("Protocol-Version").is_some()
+    {
+        Some(json)
+    } else {
+        None
+    }
+}
+
+/// Check if CDP info matches expected app name
+fn cdp_info_matches_app(cdp_info: &serde_json::Value, app_name: &str) -> bool {
+    let app_name_lower = app_name.to_lowercase();
+
+    // Check Browser field (e.g., "Chrome/91.0.4472.124", "Electron/13.1.7")
+    if let Some(browser) = cdp_info.get("Browser").and_then(|v| v.as_str()) {
+        if browser.to_lowercase().contains(&app_name_lower) {
+            return true;
+        }
+    }
+
+    // Check User-Agent field
+    if let Some(user_agent) = cdp_info.get("User-Agent").and_then(|v| v.as_str()) {
+        if user_agent.to_lowercase().contains(&app_name_lower) {
+            return true;
+        }
+    }
+
+    // For Electron apps, often the browser string contains "Electron"
+    // but the actual app name might not be in CDP info
+    // So we also accept if it's Electron (less strict)
+    if let Some(browser) = cdp_info.get("Browser").and_then(|v| v.as_str()) {
+        if browser.to_lowercase().contains("electron") {
+            // Accept any Electron app if we're looking for an Electron app
+            return true;
+        }
+    }
+
+    false
 }
 
 /// List all discoverable Electron applications
