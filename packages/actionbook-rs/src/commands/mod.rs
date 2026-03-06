@@ -1,4 +1,5 @@
 pub mod act;
+pub mod app;
 pub mod batch;
 pub mod browser;
 pub mod config;

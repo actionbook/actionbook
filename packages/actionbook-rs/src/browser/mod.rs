@@ -6,6 +6,7 @@ pub mod camofox;
 pub mod camofox_webdriver;
 pub mod content;
 mod discovery;
+pub mod app_discovery; // Electron app discovery
 pub mod extension_backend;
 pub mod extension_bridge;
 pub mod extension_installer;
@@ -27,6 +28,7 @@ pub mod stealth_enhanced; // Enhanced stealth based on Camoufox techniques (Phas
 pub use backend::BrowserBackend;
 #[allow(unused_imports)]
 pub use discovery::{discover_all_browsers, BrowserInfo, BrowserType};
+pub use app_discovery::{discover_electron_apps, ElectronAppInfo};
 pub use router::BrowserDriver;
 pub use session::{SessionManager, SessionStatus, StealthConfig};
 pub use session::{ResourceBlockLevel, TextExtractionMode};

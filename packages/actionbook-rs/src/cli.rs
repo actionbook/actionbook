@@ -138,6 +138,12 @@ pub enum Commands {
         command: BrowserCommands,
     },
 
+    /// Application automation commands (control Electron apps, etc.)
+    App {
+        #[command(subcommand)]
+        command: AppCommands,
+    },
+
     /// Search for action manuals by keyword
     Search {
         /// Search keyword (e.g., "airbnb search", "google login")
@@ -623,6 +629,335 @@ pub enum BrowserCommands {
 }
 
 #[derive(Subcommand, Clone)]
+pub enum AppCommands {
+    /// Launch an application by name (e.g., "Slack", "VSCode")
+    Launch {
+        /// Application name or bundle ID
+        app_name: String,
+    },
+
+    /// Attach to a running application by name or port
+    Attach {
+        /// Application name, bundle ID, or CDP port/WebSocket URL
+        target: String,
+    },
+
+    /// List all discoverable applications with CDP support
+    List,
+
+    /// Show application status and connection info
+    Status,
+
+    /// Close the connected application
+    Close,
+
+    /// Restart the connected application
+    Restart,
+
+    /// Navigate current window to URL
+    Goto {
+        /// URL to navigate to
+        url: String,
+        /// Wait for navigation to complete (ms)
+        #[arg(long, default_value = "30000")]
+        timeout: u64,
+    },
+
+    /// Go back in history
+    Back,
+
+    /// Go forward in history
+    Forward,
+
+    /// Reload current page
+    Reload,
+
+    /// List all open pages/windows
+    Pages,
+
+    /// Switch to a specific page by ID
+    Switch {
+        /// Page ID (from 'pages' command)
+        page_id: String,
+    },
+
+    /// Wait for an element to appear
+    Wait {
+        /// CSS selector to wait for
+        selector: String,
+        /// Timeout in milliseconds
+        #[arg(long, default_value = "30000")]
+        timeout: u64,
+    },
+
+    /// Wait for navigation to complete
+    WaitNav {
+        /// Timeout in milliseconds
+        #[arg(long, default_value = "30000")]
+        timeout: u64,
+    },
+
+    /// Click an element
+    Click {
+        /// CSS selector (or use --ref for snapshot ref)
+        #[arg(required_unless_present = "ref")]
+        selector: Option<String>,
+        /// Wait for element before clicking (ms), 0 to skip
+        #[arg(long, default_value = "0")]
+        wait: u64,
+        /// Snapshot ref (e.g., e0, e5) from last `app snapshot`
+        #[arg(long, name = "ref")]
+        ref_id: Option<String>,
+        /// Use human-like bezier curve mouse movement
+        #[arg(long)]
+        human: bool,
+    },
+
+    /// Type text into an element (appends to existing)
+    Type {
+        /// CSS selector (or use --ref for snapshot ref)
+        #[arg(required_unless_present = "ref")]
+        selector: Option<String>,
+        /// Text to type
+        #[arg(required_unless_present = "ref")]
+        text: Option<String>,
+        /// Wait for element before typing (ms), 0 to skip
+        #[arg(long, default_value = "0")]
+        wait: u64,
+        /// Snapshot ref (e.g., e0, e5) from last `app snapshot`
+        #[arg(long, name = "ref")]
+        ref_id: Option<String>,
+        /// Use human-like typing with natural delays and occasional typos
+        #[arg(long)]
+        human: bool,
+    },
+
+    /// Clear and type text into an element
+    Fill {
+        /// CSS selector (or use --ref for snapshot ref)
+        #[arg(required_unless_present = "ref")]
+        selector: Option<String>,
+        /// Text to fill
+        #[arg(required_unless_present = "ref")]
+        text: Option<String>,
+        /// Wait for element before filling (ms), 0 to skip
+        #[arg(long, default_value = "0")]
+        wait: u64,
+        /// Snapshot ref (e.g., e0, e5) from last `app snapshot`
+        #[arg(long, name = "ref")]
+        ref_id: Option<String>,
+    },
+
+    /// Select an option from dropdown
+    Select {
+        /// CSS selector for select element
+        selector: String,
+        /// Value to select
+        value: String,
+    },
+
+    /// Hover over an element
+    Hover {
+        /// CSS selector
+        selector: String,
+    },
+
+    /// Focus on an element
+    Focus {
+        /// CSS selector
+        selector: String,
+    },
+
+    /// Press a keyboard key
+    Press {
+        /// Key to press (e.g., Enter, Tab, Escape, ArrowDown)
+        key: String,
+    },
+
+    /// Take a screenshot
+    Screenshot {
+        /// Output file path (default: screenshot.png)
+        #[arg(default_value = "screenshot.png")]
+        path: String,
+        /// Take full page screenshot
+        #[arg(long)]
+        full_page: bool,
+    },
+
+    /// Export page as PDF
+    Pdf {
+        /// Output file path
+        path: String,
+    },
+
+    /// Execute JavaScript
+    Eval {
+        /// JavaScript code to execute
+        code: String,
+    },
+
+    /// Get page HTML
+    Html {
+        /// Get only outer HTML of selector (optional)
+        selector: Option<String>,
+    },
+
+    /// Get page text content
+    Text {
+        /// Get only text of selector (optional)
+        selector: Option<String>,
+        /// Extraction mode: raw (innerText) or readability (smart extraction, default)
+        #[arg(long, default_value = "readability")]
+        mode: String,
+    },
+
+    /// Get accessibility snapshot via CDP Accessibility Tree
+    Snapshot {
+        /// Only show interactive elements (buttons, links, inputs)
+        #[arg(short = 'i', long)]
+        interactive: bool,
+        /// Include cursor-interactive elements (cursor:pointer, onclick, tabindex)
+        #[arg(short = 'C', long)]
+        cursor: bool,
+        /// Remove empty structural elements (generic, group, list, etc.)
+        #[arg(short = 'c', long)]
+        compact: bool,
+        /// Maximum tree depth
+        #[arg(short = 'd', long)]
+        depth: Option<usize>,
+        /// Scope to elements under this CSS selector
+        #[arg(short = 's', long)]
+        selector: Option<String>,
+        /// Output format: compact, text, json (default: compact)
+        #[arg(long, default_value = "compact")]
+        format: String,
+        /// Show diff from last snapshot (added/changed/removed)
+        #[arg(long)]
+        diff: bool,
+        /// Truncate output to approximately N tokens (for LLM context window management)
+        #[arg(long)]
+        max_tokens: Option<usize>,
+    },
+
+    /// Inspect DOM element at coordinates
+    Inspect {
+        /// X coordinate within viewport
+        x: f64,
+        /// Y coordinate within viewport
+        y: f64,
+        /// Optional description of what you're looking for
+        #[arg(long)]
+        desc: Option<String>,
+    },
+
+    /// Get viewport dimensions
+    Viewport,
+
+    /// Get or set cookies
+    Cookies {
+        #[command(subcommand)]
+        command: Option<CookiesCommands>,
+    },
+
+    /// Scroll the page
+    Scroll {
+        #[command(subcommand)]
+        direction: ScrollDirection,
+        /// Enable smooth scrolling
+        #[arg(long)]
+        smooth: bool,
+    },
+
+    /// Execute a batch of actions from JSON (stdin or file)
+    Batch {
+        /// Path to JSON file with actions (reads from stdin if omitted)
+        #[arg(long)]
+        file: Option<String>,
+        /// Delay between steps in milliseconds
+        #[arg(long, default_value = "50")]
+        delay: u64,
+    },
+
+    /// Rotate fingerprint (UA, platform, screen, hardware)
+    Fingerprint {
+        #[command(subcommand)]
+        command: FingerprintCommands,
+    },
+
+    /// Capture console log messages from the page
+    Console {
+        /// Duration to listen for messages in milliseconds (0 = snapshot current)
+        #[arg(long, default_value = "0")]
+        duration: u64,
+        /// Filter by log level: all, error, warning, info, log
+        #[arg(long, default_value = "all")]
+        level: String,
+    },
+
+    /// Wait for network to become idle (no pending requests)
+    WaitIdle {
+        /// Timeout in milliseconds
+        #[arg(long, default_value = "30000")]
+        timeout: u64,
+        /// Idle threshold in milliseconds (no requests for this long)
+        #[arg(long, default_value = "500")]
+        idle_time: u64,
+    },
+
+    /// Get detailed info about an element (bounding box, attributes, styles)
+    Info {
+        /// CSS selector
+        selector: String,
+    },
+
+    /// Manage localStorage and sessionStorage
+    Storage {
+        #[command(subcommand)]
+        command: StorageCommands,
+    },
+
+    /// Emulate a device (mobile, tablet, desktop presets)
+    Emulate {
+        /// Device name: iphone-14, iphone-se, pixel-7, ipad, desktop-hd, or custom WxH
+        device: String,
+    },
+
+    /// Wait for a JavaScript expression to return true
+    WaitFn {
+        /// JavaScript expression that should return a truthy value
+        expression: String,
+        /// Timeout in milliseconds
+        #[arg(long, default_value = "30000")]
+        timeout: u64,
+        /// Polling interval in milliseconds
+        #[arg(long, default_value = "100")]
+        interval: u64,
+    },
+
+    /// Upload file(s) to a file input element
+    Upload {
+        /// File path(s) to upload
+        #[arg(required = true)]
+        files: Vec<String>,
+        /// CSS selector for file input (auto-detects input[type="file"] if omitted)
+        #[arg(short = 's', long)]
+        selector: Option<String>,
+        /// Snapshot ref (e.g., e0) from last `app snapshot`
+        #[arg(long, name = "ref")]
+        ref_id: Option<String>,
+        /// Wait for element before uploading (ms), 0 to skip
+        #[arg(long, default_value = "0")]
+        wait: u64,
+    },
+
+    /// Manage application tabs/windows (list, create, switch, close)
+    Tab {
+        #[command(subcommand)]
+        command: TabCommands,
+    },
+}
+
+#[derive(Subcommand, Clone)]
 pub enum TabCommands {
     /// List all open tabs/pages
     List,
@@ -897,6 +1232,7 @@ impl Cli {
 
         match &self.command {
             Commands::Browser { command } => commands::browser::run(self, command).await,
+            Commands::App { command } => commands::app::run(self, command).await,
             Commands::Extension { command } => commands::extension::run(self, command).await,
             Commands::Search {
                 query,
