@@ -66,12 +66,12 @@ pub fn mark_clean_exit(profile_dir: &std::path::Path) {
 }
 
 /// Check if a TCP port is available for binding
-fn is_port_available(port: u16) -> bool {
+pub(crate) fn is_port_available(port: u16) -> bool {
     TcpListener::bind(("127.0.0.1", port)).is_ok()
 }
 
 /// Find a free TCP port in the ephemeral range
-fn find_free_port() -> Option<u16> {
+pub(crate) fn find_free_port() -> Option<u16> {
     TcpListener::bind(("127.0.0.1", 0))
         .ok()
         .and_then(|listener| listener.local_addr().ok())

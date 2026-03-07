@@ -671,6 +671,95 @@ impl BrowserDriver {
         }
     }
 
+    /// List all open pages/tabs
+    pub async fn list_pages(&self) -> Result<Vec<super::session::PageInfo>> {
+        match self {
+            Self::Cdp(mgr) => mgr.get_pages(None).await,
+            #[cfg(feature = "camoufox")]
+            Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
+                Err(ActionbookError::FeatureNotSupported(
+                    "Page listing not yet supported for Camoufox backend".to_string()
+                ))
+            }
+        }
+    }
+
+    /// Switch to a specific page by ID
+    pub async fn switch_to_page(&mut self, page_id: &str) -> Result<super::session::PageInfo> {
+        match self {
+            Self::Cdp(mgr) => mgr.switch_to_page(None, page_id).await,
+            #[cfg(feature = "camoufox")]
+            Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
+                Err(ActionbookError::FeatureNotSupported(
+                    "Page switching not supported for Camoufox backend".to_string()
+                ))
+            }
+        }
+    }
+
+    /// Create a new tab/page
+    pub async fn new_page(&mut self, url: Option<&str>) -> Result<super::session::PageInfo> {
+        match self {
+            Self::Cdp(mgr) => mgr.new_page(None, url).await,
+            #[cfg(feature = "camoufox")]
+            Self::Camofox(session) => {
+                let page_url = url.unwrap_or("about:blank");
+                session.create_tab(page_url).await?;
+                // Return a mock PageInfo since Camoufox doesn't expose full page details
+                Ok(super::session::PageInfo {
+                    id: String::new(),
+                    title: String::new(),
+                    url: page_url.to_string(),
+                    page_type: "page".to_string(),
+                    web_socket_debugger_url: None,
+                })
+            }
+            #[cfg(feature = "camoufox")]
+            Self::CamofoxWebDriver(_) => {
+                Err(ActionbookError::FeatureNotSupported(
+                    "New tab creation not supported for Camoufox WebDriver backend".to_string()
+                ))
+            }
+        }
+    }
+
+    /// Close a specific page/tab
+    pub async fn close_page(&mut self, page_id: &str) -> Result<()> {
+        match self {
+            Self::Cdp(mgr) => mgr.close_page(None, page_id).await,
+            #[cfg(feature = "camoufox")]
+            Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
+                Err(ActionbookError::FeatureNotSupported(
+                    "Page closing not supported for Camoufox backend".to_string()
+                ))
+            }
+        }
+    }
+
+    /// Get currently active page info
+    pub async fn get_active_page(&self) -> Result<super::session::PageInfo> {
+        match self {
+            Self::Cdp(mgr) => mgr.get_active_page_info(None).await,
+            #[cfg(feature = "camoufox")]
+            Self::Camofox(session) => {
+                let tab_id = session.active_tab()?;
+                Ok(super::session::PageInfo {
+                    id: tab_id.to_string(),
+                    title: String::new(),
+                    url: String::new(),
+                    page_type: "page".to_string(),
+                    web_socket_debugger_url: None,
+                })
+            }
+            #[cfg(feature = "camoufox")]
+            Self::CamofoxWebDriver(_) => {
+                Err(ActionbookError::FeatureNotSupported(
+                    "Get active page not supported for Camoufox WebDriver backend".to_string()
+                ))
+            }
+        }
+    }
+
     /// Get CDP session manager (if using CDP backend)
     #[allow(dead_code)]
     pub fn as_cdp(&self) -> Option<&SessionManager> {

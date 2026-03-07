@@ -13,7 +13,7 @@ use crate::config::{Config, ProfileConfig};
 use crate::error::{ActionbookError, Result};
 
 /// Page info from CDP /json/list endpoint
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PageInfo {
     pub id: String,
@@ -31,6 +31,14 @@ struct SessionState {
     cdp_port: u16,
     pid: Option<u32>,
     cdp_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    active_page_id: Option<String>,
+    /// Path to custom application (for Electron apps launched via app launch)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    custom_app_path: Option<String>,
+    /// Current frame ID for iframe context (None = main frame)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    current_frame_id: Option<String>,
 }
 
 /// Stealth configuration for session manager
@@ -136,11 +144,25 @@ impl SessionManager {
         cdp_port: u16,
         cdp_url: &str,
     ) -> Result<()> {
+        self.save_external_session_with_app(profile_name, cdp_port, cdp_url, None)
+    }
+
+    /// Save session state for an externally connected app with optional custom app path
+    pub fn save_external_session_with_app(
+        &self,
+        profile_name: &str,
+        cdp_port: u16,
+        cdp_url: &str,
+        custom_app_path: Option<String>,
+    ) -> Result<()> {
         let state = SessionState {
             profile_name: profile_name.to_string(),
             cdp_port,
             pid: None,
             cdp_url: cdp_url.to_string(),
+            active_page_id: None,
+            custom_app_path,
+            current_frame_id: None,
         };
         self.save_session_state(&state)
     }
@@ -228,6 +250,9 @@ impl SessionManager {
             cdp_port: launcher.get_cdp_port(),
             pid: None, // TODO: get actual PID
             cdp_url: cdp_url.clone(),
+            active_page_id: None,
+            custom_app_path: None,
+            current_frame_id: None,
         };
         self.save_session_state(&state)?;
 
@@ -238,6 +263,118 @@ impl SessionManager {
         self.apply_stealth_js(&state).await;
 
         Ok(result)
+    }
+
+    /// Launch a custom app (Electron/etc.) and connect to its CDP endpoint
+    pub async fn launch_custom_app(
+        &self,
+        profile_name: &str,
+        executable_path: &str,
+        extra_args: Vec<String>,
+        port: Option<u16>,
+    ) -> Result<(Browser, Handler)> {
+        use std::process::{Command, Stdio};
+
+        // Determine CDP port
+        let cdp_port = port.unwrap_or_else(|| {
+            // Find a free port if not specified
+            if super::launcher::is_port_available(9222) {
+                9222
+            } else {
+                super::launcher::find_free_port().unwrap_or(9223)
+            }
+        });
+
+        // Build command with CDP port
+        let mut args = vec![format!("--remote-debugging-port={}", cdp_port)];
+        args.extend(extra_args);
+
+        tracing::info!(
+            "Launching custom app: {} with args: {:?}",
+            executable_path,
+            args
+        );
+
+        // Spawn the process
+        let _child = Command::new(executable_path)
+            .args(&args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| {
+                ActionbookError::BrowserLaunchFailed(format!(
+                    "Failed to launch custom app {}: {}",
+                    executable_path, e
+                ))
+            })?;
+
+        // Wait for CDP to be ready
+        let cdp_url = self.wait_for_cdp_ready(cdp_port).await?;
+
+        // Save session state
+        let state = SessionState {
+            profile_name: profile_name.to_string(),
+            cdp_port,
+            pid: None,
+            cdp_url: cdp_url.clone(),
+            active_page_id: None,
+            custom_app_path: Some(executable_path.to_string()),
+            current_frame_id: None,
+        };
+        self.save_session_state(&state)?;
+
+        // Connect to the app
+        let result = self.connect_to_session(&state).await?;
+
+        // Apply stealth JS overrides
+        self.apply_stealth_js(&state).await;
+
+        Ok(result)
+    }
+
+    /// Wait for CDP endpoint to become available (reused from launcher pattern)
+    async fn wait_for_cdp_ready(&self, cdp_port: u16) -> Result<String> {
+        use tokio::time::sleep;
+
+        let url = format!("http://127.0.0.1:{}/json/version", cdp_port);
+
+        // Build client with NO_PROXY for localhost
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
+        // Try for up to 10 seconds
+        for i in 0..20 {
+            sleep(Duration::from_millis(500)).await;
+
+            match client.get(&url).send().await {
+                Ok(response) if response.status().is_success() => {
+                    let json: serde_json::Value = response.json().await.map_err(|e| {
+                        ActionbookError::CdpConnectionFailed(format!(
+                            "Failed to parse CDP response: {}",
+                            e
+                        ))
+                    })?;
+
+                    if let Some(ws_url) = json.get("webSocketDebuggerUrl").and_then(|v| v.as_str())
+                    {
+                        tracing::info!("CDP ready at: {}", ws_url);
+                        return Ok(ws_url.to_string());
+                    }
+                }
+                Ok(_) => {
+                    tracing::debug!("CDP not ready yet (attempt {})", i + 1);
+                }
+                Err(e) => {
+                    tracing::debug!("CDP connection attempt {} failed: {}", i + 1, e);
+                }
+            }
+        }
+
+        Err(ActionbookError::CdpConnectionFailed(
+            "Timeout waiting for CDP to be ready".to_string(),
+        ))
     }
 
     /// Apply stealth JavaScript overrides to the browser via CDP
@@ -419,11 +556,108 @@ impl SessionManager {
 
     /// Get the active page info (first page in the list)
     pub async fn get_active_page_info(&self, profile_name: Option<&str>) -> Result<PageInfo> {
-        let pages = self.get_pages(profile_name).await?;
+        let profile_name = self.resolve_profile_name(profile_name);
+        let pages = self.get_pages(Some(&profile_name)).await?;
+
+        // Try to get persisted active page
+        if let Some(state) = self.load_session_state(&profile_name) {
+            if let Some(active_id) = state.active_page_id {
+                if let Some(page) = pages.iter().find(|p| p.id == active_id) {
+                    return Ok(page.clone());
+                }
+            }
+        }
+
+        // Fallback to first page
         pages
             .into_iter()
             .next()
             .ok_or(ActionbookError::BrowserNotRunning)
+    }
+
+    /// Switch to a specific page by ID and persist the active page
+    pub async fn switch_to_page(&self, profile_name: Option<&str>, page_id: &str) -> Result<PageInfo> {
+        let profile_name = self.resolve_profile_name(profile_name);
+
+        // Validate page exists
+        let pages = self.get_pages(Some(&profile_name)).await?;
+        let target_page = pages
+            .iter()
+            .find(|p| p.id == page_id)
+            .ok_or_else(|| ActionbookError::PageNotFound(page_id.to_string()))?
+            .clone();
+
+        // Update session state with new active page ID
+        let mut state = self.load_session_state(&profile_name)
+            .ok_or(ActionbookError::BrowserNotRunning)?;
+        state.active_page_id = Some(page_id.to_string());
+        self.save_session_state(&state)?;
+
+        Ok(target_page)
+    }
+
+    /// Create a new page/tab in the browser
+    pub async fn new_page(&self, profile_name: Option<&str>, url: Option<&str>) -> Result<PageInfo> {
+        let profile_name = self.resolve_profile_name(profile_name);
+
+        // Send CDP command Target.createTarget
+        let params = serde_json::json!({
+            "url": url.unwrap_or("about:blank")
+        });
+
+        let result = self.send_cdp_command(Some(&profile_name), "Target.createTarget", params).await?;
+        let target_id = result.get("targetId")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ActionbookError::CdpError("No targetId in response".to_string()))?;
+
+        // Wait for page to appear in /json/list
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        let pages = self.get_pages(Some(&profile_name)).await?;
+        let new_page = pages
+            .iter()
+            .find(|p| p.id == target_id)
+            .ok_or_else(|| ActionbookError::PageNotFound(target_id.to_string()))?
+            .clone();
+
+        // Auto-switch to newly created page
+        self.switch_to_page(Some(&profile_name), &new_page.id).await?;
+
+        Ok(new_page)
+    }
+
+    /// Close a specific page/tab
+    pub async fn close_page(&self, profile_name: Option<&str>, page_id: &str) -> Result<()> {
+        let profile_name = self.resolve_profile_name(profile_name);
+
+        // Validate page exists
+        let pages = self.get_pages(Some(&profile_name)).await?;
+        if !pages.iter().any(|p| p.id == page_id) {
+            return Err(ActionbookError::PageNotFound(page_id.to_string()));
+        }
+
+        // Cannot close last page
+        if pages.len() == 1 {
+            return Err(ActionbookError::InvalidOperation(
+                "Cannot close the last tab. Use 'browser close' to close the browser.".to_string()
+            ));
+        }
+
+        // Send CDP command Target.closeTarget
+        let params = serde_json::json!({ "targetId": page_id });
+        self.send_cdp_command(Some(&profile_name), "Target.closeTarget", params).await?;
+
+        // If we closed the active page, switch to first remaining page
+        if let Some(state) = self.load_session_state(&profile_name) {
+            if state.active_page_id.as_ref() == Some(&page_id.to_string()) {
+                let remaining_pages = self.get_pages(Some(&profile_name)).await?;
+                if let Some(first_page) = remaining_pages.first() {
+                    self.switch_to_page(Some(&profile_name), &first_page.id).await?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Execute JavaScript on the active page using direct CDP via WebSocket
@@ -445,14 +679,58 @@ impl SessionManager {
             ActionbookError::CdpConnectionFailed(format!("WebSocket connection failed: {}", e))
         })?;
 
-        // Send Runtime.evaluate command
-        let cmd = serde_json::json!({
-            "id": 1,
-            "method": "Runtime.evaluate",
-            "params": {
-                "expression": expression,
-                "returnByValue": true
+        // Check if we need to evaluate in a specific frame
+        let frame_id = self.get_current_frame_id(profile_name);
+        let mut execution_context_id: Option<i64> = None;
+
+        if let Some(fid) = &frame_id {
+            // Create isolated world in the target frame to get execution context
+            let create_world_cmd = serde_json::json!({
+                "id": 1,
+                "method": "Page.createIsolatedWorld",
+                "params": {
+                    "frameId": fid
+                }
+            });
+
+            ws.send(tokio_tungstenite::tungstenite::Message::Text(
+                create_world_cmd.to_string().into(),
+            ))
+            .await
+            .map_err(|e| ActionbookError::Other(format!("Failed to send command: {}", e)))?;
+
+            // Read response to get execution context ID
+            use futures::stream::StreamExt;
+            while let Some(msg) = ws.next().await {
+                if let Ok(tokio_tungstenite::tungstenite::Message::Text(text)) = msg {
+                    let response: serde_json::Value = serde_json::from_str(&text)?;
+                    if response.get("id") == Some(&serde_json::json!(1)) {
+                        if let Some(ctx_id) = response.get("result").and_then(|r| r.get("executionContextId")).and_then(|c| c.as_i64()) {
+                            execution_context_id = Some(ctx_id);
+                        }
+                        break;
+                    }
+                }
             }
+        }
+
+        // Send Runtime.evaluate command with optional contextId
+        let mut params = serde_json::json!({
+            "expression": expression,
+            "returnByValue": true
+        });
+
+        if let Some(ctx_id) = execution_context_id {
+            params.as_object_mut().unwrap().insert(
+                "contextId".to_string(),
+                serde_json::json!(ctx_id)
+            );
+        }
+
+        let cmd = serde_json::json!({
+            "id": 2,
+            "method": "Runtime.evaluate",
+            "params": params
         });
 
         ws.send(tokio_tungstenite::tungstenite::Message::Text(
@@ -467,7 +745,7 @@ impl SessionManager {
             match msg {
                 Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
                     let response: serde_json::Value = serde_json::from_str(text.as_str())?;
-                    if response.get("id") == Some(&serde_json::json!(1)) {
+                    if response.get("id") == Some(&serde_json::json!(2)) {
                         if let Some(result) = response.get("result").and_then(|r| r.get("result")) {
                             if let Some(value) = result.get("value") {
                                 return Ok(value.clone());
@@ -547,7 +825,67 @@ impl SessionManager {
     /// Supports CSS selectors, XPath (starts with //), @eN and [ref=eN] snapshot references.
     fn find_element_js() -> &'static str {
         r#"
+        function __findInShadowDOM(selector) {
+            // Split by ::shadow-root separator
+            const parts = selector.split('::shadow-root');
+            if (parts.length < 2) {
+                return null;
+            }
+
+            // Find the host element
+            const hostSelector = parts[0].trim();
+            let currentElement;
+
+            // Handle ref-based selection for host
+            if (/^@e\d+$/.test(hostSelector) || /^\[ref=e\d+\]$/.test(hostSelector)) {
+                currentElement = __findElement(hostSelector);
+            } else {
+                currentElement = document.querySelector(hostSelector);
+            }
+
+            if (!currentElement) {
+                console.warn('Shadow DOM host element not found:', hostSelector);
+                return null;
+            }
+
+            // Access shadow root
+            const shadowRoot = currentElement.shadowRoot;
+            if (!shadowRoot) {
+                console.warn('Element has no shadow root:', hostSelector);
+                return null;
+            }
+
+            // Query inside shadow DOM
+            const innerSelector = parts[1].trim().replace(/^>\s*/, '').trim();
+            if (!innerSelector) {
+                // No inner selector, return shadow root's first child or host
+                return shadowRoot.firstElementChild || currentElement;
+            }
+
+            // Support nested shadow DOM: inner::shadow-root > button
+            if (innerSelector.includes('::shadow-root')) {
+                // Recursively handle nested shadow roots
+                // For this, we need to query in current shadow root first
+                const nestedParts = innerSelector.split('::shadow-root');
+                const nextHost = shadowRoot.querySelector(nestedParts[0].trim());
+                if (!nextHost) return null;
+
+                const nextShadowRoot = nextHost.shadowRoot;
+                if (!nextShadowRoot) return null;
+
+                const finalSelector = nestedParts.slice(1).join('::shadow-root').trim().replace(/^>\s*/, '').trim();
+                return nextShadowRoot.querySelector(finalSelector);
+            }
+
+            return shadowRoot.querySelector(innerSelector);
+        }
+
         function __findElement(selector) {
+            // Handle Shadow DOM syntax: element::shadow-root > inner-selector
+            if (selector.includes('::shadow-root')) {
+                return __findInShadowDOM(selector);
+            }
+
             // Normalize [ref=eN] format (from snapshot output) to @eN
             const refMatch = selector.match(/^\[ref=(e\d+)\]$/);
             if (refMatch) selector = '@' + refMatch[1];
@@ -1220,6 +1558,140 @@ impl SessionManager {
             }),
         )
         .await?;
+
+        Ok(())
+    }
+
+    /// Send keyboard hotkey (e.g., Ctrl+A, Ctrl+Shift+ArrowRight)
+    /// keys format: ["Control", "A"] or ["Control", "Shift", "ArrowRight"]
+    pub async fn send_hotkey(&self, profile_name: Option<&str>, keys: &[&str]) -> Result<()> {
+        if keys.is_empty() {
+            return Err(ActionbookError::Other("Empty key sequence".to_string()));
+        }
+
+        // Map modifier key names to their codes and modifiers flag
+        let get_modifier_info = |key: &str| -> Option<(&str, &str, i32, i32)> {
+            match key.to_lowercase().as_str() {
+                "control" | "ctrl" => Some(("Control", "ControlLeft", 17, 2)),
+                "shift" => Some(("Shift", "ShiftLeft", 16, 8)),
+                "alt" => Some(("Alt", "AltLeft", 18, 1)),
+                "meta" | "command" | "cmd" => Some(("Meta", "MetaLeft", 91, 4)),
+                _ => None,
+            }
+        };
+
+        let modifiers_count = keys.len() - 1;
+        let main_key = keys[keys.len() - 1];
+
+        // Calculate modifiers bitmask
+        let mut modifiers_mask = 0;
+        for key in &keys[..modifiers_count] {
+            if let Some((_, _, _, mask)) = get_modifier_info(key) {
+                modifiers_mask |= mask;
+            }
+        }
+
+        // Press all modifier keys
+        for key in &keys[..modifiers_count] {
+            if let Some((key_value, code, vk, _)) = get_modifier_info(key) {
+                self.send_cdp_command(
+                    profile_name,
+                    "Input.dispatchKeyEvent",
+                    serde_json::json!({
+                        "type": "keyDown",
+                        "key": key_value,
+                        "code": code,
+                        "windowsVirtualKeyCode": vk,
+                        "modifiers": modifiers_mask,
+                    }),
+                )
+                .await?;
+            }
+        }
+
+        // Press and release main key with modifiers
+        let (key_value, code, text, vk) = match main_key.to_lowercase().as_str() {
+            "a" => ("a", "KeyA", "a", 65),
+            "b" => ("b", "KeyB", "b", 66),
+            "c" => ("c", "KeyC", "c", 67),
+            "d" => ("d", "KeyD", "d", 68),
+            "e" => ("e", "KeyE", "e", 69),
+            "f" => ("f", "KeyF", "f", 70),
+            "g" => ("g", "KeyG", "g", 71),
+            "h" => ("h", "KeyH", "h", 72),
+            "i" => ("i", "KeyI", "i", 73),
+            "j" => ("j", "KeyJ", "j", 74),
+            "k" => ("k", "KeyK", "k", 75),
+            "l" => ("l", "KeyL", "l", 76),
+            "m" => ("m", "KeyM", "m", 77),
+            "n" => ("n", "KeyN", "n", 78),
+            "o" => ("o", "KeyO", "o", 79),
+            "p" => ("p", "KeyP", "p", 80),
+            "q" => ("q", "KeyQ", "q", 81),
+            "r" => ("r", "KeyR", "r", 82),
+            "s" => ("s", "KeyS", "s", 83),
+            "t" => ("t", "KeyT", "t", 84),
+            "u" => ("u", "KeyU", "u", 85),
+            "v" => ("v", "KeyV", "v", 86),
+            "w" => ("w", "KeyW", "w", 87),
+            "x" => ("x", "KeyX", "x", 88),
+            "y" => ("y", "KeyY", "y", 89),
+            "z" => ("z", "KeyZ", "z", 90),
+            "arrowleft" | "left" => ("ArrowLeft", "ArrowLeft", "", 37),
+            "arrowright" | "right" => ("ArrowRight", "ArrowRight", "", 39),
+            "arrowup" | "up" => ("ArrowUp", "ArrowUp", "", 38),
+            "arrowdown" | "down" => ("ArrowDown", "ArrowDown", "", 40),
+            "enter" | "return" => ("Enter", "Enter", "\r", 13),
+            "tab" => ("Tab", "Tab", "\t", 9),
+            "backspace" => ("Backspace", "Backspace", "", 8),
+            "delete" => ("Delete", "Delete", "", 46),
+            _ => (main_key, main_key, main_key, 0),
+        };
+
+        let mut key_down = serde_json::json!({
+            "type": "keyDown",
+            "key": key_value,
+            "code": code,
+            "windowsVirtualKeyCode": vk,
+            "modifiers": modifiers_mask,
+        });
+        if !text.is_empty() {
+            key_down["text"] = serde_json::json!(text);
+        }
+
+        self.send_cdp_command(profile_name, "Input.dispatchKeyEvent", key_down)
+            .await?;
+
+        self.send_cdp_command(
+            profile_name,
+            "Input.dispatchKeyEvent",
+            serde_json::json!({
+                "type": "keyUp",
+                "key": key_value,
+                "code": code,
+                "windowsVirtualKeyCode": vk,
+                "modifiers": modifiers_mask,
+            }),
+        )
+        .await?;
+
+        // Release all modifier keys in reverse order
+        for key in keys[..modifiers_count].iter().rev() {
+            if let Some((key_value, code, vk, _)) = get_modifier_info(key) {
+                self.send_cdp_command(
+                    profile_name,
+                    "Input.dispatchKeyEvent",
+                    serde_json::json!({
+                        "type": "keyUp",
+                        "key": key_value,
+                        "code": code,
+                        "windowsVirtualKeyCode": vk,
+                        "modifiers": 0,
+                    }),
+                )
+                .await?;
+            }
+        }
 
         Ok(())
     }
@@ -2474,6 +2946,139 @@ impl SessionManager {
         }
         Ok(())
     }
+
+    /// Switch to an iframe context
+    pub async fn switch_to_frame(
+        &self,
+        profile_name: Option<&str>,
+        selector: &str,
+    ) -> Result<String> {
+        // Find the iframe element
+        let selector_json = serde_json::to_string(selector)?;
+        let js = [
+            "(function() {",
+            Self::find_element_js(),
+            &format!("const el = __findElement({selector_json});"),
+            "if (!el) return null;",
+            "if (el.tagName.toLowerCase() !== 'iframe') return { error: 'Not an iframe' };",
+            "return { success: true };",
+            "})()",
+        ]
+        .join("\n");
+
+        let result = self.eval_on_page(profile_name, &js).await?;
+
+        if result.is_null() {
+            return Err(ActionbookError::ElementNotFound(selector.to_string()));
+        }
+
+        if let Some(error) = result.get("error").and_then(|e| e.as_str()) {
+            return Err(ActionbookError::Other(format!(
+                "Element is not an iframe: {}",
+                error
+            )));
+        }
+
+        // Get the iframe's frame ID via DOM.describeNode
+        let selector_json = serde_json::to_string(selector)?;
+        let find_js = [
+            "(function() {",
+            Self::find_element_js(),
+            &format!("const el = __findElement({selector_json});"),
+            "if (!el) return null;",
+            "return el;",
+            "})()",
+        ]
+        .join("\n");
+
+        let eval_result = self
+            .send_cdp_command(
+                profile_name,
+                "Runtime.evaluate",
+                serde_json::json!({
+                    "expression": find_js,
+                    "returnByValue": false,
+                }),
+            )
+            .await?;
+
+        let object_id = eval_result
+            .get("result")
+            .and_then(|r| r.get("objectId"))
+            .and_then(|o| o.as_str())
+            .ok_or_else(|| ActionbookError::Other("Failed to get element objectId".to_string()))?;
+
+        let describe_result = self
+            .send_cdp_command(
+                profile_name,
+                "DOM.describeNode",
+                serde_json::json!({
+                    "objectId": object_id
+                }),
+            )
+            .await?;
+
+        let frame_id = describe_result
+            .get("node")
+            .and_then(|n| n.get("frameId"))
+            .and_then(|f| f.as_str())
+            .ok_or_else(|| ActionbookError::Other("Element has no frameId (not an iframe)".to_string()))?;
+
+        // Store the frame ID in session state
+        let profile = self.resolve_profile_name(profile_name);
+        let session_file = self.sessions_dir.join(format!("{}.json", profile));
+
+        if session_file.exists() {
+            let content = fs::read_to_string(&session_file)?;
+            let mut state: serde_json::Value = serde_json::from_str(&content)?;
+            state["current_frame_id"] = serde_json::json!(frame_id);
+            fs::write(&session_file, serde_json::to_string_pretty(&state)?)?;
+        }
+
+        Ok(frame_id.to_string())
+    }
+
+    /// Switch to parent frame
+    pub async fn switch_to_parent_frame(&self, profile_name: Option<&str>) -> Result<()> {
+        // For now, just switch to main frame (null)
+        // TODO: Implement proper parent frame tracking
+        self.switch_to_default_frame(profile_name).await
+    }
+
+    /// Switch to main (default) frame
+    pub async fn switch_to_default_frame(&self, profile_name: Option<&str>) -> Result<()> {
+        let profile = self.resolve_profile_name(profile_name);
+        let session_file = self.sessions_dir.join(format!("{}.json", profile));
+
+        if session_file.exists() {
+            let content = fs::read_to_string(&session_file)?;
+            let mut state: serde_json::Value = serde_json::from_str(&content)?;
+            state["current_frame_id"] = serde_json::Value::Null;
+            fs::write(&session_file, serde_json::to_string_pretty(&state)?)?;
+        }
+
+        Ok(())
+    }
+
+    /// Get current frame ID (None = main frame)
+    pub fn get_current_frame_id(&self, profile_name: Option<&str>) -> Option<String> {
+        let profile = self.resolve_profile_name(profile_name);
+        let session_file = self.sessions_dir.join(format!("{}.json", profile));
+
+        if session_file.exists() {
+            if let Ok(content) = fs::read_to_string(&session_file) {
+                if let Ok(state) = serde_json::from_str::<serde_json::Value>(&content) {
+                    return state
+                        .get("current_frame_id")
+                        .and_then(|f| f.as_str())
+                        .map(|s| s.to_string());
+                }
+            }
+        }
+
+        None
+    }
+
 }
 
 /// Resource blocking level

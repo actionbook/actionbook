@@ -95,6 +95,10 @@ A high-performance CLI for browser automation with zero installation. Built in R
 - **Local Storage Management** - Get, set, remove, clear, and list localStorage/sessionStorage
 - **Device Emulation** - Emulate mobile/tablet devices with preset viewports (iPhone, Pixel, iPad)
 - **Wait for JS Condition** - Poll a JavaScript expression until it returns truthy
+- **Keyboard Hotkeys** - Send keyboard combinations (Ctrl+C, Cmd+A, multi-modifier shortcuts)
+- **Shadow DOM Support** - Interact with elements inside Shadow DOM using `::shadow-root` selector syntax
+- **IFrame Context Switching** - Switch between main frame and iframes for embedded content
+- **Scroll with Wait** - Scroll and wait for `scrollend` event, essential for lazy-loaded content
 
 ## Architecture
 
@@ -415,10 +419,13 @@ actionbook browser snapshot --max-tokens 500  # Truncated snapshot for LLM conte
 actionbook browser inspect <X> <Y>  # Inspect element at coordinates
 actionbook browser viewport         # Show viewport size
 actionbook browser scroll down [PIXELS]     # Scroll down (default: viewport height)
+actionbook browser scroll down [PIXELS] --wait  # Scroll and wait for scrollend event
 actionbook browser scroll up [PIXELS]       # Scroll up
 actionbook browser scroll bottom            # Scroll to page bottom
 actionbook browser scroll top               # Scroll to page top
 actionbook browser scroll to <SELECTOR>     # Scroll to element
+actionbook browser hotkey <KEYS>            # Send keyboard combination (e.g., "Control+C", "Meta+A")
+actionbook browser switch-frame <TARGET>    # Switch to iframe ("default"/"parent" or selector)
 actionbook browser batch --file actions.json  # Execute batch of actions
 actionbook browser fingerprint rotate       # Rotate browser fingerprint
 actionbook browser console                  # Capture console log messages
@@ -504,12 +511,14 @@ actionbook browser open "https://example.com"
 
 ## Scroll
 
-Scroll the page in any direction, with optional smooth animation:
+Scroll the page in any direction, with optional smooth animation and wait for completion:
 
 ```bash
 actionbook browser scroll down              # Down one viewport height
 actionbook browser scroll down 500          # Down 500 pixels
+actionbook browser scroll down 500 --wait   # Scroll and wait for scrollend event
 actionbook browser scroll up 300 --smooth   # Up 300px with smooth animation
+actionbook browser scroll up 500 --smooth --wait  # Smooth scroll + wait
 actionbook browser scroll bottom            # Scroll to page bottom
 actionbook browser scroll top               # Scroll to page top
 actionbook browser scroll to "#footer"      # Scroll to element
@@ -523,6 +532,22 @@ actionbook browser scroll to ".form" --align start  # Align to top of viewport
 | `bottom` | — | Scroll to absolute bottom |
 | `top` | — | Scroll to absolute top |
 | `to` | `<SELECTOR>` | Scroll to CSS selector (`--align start\|center\|end\|nearest`) |
+
+### Scroll with Wait (`--wait` flag)
+
+The `--wait` flag makes the scroll command wait for the browser's `scrollend` event, ensuring:
+- Lazy-loaded images/content appear after scroll
+- DOM is stable before the next action
+- No "element not found" errors on dynamic content
+
+```bash
+# Essential for infinite scroll and lazy-loaded content
+actionbook browser scroll down 1000 --wait
+actionbook browser scroll bottom --wait
+
+# Smooth scroll + wait = complete animation before continuing
+actionbook browser scroll down 800 --smooth --wait
+```
 
 ## Accessibility Snapshot
 
@@ -775,6 +800,157 @@ actionbook browser wait-fn "document.title.includes('Done')" --timeout 10000 --i
 ```
 
 Polls the JavaScript expression at the specified interval until it returns a truthy value (non-null, non-false, non-empty, non-zero). Returns the expression's value on success or times out with an error.
+
+## Keyboard Hotkeys
+
+Send keyboard combinations for shortcuts, copy/paste, and other key-based interactions:
+
+```bash
+# Single modifier + key
+actionbook browser hotkey "Control+C"        # Copy (Ctrl+C)
+actionbook browser hotkey "Meta+V"           # Paste on macOS (Cmd+V)
+actionbook browser hotkey "Control+A"        # Select all
+
+# Multiple modifiers
+actionbook browser hotkey "Control+Shift+P"  # Command palette (many editors)
+actionbook browser hotkey "Meta+Shift+N"     # New private window
+
+# Navigation
+actionbook browser hotkey "Control+Tab"      # Next tab
+actionbook browser hotkey "Control+W"        # Close tab
+actionbook browser hotkey "Meta+R"           # Refresh (macOS)
+```
+
+**Modifier Keys:**
+- `Control`: Ctrl key (all platforms)
+- `Meta`: Cmd key (macOS) / Windows key (Windows)
+- `Shift`: Shift key
+- `Alt`: Alt/Option key
+
+**Common Patterns:**
+```bash
+# Copy-paste workflow
+actionbook browser hotkey "Control+A"        # Select all
+actionbook browser hotkey "Control+C"        # Copy
+actionbook browser click "textarea#destination"
+actionbook browser hotkey "Control+V"        # Paste
+
+# VS Code command palette
+actionbook browser hotkey "Control+Shift+P"
+actionbook browser type "input" "Format Document"
+
+# Browser shortcuts
+actionbook browser hotkey "Control+T"        # New tab
+actionbook browser hotkey "Control+L"        # Focus address bar
+actionbook browser hotkey "Control+Plus"     # Zoom in
+```
+
+## Shadow DOM Support
+
+Interact with elements inside Shadow DOM using the `::shadow-root` selector syntax. Essential for modern web components (Custom Elements) and frameworks like Lit, Polymer, Stencil.
+
+```bash
+# Basic shadow DOM selector
+actionbook browser click "custom-button::shadow-root > button"
+
+# Type into shadow input
+actionbook browser type "my-input::shadow-root > input" "Hello world"
+
+# Nested shadow DOM
+actionbook browser click "outer::shadow-root > inner::shadow-root > button"
+
+# Combined with other selectors
+actionbook browser click "app-root::shadow-root > nav > button.primary"
+```
+
+**When to Use:**
+- Web components with encapsulated styles
+- Modern UI libraries (Lit, Stencil, Shoelace)
+- Enterprise apps with isolated components
+
+**Example - Shoelace UI components:**
+```bash
+actionbook browser open "https://shoelace.style"
+
+# Click button inside shadow DOM
+actionbook browser click "sl-button::shadow-root > button"
+
+# Type in shadow input
+actionbook browser type "sl-input::shadow-root > input" "search term"
+
+# Toggle shadow checkbox
+actionbook browser click "sl-checkbox::shadow-root > input"
+```
+
+## IFrame Context Switching
+
+Switch between main frame and iframes when pages embed external content (payment forms, embedded apps, widgets):
+
+```bash
+# Switch to iframe
+actionbook browser switch-frame "iframe#payment"
+
+# Interact inside iframe (all commands work)
+actionbook browser type "input#card-number" "4111111111111111"
+actionbook browser click "button.submit"
+
+# Switch back to parent frame
+actionbook browser switch-frame "parent"
+
+# Switch to main frame (top level)
+actionbook browser switch-frame "default"
+```
+
+**Frame Targets:**
+- `<selector>`: CSS selector for iframe element (e.g., `iframe#checkout`, `iframe.widget`)
+- `parent`: Switch to parent frame (one level up)
+- `default`: Switch to main/top frame (reset to root)
+
+**Complete Flow - Stripe Payment:**
+```bash
+# Open checkout page
+actionbook browser open "https://example.com/checkout"
+
+# Wait for page load
+actionbook browser wait-idle
+
+# Switch to Stripe iframe
+actionbook browser switch-frame "iframe[name='stripe_frame']"
+
+# Fill payment details (now inside iframe)
+actionbook browser type "input[name='cardnumber']" "4242424242424242"
+actionbook browser type "input[name='exp-date']" "12/25"
+actionbook browser type "input[name='cvc']" "123"
+actionbook browser click "button[type='submit']"
+
+# Switch back to main frame
+actionbook browser switch-frame "default"
+
+# Verify confirmation (now in main frame)
+actionbook browser wait ".confirmation"
+actionbook browser screenshot confirmation.png
+```
+
+**Nested IFrames:**
+```bash
+# Level 0: Main frame
+actionbook browser open "https://example.com"
+
+# Level 1: Outer iframe
+actionbook browser switch-frame "iframe#outer"
+
+# Level 2: Inner iframe (inside outer)
+actionbook browser switch-frame "iframe#inner"
+
+# Interact at level 2
+actionbook browser click "button"
+
+# Back to level 1
+actionbook browser switch-frame "parent"
+
+# Back to level 0
+actionbook browser switch-frame "default"
+```
 
 ## Supported Browsers
 

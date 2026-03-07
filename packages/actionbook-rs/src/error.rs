@@ -78,6 +78,18 @@ pub enum ActionbookError {
     #[error("Feature not supported: {0}")]
     FeatureNotSupported(String),
 
+    #[error("Page not found: {0}")]
+    PageNotFound(String),
+
+    #[error("Invalid operation: {0}")]
+    InvalidOperation(String),
+
+    #[error("CDP error: {0}")]
+    CdpError(String),
+
+    #[error("Invalid argument: {0}")]
+    InvalidArgument(String),
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
@@ -120,6 +132,10 @@ impl ActionbookError {
             ActionbookError::BrowserOperation(_) => "browser_operation",
             ActionbookError::FeatureNotEnabled(_, _) => "feature_not_enabled",
             ActionbookError::FeatureNotSupported(_) => "feature_not_supported",
+            ActionbookError::PageNotFound(_) => "page_not_found",
+            ActionbookError::InvalidOperation(_) => "invalid_operation",
+            ActionbookError::CdpError(_) => "cdp_error",
+            ActionbookError::InvalidArgument(_) => "invalid_argument",
             ActionbookError::IoError(_) => "io_error",
             ActionbookError::NetworkError(_) => "network_error",
             ActionbookError::JsonError(_) => "json_error",

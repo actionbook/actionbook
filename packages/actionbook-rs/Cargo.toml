@@ -99,6 +99,7 @@ camoufox-server = ["camoufox", "axum", "tower", "tower-http"]
 tokio-test = "0.4"
 assert_cmd = "2"
 predicates = "3"
+serial_test = "3"
 
 # Examples that depend on Camoufox modules (not active in refactor/browser-extension branch)
 [[example]]

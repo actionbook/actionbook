@@ -5,10 +5,14 @@
 //! end-to-end message routing with the hello handshake protocol.
 //!
 //! Run with: cargo test --test extension_bridge_test
+//!
+//! Note: Tests are marked with #[serial] to run sequentially,
+//! preventing port conflicts and connection race conditions.
 
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
+use serial_test::serial;
 use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::http::Request;
 use tokio_tungstenite::tungstenite::Message;
@@ -204,6 +208,7 @@ mod bridge_tests {
 
     /// Test: Connection without hello message is closed.
     #[tokio::test]
+    #[serial]
     async fn no_hello_closes_connection() {
         let port = free_port().await;
         let (server_handle, _token) = start_bridge(port);
@@ -227,6 +232,7 @@ mod bridge_tests {
 
     /// Test: CLI command sent without extension connected gets an error response.
     #[tokio::test]
+    #[serial]
     async fn cli_without_extension_gets_error() {
         let port = free_port().await;
         let (server_handle, token) = start_bridge(port);
@@ -267,6 +273,7 @@ mod bridge_tests {
 
     /// Test: Full round-trip - extension connects, CLI sends command, extension responds.
     #[tokio::test]
+    #[serial]
     async fn full_roundtrip_extension_to_cli() {
         let port = free_port().await;
         let (server_handle, token) = start_bridge(port);
@@ -341,6 +348,7 @@ mod bridge_tests {
 
     /// Test: Extension error response is forwarded to CLI.
     #[tokio::test]
+    #[serial]
     async fn extension_error_forwarded_to_cli() {
         let port = free_port().await;
         let (server_handle, token) = start_bridge(port);
@@ -402,6 +410,7 @@ mod bridge_tests {
 
     /// Test: Multiple CLI commands are routed with unique bridge ids.
     #[tokio::test]
+    #[serial]
     async fn multiple_cli_commands_get_unique_ids() {
         let port = free_port().await;
         let (server_handle, token) = start_bridge(port);
@@ -485,6 +494,7 @@ mod bridge_tests {
 
     /// Test: Unknown CDP method is rejected at the bridge level.
     #[tokio::test]
+    #[serial]
     async fn unknown_method_rejected() {
         let port = free_port().await;
         let (server_handle, token) = start_bridge(port);
@@ -535,6 +545,7 @@ mod bridge_tests {
 
     /// Test: L2 methods include risk_level in forwarded message.
     #[tokio::test]
+    #[serial]
     async fn l2_method_includes_risk_level() {
         let port = free_port().await;
         let (server_handle, token) = start_bridge(port);
@@ -572,6 +583,7 @@ mod bridge_tests {
 
     /// Test: L3 methods include risk_level in forwarded message.
     #[tokio::test]
+    #[serial]
     async fn l3_method_includes_risk_level() {
         let port = free_port().await;
         let (server_handle, token) = start_bridge(port);
@@ -609,6 +621,7 @@ mod bridge_tests {
 
     /// Test: Extension.* methods are allowed (L1).
     #[tokio::test]
+    #[serial]
     async fn extension_internal_methods_allowed() {
         let port = free_port().await;
         let (server_handle, token) = start_bridge(port);
@@ -684,6 +697,7 @@ mod bridge_tests {
 
     /// Test: is_bridge_running returns true when server is up.
     #[tokio::test]
+    #[serial]
     async fn is_bridge_running_returns_true() {
         let port = free_port().await;
         let (server_handle, _token) = start_bridge(port);
@@ -697,6 +711,7 @@ mod bridge_tests {
 
     /// Test: is_bridge_running returns false when no server is running.
     #[tokio::test]
+    #[serial]
     async fn is_bridge_running_returns_false_when_not_running() {
         let port = free_port().await;
         // Don't start any server
@@ -744,6 +759,7 @@ mod bridge_tests {
     /// Test: Extension.createTab is forwarded and response includes attached: true.
     /// Then a subsequent CDP command (new CLI connection) is also forwarded successfully.
     #[tokio::test]
+    #[serial]
     async fn create_tab_then_cdp_succeeds() {
         let port = free_port().await;
         let (server_handle, token) = start_bridge(port);
@@ -815,6 +831,7 @@ mod bridge_tests {
 
     /// Test: Extension.activateTab is forwarded and subsequent CDP works.
     #[tokio::test]
+    #[serial]
     async fn activate_tab_then_cdp_succeeds() {
         let port = free_port().await;
         let (server_handle, token) = start_bridge(port);
@@ -883,6 +900,7 @@ mod bridge_tests {
     /// Test: open tab A (createTab), switch to tab B (activateTab) — subsequent CDP goes to extension.
     /// Each command uses a separate CLI connection (bridge handles one command per connection).
     #[tokio::test]
+    #[serial]
     async fn switch_tab_changes_cdp_target() {
         let port = free_port().await;
         let (server_handle, token) = start_bridge(port);
@@ -955,6 +973,7 @@ mod bridge_tests {
 
     /// Test: CLI with wrong token is rejected with hello_error/invalid_token.
     #[tokio::test]
+    #[serial]
     async fn cli_wrong_token_rejected() {
         let port = free_port().await;
         let (server_handle, _token) = start_bridge(port);
@@ -983,6 +1002,7 @@ mod bridge_tests {
 
     /// Test: CLI with no token field is rejected with hello_error/invalid_token.
     #[tokio::test]
+    #[serial]
     async fn cli_no_token_rejected() {
         let port = free_port().await;
         let (server_handle, _token) = start_bridge(port);
@@ -1010,6 +1030,7 @@ mod bridge_tests {
 
     /// Test: Extension role bypasses token validation (localhost trust model).
     #[tokio::test]
+    #[serial]
     async fn extension_role_bypasses_token() {
         let port = free_port().await;
         let (server_handle, _token) = start_bridge(port);
@@ -1037,6 +1058,7 @@ mod bridge_tests {
 
     /// Test: Full extension mode lifecycle — start bridge, connect extension + CLI, round-trip command.
     #[tokio::test]
+    #[serial]
     async fn extension_mode_lifecycle_e2e() {
         let port = free_port().await;
         let (server_handle, token) = start_bridge(port);

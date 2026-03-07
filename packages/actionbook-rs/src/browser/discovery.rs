@@ -186,6 +186,12 @@ fn get_browser_candidates() -> Vec<(BrowserType, Vec<&'static str>)> {
 fn detect_version(path: &PathBuf) -> Option<String> {
     use std::process::Stdio;
 
+    // Skip version detection for Arc browser - it doesn't support --version
+    // and launches the full app instead, which is problematic during tests
+    if path.to_string_lossy().contains("Arc.app") {
+        return None;
+    }
+
     let mut child = Command::new(path)
         .arg("--version")
         .stdout(Stdio::piped())
