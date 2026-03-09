@@ -1,6 +1,6 @@
 [package]
 name = "actionbook"
-version = "0.8.4"
+version = "0.9.0"
 edition = "2021"
 description = "Actionbook CLI - Browser automation with zero installation"
 license = "MIT"
