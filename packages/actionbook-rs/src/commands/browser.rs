@@ -4252,10 +4252,13 @@ pub(crate) async fn close(cli: &Cli, config: &Config) -> Result<()> {
     if cli.extension {
         extension_send(cli, "Extension.detachTab", serde_json::json!({})).await?;
 
+        let port = cli.extension_port;
+        bridge_lifecycle::stop_bridge(port).await?;
+
         if cli.json {
             println!("{}", serde_json::json!({ "success": true }));
         } else {
-            println!("{} Tab detached (extension)", "✓".green());
+            println!("{} Tab detached and bridge stopped (extension)", "✓".green());
         }
         return Ok(());
     }

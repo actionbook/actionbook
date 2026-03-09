@@ -546,7 +546,9 @@ async fn handle_connection(stream: TcpStream, state: Arc<Mutex<BridgeState>>) {
     {
         Ok(ws) => ws,
         Err(e) => {
-            tracing::error!("WebSocket handshake failed: {}", e);
+            // debug-level: TCP health-check probes (is_bridge_running) connect
+            // then immediately disconnect, which is normal and not an error.
+            tracing::debug!("WebSocket handshake failed: {}", e);
             return;
         }
     };
