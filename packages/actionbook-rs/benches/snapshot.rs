@@ -190,8 +190,16 @@ fn bench_parse_ax_tree(c: &mut Criterion) {
         let ax_tree_value = generate_ax_tree(*size);
         let ax_tree_json = serde_json::to_string(&ax_tree_value).unwrap();
 
-        // Current: Value access
-        group.bench_with_input(BenchmarkId::new("value", size), size, |b, _| {
+        // Current: Value access (FAIR: includes JSON parsing)
+        group.bench_with_input(BenchmarkId::new("value_fair", size), size, |b, _| {
+            b.iter(|| {
+                let ax_tree: Value = serde_json::from_str(black_box(&ax_tree_json)).unwrap();
+                parse_ax_tree_value(&ax_tree)
+            });
+        });
+
+        // Current: Value access (UNFAIR: pre-parsed, for comparison)
+        group.bench_with_input(BenchmarkId::new("value_unfair", size), size, |b, _| {
             b.iter(|| parse_ax_tree_value(black_box(&ax_tree_value)));
         });
 
