@@ -204,12 +204,14 @@ async fn apply_resource_blocking(cli: &Cli, driver: &mut BrowserDriver) {
 /// Resolve a snapshot ref (e.g., "e0") to a backendNodeId by fetching the accessibility tree
 async fn resolve_snapshot_ref(driver: &mut BrowserDriver, ref_str: &str) -> Result<i64> {
     let raw = driver.get_accessibility_tree_raw().await?;
+    // Phase 2b: Convert to JSON string for typed deserialization
+    let raw_json = serde_json::to_string(&raw)?;
     let (_nodes, cache) = crate::browser::snapshot::parse_ax_tree(
-        &raw,
+        &raw_json,
         crate::browser::snapshot::SnapshotFilter::All,
         None,
         None,
-    );
+    )?;
     cache
         .refs
         .get(ref_str)
@@ -2570,7 +2572,9 @@ pub(crate) async fn snapshot(
     };
 
     let raw = driver.get_accessibility_tree_raw().await?;
-    let (mut nodes, _cache) = snapshot::parse_ax_tree(&raw, snap_filter, depth, scope_backend_id);
+    // Phase 2b: Convert to JSON string for typed deserialization
+    let raw_json = serde_json::to_string(&raw)?;
+    let (mut nodes, _cache) = snapshot::parse_ax_tree(&raw_json, snap_filter, depth, scope_backend_id)?;
 
     // Apply compact tree filtering (-c): remove empty structural elements
     if compact {
@@ -4017,12 +4021,14 @@ async fn complete_fetch(
     let (content, content_format, tokens_estimate, truncated) = match format {
         "snapshot" => {
             let raw = driver.get_accessibility_tree_raw().await?;
+            // Phase 2b: Convert to JSON string for typed deserialization
+            let raw_json = serde_json::to_string(&raw)?;
             let (nodes, _cache) = crate::browser::snapshot::parse_ax_tree(
-                &raw,
+                &raw_json,
                 crate::browser::snapshot::SnapshotFilter::All,
                 None,
                 None,
-            );
+            )?;
 
             let (final_nodes, was_truncated) = if let Some(max) = max_tokens {
                 crate::browser::snapshot::truncate_to_tokens(
