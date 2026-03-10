@@ -123,6 +123,7 @@ pub fn pre_click_delay_ms() -> u64 {
 }
 
 /// Click hold duration
+#[allow(dead_code)]
 pub fn click_hold_ms() -> u64 {
     let mut rng = rand::thread_rng();
     rng.gen_range(30..120)

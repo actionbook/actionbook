@@ -41,6 +41,7 @@ pub struct RefCache {
     /// "e0" → backend_node_id
     pub refs: HashMap<String, i64>,
     /// Last snapshot nodes
+    #[allow(dead_code)]
     pub nodes: Vec<A11yNode>,
 }
 

@@ -143,7 +143,7 @@ fn test_session_path_consistency() {
 
     // Verify SessionManager and app restart use the same path
     let config = Config::default();
-    let session_manager = SessionManager::new(config);
+    let _session_manager = SessionManager::new(config);
 
     // SessionManager path: ~/.actionbook/sessions
     let expected_sessions_dir = dirs::home_dir()
@@ -159,10 +159,11 @@ fn test_session_path_consistency() {
 #[test]
 fn test_save_external_session_with_app() {
     use std::fs;
-    use std::path::PathBuf;
 
     let config = Config::default();
-    let session_manager = SessionManager::new(config);
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let sessions_dir = temp.path().join("sessions");
+    let session_manager = SessionManager::with_sessions_dir(config, sessions_dir.clone());
 
     let profile_name = "test-app-profile";
     let cdp_port = 9222;
@@ -180,19 +181,15 @@ fn test_save_external_session_with_app() {
     assert!(result.is_ok(), "Should save session with app path");
 
     // Read back and verify custom_app_path is saved
-    let sessions_dir = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".actionbook")
-        .join("sessions");
     let session_file = sessions_dir.join(format!("{}.json", profile_name));
+    assert!(session_file.exists(), "Session file should be created");
 
-    if let Ok(content) = fs::read_to_string(&session_file) {
-        assert!(content.contains("custom_app_path"), "Session should contain custom_app_path field");
-        assert!(content.contains("TestApp"), "Session should contain app path");
-
-        // Clean up
-        let _ = fs::remove_file(&session_file);
-    }
+    let content = fs::read_to_string(&session_file).expect("read saved session");
+    assert!(
+        content.contains("custom_app_path"),
+        "Session should contain custom_app_path field"
+    );
+    assert!(content.contains("TestApp"), "Session should contain app path");
 }
 
 #[tokio::test]

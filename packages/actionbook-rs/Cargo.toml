@@ -31,7 +31,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signa
 # CDP client
 chromiumoxide = { version = "0.8", features = ["tokio-runtime"], default-features = false }
 futures = "0.3"
-tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 
 # HTTP client (for API calls)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -77,7 +77,7 @@ async-trait = "0.1"
 dirs = "6"
 console = "0.15"
 dialoguer = "0.11"
-which = "7"
+which = "8"
 shellexpand = "3"
 base64 = "0.22"
 

@@ -109,6 +109,7 @@ impl ExtensionBackend {
 
     /// Evaluate JS via Runtime.evaluate with configurable `awaitPromise`.
     /// Shared logic for both internal `eval_js` and the user-facing `eval` trait method.
+    #[allow(dead_code)]
     async fn eval_with_options(&self, expression: &str, await_promise: bool) -> Result<Value> {
         let mut params = serde_json::json!({
             "expression": expression,
@@ -145,11 +146,13 @@ impl ExtensionBackend {
     }
 
     /// Evaluate JS with `awaitPromise: true` — used by internal action helpers.
+    #[allow(dead_code)]
     async fn eval_js(&self, expression: &str) -> Result<Value> {
         self.eval_with_options(expression, true).await
     }
 
     /// Execute JS that returns `{success: bool, error?: string}` and check for errors.
+    #[allow(dead_code)]
     async fn eval_action(&self, js: &str, action_name: &str) -> Result<()> {
         let result = self.eval_js(js).await?;
         if result.get("success").and_then(|v| v.as_bool()) != Some(true) {
@@ -166,6 +169,7 @@ impl ExtensionBackend {
     }
 
     /// Poll for an element matching selector until found or timeout.
+    #[allow(dead_code)]
     async fn wait_for_element(&self, selector: &str, timeout_ms: u64) -> Result<()> {
         let resolve_js = js_resolve_selector(selector);
         let poll_js = format!(
@@ -195,6 +199,7 @@ impl ExtensionBackend {
 // ---------------------------------------------------------------------------
 
 /// Escape a string for safe embedding in a JS single-quoted string literal.
+#[allow(dead_code)]
 fn escape_js_string(s: &str) -> String {
     // serde_json::to_string on &str never fails for valid UTF-8
     let json = serde_json::to_string(s).expect("serializing &str to JSON is infallible");
@@ -203,6 +208,7 @@ fn escape_js_string(s: &str) -> String {
 }
 
 /// Build a JS expression that resolves a selector (CSS or [ref=eN] format).
+#[allow(dead_code)]
 fn js_resolve_selector(selector: &str) -> String {
     format!(
         r#"(function(selector) {{

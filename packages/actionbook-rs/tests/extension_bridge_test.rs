@@ -206,6 +206,10 @@ mod bridge_tests {
     use assert_cmd::Command;
     use predicates::prelude::*;
 
+    fn cargo_bin_cmd() -> Command {
+        Command::new(assert_cmd::cargo::cargo_bin!("actionbook"))
+    }
+
     /// Test: Connection without hello message is closed.
     #[tokio::test]
     #[serial]
@@ -723,7 +727,7 @@ mod bridge_tests {
     #[test]
     fn cli_extension_ping_without_bridge_shows_error() {
         // Extension ping should show error when bridge is not running
-        let mut cmd = Command::cargo_bin("actionbook").unwrap();
+        let mut cmd = cargo_bin_cmd();
         let output = cmd
             .args(["extension", "ping", "--port", "19999"])
             .timeout(Duration::from_secs(5))
@@ -743,7 +747,7 @@ mod bridge_tests {
     /// Test: CLI extension status command via assert_cmd.
     #[test]
     fn cli_extension_status_runs() {
-        let mut cmd = Command::cargo_bin("actionbook").unwrap();
+        let mut cmd = cargo_bin_cmd();
         let result = cmd
             .args(["extension", "status", "--port", "19999"])
             .timeout(Duration::from_secs(5))
@@ -958,7 +962,7 @@ mod bridge_tests {
     /// Test: --profile flag combined with --extension produces an error.
     #[test]
     fn profile_flag_rejected_in_extension_mode() {
-        let mut cmd = Command::cargo_bin("actionbook").unwrap();
+        let mut cmd = cargo_bin_cmd();
         cmd.args(["--profile", "myprofile", "--extension", "browser", "status"])
             .timeout(Duration::from_secs(5))
             .assert()
@@ -1120,7 +1124,7 @@ mod bridge_tests {
     /// Test: cookies clear --dry-run flag is accepted by CLI parser.
     #[test]
     fn cookies_clear_dry_run_accepted() {
-        let mut cmd = Command::cargo_bin("actionbook").unwrap();
+        let mut cmd = cargo_bin_cmd();
         cmd.args(["browser", "cookies", "clear", "--dry-run", "--help"])
             .assert()
             .success()
@@ -1130,7 +1134,7 @@ mod bridge_tests {
     /// Test: cookies clear --domain flag is accepted by CLI parser.
     #[test]
     fn cookies_clear_domain_accepted() {
-        let mut cmd = Command::cargo_bin("actionbook").unwrap();
+        let mut cmd = cargo_bin_cmd();
         cmd.args(["browser", "cookies", "clear", "--help"])
             .assert()
             .success()

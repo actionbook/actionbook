@@ -3930,7 +3930,7 @@ async fn fetch_via_browser(
     match BrowserDriver::from_config(&fetch_config, &fetch_config.get_profile(&profile_name).unwrap(), &temp_cli).await? {
         BrowserDriver::Cdp(session_mgr) => {
             // Start browser session
-            let (browser, mut handler) = session_mgr.get_or_create_session(Some(&profile_name)).await?;
+            let (_browser, mut handler) = session_mgr.get_or_create_session(Some(&profile_name)).await?;
 
             // Spawn handler in background
             tokio::spawn(async move {
@@ -3996,8 +3996,8 @@ async fn complete_fetch(
     max_tokens: Option<usize>,
     session_tag: &str,
     cli: &Cli,
-    profile_name: String,
-    config: Config,
+    _profile_name: String,
+    _config: Config,
 ) -> Result<()> {
 
     // I5: Domain-aware wait
@@ -5140,7 +5140,6 @@ mod tests {
     };
     use crate::cli::{BrowserCommands, BrowserMode, Cli, Commands};
     use crate::config::Config;
-    use serde_json::json;
 
     fn test_cli(profile: Option<&str>, command: BrowserCommands) -> Cli {
         Cli {

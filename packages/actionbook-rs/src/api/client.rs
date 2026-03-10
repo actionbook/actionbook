@@ -120,6 +120,7 @@ impl ApiClient {
     }
 
     /// Post validation report to the backend API
+    #[allow(dead_code)]
     pub async fn post_validation_report(
         &self,
         report: &serde_json::Value,

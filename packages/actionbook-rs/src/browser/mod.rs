@@ -28,6 +28,7 @@ pub mod stealth_enhanced; // Enhanced stealth based on Camoufox techniques (Phas
 pub use backend::BrowserBackend;
 #[allow(unused_imports)]
 pub use discovery::{discover_all_browsers, BrowserInfo, BrowserType};
+#[allow(unused_imports)]
 pub use app_discovery::{discover_electron_apps, ElectronAppInfo};
 pub use router::BrowserDriver;
 pub use session::{SessionManager, SessionStatus, StealthConfig};

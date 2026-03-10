@@ -35,6 +35,7 @@ impl BrowserDriver {
     /// Create a browser driver from CLI flags (convenience wrapper)
     ///
     /// Respects `--profile` and `--cdp` CLI flags to override config defaults.
+    #[allow(dead_code)]
     pub async fn from_cli(cli: &Cli) -> Result<Self> {
         let config = Config::load()?;
         let profile_name = match cli.profile.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
@@ -192,6 +193,7 @@ impl BrowserDriver {
     }
 
     /// Hover over an element
+    #[allow(dead_code)]
     pub async fn hover(&mut self, selector: &str) -> Result<()> {
         match self {
             Self::Cdp(mgr) => mgr.hover_on_page(None, selector).await,

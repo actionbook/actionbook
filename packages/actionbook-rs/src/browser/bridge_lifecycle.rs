@@ -135,6 +135,7 @@ fn spawn_detached(exe: &std::path::Path, port: u16) -> Result<()> {
 ///
 /// Reads the PID file, verifies port match, sends SIGTERM, waits with
 /// SIGKILL escalation, then cleans up files. Silent no-op if bridge is not running.
+#[allow(dead_code)]
 pub async fn stop_bridge(port: u16) -> Result<()> {
     let pid_info = extension_bridge::read_pid_file().await;
 
