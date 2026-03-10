@@ -3,6 +3,8 @@
 //! Provides a consistent interface for retrieving page content in different formats
 //! across all browser backends (CDP, Camoufox, etc.)
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 
 /// Content format for page retrieval

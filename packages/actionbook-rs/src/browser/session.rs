@@ -62,11 +62,23 @@ pub struct SessionManager {
 
 impl SessionManager {
     pub fn new(config: Config) -> Self {
-        let sessions_dir = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".actionbook")
-            .join("sessions");
+        Self::with_sessions_dir(config, Self::default_sessions_dir())
+    }
 
+    /// Create session manager with stealth configuration
+    pub fn with_stealth(config: Config, stealth_config: StealthConfig) -> Self {
+        Self {
+            config,
+            sessions_dir: Self::default_sessions_dir(),
+            stealth_config: Some(stealth_config),
+        }
+    }
+
+    /// Create session manager with a custom sessions directory.
+    ///
+    /// This is primarily useful for tests and embedded callers that need
+    /// isolated state instead of writing into `~/.actionbook/sessions`.
+    pub fn with_sessions_dir(config: Config, sessions_dir: PathBuf) -> Self {
         Self {
             config,
             sessions_dir,
@@ -74,18 +86,11 @@ impl SessionManager {
         }
     }
 
-    /// Create session manager with stealth configuration
-    pub fn with_stealth(config: Config, stealth_config: StealthConfig) -> Self {
-        let sessions_dir = dirs::home_dir()
+    fn default_sessions_dir() -> PathBuf {
+        dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(".actionbook")
-            .join("sessions");
-
-        Self {
-            config,
-            sessions_dir,
-            stealth_config: Some(stealth_config),
-        }
+            .join("sessions")
     }
 
     /// Check if stealth mode is enabled
@@ -2222,8 +2227,6 @@ impl SessionManager {
         backend_node_id: i64,
         function_declaration: &str,
     ) -> Result<serde_json::Value> {
-        use futures::SinkExt;
-        use futures::stream::StreamExt;
         use tokio_tungstenite::connect_async;
 
         let page_info = self.get_active_page_info(profile_name).await?;
