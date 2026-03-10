@@ -132,6 +132,10 @@ harness = false
 name = "base64"
 harness = false
 
+[[bench]]
+name = "serde_only"
+harness = false
+
 [profile.release]
 opt-level = "z"
 lto = true

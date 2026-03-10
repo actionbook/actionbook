@@ -56,7 +56,8 @@ fn bench_save_session_bytes(c: &mut Criterion) {
         let state = MockSessionState::new(*size);
         group.bench_with_input(BenchmarkId::new("bytes", size), size, |b, _| {
             b.iter(|| {
-                let bytes = serde_json::to_vec(&state).unwrap();
+                // FIXED: Use to_vec_pretty for fair comparison
+                let bytes = serde_json::to_vec_pretty(&state).unwrap();
                 fs::write(&path, bytes).unwrap();
             });
         });
@@ -93,7 +94,8 @@ fn bench_load_session_bytes(c: &mut Criterion) {
     let mut group = c.benchmark_group("load_session_state");
     for size in [10, 100, 1000].iter() {
         let state = MockSessionState::new(*size);
-        let bytes = serde_json::to_vec(&state).unwrap();
+        // FIXED: Use to_vec_pretty to match string benchmark format
+        let bytes = serde_json::to_vec_pretty(&state).unwrap();
         fs::write(&path, &bytes).unwrap();
 
         group.bench_with_input(BenchmarkId::new("bytes", size), size, |b, _| {
