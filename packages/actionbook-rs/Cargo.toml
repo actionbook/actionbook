@@ -100,6 +100,7 @@ tokio-test = "0.4"
 assert_cmd = "2"
 predicates = "3"
 serial_test = "3"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 # Examples that depend on Camoufox modules (not active in refactor/browser-extension branch)
 [[example]]
@@ -113,6 +114,27 @@ required-features = ["camoufox-server"]
 [[example]]
 name = "human_behavior_demo"
 required-features = ["camoufox-server"]
+
+# Benchmarks
+[[bench]]
+name = "cache_io"
+harness = false
+
+[[bench]]
+name = "cdp"
+harness = false
+
+[[bench]]
+name = "snapshot"
+harness = false
+
+[[bench]]
+name = "base64"
+harness = false
+
+[[bench]]
+name = "serde_only"
+harness = false
 
 [profile.release]
 opt-level = "z"
