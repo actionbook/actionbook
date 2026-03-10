@@ -4,6 +4,7 @@ pub mod bridge_lifecycle;
 pub mod camofox;
 #[cfg(feature = "camoufox")]
 pub mod camofox_webdriver;
+pub mod cdp_types; // CDP typed message structures (Phase 2a optimization)
 pub mod content;
 mod discovery;
 pub mod app_discovery; // Electron app discovery

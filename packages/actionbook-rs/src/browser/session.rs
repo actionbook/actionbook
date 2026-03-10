@@ -781,6 +781,7 @@ impl SessionManager {
     ) -> Result<serde_json::Value> {
         use futures::SinkExt;
         use tokio_tungstenite::connect_async;
+        use crate::browser::cdp_types::CdpResponse;
 
         let page_info = self.get_active_page_info(profile_name).await?;
         let ws_url = page_info
@@ -807,16 +808,17 @@ impl SessionManager {
         while let Some(msg) = ws.next().await {
             match msg {
                 Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
-                    let response: serde_json::Value = serde_json::from_str(text.as_str())?;
-                    if response.get("id") == Some(&serde_json::json!(1)) {
-                        if let Some(error) = response.get("error") {
-                            return Err(ActionbookError::Other(format!("CDP error: {}", error)));
+                    // Phase 2a optimization: Typed deserialization (struct, not enum)
+                    let response: CdpResponse = serde_json::from_str(text.as_str())?;
+
+                    // Check if this is our response
+                    if response.id == 1 {
+                        if let Some(err) = response.error {
+                            return Err(ActionbookError::Other(format!("CDP error: {}", err)));
                         }
-                        return Ok(response
-                            .get("result")
-                            .cloned()
-                            .unwrap_or(serde_json::Value::Null));
+                        return Ok(response.result.unwrap_or(serde_json::Value::Null));
                     }
+                    // Not our response, keep waiting (might be an Event or another response)
                 }
                 Ok(_) => continue,
                 Err(e) => return Err(ActionbookError::Other(format!("WebSocket error: {}", e))),

@@ -31,21 +31,14 @@ fn bench_cdp_parse_value(c: &mut Criterion) {
     });
 }
 
-// Proposed pattern: typed envelope
+// Proposed pattern: typed struct (no enum to avoid untagged overhead)
 #[derive(Deserialize, Debug)]
-#[serde(untagged)]
-enum CdpMessage {
-    Response {
-        id: i64,
-        #[serde(default)]
-        result: Option<Value>,
-        #[serde(default)]
-        error: Option<CdpError>,
-    },
-    Event {
-        method: String,
-        params: Value,
-    },
+struct CdpResponse {
+    id: i64,
+    #[serde(default)]
+    result: Option<Value>,
+    #[serde(default)]
+    error: Option<CdpError>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -59,39 +52,17 @@ struct CdpError {
 fn bench_cdp_parse_typed(c: &mut Criterion) {
     c.bench_function("cdp_parse_response_typed", |b| {
         b.iter(|| {
-            let message: CdpMessage = serde_json::from_str(black_box(CDP_RESPONSE)).unwrap();
-            match message {
-                CdpMessage::Response { id, result, .. } => {
-                    let _id = id;
-                    let _result = result;
-                }
-                _ => panic!("Expected response"),
-            }
-        });
-    });
-
-    c.bench_function("cdp_parse_event_typed", |b| {
-        b.iter(|| {
-            let message: CdpMessage = serde_json::from_str(black_box(CDP_EVENT)).unwrap();
-            match message {
-                CdpMessage::Event { method, params } => {
-                    let _method = method;
-                    let _params = params;
-                }
-                _ => panic!("Expected event"),
-            }
+            let response: CdpResponse = serde_json::from_str(black_box(CDP_RESPONSE)).unwrap();
+            let _id = response.id;
+            let _result = response.result;
         });
     });
 
     c.bench_function("cdp_parse_error_typed", |b| {
         b.iter(|| {
-            let message: CdpMessage = serde_json::from_str(black_box(CDP_ERROR)).unwrap();
-            match message {
-                CdpMessage::Response { error, .. } => {
-                    let _error = error;
-                }
-                _ => panic!("Expected error response"),
-            }
+            let response: CdpResponse = serde_json::from_str(black_box(CDP_ERROR)).unwrap();
+            let _id = response.id;
+            let _error = response.error;
         });
     });
 }
