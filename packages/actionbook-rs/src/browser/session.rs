@@ -809,16 +809,23 @@ impl SessionManager {
             match msg {
                 Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
                     // Phase 2a optimization: Typed deserialization (struct, not enum)
-                    let response: CdpResponse = serde_json::from_str(text.as_str())?;
-
-                    // Check if this is our response
-                    if response.id == 1 {
-                        if let Some(err) = response.error {
-                            return Err(ActionbookError::Other(format!("CDP error: {}", err)));
+                    // Try to parse as CdpResponse; if it's an Event, skip it
+                    match serde_json::from_str::<CdpResponse>(text.as_str()) {
+                        Ok(response) => {
+                            // Check if this is our response
+                            if response.id == 1 {
+                                if let Some(err) = response.error {
+                                    return Err(ActionbookError::Other(format!("CDP error: {}", err)));
+                                }
+                                return Ok(response.result.unwrap_or(serde_json::Value::Null));
+                            }
+                            // Not our response, keep waiting
                         }
-                        return Ok(response.result.unwrap_or(serde_json::Value::Null));
+                        Err(_) => {
+                            // Probably a CDP Event ({"method": "...", "params": {...}}), skip it
+                            continue;
+                        }
                     }
-                    // Not our response, keep waiting (might be an Event or another response)
                 }
                 Ok(_) => continue,
                 Err(e) => return Err(ActionbookError::Other(format!("WebSocket error: {}", e))),

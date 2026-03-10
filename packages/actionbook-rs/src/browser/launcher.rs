@@ -272,6 +272,14 @@ impl BrowserLauncher {
             "--no-default-browser-check".to_string(),
         ];
 
+        // Disable macOS Keychain access to prevent permission dialogs during tests
+        #[cfg(target_os = "macos")]
+        {
+            args.push("--use-mock-keychain".to_string());
+            args.push("--password-store=basic".to_string());
+            args.push("--disable-features=PasswordGeneration,AutofillServerCommunication".to_string());
+        }
+
         if self.stealth {
             // Use enhanced stealth args learned from Camoufox
             args.extend(super::stealth_enhanced::get_enhanced_stealth_args());
