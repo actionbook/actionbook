@@ -819,11 +819,19 @@ impl SessionManager {
                                 }
                                 return Ok(response.result.unwrap_or(serde_json::Value::Null));
                             }
-                            // Not our response, keep waiting
+                            // Not our response (different id), keep waiting
                         }
-                        Err(_) => {
-                            // Probably a CDP Event ({"method": "...", "params": {...}}), skip it
-                            continue;
+                        Err(e) => {
+                            // Distinguish between CDP Events (expected) and real parse errors (unexpected)
+                            if text.contains("\"method\"") && !text.contains("\"id\"") {
+                                // This looks like a CDP Event ({"method": "...", "params": {...}}), skip it
+                                tracing::trace!("Skipping CDP Event: {}", text.chars().take(100).collect::<String>());
+                                continue;
+                            } else {
+                                // Real parse error - log it but continue waiting
+                                tracing::warn!("Failed to parse CDP message: {}, text: {}", e, text.chars().take(200).collect::<String>());
+                                continue;
+                            }
                         }
                     }
                 }
