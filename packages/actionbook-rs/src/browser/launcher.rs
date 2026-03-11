@@ -149,6 +149,7 @@ pub struct BrowserLauncher {
     stealth: bool,
     user_data_dir: PathBuf,
     extra_args: Vec<String>,
+    mock_keychain: bool, // Only for macOS: disable system keychain (use basic password store)
 }
 
 impl BrowserLauncher {
@@ -174,6 +175,11 @@ impl BrowserLauncher {
         let browser_info = discover_browser()?;
         let data_dir = Self::default_user_data_dir(Self::ACTIONBOOK_PROFILE_NAME);
 
+        // Check environment variable to enable mock keychain (for testing)
+        let mock_keychain = std::env::var("ACTIONBOOK_MOCK_KEYCHAIN")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+
         Ok(Self {
             browser_info,
             profile_name: Self::ACTIONBOOK_PROFILE_NAME.to_string(),
@@ -182,6 +188,7 @@ impl BrowserLauncher {
             stealth: false,
             user_data_dir: data_dir,
             extra_args: Vec::new(),
+            mock_keychain,
         })
     }
 
@@ -201,6 +208,11 @@ impl BrowserLauncher {
 
         let data_dir = Self::default_user_data_dir(Self::ACTIONBOOK_PROFILE_NAME);
 
+        // Check environment variable to enable mock keychain (for testing)
+        let mock_keychain = std::env::var("ACTIONBOOK_MOCK_KEYCHAIN")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+
         Ok(Self {
             browser_info,
             profile_name: Self::ACTIONBOOK_PROFILE_NAME.to_string(),
@@ -209,6 +221,7 @@ impl BrowserLauncher {
             stealth: false,
             user_data_dir: data_dir,
             extra_args: Vec::new(),
+            mock_keychain,
         })
     }
 
@@ -272,9 +285,10 @@ impl BrowserLauncher {
             "--no-default-browser-check".to_string(),
         ];
 
-        // Disable macOS Keychain access to prevent permission dialogs during tests
+        // Optionally disable macOS Keychain access (controlled by ACTIONBOOK_MOCK_KEYCHAIN env var)
+        // This prevents permission dialogs but also disables saved passwords/certificates
         #[cfg(target_os = "macos")]
-        {
+        if self.mock_keychain {
             args.push("--use-mock-keychain".to_string());
             args.push("--password-store=basic".to_string());
             args.push("--disable-features=PasswordGeneration,AutofillServerCommunication".to_string());
@@ -598,6 +612,7 @@ mod tests {
             stealth: false,
             user_data_dir: dir,
             extra_args: Vec::new(),
+            mock_keychain: false,
         }
     }
 
