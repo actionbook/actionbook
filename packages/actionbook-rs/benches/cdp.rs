@@ -4,7 +4,7 @@
 // Key metrics: parse time for responses, events, and errors.
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 
 // Sample CDP messages
@@ -42,6 +42,7 @@ struct CdpResponse {
 }
 
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 struct CdpError {
     code: i64,
     message: String,

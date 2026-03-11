@@ -677,7 +677,7 @@ async fn handle_connection(stream: TcpStream, state: Arc<Mutex<BridgeState>>) {
     // the bridge handler cleans up extension_tx = None, then the new connection
     // is accepted on the next retry (~2s).
     if client_role == "extension" {
-        let mut s = state.lock().await;
+        let s = state.lock().await;
         let has_active = s
             .extension_tx
             .as_ref()
