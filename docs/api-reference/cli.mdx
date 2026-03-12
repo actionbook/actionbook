@@ -113,3 +113,139 @@ actionbook browser fill [selector] [value]
 These flags apply to all `actionbook browser` subcommands:
 
 - `--json` — Output results in JSON format.
+
+---
+
+## `actionbook app`
+
+Automate desktop applications built with Electron (VS Code, Slack, Discord, Figma, Notion, Spotify, etc.) using Chrome DevTools Protocol.
+
+<Note>
+  All `browser` commands work with `app` prefix. Full feature parity with 35+ automation commands.
+</Note>
+
+### App-Specific Commands
+
+#### `actionbook app launch`
+
+Auto-discover and launch an Electron application.
+
+**Usage:**
+
+```bash
+actionbook app launch [name]
+```
+
+**Arguments:**
+
+- `name`: The application name (e.g., "Visual Studio Code", "Slack", "Discord").
+
+**Example:**
+
+```bash
+actionbook app launch "Visual Studio Code"
+actionbook app launch Slack
+```
+
+#### `actionbook app attach`
+
+Attach to a running Electron app on a specific CDP port.
+
+**Usage:**
+
+```bash
+actionbook app attach [port]
+```
+
+**Arguments:**
+
+- `port`: The Chrome DevTools Protocol port (default: 9222).
+
+**Example:**
+
+```bash
+actionbook app attach 9222
+```
+
+#### `actionbook app list`
+
+List all discoverable Electron applications on the system.
+
+**Usage:**
+
+```bash
+actionbook app list
+```
+
+#### `actionbook app status`
+
+Show current app connection status.
+
+**Usage:**
+
+```bash
+actionbook app status
+```
+
+#### `actionbook app close`
+
+Close the connected application.
+
+**Usage:**
+
+```bash
+actionbook app close
+```
+
+#### `actionbook app restart`
+
+Restart the application (preserves session).
+
+**Usage:**
+
+```bash
+actionbook app restart
+```
+
+### All Browser Commands Available
+
+Every `browser` command works with the `app` prefix. This includes:
+
+**Navigation:**
+- `actionbook app goto <URL>`
+
+**Interaction:**
+- `actionbook app click <SELECTOR>`
+- `actionbook app type <TEXT> [SELECTOR]`
+- `actionbook app fill <TEXT> [SELECTOR]`
+- `actionbook app hotkey "Control+C"`
+
+**Analysis:**
+- `actionbook app snapshot [--format compact]`
+- `actionbook app screenshot output.png`
+- `actionbook app eval "document.title"`
+
+**Tab Management:**
+- `actionbook app tab list`
+- `actionbook app tab new`
+- `actionbook app tab switch <PAGE_ID>`
+
+**Advanced Features:**
+- Shadow DOM support (`:shadow-root` selector)
+- IFrame context switching
+- Keyboard hotkeys (single and multi-modifier)
+- Scroll with wait for lazy-loaded content
+
+See the [App Automation Guide](/guides/app-use) for detailed examples and workflows.
+
+### Supported Applications
+
+| Application | macOS | Linux | Windows |
+|-------------|-------|-------|---------|
+| Visual Studio Code | ✅ | ✅ | ✅ |
+| Slack | ✅ | ✅ | ✅ |
+| Discord | ✅ | ✅ | ✅ |
+| Figma | ✅ | ✅ | ✅ |
+| Notion | ✅ | ✅ | ✅ |
+| Spotify | ✅ | ✅ | ✅ |
+| Any Electron App | ✅ | ✅ | ✅ |

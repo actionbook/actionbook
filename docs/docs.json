@@ -23,7 +23,8 @@
               "guides/installation",
               "guides/skills",
               "api-reference/cli",
-              "guides/browser"
+              "guides/browser",
+              "guides/app-use"
             ]
           },
           {
