@@ -25,6 +25,51 @@ Export articles from any website (X, Medium, Dev.to, OpenAI blog, etc.) to Obsid
 
 ---
 
+## ⚠️ IMPORTANT: Terms of Service Compliance
+
+**This tool is intended for personal knowledge management only.**
+
+### ✅ Acceptable Use
+
+- **Personal archiving**: Save articles you've read for personal reference and learning
+- **Knowledge management**: Organize your reading materials in Obsidian
+- **Academic research**: Personal notes and annotations for study
+- **Offline reading**: Archive content for personal offline access
+
+### ❌ NOT Acceptable Use
+
+- **Large-scale scraping**: Automated bulk downloading of content
+- **Commercial use**: Data collection, resale, or commercial redistribution
+- **Public mirrors**: Creating publicly accessible copies or databases
+- **ToS violations**: Bypassing paywalls, access restrictions, or rate limits
+- **Copyright infringement**: Removing attribution or claiming content as your own
+
+### 📜 User Responsibility
+
+**You must comply with the source website's Terms of Service.**
+
+This tool:
+- Uses browser automation (similar to manual browsing)
+- Preserves original URLs and author attribution
+- Does NOT grant rights beyond what the source website allows
+
+**By using this tool, you agree to:**
+1. Use exported content for **personal use only**
+2. Respect **copyright** and **attribution requirements**
+3. Comply with **rate limits** and **ToS** of source websites
+4. **NOT** use for commercial purposes or redistribution
+
+### 🛡️ Respecting Content Creators
+
+- ✅ Always keep the original author attribution
+- ✅ Preserve the original URL reference
+- ✅ Consider supporting premium content creators
+- ✅ Use exported content for personal learning only
+
+**If in doubt, ask for permission before exporting content.**
+
+---
+
 ## Quick Reference
 
 | Task | Command | When to Use |
@@ -41,7 +86,7 @@ Export articles from any website (X, Medium, Dev.to, OpenAI blog, etc.) to Obsid
 
 **Before executing export commands, you MUST:**
 
-### 1. Check CLI Dependencies
+### 1. Check CLI Dependencies and Versions
 
 ```bash
 # Check actionbook CLI (REQUIRED)
@@ -51,18 +96,42 @@ if ! command -v actionbook &> /dev/null; then
     exit 1
 fi
 
-# Verify version
-actionbook --version
+# Verify version (MUST be >= 0.9.1)
+CURRENT_VERSION=$(actionbook --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+REQUIRED_VERSION="0.9.1"
+
+if [ -z "$CURRENT_VERSION" ]; then
+    echo "⚠️  Cannot detect actionbook version"
+elif [ "$(printf '%s\n' "$REQUIRED_VERSION" "$CURRENT_VERSION" | sort -V | head -n1)" != "$REQUIRED_VERSION" ]; then
+    echo "❌ actionbook version too old: $CURRENT_VERSION"
+    echo "   Required: >= $REQUIRED_VERSION"
+    echo ""
+    echo "   Upgrade command:"
+    echo "   npm install -g @actionbookdev/cli@latest"
+    exit 1
+else
+    echo "✅ actionbook version: $CURRENT_VERSION"
+fi
+
+# Check obsidian-cli (REQUIRED for Obsidian integration)
+if ! command -v obsidian-cli &> /dev/null; then
+    echo "⚠️  obsidian-cli not found (optional but recommended)"
+    echo "   Install: npm install -g obsidian-cli"
+    echo ""
+    echo "   Without obsidian-cli, articles will be saved but not auto-opened in Obsidian"
+fi
 ```
 
 **Required**:
-- ✅ `actionbook` CLI - **Critical** for fetching articles
-  - Install: `npm install -g @actionbookdev/cli`
+- ✅ `actionbook` CLI >= 0.9.1 - **Critical** for fetching articles
+  - Install: `npm install -g @actionbookdev/cli@latest`
   - Test: `actionbook --version`
+  - ⚠️ **Version 0.9.1+ required** for `--wait-hint` parameter
 
-**Optional**:
-- ⚠️ `obsidian` CLI - **Nice to have** for automatic Obsidian integration
+**Recommended**:
+- ✅ `obsidian-cli` - **Recommended** for automatic Obsidian integration
   - Install: `npm install -g obsidian-cli`
+  - Setup: `obsidian-cli set-default --vault "Your Vault Name"`
   - Use case: Auto-open exported articles in Obsidian
 
 ### 2. Check Documentation Files
@@ -80,13 +149,16 @@ actionbook --version
 ### Step 1: Fetch Article Content
 
 ```bash
-# Fetch article as Markdown
-actionbook browser fetch "$URL" --format markdown --wait-idle > /tmp/article.md
+# Fetch article as Markdown (with log cleaning)
+actionbook browser fetch "$URL" --format markdown --wait-hint heavy 2>/dev/null | \
+  sed '/^[[:space:]]*$/d;/^\x1b\[/d;/^INFO/d' > /tmp/article.md
 ```
 
 **Tips**:
-- Always use `--wait-idle` to ensure page fully loads
+- Use `--wait-hint heavy` for pages with dynamic content (Twitter, Medium)
 - Use `--format markdown` for clean text extraction
+- `2>/dev/null` suppresses stderr logs
+- `sed` removes ANSI codes, INFO lines, and empty lines
 
 ### Step 2: Extract Metadata
 
@@ -102,20 +174,41 @@ IMAGE_URLS=$(grep -o '!\[[^]]*\]([^)]*)' /tmp/article.md | \
 
 ### Step 3: Create Directory Structure
 
+**IMPORTANT**: Before creating directories, ask the user for the output path.
+
+**AI Assistant Action**:
+```
+Ask user: "Where should I save the exported article?"
+
+Suggested paths:
+- ~/Work/Write/Articles (default)
+- ~/Documents/Obsidian/Articles
+- ~/Notes/Imported
+- (or custom path)
+
+If user doesn't specify, use: ~/Work/Write/Articles
+```
+
 ```bash
+# User specifies OUTPUT_DIR (or use default)
+OUTPUT_DIR="${USER_OUTPUT_DIR:-$HOME/Work/Write/Articles}"
+
 # Sanitize title for directory name
 SAFE_TITLE=$(echo "$TITLE" | sed 's/[/:*?"<>|]//g' | cut -c1-100 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
 # Create output directory
-OUTPUT_DIR="$HOME/Work/Write/Articles"
 ARTICLE_DIR="$OUTPUT_DIR/$SAFE_TITLE"
 mkdir -p "$ARTICLE_DIR/images"
+
+echo "✓ Output directory: $ARTICLE_DIR"
 ```
 
 **Best Practices**:
+- **Always ask user for output path** - Don't assume default
 - Remove special characters: `/ : * ? " < > |`
 - Limit title length to 100 characters
 - Trim leading/trailing whitespace
+- Verify directory is writable before proceeding
 
 ### Step 4: Download Images
 
@@ -254,49 +347,59 @@ EOF
 **Complete the loop**: Automatically open the exported article in Obsidian
 
 ```bash
-# Method 1: Using obsidian-cli (if installed)
+# Method 1: Using obsidian-cli (recommended)
 if command -v obsidian-cli &> /dev/null; then
     # Get relative path from Obsidian vault root
-    VAULT_ROOT="$HOME/Work/Write/Articles"  # Or your vault root
+    # Use the OUTPUT_DIR from Step 3 as vault root
+    VAULT_ROOT="$OUTPUT_DIR"
     REL_PATH=$(echo "$ARTICLE_DIR" | sed "s|$VAULT_ROOT/||")
 
     # Open index.md in Obsidian
     obsidian-cli open "$REL_PATH/index.md"
     echo "✓ Opened in Obsidian: $REL_PATH/index.md"
 else
-    # Fallback: Use Obsidian URI protocol
-    OBSIDIAN_URI="obsidian://open?path=$(echo "$ARTICLE_DIR/index.md" | sed 's/ /%20/g')"
-
+    # Fallback: Open in Finder/Explorer
+    echo "⚠️  obsidian-cli not found, opening in file manager instead"
     case "$(uname)" in
-        Darwin)  open "$OBSIDIAN_URI" ;;
-        Linux)   xdg-open "$OBSIDIAN_URI" ;;
-        CYGWIN*|MINGW*|MSYS*) start "$OBSIDIAN_URI" ;;
+        Darwin)  open "$ARTICLE_DIR" ;;
+        Linux)   xdg-open "$ARTICLE_DIR" ;;
+        CYGWIN*|MINGW*|MSYS*) start "$ARTICLE_DIR" ;;
     esac
-
-    echo "✓ Opening in Obsidian via URI: $OBSIDIAN_URI"
+    echo "✓ Opened directory: $ARTICLE_DIR"
+    echo "   Install obsidian-cli for automatic Obsidian opening:"
+    echo "   npm install -g obsidian-cli"
 fi
 ```
 
-**obsidian-cli commands**:
+**obsidian-cli Setup (First-time only)**:
+
+```bash
+# Set default vault (matches the OUTPUT_DIR from Step 3)
+obsidian-cli set-default --vault "$(basename "$OUTPUT_DIR")"
+
+# Example:
+# If OUTPUT_DIR is ~/Work/Write/Articles
+# Then vault name is "Articles"
+```
+
+**obsidian-cli Commands**:
 
 ```bash
 # Open article index
 obsidian-cli open "Article Title/index.md"
 
-# Open with specific vault
-obsidian-cli open "Article Title/index.md" --vault "My Vault"
+# Open with specific vault (if you have multiple vaults)
+obsidian-cli open "Article Title/index.md" --vault "Articles"
 
 # Open specific section (heading)
 obsidian-cli open "Article Title/README.md" --section "Introduction"
-
-# Set default vault (one-time setup)
-obsidian-cli set-default --vault "My Vault"
 ```
 
 **Tips**:
-- Install obsidian-cli: `npm install -g obsidian-cli` (optional but recommended)
-- Set default vault once: `obsidian-cli set-default --vault "Articles"`
-- Then just use: `obsidian-cli open "$REL_PATH/index.md"`
+- **First-time setup**: Run `obsidian-cli set-default --vault "YourVaultName"` once
+- **Vault name**: Use the basename of OUTPUT_DIR (e.g., "Articles" from ~/Work/Write/Articles)
+- **Fallback**: If obsidian-cli is not installed, the script opens Finder/Explorer instead
+- **Path matching**: The OUTPUT_DIR from Step 3 should match your Obsidian vault root
 
 ### Step 9: Report Success
 
@@ -322,6 +425,8 @@ echo "════════════════════════�
 
 **When to use**: User wants to export multiple articles at once
 
+⚠️ **IMPORTANT**: Batch export MUST include rate limiting to comply with ToS and avoid being flagged as a bot.
+
 ```bash
 # Create array of URLs
 urls=(
@@ -330,7 +435,7 @@ urls=(
   "https://x.com/user/status/123"
 )
 
-# Loop through URLs
+# Loop through URLs with rate limiting
 for url in "${urls[@]}"; do
     echo "Processing: $url"
 
@@ -338,13 +443,40 @@ for url in "${urls[@]}"; do
     # (Full workflow from above)
 
     echo "✓ Completed: $url"
+
+    # CRITICAL: Rate limiting to avoid ToS violations
+    # Wait 3-5 seconds between requests (random to appear more human-like)
+    if [ "${url}" != "${urls[-1]}" ]; then  # Don't wait after last URL
+        DELAY=$((3 + RANDOM % 3))  # Random delay: 3-5 seconds
+        echo "⏱️  Waiting ${DELAY}s before next article (rate limiting)..."
+        sleep $DELAY
+    fi
+
     echo ""
 done
 
 echo "✓ Batch export completed: ${#urls[@]} articles"
 ```
 
-**Best Practice**: Test with one article first, then batch process
+**Best Practices**:
+- ✅ **Always test with one article first** before batch processing
+- ✅ **Add 3-5 second delays** between requests (required for ToS compliance)
+- ✅ **Limit batch size** to 5-10 articles per session
+- ✅ **Use random delays** to appear more human-like
+- ⚠️ **Never remove the sleep delay** - this prevents ToS violations
+
+**Rate Limiting Guidelines**:
+| Batch Size | Recommended Delay | Total Time |
+|------------|-------------------|------------|
+| 5 articles | 3-5 seconds | ~20-30 seconds |
+| 10 articles | 4-6 seconds | ~45-60 seconds |
+| 20+ articles | **NOT RECOMMENDED** | Consider manual export |
+
+**Why Rate Limiting Matters**:
+- Protects you from being flagged as a bot
+- Respects website server load
+- Complies with Terms of Service
+- Maintains tool availability for everyone
 
 ---
 
@@ -352,14 +484,22 @@ echo "✓ Batch export completed: ${#urls[@]} articles"
 
 | Issue | Cause | Solution |
 |-------|-------|----------|
-| **"actionbook: command not found"** | actionbook CLI not installed | `npm install -g @actionbookdev/cli` |
+| **"actionbook: command not found"** | actionbook CLI not installed | `npm install -g @actionbookdev/cli@latest` |
+| **"unknown flag: --wait-hint"** | actionbook version < 0.9.1 | Upgrade: `npm install -g @actionbookdev/cli@latest` |
+| **Version check fails** | actionbook too old | Must be >= 0.9.1, upgrade required |
 | **Images downloading as 0 bytes** | URL expired or format issue | Try alternative format: `?format=jpg&name=orig` |
 | **Translation not working** | AI session issue | Retry translation request, or translate manually |
 | **"Directory already exists"** | Article already exported | User decides: overwrite or skip |
-| **Fetch timeout** | Slow website | Already using `--wait-idle`, increase timeout if needed |
+| **Fetch timeout** | Slow website | Use `--wait-hint heavy`, increase timeout if needed |
 | **Special chars in title** | Invalid filename characters | Auto-sanitized in Step 3 |
+| **"obsidian-cli: command not found"** | obsidian-cli not installed | `npm install -g obsidian-cli` (optional) |
+| **"Unable to find vault"** | Vault not configured | Run `obsidian-cli set-default --vault "VaultName"` |
+| **Batch export blocked/rate limited** | Too fast, flagged as bot | Add 3-5s `sleep` between requests (see Batch Export section) |
+| **"Access denied" or 429 errors** | Rate limit exceeded | Wait 5-10 minutes, reduce batch size, add longer delays |
 
 **For detailed troubleshooting**: See `./TROUBLESHOOTING.md`
+
+**For ToS compliance**: See "Terms of Service Compliance" section at the top
 
 ---
 
@@ -393,9 +533,11 @@ echo "✓ Batch export completed: ${#urls[@]} articles"
 | Parameter | Used In | Description | Default |
 |-----------|---------|-------------|---------|
 | `$URL` | Step 1 | Article URL | (required) |
-| `$OUTPUT_DIR` | Step 3 | Output base directory | `~/Work/Write/Articles` |
+| `$OUTPUT_DIR` | Step 3 | Output base directory | **Ask user** (default: `~/Work/Write/Articles`) |
 | `$TITLE` | Step 2 | Article title from H1 | Auto-extracted |
 | `TARGET_LANGUAGE` | Step 6 | Translation language | User specifies |
+| `CURRENT_VERSION` | Pre-flight | actionbook CLI version | Auto-detected via `--version` |
+| `REQUIRED_VERSION` | Pre-flight | Minimum actionbook version | `0.9.1` |
 
 ---
 
@@ -430,18 +572,21 @@ Total: 11 files, ~800 KB
 ## Performance Tips
 
 ### For Speed
-- Use `--wait-idle` only when needed (some sites load faster without)
+- Use `--wait-hint light` for static pages, `heavy` for dynamic content
 - Download images in parallel (advanced: use `xargs -P 4`)
+- Clean logs with `sed` to reduce file size
 
 ### For Reliability
 - Always check file sizes after download (detect 0-byte failures)
 - Use `curl -L` to follow redirects
 - Add 1-2s delay between image downloads (avoid rate limiting)
+- Redirect stderr: `2>/dev/null` to suppress browser logs
 
 ### For Quality
 - Verify article title extraction before proceeding
 - Check image count matches expected count
 - Review README.md before translation
+- Remove ANSI codes and INFO lines for clean Markdown
 
 ---
 
