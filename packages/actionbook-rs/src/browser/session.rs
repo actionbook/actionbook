@@ -39,6 +39,9 @@ struct SessionState {
     /// Current frame ID for iframe context (None = main frame)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     current_frame_id: Option<String>,
+    /// Optional HTTP headers to send during WebSocket handshake (e.g. SigV4 auth for AgentCore)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ws_headers: Option<std::collections::HashMap<String, String>>,
 }
 
 impl SessionState {
@@ -189,7 +192,7 @@ impl SessionManager {
         cdp_port: u16,
         cdp_url: &str,
     ) -> Result<()> {
-        self.save_external_session_with_app(profile_name, cdp_port, cdp_url, None)
+        self.save_external_session_full(profile_name, cdp_port, cdp_url, None, None)
     }
 
     /// Save session state for an externally connected app with optional custom app path
@@ -200,6 +203,18 @@ impl SessionManager {
         cdp_url: &str,
         custom_app_path: Option<String>,
     ) -> Result<()> {
+        self.save_external_session_full(profile_name, cdp_port, cdp_url, custom_app_path, None)
+    }
+
+    /// Save session state with all optional fields
+    pub fn save_external_session_full(
+        &self,
+        profile_name: &str,
+        cdp_port: u16,
+        cdp_url: &str,
+        custom_app_path: Option<String>,
+        ws_headers: Option<std::collections::HashMap<String, String>>,
+    ) -> Result<()> {
         let state = SessionState {
             profile_name: profile_name.to_string(),
             cdp_port,
@@ -208,6 +223,7 @@ impl SessionManager {
             active_page_id: None,
             custom_app_path,
             current_frame_id: None,
+            ws_headers,
         };
         self.save_session_state(&state)
     }
@@ -239,6 +255,37 @@ impl SessionManager {
             }
             _ => false,
         }
+    }
+
+    /// Connect to a WebSocket URL with optional authentication headers from session state.
+    async fn connect_ws_with_headers(
+        ws_url: &str,
+        headers: Option<&std::collections::HashMap<String, String>>,
+    ) -> std::result::Result<
+        tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+        ActionbookError,
+    > {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
+        let mut request = ws_url.into_client_request().map_err(|e| {
+            ActionbookError::CdpConnectionFailed(format!("Bad WebSocket URL: {}", e))
+        })?;
+
+        if let Some(hdrs) = headers.filter(|h| !h.is_empty()) {
+            for (key, value) in hdrs {
+                request.headers_mut().insert(
+                    tokio_tungstenite::tungstenite::http::HeaderName::try_from(key.as_str())
+                        .map_err(|e| ActionbookError::CdpConnectionFailed(format!("Bad header name: {}", e)))?,
+                    tokio_tungstenite::tungstenite::http::HeaderValue::from_str(value)
+                        .map_err(|e| ActionbookError::CdpConnectionFailed(format!("Bad header value: {}", e)))?,
+                );
+            }
+        }
+
+        let (ws, _) = tokio_tungstenite::connect_async(request).await.map_err(|e| {
+            ActionbookError::CdpConnectionFailed(format!("WebSocket connection failed: {}", e))
+        })?;
+        Ok(ws)
     }
 
     /// Fetch the current browser WebSocket URL from a CDP port via /json/version.
@@ -316,7 +363,7 @@ impl SessionManager {
             cdp_url: cdp_url.clone(),
             active_page_id: None,
             custom_app_path: None,
-            current_frame_id: None,
+            current_frame_id: None, ws_headers: None,
         };
         self.save_session_state(&state)?;
 
@@ -383,7 +430,7 @@ impl SessionManager {
             cdp_url: cdp_url.clone(),
             active_page_id: None,
             custom_app_path: Some(executable_path.to_string()),
-            current_frame_id: None,
+            current_frame_id: None, ws_headers: None,
         };
         self.save_session_state(&state)?;
 
@@ -624,18 +671,15 @@ impl SessionManager {
                 .collect());
         }
 
-        self.get_pages_via_ws_targets(&state.cdp_url).await
+        self.get_pages_via_ws_targets(&state.cdp_url, state.ws_headers.as_ref()).await
     }
 
-    async fn get_pages_via_ws_targets(&self, browser_ws_url: &str) -> Result<Vec<PageInfo>> {
-        use tokio_tungstenite::connect_async;
-
-        let (mut ws, _) = connect_async(browser_ws_url).await.map_err(|e| {
-            ActionbookError::CdpConnectionFailed(format!(
-                "Failed to connect to CDP WebSocket: {}",
-                e
-            ))
-        })?;
+    async fn get_pages_via_ws_targets(
+        &self,
+        browser_ws_url: &str,
+        headers: Option<&std::collections::HashMap<String, String>>,
+    ) -> Result<Vec<PageInfo>> {
+        let mut ws = Self::connect_ws_with_headers(browser_ws_url, headers).await?;
 
         let cmd = serde_json::json!({
             "id": 1,
@@ -990,8 +1034,14 @@ impl SessionManager {
 
         // Remote ws/wss endpoints may not expose per-page websocket URLs.
         // Fall back to browser websocket + Target.attachToTarget(sessionId).
-        self.send_cdp_command_via_attached_target(&state.cdp_url, &page_info.id, method, params)
-            .await
+        self.send_cdp_command_via_attached_target(
+            &state.cdp_url,
+            &page_info.id,
+            method,
+            params,
+            state.ws_headers.as_ref(),
+        )
+        .await
     }
 
     async fn send_cdp_command_over_page_ws(
@@ -1046,12 +1096,9 @@ impl SessionManager {
         target_id: &str,
         method: &str,
         params: serde_json::Value,
+        headers: Option<&std::collections::HashMap<String, String>>,
     ) -> Result<serde_json::Value> {
-        use tokio_tungstenite::connect_async;
-
-        let (mut ws, _) = connect_async(browser_ws_url).await.map_err(|e| {
-            ActionbookError::CdpConnectionFailed(format!("WebSocket connection failed: {}", e))
-        })?;
+        let mut ws = Self::connect_ws_with_headers(browser_ws_url, headers).await?;
 
         // 1) Attach to target (flatten=true gives sessionId)
         let attach_cmd = serde_json::json!({
@@ -3640,7 +3687,7 @@ mod tests {
             cdp_url: "ws://127.0.0.1:9222/devtools/browser/abc".to_string(),
             active_page_id: None,
             custom_app_path: None,
-            current_frame_id: None,
+            current_frame_id: None, ws_headers: None,
         };
         assert!(local.uses_local_http_endpoints());
 
@@ -3651,7 +3698,7 @@ mod tests {
             cdp_url: "wss://bedrock-agentcore.example.com/automation".to_string(),
             active_page_id: None,
             custom_app_path: None,
-            current_frame_id: None,
+            current_frame_id: None, ws_headers: None,
         };
         assert!(!remote.uses_local_http_endpoints());
 
@@ -3663,7 +3710,7 @@ mod tests {
             cdp_url: "ws://127.0.0.1:9222/automation".to_string(),
             active_page_id: None,
             custom_app_path: None,
-            current_frame_id: None,
+            current_frame_id: None, ws_headers: None,
         };
         assert!(!loopback_remote_style.uses_local_http_endpoints());
     }

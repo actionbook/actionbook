@@ -646,7 +646,7 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
         }
         BrowserCommands::Close => close(cli, &config).await,
         BrowserCommands::Restart => restart(cli, &config).await,
-        BrowserCommands::Connect { endpoint } => connect(cli, &config, endpoint).await,
+        BrowserCommands::Connect { endpoint, headers } => connect(cli, &config, endpoint, headers).await,
         BrowserCommands::Tab { command } => tab_command(cli, &config, command).await,
         BrowserCommands::SwitchFrame { target } => switch_frame(cli, &config, target).await,
     }
@@ -4822,13 +4822,31 @@ pub(crate) async fn restart(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-pub(crate) async fn connect(cli: &Cli, config: &Config, endpoint: &str) -> Result<()> {
+pub(crate) async fn connect(cli: &Cli, config: &Config, endpoint: &str, raw_headers: &[String]) -> Result<()> {
     let profile_name = effective_profile_name(cli, config);
     let (cdp_port, cdp_url) = resolve_cdp_endpoint(endpoint).await?;
 
+    // Parse key:value header pairs
+    let ws_headers: Option<std::collections::HashMap<String, String>> = if raw_headers.is_empty() {
+        None
+    } else {
+        let mut map = std::collections::HashMap::new();
+        for h in raw_headers {
+            if let Some((k, v)) = h.split_once(':') {
+                map.insert(k.trim().to_string(), v.trim().to_string());
+            } else {
+                return Err(ActionbookError::Other(format!(
+                    "Invalid header format '{}'. Expected KEY:VALUE",
+                    h
+                )));
+            }
+        }
+        Some(map)
+    };
+
     // Persist the session so subsequent commands can reuse this browser
     let session_manager = create_session_manager(cli, config);
-    session_manager.save_external_session(profile_name, cdp_port, &cdp_url)?;
+    session_manager.save_external_session_full(profile_name, cdp_port, &cdp_url, None, ws_headers)?;
 
     if cli.json {
         println!(
@@ -5298,6 +5316,7 @@ mod tests {
             None,
             BrowserCommands::Connect {
                 endpoint: "ws://127.0.0.1:9222".to_string(),
+                headers: vec![],
             },
         );
         let mut config = Config::default();
