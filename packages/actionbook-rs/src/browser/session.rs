@@ -240,16 +240,24 @@ impl SessionManager {
                 .unwrap_or_else(|_| reqwest::Client::new());
             client.get(&url).send().await.is_ok()
         } else {
-            // Remote WS/WSS mode: probe via websocket handshake, never localhost HTTP fallback
-            self.is_websocket_alive(&state.cdp_url).await
+            // Remote WS/WSS mode: probe via websocket handshake with auth headers
+            self.is_websocket_alive(&state.cdp_url, state.ws_headers.as_ref())
+                .await
         }
     }
 
-    async fn is_websocket_alive(&self, ws_url: &str) -> bool {
-        use tokio_tungstenite::connect_async;
-
-        match tokio::time::timeout(Duration::from_secs(5), connect_async(ws_url)).await {
-            Ok(Ok((mut ws, _))) => {
+    async fn is_websocket_alive(
+        &self,
+        ws_url: &str,
+        headers: Option<&std::collections::HashMap<String, String>>,
+    ) -> bool {
+        match tokio::time::timeout(
+            Duration::from_secs(5),
+            Self::connect_ws_with_headers(ws_url, headers),
+        )
+        .await
+        {
+            Ok(Ok(mut ws)) => {
                 let _ = ws.close(None).await;
                 true
             }
@@ -1027,13 +1035,18 @@ impl SessionManager {
         let page_info = self.get_active_page_info(Some(&resolved_profile)).await?;
 
         if let Some(ws_url) = page_info.web_socket_debugger_url.as_deref() {
-            return self
-                .send_cdp_command_over_page_ws(ws_url, method, params)
-                .await;
+            // For local loopback, page-level ws URLs don't need auth headers.
+            // For remote endpoints, always use the attached-target path with headers
+            // because synthesized page ws URLs may also require the same auth.
+            if state.uses_local_http_endpoints() || state.ws_headers.is_none() {
+                return self
+                    .send_cdp_command_over_page_ws(ws_url, method, params)
+                    .await;
+            }
         }
 
-        // Remote ws/wss endpoints may not expose per-page websocket URLs.
-        // Fall back to browser websocket + Target.attachToTarget(sessionId).
+        // Remote ws/wss endpoints: use browser websocket + Target.attachToTarget(sessionId)
+        // with auth headers to ensure authenticated handshake.
         self.send_cdp_command_via_attached_target(
             &state.cdp_url,
             &page_info.id,
