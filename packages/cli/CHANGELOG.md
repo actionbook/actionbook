@@ -1,5 +1,11 @@
 # @actionbookdev/cli
 
+## 0.9.1
+
+### Patch Changes
+
+- [#195](https://github.com/actionbook/actionbook/pull/195) [`b173b12`](https://github.com/actionbook/actionbook/commit/b173b122f17a9fa40897e1ea8bc6a09dbb250a1b) Thanks [@Senke0x](https://github.com/Senke0x)! - Fix glibc compatibility for Debian 12 and Ubuntu 22.04 by pinning the linux-x64 build runner to ubuntu-22.04 (glibc 2.35), resolving "GLIBC_2.39 not found" errors on systems with glibc < 2.39
+
 ## 0.9.0
 
 ### Minor Changes

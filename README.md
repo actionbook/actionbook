@@ -62,11 +62,13 @@ Get started with Actionbook in under 2 minutes:
 
 **Step 1: Install the CLI**
 
+macOS / Linux
 ```bash
-# macOS / Linux
 curl -fsSL https://actionbook.dev/install.sh | bash
+```
 
-# Windows (PowerShell)
+Windows (PowerShell)
+```
 irm https://actionbook.dev/install.ps1 | iex
 ```
 

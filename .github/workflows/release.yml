@@ -156,7 +156,7 @@ jobs:
             os: macos-latest
             platform-suffix: darwin-x64
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-22.04
             platform-suffix: linux-x64
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
