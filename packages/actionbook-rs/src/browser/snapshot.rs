@@ -61,6 +61,15 @@ impl AxValue {
             if let Some(n) = val.as_i64() {
                 return n.to_string();
             }
+            // Handle floating-point values (e.g., slider controls, progress bars)
+            if let Some(f) = val.as_f64() {
+                // Use format! to avoid scientific notation for reasonable ranges
+                if f.fract() == 0.0 && f.abs() < 1e10 {
+                    return format!("{:.0}", f); // Integer-like floats: 42.0 → "42"
+                } else {
+                    return f.to_string(); // Keep decimals: 3.14 → "3.14"
+                }
+            }
             if let Some(b) = val.as_bool() {
                 return b.to_string();
             }
