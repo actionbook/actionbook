@@ -1,5 +1,15 @@
 # @actionbookdev/cli
 
+## 0.9.2
+
+### Patch Changes
+
+- [`340d683`](https://github.com/actionbook/actionbook/commit/340d6835c6cee3198086990b0d1a82e9dae1ea48) Thanks [@mcfn](https://github.com/mcfn)! - Support remote wss:// CDP endpoints with optional auth headers
+
+  - Fix: remote wss endpoints no longer fall back to localhost /json/list
+  - Add `-H/--header` flag to `browser connect` for authenticated WebSocket endpoints
+  - Session liveness, page enumeration, and CDP commands now work correctly over remote ws/wss
+
 ## 0.9.1
 
 ### Patch Changes
