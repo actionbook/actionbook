@@ -2614,6 +2614,7 @@ pub(crate) async fn snapshot(
                     expanded: None,
                     selected: false,
                     required: false,
+                    url: None,
                     backend_node_id: -1,
                 });
             }

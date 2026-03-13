@@ -121,6 +121,9 @@ pub struct A11yNode {
     /// Required state
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub required: bool,
+    /// URL (for links)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
     /// Backend DOM node ID (for action execution)
     #[serde(rename = "nodeId")]
     pub backend_node_id: i64,
@@ -372,6 +375,7 @@ pub fn parse_ax_tree(
         let mut expanded = None;
         let mut selected = false;
         let mut required = false;
+        let mut url = None;
         for prop in &node.properties {
             if let Some(ref prop_value) = prop.value {
                 if let Some(ref val) = prop_value.value {
@@ -387,6 +391,13 @@ pub fn parse_ax_tree(
                         "expanded" => expanded = val.as_bool(),
                         "selected" => selected = val.as_bool().unwrap_or(false),
                         "required" => required = val.as_bool().unwrap_or(false),
+                        "url" => {
+                            if let Some(s) = val.as_str() {
+                                if !s.is_empty() {
+                                    url = Some(s.to_string());
+                                }
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -418,6 +429,7 @@ pub fn parse_ax_tree(
             expanded,
             selected,
             required,
+            url,
             backend_node_id,
         });
 
@@ -523,6 +535,16 @@ pub fn format_compact(nodes: &[A11yNode]) -> String {
             }
         }
         out.push('\n');
+
+        // Metadata: /url: for links
+        if let Some(ref url) = node.url {
+            for _ in 0..=node.depth {
+                out.push_str("  ");
+            }
+            out.push_str("- /url: ");
+            out.push_str(url);
+            out.push('\n');
+        }
     }
     out
 }
@@ -740,6 +762,7 @@ mod tests {
             expanded: None,
             selected: false,
             required: false,
+            url: None,
             backend_node_id: 0,
         }
     }
