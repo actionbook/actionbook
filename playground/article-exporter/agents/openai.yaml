@@ -1,0 +1,24 @@
+# Codex agent configuration for article-exporter skill
+# Claude Code ignores this file; Codex uses it for UI/dependencies/permissions
+
+name: article-exporter
+icon: newspaper
+brand_color: "#4A90D9"
+
+allow_implicit_invocation: true
+
+dependencies:
+  env_vars:
+    - name: ACTIONBOOK_PATH
+      description: "Path to actionbook CLI binary (optional, defaults to system PATH)"
+      required: false
+
+permissions:
+  - tool: bash
+    pattern: "actionbook:*"
+  - tool: bash
+    pattern: "curl:*"
+  - tool: bash
+    pattern: "obsidian-cli:*"
+  - tool: read
+  - tool: write

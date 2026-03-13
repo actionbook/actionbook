@@ -1,13 +1,25 @@
 ---
+# === Both Claude Code and Codex read these ===
 name: article-exporter
-description: Export web articles/posts to Obsidian Markdown with AI translation
-when_to_use: |
-  Use when the user wants to save online articles, blog posts, or social posts
-  (Medium, Dev.to, X/Twitter, OpenAI blog, Substack, GitHub) to Obsidian or a
-  Markdown knowledge base with optional AI translation and image downloads.
+description: >
+  Export web articles and social posts to Obsidian Markdown
+  with optional AI translation and image downloads. Use when
+  the user wants to save, archive, or convert online content
+  into clean Markdown. Examples: "export this article",
+  "save this Medium post", "archive this blog post",
+  "导出这篇文章到 Obsidian", "把这个网页转成 markdown".
 
-  Examples: "export this article to Obsidian", "save this Medium post",
-  "archive this blog", "convert to markdown", "save article", "export to obsidian"
+# === Claude Code specific (Codex ignores, no side effects) ===
+when_to_use: >
+  Use when the user wants to save an online article, blog post,
+  Medium post, Dev.to post, Substack post, OpenAI blog post,
+  or X/Twitter thread into Obsidian or a Markdown knowledge base.
+  Also use when the user asks to archive, translate, or convert
+  web content into clean Markdown with images downloaded locally.
+  Examples: "export this article to Obsidian", "save this Medium
+  post", "archive this blog post", "convert this thread to
+  markdown", "导出这篇文章", "保存这篇文章到 Obsidian",
+  "把这个网页转成 markdown", "翻译并导出这篇文章".
 allowed-tools:
   - Read
   - Write
@@ -25,15 +37,15 @@ arguments:
 
 You are an expert at web content archiving and Obsidian workflow automation.
 
-## Core Rules (From User Corrections)
+## Lessons from Failed Exports
 
-**CRITICAL Rules extracted from failed exports:**
+These rules were extracted from real export failures. Each one prevents a specific class of error:
 
-1. **Twitter/X ALWAYS requires AI reformatting** — `fetch` alone produces broken structure
-2. **Ask for output path FIRST** — never assume default directory
-3. **Version check >= 0.9.1** — `--wait-hint` parameter is required
-4. **Wait after navigation** — use `--wait-hint heavy` for dynamic content
-5. **Rate limit batch exports** — 3-5s delay between requests (ToS compliance)
+1. **Twitter/X needs AI reformatting** — `fetch` returns flat text because Twitter uses custom UI without semantic HTML. The AI reformatting step reconstructs headings, lists, and code blocks. See `references/twitter-handling.md`.
+2. **Ask for output path first** — users have different vault locations. Assuming a default creates files in the wrong place and wastes time moving them.
+3. **Check actionbook version >= 0.9.1** — the `--wait-hint` parameter was added in 0.9.1. Without it, dynamic content (SPAs, lazy-loaded pages) returns empty or partial results.
+4. **Wait after navigation** — use `--wait-hint heavy` for Twitter, Medium, and other dynamic sites. Without it, the page hasn't finished rendering when content is extracted.
+5. **Rate limit batch exports** — 3-5s delay between requests prevents being flagged as a bot (ToS compliance).
 
 ## Quick Reference
 
@@ -79,12 +91,12 @@ actionbook browser fetch "$URL" --format markdown --wait-hint heavy 2>/dev/null 
 - `2>/dev/null` suppresses stderr logs
 - `sed` removes ANSI codes, INFO lines, empty lines
 
-**⚠️ CRITICAL: Twitter/X Special Handling**
+**Twitter/X Special Handling**
 
-If URL contains `x.com` or `twitter.com`:
+Twitter uses non-semantic HTML, so `fetch` output loses all structure (headings become flat text, code blocks disappear). If the URL contains `x.com` or `twitter.com`:
 1. Save fetch output to `/tmp/article_raw.md`
-2. **SKIP to AI Reformatting** (see references/twitter-handling.md)
-3. Do NOT proceed with standard workflow
+2. Use AI to reformat into proper Markdown (see `references/twitter-handling.md`)
+3. Then continue from Step 2 with the reformatted content
 
 ---
 
