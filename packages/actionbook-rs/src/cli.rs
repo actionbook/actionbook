@@ -571,6 +571,9 @@ pub enum BrowserCommands {
     Connect {
         /// CDP endpoint (port or WebSocket URL)
         endpoint: String,
+        /// Optional HTTP headers for WebSocket auth (key:value pairs, repeatable)
+        #[arg(long = "header", short = 'H', value_name = "KEY:VALUE")]
+        headers: Vec<String>,
     },
 
     /// Manage browser tabs (list, create, switch, close)

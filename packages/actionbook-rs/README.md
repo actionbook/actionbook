@@ -446,7 +446,8 @@ actionbook browser emulate ipad             # Emulate iPad
 actionbook browser emulate 1280x720         # Custom resolution
 actionbook browser wait-fn "document.querySelector('#done')"  # Wait for condition
 actionbook browser wait-fn "window.loaded === true" --timeout 10000
-actionbook browser connect <PORT>   # Connect to existing browser
+actionbook browser connect <PORT>       # Connect via local CDP port
+actionbook browser connect <WSS_URL>    # Connect via remote WebSocket URL
 actionbook browser close            # Close browser
 actionbook browser restart          # Restart browser
 actionbook browser cookies list     # List cookies
@@ -458,6 +459,16 @@ actionbook browser cookies clear    # Clear all cookies
 
 `actionbook browser` no longer auto-attaches to local CDP ports (9222/9223/9224).
 Use `actionbook browser connect <PORT|WS_URL>` explicitly when you want to reuse an existing browser.
+
+For remote WebSocket endpoints that require authentication headers (e.g. SigV4-signed URLs), optionally pass `-H`/`--header` flags:
+
+```bash
+actionbook browser connect "wss://example.com/automation" \
+  -H "authorization:AWS4-HMAC-SHA256 ..." \
+  -H "x-amz-date:20260312T080000Z"
+```
+
+Headers are persisted in the session state and used for all subsequent WebSocket connections (page enumeration, CDP commands, liveness probes).
 
 ### `config` - Configuration
 

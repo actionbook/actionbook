@@ -109,3 +109,6 @@ skills-lock.json
 *.difypkg
 .coverage
 store-assets/
+
+# Agent prompt files
+.agent-prompt-*.md

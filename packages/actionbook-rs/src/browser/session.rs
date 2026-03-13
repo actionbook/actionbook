@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use chromiumoxide::browser::Browser;
 use chromiumoxide::handler::Handler;
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 
 use super::launcher::BrowserLauncher;
@@ -39,6 +39,25 @@ struct SessionState {
     /// Current frame ID for iframe context (None = main frame)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     current_frame_id: Option<String>,
+    /// Optional HTTP headers to send during WebSocket handshake (e.g. SigV4 auth for AgentCore)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ws_headers: Option<std::collections::HashMap<String, String>>,
+}
+
+impl SessionState {
+    /// Local CDP sessions expose devtools browser websocket on loopback
+    /// and support localhost HTTP endpoints (/json/version, /json/list).
+    ///
+    /// Remote sessions (e.g. AgentCore wss://.../automation) must not use
+    /// localhost HTTP fallback.
+    fn uses_local_http_endpoints(&self) -> bool {
+        let Some(host) = extract_ws_host(&self.cdp_url) else {
+            return false;
+        };
+
+        let is_loopback = matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1");
+        is_loopback && self.cdp_url.contains("/devtools/browser/")
+    }
 }
 
 /// Stealth configuration for session manager
@@ -51,6 +70,35 @@ pub struct StealthConfig {
     pub headless: bool,
     /// Stealth profile configuration
     pub profile: StealthProfile,
+}
+
+fn extract_ws_host(ws_url: &str) -> Option<String> {
+    let authority = ws_url.split("://").nth(1)?.split('/').next()?;
+
+    // Strip userinfo if present: user:pass@host:port
+    let authority = authority.rsplit('@').next().unwrap_or(authority);
+
+    // IPv6 in brackets: [::1]:9222
+    if let Some(rest) = authority.strip_prefix('[') {
+        let host = rest.split(']').next()?;
+        return Some(host.to_ascii_lowercase());
+    }
+
+    // host:port or host
+    Some(
+        authority
+            .split(':')
+            .next()
+            .unwrap_or(authority)
+            .to_ascii_lowercase(),
+    )
+}
+
+fn derive_page_ws_url(browser_ws_url: &str, target_id: &str) -> Option<String> {
+    let marker = "/devtools/browser/";
+    let idx = browser_ws_url.find(marker)?;
+    let prefix = &browser_ws_url[..idx];
+    Some(format!("{}/devtools/page/{}", prefix, target_id))
 }
 
 /// Manages browser sessions across CLI invocations
@@ -149,7 +197,7 @@ impl SessionManager {
         cdp_port: u16,
         cdp_url: &str,
     ) -> Result<()> {
-        self.save_external_session_with_app(profile_name, cdp_port, cdp_url, None)
+        self.save_external_session_full(profile_name, cdp_port, cdp_url, None, None)
     }
 
     /// Save session state for an externally connected app with optional custom app path
@@ -160,6 +208,18 @@ impl SessionManager {
         cdp_url: &str,
         custom_app_path: Option<String>,
     ) -> Result<()> {
+        self.save_external_session_full(profile_name, cdp_port, cdp_url, custom_app_path, None)
+    }
+
+    /// Save session state with all optional fields
+    pub fn save_external_session_full(
+        &self,
+        profile_name: &str,
+        cdp_port: u16,
+        cdp_url: &str,
+        custom_app_path: Option<String>,
+        ws_headers: Option<std::collections::HashMap<String, String>>,
+    ) -> Result<()> {
         let state = SessionState {
             profile_name: profile_name.to_string(),
             cdp_port,
@@ -168,20 +228,77 @@ impl SessionManager {
             active_page_id: None,
             custom_app_path,
             current_frame_id: None,
+            ws_headers,
         };
         self.save_session_state(&state)
     }
 
     /// Check if a session is still alive
     async fn is_session_alive(&self, state: &SessionState) -> bool {
-        // Check if we can connect to the CDP port (bypass proxy for localhost)
-        let url = format!("http://127.0.0.1:{}/json/version", state.cdp_port);
-        let client = reqwest::Client::builder()
-            .no_proxy()
-            .timeout(Duration::from_secs(5))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
-        client.get(&url).send().await.is_ok()
+        if state.uses_local_http_endpoints() {
+            // Local CDP mode: use localhost probe
+            let url = format!("http://127.0.0.1:{}/json/version", state.cdp_port);
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(5))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
+            client.get(&url).send().await.is_ok()
+        } else {
+            // Remote WS/WSS mode: probe via websocket handshake with auth headers
+            self.is_websocket_alive(&state.cdp_url, state.ws_headers.as_ref())
+                .await
+        }
+    }
+
+    async fn is_websocket_alive(
+        &self,
+        ws_url: &str,
+        headers: Option<&std::collections::HashMap<String, String>>,
+    ) -> bool {
+        match tokio::time::timeout(
+            Duration::from_secs(5),
+            Self::connect_ws_with_headers(ws_url, headers),
+        )
+        .await
+        {
+            Ok(Ok(mut ws)) => {
+                let _ = ws.close(None).await;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Connect to a WebSocket URL with optional authentication headers from session state.
+    async fn connect_ws_with_headers(
+        ws_url: &str,
+        headers: Option<&std::collections::HashMap<String, String>>,
+    ) -> std::result::Result<
+        tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+        ActionbookError,
+    > {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
+        let mut request = ws_url.into_client_request().map_err(|e| {
+            ActionbookError::CdpConnectionFailed(format!("Bad WebSocket URL: {}", e))
+        })?;
+
+        if let Some(hdrs) = headers.filter(|h| !h.is_empty()) {
+            for (key, value) in hdrs {
+                request.headers_mut().insert(
+                    tokio_tungstenite::tungstenite::http::HeaderName::try_from(key.as_str())
+                        .map_err(|e| ActionbookError::CdpConnectionFailed(format!("Bad header name: {}", e)))?,
+                    tokio_tungstenite::tungstenite::http::HeaderValue::from_str(value)
+                        .map_err(|e| ActionbookError::CdpConnectionFailed(format!("Bad header value: {}", e)))?,
+                );
+            }
+        }
+
+        let (ws, _) = tokio_tungstenite::connect_async(request).await.map_err(|e| {
+            ActionbookError::CdpConnectionFailed(format!("WebSocket connection failed: {}", e))
+        })?;
+        Ok(ws)
     }
 
     /// Fetch the current browser WebSocket URL from a CDP port via /json/version.
@@ -211,13 +328,15 @@ impl SessionManager {
         // Check for existing session state
         if let Some(mut state) = self.load_session_state(&profile_name) {
             if self.is_session_alive(&state).await {
-                // Refresh WebSocket URL — the browser may have restarted on the same port,
-                // which generates a new session ID and invalidates the cached URL.
-                if let Some(fresh_url) = self.fetch_browser_ws_url(state.cdp_port).await {
-                    if fresh_url != state.cdp_url {
-                        tracing::debug!("CDP WebSocket URL changed, updating session");
-                        state.cdp_url = fresh_url;
-                        self.save_session_state(&state)?;
+                // Refresh WebSocket URL only for local loopback CDP sessions.
+                // Remote ws/wss endpoints should not probe localhost /json/version.
+                if state.uses_local_http_endpoints() {
+                    if let Some(fresh_url) = self.fetch_browser_ws_url(state.cdp_port).await {
+                        if fresh_url != state.cdp_url {
+                            tracing::debug!("CDP WebSocket URL changed, updating session");
+                            state.cdp_url = fresh_url;
+                            self.save_session_state(&state)?;
+                        }
                     }
                 }
                 tracing::debug!("Reusing existing session for profile: {}", profile_name);
@@ -257,7 +376,7 @@ impl SessionManager {
             cdp_url: cdp_url.clone(),
             active_page_id: None,
             custom_app_path: None,
-            current_frame_id: None,
+            current_frame_id: None, ws_headers: None,
         };
         self.save_session_state(&state)?;
 
@@ -324,7 +443,7 @@ impl SessionManager {
             cdp_url: cdp_url.clone(),
             active_page_id: None,
             custom_app_path: Some(executable_path.to_string()),
-            current_frame_id: None,
+            current_frame_id: None, ws_headers: None,
         };
         self.save_session_state(&state)?;
 
@@ -416,20 +535,26 @@ impl SessionManager {
             });
         "#;
 
-        // Use Page.addScriptToEvaluateOnNewDocument via CDP so it applies to all future pages
-        let pages_url = format!("http://127.0.0.1:{}/json/list", state.cdp_port);
-        let client = reqwest::Client::builder()
-            .no_proxy()
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+        // Inject existing pages only when local /json/list is available.
+        // Remote ws/wss sessions must not fallback to localhost HTTP.
+        if state.uses_local_http_endpoints() {
+            let pages_url = format!("http://127.0.0.1:{}/json/list", state.cdp_port);
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
 
-        // Get all pages and inject stealth JS
-        if let Ok(response) = client.get(&pages_url).send().await {
-            if let Ok(pages) = response.json::<Vec<PageInfo>>().await {
-                for page in pages.iter().filter(|p| p.page_type == "page") {
-                    if let Some(ref ws_url) = page.web_socket_debugger_url {
-                        if let Err(e) = self.inject_stealth_to_page(ws_url, js).await {
-                            tracing::debug!("Failed to inject stealth to page {}: {}", page.id, e);
+            if let Ok(response) = client.get(&pages_url).send().await {
+                if let Ok(pages) = response.json::<Vec<PageInfo>>().await {
+                    for page in pages.iter().filter(|p| p.page_type == "page") {
+                        if let Some(ref ws_url) = page.web_socket_debugger_url {
+                            if let Err(e) = self.inject_stealth_to_page(ws_url, js).await {
+                                tracing::debug!(
+                                    "Failed to inject stealth to page {}: {}",
+                                    page.id,
+                                    e
+                                );
+                            }
                         }
                     }
                 }
@@ -538,25 +663,118 @@ impl SessionManager {
             .load_session_state(&profile_name)
             .ok_or(ActionbookError::BrowserNotRunning)?;
 
-        let url = format!("http://127.0.0.1:{}/json/list", state.cdp_port);
-        let client = reqwest::Client::builder()
-            .no_proxy()
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+        if state.uses_local_http_endpoints() {
+            let url = format!("http://127.0.0.1:{}/json/list", state.cdp_port);
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
 
-        let response = client.get(&url).send().await.map_err(|e| {
-            ActionbookError::CdpConnectionFailed(format!("Failed to get pages: {}", e))
-        })?;
+            let response = client.get(&url).send().await.map_err(|e| {
+                ActionbookError::CdpConnectionFailed(format!("Failed to get pages: {}", e))
+            })?;
 
-        let pages: Vec<PageInfo> = response.json().await.map_err(|e| {
-            ActionbookError::CdpConnectionFailed(format!("Failed to parse pages: {}", e))
-        })?;
+            let pages: Vec<PageInfo> = response.json().await.map_err(|e| {
+                ActionbookError::CdpConnectionFailed(format!("Failed to parse pages: {}", e))
+            })?;
 
-        // Filter to only include actual pages (not extensions, service workers, etc.)
-        Ok(pages
-            .into_iter()
-            .filter(|p| p.page_type == "page")
-            .collect())
+            return Ok(pages
+                .into_iter()
+                .filter(|p| p.page_type == "page")
+                .collect());
+        }
+
+        self.get_pages_via_ws_targets(&state.cdp_url, state.ws_headers.as_ref()).await
+    }
+
+    async fn get_pages_via_ws_targets(
+        &self,
+        browser_ws_url: &str,
+        headers: Option<&std::collections::HashMap<String, String>>,
+    ) -> Result<Vec<PageInfo>> {
+        let mut ws = Self::connect_ws_with_headers(browser_ws_url, headers).await?;
+
+        let cmd = serde_json::json!({
+            "id": 1,
+            "method": "Target.getTargets",
+            "params": {}
+        });
+
+        ws.send(tokio_tungstenite::tungstenite::Message::Text(
+            cmd.to_string().into(),
+        ))
+        .await
+        .map_err(|e| ActionbookError::Other(format!("Failed to send CDP command: {}", e)))?;
+
+        while let Some(msg) = ws.next().await {
+            match msg {
+                Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
+                    let response: serde_json::Value = serde_json::from_str(text.as_str())?;
+                    if response.get("id") == Some(&serde_json::json!(1)) {
+                        if let Some(error) = response.get("error") {
+                            return Err(ActionbookError::CdpConnectionFailed(format!(
+                                "Target.getTargets failed: {}",
+                                error
+                            )));
+                        }
+
+                        let pages = response
+                            .get("result")
+                            .and_then(|r| r.get("targetInfos"))
+                            .and_then(|t| t.as_array())
+                            .map(|targets| {
+                                targets
+                                    .iter()
+                                    .filter(|t| {
+                                        t.get("type").and_then(|v| v.as_str()) == Some("page")
+                                    })
+                                    .filter_map(|target| {
+                                        let id = target
+                                            .get("targetId")
+                                            .and_then(|v| v.as_str())?
+                                            .to_string();
+                                        let title = target
+                                            .get("title")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("")
+                                            .to_string();
+                                        let url = target
+                                            .get("url")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("about:blank")
+                                            .to_string();
+
+                                        Some(PageInfo {
+                                            id: id.clone(),
+                                            title,
+                                            url,
+                                            page_type: "page".to_string(),
+                                            web_socket_debugger_url: derive_page_ws_url(
+                                                browser_ws_url,
+                                                &id,
+                                            ),
+                                        })
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default();
+
+                        return Ok(pages);
+                    }
+                }
+                Ok(_) => continue,
+                Err(e) => {
+                    return Err(ActionbookError::CdpConnectionFailed(format!(
+                        "WebSocket error while reading targets: {}",
+                        e
+                    )));
+                }
+            }
+        }
+
+        Err(ActionbookError::CdpConnectionFailed(
+            "No response received for Target.getTargets".to_string(),
+        ))
     }
 
     /// Get the active page info (first page in the list)
@@ -581,7 +799,11 @@ impl SessionManager {
     }
 
     /// Switch to a specific page by ID and persist the active page
-    pub async fn switch_to_page(&self, profile_name: Option<&str>, page_id: &str) -> Result<PageInfo> {
+    pub async fn switch_to_page(
+        &self,
+        profile_name: Option<&str>,
+        page_id: &str,
+    ) -> Result<PageInfo> {
         let profile_name = self.resolve_profile_name(profile_name);
 
         // Validate page exists
@@ -593,7 +815,8 @@ impl SessionManager {
             .clone();
 
         // Update session state with new active page ID
-        let mut state = self.load_session_state(&profile_name)
+        let mut state = self
+            .load_session_state(&profile_name)
             .ok_or(ActionbookError::BrowserNotRunning)?;
         state.active_page_id = Some(page_id.to_string());
         self.save_session_state(&state)?;
@@ -602,7 +825,11 @@ impl SessionManager {
     }
 
     /// Create a new page/tab in the browser
-    pub async fn new_page(&self, profile_name: Option<&str>, url: Option<&str>) -> Result<PageInfo> {
+    pub async fn new_page(
+        &self,
+        profile_name: Option<&str>,
+        url: Option<&str>,
+    ) -> Result<PageInfo> {
         let profile_name = self.resolve_profile_name(profile_name);
 
         // Send CDP command Target.createTarget
@@ -610,8 +837,11 @@ impl SessionManager {
             "url": url.unwrap_or("about:blank")
         });
 
-        let result = self.send_cdp_command(Some(&profile_name), "Target.createTarget", params).await?;
-        let target_id = result.get("targetId")
+        let result = self
+            .send_cdp_command(Some(&profile_name), "Target.createTarget", params)
+            .await?;
+        let target_id = result
+            .get("targetId")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ActionbookError::CdpError("No targetId in response".to_string()))?;
 
@@ -626,7 +856,8 @@ impl SessionManager {
             .clone();
 
         // Auto-switch to newly created page
-        self.switch_to_page(Some(&profile_name), &new_page.id).await?;
+        self.switch_to_page(Some(&profile_name), &new_page.id)
+            .await?;
 
         Ok(new_page)
     }
@@ -644,20 +875,22 @@ impl SessionManager {
         // Cannot close last page
         if pages.len() == 1 {
             return Err(ActionbookError::InvalidOperation(
-                "Cannot close the last tab. Use 'browser close' to close the browser.".to_string()
+                "Cannot close the last tab. Use 'browser close' to close the browser.".to_string(),
             ));
         }
 
         // Send CDP command Target.closeTarget
         let params = serde_json::json!({ "targetId": page_id });
-        self.send_cdp_command(Some(&profile_name), "Target.closeTarget", params).await?;
+        self.send_cdp_command(Some(&profile_name), "Target.closeTarget", params)
+            .await?;
 
         // If we closed the active page, switch to first remaining page
         if let Some(state) = self.load_session_state(&profile_name) {
             if state.active_page_id.as_ref() == Some(&page_id.to_string()) {
                 let remaining_pages = self.get_pages(Some(&profile_name)).await?;
                 if let Some(first_page) = remaining_pages.first() {
-                    self.switch_to_page(Some(&profile_name), &first_page.id).await?;
+                    self.switch_to_page(Some(&profile_name), &first_page.id)
+                        .await?;
                 }
             }
         }
@@ -675,12 +908,28 @@ impl SessionManager {
         use tokio_tungstenite::connect_async;
 
         let page_info = self.get_active_page_info(profile_name).await?;
-        let ws_url = page_info
-            .web_socket_debugger_url
-            .ok_or_else(|| ActionbookError::CdpConnectionFailed("No WebSocket URL".to_string()))?;
+        let Some(ws_url) = page_info.web_socket_debugger_url.as_deref() else {
+            let result = self
+                .send_cdp_command(
+                    profile_name,
+                    "Runtime.evaluate",
+                    serde_json::json!({
+                        "expression": expression,
+                        "returnByValue": true
+                    }),
+                )
+                .await?;
+
+            let value = result
+                .get("result")
+                .and_then(|r| r.get("value"))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            return Ok(value);
+        };
 
         // Connect to page WebSocket
-        let (mut ws, _) = connect_async(&ws_url).await.map_err(|e| {
+        let (mut ws, _) = connect_async(ws_url).await.map_err(|e| {
             ActionbookError::CdpConnectionFailed(format!("WebSocket connection failed: {}", e))
         })?;
 
@@ -710,7 +959,11 @@ impl SessionManager {
                 if let Ok(tokio_tungstenite::tungstenite::Message::Text(text)) = msg {
                     let response: serde_json::Value = serde_json::from_str(&text)?;
                     if response.get("id") == Some(&serde_json::json!(1)) {
-                        if let Some(ctx_id) = response.get("result").and_then(|r| r.get("executionContextId")).and_then(|c| c.as_i64()) {
+                        if let Some(ctx_id) = response
+                            .get("result")
+                            .and_then(|r| r.get("executionContextId"))
+                            .and_then(|c| c.as_i64())
+                        {
                             execution_context_id = Some(ctx_id);
                         }
                         break;
@@ -726,10 +979,10 @@ impl SessionManager {
         });
 
         if let Some(ctx_id) = execution_context_id {
-            params.as_object_mut().unwrap().insert(
-                "contextId".to_string(),
-                serde_json::json!(ctx_id)
-            );
+            params
+                .as_object_mut()
+                .unwrap()
+                .insert("contextId".to_string(), serde_json::json!(ctx_id));
         }
 
         let cmd = serde_json::json!({
@@ -779,16 +1032,46 @@ impl SessionManager {
         method: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value> {
-        use futures::SinkExt;
+        let resolved_profile = self.resolve_profile_name(profile_name);
+        let state = self
+            .load_session_state(&resolved_profile)
+            .ok_or(ActionbookError::BrowserNotRunning)?;
+
+        let page_info = self.get_active_page_info(Some(&resolved_profile)).await?;
+
+        if let Some(ws_url) = page_info.web_socket_debugger_url.as_deref() {
+            // For local loopback, page-level ws URLs don't need auth headers.
+            // For remote endpoints, always use the attached-target path with headers
+            // because synthesized page ws URLs may also require the same auth.
+            if state.uses_local_http_endpoints() || state.ws_headers.is_none() {
+                return self
+                    .send_cdp_command_over_page_ws(ws_url, method, params)
+                    .await;
+            }
+        }
+
+        // Remote ws/wss endpoints: use browser websocket + Target.attachToTarget(sessionId)
+        // with auth headers to ensure authenticated handshake.
+        self.send_cdp_command_via_attached_target(
+            &state.cdp_url,
+            &page_info.id,
+            method,
+            params,
+            state.ws_headers.as_ref(),
+        )
+        .await
+    }
+
+    async fn send_cdp_command_over_page_ws(
+        &self,
+        ws_url: &str,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value> {
         use tokio_tungstenite::connect_async;
         use crate::browser::cdp_types::CdpResponse;
 
-        let page_info = self.get_active_page_info(profile_name).await?;
-        let ws_url = page_info
-            .web_socket_debugger_url
-            .ok_or_else(|| ActionbookError::CdpConnectionFailed("No WebSocket URL".to_string()))?;
-
-        let (mut ws, _) = connect_async(&ws_url).await.map_err(|e| {
+        let (mut ws, _) = connect_async(ws_url).await.map_err(|e| {
             ActionbookError::CdpConnectionFailed(format!("WebSocket connection failed: {}", e))
         })?;
 
@@ -892,6 +1175,102 @@ impl SessionManager {
                     }
                 }
                 Ok(_) => continue, // Ignore non-text messages (ping/pong/binary)
+                Err(e) => return Err(ActionbookError::Other(format!("WebSocket error: {}", e))),
+            }
+        }
+
+        Err(ActionbookError::Other("No response received".to_string()))
+    }
+
+    async fn send_cdp_command_via_attached_target(
+        &self,
+        browser_ws_url: &str,
+        target_id: &str,
+        method: &str,
+        params: serde_json::Value,
+        headers: Option<&std::collections::HashMap<String, String>>,
+    ) -> Result<serde_json::Value> {
+        let mut ws = Self::connect_ws_with_headers(browser_ws_url, headers).await?;
+
+        // 1) Attach to target (flatten=true gives sessionId)
+        let attach_cmd = serde_json::json!({
+            "id": 1,
+            "method": "Target.attachToTarget",
+            "params": {
+                "targetId": target_id,
+                "flatten": true
+            }
+        });
+
+        ws.send(tokio_tungstenite::tungstenite::Message::Text(
+            attach_cmd.to_string().into(),
+        ))
+        .await
+        .map_err(|e| ActionbookError::Other(format!("Failed to send attach command: {}", e)))?;
+
+        let mut session_id: Option<String> = None;
+        while let Some(msg) = ws.next().await {
+            match msg {
+                Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
+                    let response: serde_json::Value = serde_json::from_str(text.as_str())?;
+                    if response.get("id") == Some(&serde_json::json!(1)) {
+                        if let Some(error) = response.get("error") {
+                            return Err(ActionbookError::Other(format!(
+                                "CDP attach failed: {}",
+                                error
+                            )));
+                        }
+                        session_id = response
+                            .get("result")
+                            .and_then(|r| r.get("sessionId"))
+                            .and_then(|s| s.as_str())
+                            .map(|s| s.to_string());
+                        break;
+                    }
+                }
+                Ok(_) => continue,
+                Err(e) => {
+                    return Err(ActionbookError::Other(format!(
+                        "WebSocket error while attaching: {}",
+                        e
+                    )));
+                }
+            }
+        }
+
+        let session_id = session_id.ok_or_else(|| {
+            ActionbookError::Other("No sessionId returned by attachToTarget".to_string())
+        })?;
+
+        // 2) Send command to attached target session
+        let cmd = serde_json::json!({
+            "id": 2,
+            "sessionId": session_id,
+            "method": method,
+            "params": params
+        });
+
+        ws.send(tokio_tungstenite::tungstenite::Message::Text(
+            cmd.to_string().into(),
+        ))
+        .await
+        .map_err(|e| ActionbookError::Other(format!("Failed to send command: {}", e)))?;
+
+        while let Some(msg) = ws.next().await {
+            match msg {
+                Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
+                    let response: serde_json::Value = serde_json::from_str(text.as_str())?;
+                    if response.get("id") == Some(&serde_json::json!(2)) {
+                        if let Some(error) = response.get("error") {
+                            return Err(ActionbookError::Other(format!("CDP error: {}", error)));
+                        }
+                        return Ok(response
+                            .get("result")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null));
+                    }
+                }
+                Ok(_) => continue,
                 Err(e) => return Err(ActionbookError::Other(format!("WebSocket error: {}", e))),
             }
         }
@@ -1618,12 +1997,8 @@ impl SessionManager {
             key_down["text"] = serde_json::json!(text);
         }
 
-        self.send_cdp_command(
-            profile_name,
-            "Input.dispatchKeyEvent",
-            key_down,
-        )
-        .await?;
+        self.send_cdp_command(profile_name, "Input.dispatchKeyEvent", key_down)
+            .await?;
 
         self.send_cdp_command(
             profile_name,
@@ -2222,9 +2597,7 @@ impl SessionManager {
     ) -> Result<String> {
         let js = match mode {
             TextExtractionMode::Raw => "document.body.innerText".to_string(),
-            TextExtractionMode::Readability => {
-                super::readability::READABILITY_JS.to_string()
-            }
+            TextExtractionMode::Readability => super::readability::READABILITY_JS.to_string(),
         };
 
         let result = self.eval_on_page(profile_name, &js).await?;
@@ -2300,6 +2673,8 @@ impl SessionManager {
         backend_node_id: i64,
         function_declaration: &str,
     ) -> Result<serde_json::Value> {
+        use futures::stream::StreamExt;
+        use futures::SinkExt;
         use tokio_tungstenite::connect_async;
 
         let page_info = self.get_active_page_info(profile_name).await?;
@@ -2320,13 +2695,15 @@ impl SessionManager {
             method: &str,
             params: serde_json::Value,
         ) -> Result<serde_json::Value> {
-            use futures::SinkExt;
             use futures::stream::StreamExt;
+            use futures::SinkExt;
 
             let cmd = serde_json::json!({ "id": id, "method": method, "params": params });
-            ws.send(tokio_tungstenite::tungstenite::Message::Text(cmd.to_string().into()))
-                .await
-                .map_err(|e| ActionbookError::Other(format!("Failed to send {}: {}", method, e)))?;
+            ws.send(tokio_tungstenite::tungstenite::Message::Text(
+                cmd.to_string().into(),
+            ))
+            .await
+            .map_err(|e| ActionbookError::Other(format!("Failed to send {}: {}", method, e)))?;
 
             while let Some(msg) = ws.next().await {
                 match msg {
@@ -2334,7 +2711,10 @@ impl SessionManager {
                         let response: serde_json::Value = serde_json::from_str(text.as_str())?;
                         if response.get("id") == Some(&serde_json::json!(id)) {
                             if let Some(error) = response.get("error") {
-                                return Err(ActionbookError::Other(format!("CDP error: {}", error)));
+                                return Err(ActionbookError::Other(format!(
+                                    "CDP error: {}",
+                                    error
+                                )));
                             }
                             return Ok(response
                                 .get("result")
@@ -2344,10 +2724,15 @@ impl SessionManager {
                         // Not our response, skip (could be events)
                     }
                     Ok(_) => continue,
-                    Err(e) => return Err(ActionbookError::Other(format!("WebSocket error: {}", e))),
+                    Err(e) => {
+                        return Err(ActionbookError::Other(format!("WebSocket error: {}", e)))
+                    }
                 }
             }
-            Err(ActionbookError::Other(format!("No response for {}", method)))
+            Err(ActionbookError::Other(format!(
+                "No response for {}",
+                method
+            )))
         }
 
         // All commands on the same WebSocket connection:
@@ -2357,9 +2742,12 @@ impl SessionManager {
         let _ = send_and_recv(&mut ws, 2, "DOM.getDocument", serde_json::json!({})).await;
         // 3. Resolve backendNodeId to remote object
         let resolved = send_and_recv(
-            &mut ws, 3, "DOM.resolveNode",
+            &mut ws,
+            3,
+            "DOM.resolveNode",
             serde_json::json!({ "backendNodeId": backend_node_id }),
-        ).await?;
+        )
+        .await?;
 
         let object_id = resolved
             .get("object")
@@ -2374,13 +2762,16 @@ impl SessionManager {
 
         // 4. Call function on the resolved object
         let result = send_and_recv(
-            &mut ws, 4, "Runtime.callFunctionOn",
+            &mut ws,
+            4,
+            "Runtime.callFunctionOn",
             serde_json::json!({
                 "objectId": object_id,
                 "functionDeclaration": function_declaration,
                 "returnByValue": true,
             }),
-        ).await?;
+        )
+        .await?;
 
         Ok(result
             .get("result")
@@ -2438,7 +2829,9 @@ impl SessionManager {
         backend_node_id: i64,
     ) -> Result<()> {
         // Scroll into view and get coordinates
-        let (x, y) = self.get_element_center_by_node_id(profile_name, backend_node_id).await?;
+        let (x, y) = self
+            .get_element_center_by_node_id(profile_name, backend_node_id)
+            .await?;
 
         // Dispatch click events
         for event_type in &["mouseMoved", "mousePressed", "mouseReleased"] {
@@ -2488,13 +2881,15 @@ impl SessionManager {
             method: &str,
             params: serde_json::Value,
         ) -> Result<serde_json::Value> {
-            use futures::SinkExt;
             use futures::stream::StreamExt;
+            use futures::SinkExt;
 
             let cmd = serde_json::json!({ "id": id, "method": method, "params": params });
-            ws.send(tokio_tungstenite::tungstenite::Message::Text(cmd.to_string().into()))
-                .await
-                .map_err(|e| ActionbookError::Other(format!("Failed to send {}: {}", method, e)))?;
+            ws.send(tokio_tungstenite::tungstenite::Message::Text(
+                cmd.to_string().into(),
+            ))
+            .await
+            .map_err(|e| ActionbookError::Other(format!("Failed to send {}: {}", method, e)))?;
 
             while let Some(msg) = ws.next().await {
                 match msg {
@@ -2502,7 +2897,10 @@ impl SessionManager {
                         let response: serde_json::Value = serde_json::from_str(text.as_str())?;
                         if response.get("id") == Some(&serde_json::json!(id)) {
                             if let Some(error) = response.get("error") {
-                                return Err(ActionbookError::Other(format!("CDP error: {}", error)));
+                                return Err(ActionbookError::Other(format!(
+                                    "CDP error: {}",
+                                    error
+                                )));
                             }
                             return Ok(response
                                 .get("result")
@@ -2511,10 +2909,15 @@ impl SessionManager {
                         }
                     }
                     Ok(_) => continue,
-                    Err(e) => return Err(ActionbookError::Other(format!("WebSocket error: {}", e))),
+                    Err(e) => {
+                        return Err(ActionbookError::Other(format!("WebSocket error: {}", e)))
+                    }
                 }
             }
-            Err(ActionbookError::Other(format!("No response for {}", method)))
+            Err(ActionbookError::Other(format!(
+                "No response for {}",
+                method
+            )))
         }
 
         // 1. Enable DOM
@@ -2536,7 +2939,10 @@ impl SessionManager {
             serde_json::json!({ "nodeId": root_id, "selector": selector }),
         )
         .await?;
-        let node_id = qs_result.get("nodeId").and_then(|n| n.as_i64()).unwrap_or(0);
+        let node_id = qs_result
+            .get("nodeId")
+            .and_then(|n| n.as_i64())
+            .unwrap_or(0);
         if node_id == 0 {
             return Err(ActionbookError::ElementNotFound(format!(
                 "File input not found: {}",
@@ -2792,7 +3198,10 @@ impl SessionManager {
             let status_js = "(function() { return { pending: window.__ab_pending_requests || 0, lastActivity: window.__ab_last_activity || 0 }; })()";
             let status = self.eval_on_page(profile_name, status_js).await?;
             let pending = status.get("pending").and_then(|v| v.as_i64()).unwrap_or(0);
-            let last_activity = status.get("lastActivity").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let last_activity = status
+                .get("lastActivity")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
 
             if pending == 0 {
                 // Check JS-side idle time
@@ -3098,7 +3507,9 @@ impl SessionManager {
             .get("node")
             .and_then(|n| n.get("frameId"))
             .and_then(|f| f.as_str())
-            .ok_or_else(|| ActionbookError::Other("Element has no frameId (not an iframe)".to_string()))?;
+            .ok_or_else(|| {
+                ActionbookError::Other("Element has no frameId (not an iframe)".to_string())
+            })?;
 
         // Store the frame ID in session state
         let profile = self.resolve_profile_name(profile_name);
@@ -3154,7 +3565,6 @@ impl SessionManager {
 
         None
     }
-
 }
 
 /// Resource blocking level
@@ -3170,19 +3580,48 @@ impl ResourceBlockLevel {
         match self {
             Self::None => vec![],
             Self::Images => vec![
-                "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.svg",
-                "*.ico", "*.bmp", "*.avif", "*.jfif", "*.tiff",
-                "*imagedelivery.net*", "*images.unsplash.com*",
+                "*.png",
+                "*.jpg",
+                "*.jpeg",
+                "*.gif",
+                "*.webp",
+                "*.svg",
+                "*.ico",
+                "*.bmp",
+                "*.avif",
+                "*.jfif",
+                "*.tiff",
+                "*imagedelivery.net*",
+                "*images.unsplash.com*",
             ],
             Self::Media => vec![
                 // Images
-                "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.svg",
-                "*.ico", "*.bmp", "*.avif", "*.jfif", "*.tiff",
-                "*imagedelivery.net*", "*images.unsplash.com*",
+                "*.png",
+                "*.jpg",
+                "*.jpeg",
+                "*.gif",
+                "*.webp",
+                "*.svg",
+                "*.ico",
+                "*.bmp",
+                "*.avif",
+                "*.jfif",
+                "*.tiff",
+                "*imagedelivery.net*",
+                "*images.unsplash.com*",
                 // Fonts
-                "*.woff", "*.woff2", "*.ttf", "*.otf", "*.eot",
+                "*.woff",
+                "*.woff2",
+                "*.ttf",
+                "*.otf",
+                "*.eot",
                 // Video/Audio
-                "*.mp4", "*.webm", "*.ogg", "*.mp3", "*.wav", "*.m3u8",
+                "*.mp4",
+                "*.webm",
+                "*.ogg",
+                "*.mp3",
+                "*.wav",
+                "*.m3u8",
                 // CSS
                 "*.css",
             ],
@@ -3201,6 +3640,7 @@ pub enum TextExtractionMode {
 mod tests {
     use super::*;
     use crate::config::Config;
+    use futures::{SinkExt, StreamExt};
 
     /// Create a SessionManager with a temp directory for isolation
     fn test_session_manager(dir: &std::path::Path) -> SessionManager {
@@ -3321,6 +3761,123 @@ mod tests {
 
         let path = sm.session_file("my-profile");
         assert_eq!(path, dir.path().join("my-profile.json"));
+    }
+
+    #[test]
+    fn helper_extract_ws_host_handles_common_forms() {
+        assert_eq!(extract_ws_host("ws://127.0.0.1:9222/devtools/browser/abc").as_deref(), Some("127.0.0.1"));
+        assert_eq!(extract_ws_host("wss://bedrock-agentcore.example.com/automation").as_deref(), Some("bedrock-agentcore.example.com"));
+        assert_eq!(extract_ws_host("ws://[::1]:9222/devtools/browser/abc").as_deref(), Some("::1"));
+    }
+
+    #[test]
+    fn session_state_local_http_detection() {
+        let local = SessionState {
+            profile_name: "local".to_string(),
+            cdp_port: 9222,
+            pid: None,
+            cdp_url: "ws://127.0.0.1:9222/devtools/browser/abc".to_string(),
+            active_page_id: None,
+            custom_app_path: None,
+            current_frame_id: None, ws_headers: None,
+        };
+        assert!(local.uses_local_http_endpoints());
+
+        let remote = SessionState {
+            profile_name: "remote".to_string(),
+            cdp_port: 9222,
+            pid: None,
+            cdp_url: "wss://bedrock-agentcore.example.com/automation".to_string(),
+            active_page_id: None,
+            custom_app_path: None,
+            current_frame_id: None, ws_headers: None,
+        };
+        assert!(!remote.uses_local_http_endpoints());
+
+        // Even on loopback, non-devtools path should not use localhost HTTP fallback.
+        let loopback_remote_style = SessionState {
+            profile_name: "loopback-remote".to_string(),
+            cdp_port: 9222,
+            pid: None,
+            cdp_url: "ws://127.0.0.1:9222/automation".to_string(),
+            active_page_id: None,
+            custom_app_path: None,
+            current_frame_id: None, ws_headers: None,
+        };
+        assert!(!loopback_remote_style.uses_local_http_endpoints());
+    }
+
+    #[test]
+    fn derive_page_ws_url_from_browser_ws() {
+        let browser = "ws://127.0.0.1:9222/devtools/browser/abc";
+        let page = derive_page_ws_url(browser, "target-1");
+        assert_eq!(
+            page.as_deref(),
+            Some("ws://127.0.0.1:9222/devtools/page/target-1")
+        );
+
+        let non_standard = "wss://bedrock-agentcore.example.com/automation";
+        assert!(derive_page_ws_url(non_standard, "target-1").is_none());
+    }
+
+    #[tokio::test]
+    async fn remote_get_pages_uses_target_get_targets() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+
+            while let Some(msg) = ws.next().await {
+                let msg = msg.unwrap();
+                if let tokio_tungstenite::tungstenite::Message::Text(text) = msg {
+                    let req: serde_json::Value = serde_json::from_str(text.as_str()).unwrap();
+                    if req.get("method").and_then(|m| m.as_str()) == Some("Target.getTargets") {
+                        let resp = serde_json::json!({
+                            "id": req.get("id").and_then(|v| v.as_i64()).unwrap_or(1),
+                            "result": {
+                                "targetInfos": [
+                                    {
+                                        "targetId": "page-1",
+                                        "type": "page",
+                                        "title": "Remote Page",
+                                        "url": "https://example.com"
+                                    },
+                                    {
+                                        "targetId": "worker-1",
+                                        "type": "service_worker",
+                                        "title": "",
+                                        "url": "https://example.com/sw.js"
+                                    }
+                                ]
+                            }
+                        });
+
+                        ws.send(tokio_tungstenite::tungstenite::Message::Text(
+                            resp.to_string().into(),
+                        ))
+                        .await
+                        .unwrap();
+                        break;
+                    }
+                }
+            }
+        });
+
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+        let remote_ws = format!("ws://127.0.0.1:{}/automation", port);
+        sm.save_external_session("remote", 9222, &remote_ws).unwrap();
+
+        let pages = sm.get_pages(Some("remote")).await.unwrap();
+        assert_eq!(pages.len(), 1);
+        assert_eq!(pages[0].id, "page-1");
+        assert_eq!(pages[0].title, "Remote Page");
+        assert_eq!(pages[0].url, "https://example.com");
+        assert!(pages[0].web_socket_debugger_url.is_none());
+
+        server.await.unwrap();
     }
 
     #[tokio::test]
