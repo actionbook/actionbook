@@ -88,9 +88,9 @@ pub struct AxProperty {
 /// A single node in the accessibility tree
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct A11yNode {
-    /// Stable reference ID ("e0", "e1", ...)
-    #[serde(rename = "ref")]
-    pub ref_id: String,
+    /// Stable reference ID ("e0", "e1", ...) — only set for interactive/named content nodes
+    #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
+    pub ref_id: Option<String>,
     /// ARIA role (button, link, textbox, etc.)
     pub role: String,
     /// Accessible name
@@ -106,6 +106,21 @@ pub struct A11yNode {
     /// Whether element is focused
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub focused: bool,
+    /// Heading level
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level: Option<i64>,
+    /// Checked state (for checkboxes/radios)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checked: Option<String>,
+    /// Expanded state (for tree items, accordions)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expanded: Option<bool>,
+    /// Selected state
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub selected: bool,
+    /// Required state
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub required: bool,
     /// Backend DOM node ID (for action execution)
     #[serde(rename = "nodeId")]
     pub backend_node_id: i64,
@@ -131,10 +146,8 @@ pub enum SnapshotFilter {
 /// Snapshot output format
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnapshotFormat {
-    /// One-line-per-node compact format (~60-70% fewer tokens than JSON)
+    /// Indented tree format: `- role "name" [ref=eN]` (~60-70% fewer tokens than JSON)
     Compact,
-    /// Indented tree format (~40-60% fewer tokens)
-    Text,
     /// Full JSON
     Json,
 }
@@ -160,147 +173,192 @@ const INTERACTIVE_ROLES: &[&str] = &[
     "treeitem",
 ];
 
-/// Roles to skip (noise)
-const SKIP_ROLES: &[&str] = &["none", "generic", "InlineTextBox"];
+/// Content roles — get refs only if they have a name
+const CONTENT_ROLES: &[&str] = &[
+    "heading", "cell", "gridcell", "columnheader", "rowheader",
+    "listitem", "article", "region", "main", "navigation",
+];
+
+/// Roles to skip entirely (noise — text content is already in parent's name)
+const SKIP_ROLES: &[&str] = &[
+    "InlineTextBox", "StaticText", "LineBreak", "ListMarker",
+    "strong", "emphasis", "subscript", "superscript", "mark",
+];
 
 /// Structural roles that may be removed during compact filtering
 const STRUCTURAL_ROLES: &[&str] = &[
     "generic", "group", "list", "table", "row", "rowgroup",
     "grid", "treegrid", "menu", "menubar", "toolbar", "tablist",
     "tree", "directory", "document", "application", "presentation", "none",
+    "WebArea", "RootWebArea",
 ];
 
-/// Parse the raw CDP Accessibility.getFullAXTree response into A11yNode list
+/// Parse the raw CDP Accessibility.getFullAXTree response into A11yNode list.
 ///
-/// ## Phase 2b Optimization
-/// Now uses typed deserialization for 42% performance improvement over dynamic Value access.
-/// Accepts `serde_json::Value` directly to avoid Value→String→Value roundtrip.
+/// Builds a proper tree from CDP nodes, then renders with recursive traversal.
+/// Ignored nodes' children are promoted. RootWebArea/WebArea are unwrapped.
+/// Only interactive roles and named content roles get refs (eN).
 pub fn parse_ax_tree(
     raw: serde_json::Value,
     filter: SnapshotFilter,
     max_depth: Option<usize>,
     scope_backend_id: Option<i64>,
 ) -> Result<(Vec<A11yNode>, RefCache)> {
-    // Phase 2b: Typed deserialization directly from Value (no roundtrip)
     let response: AxTreeResponse = serde_json::from_value(raw)?;
-    let nodes = &response.nodes;
+    let ax_nodes = &response.nodes;
 
-    // Build parent map and child map for depth calculation
-    let mut parent_map: HashMap<String, String> = HashMap::new();
-    let mut child_map: HashMap<String, Vec<String>> = HashMap::new();
-    let mut node_map: HashMap<String, &AxNode> = HashMap::new();
+    let interactive_set: HashSet<&str> = INTERACTIVE_ROLES.iter().copied().collect();
+    let content_set: HashSet<&str> = CONTENT_ROLES.iter().copied().collect();
+    let skip_set: HashSet<&str> = SKIP_ROLES.iter().copied().collect();
 
-    for node in nodes {
-        let node_id = &node.node_id;
-        if node_id.is_empty() {
-            continue;
+    // Index AX nodes by nodeId
+    let mut id_to_idx: HashMap<String, usize> = HashMap::new();
+    for (i, node) in ax_nodes.iter().enumerate() {
+        if !node.node_id.is_empty() {
+            id_to_idx.insert(node.node_id.clone(), i);
         }
-        node_map.insert(node_id.clone(), node);
+    }
 
-        if !node.child_ids.is_empty() {
-            for cid in &node.child_ids {
-                parent_map.insert(cid.clone(), node_id.clone());
+    // Build child map from childIds
+    let mut children_map: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (i, node) in ax_nodes.iter().enumerate() {
+        let mut children = Vec::new();
+        for cid in &node.child_ids {
+            if let Some(&child_idx) = id_to_idx.get(cid) {
+                children.push(child_idx);
             }
-            child_map.insert(node_id.clone(), node.child_ids.clone());
+        }
+        if !children.is_empty() {
+            children_map.insert(i, children);
         }
     }
 
-    // Calculate depth for each node
-    fn get_depth(node_id: &str, parent_map: &HashMap<String, String>, cache: &mut HashMap<String, usize>) -> usize {
-        if let Some(&d) = cache.get(node_id) {
-            return d;
+    // Find root nodes (nodes that are not children of any other node)
+    let mut is_child = vec![false; ax_nodes.len()];
+    for children in children_map.values() {
+        for &c in children {
+            is_child[c] = true;
         }
-        let d = match parent_map.get(node_id) {
-            Some(parent) => get_depth(parent, parent_map, cache) + 1,
-            None => 0,
-        };
-        cache.insert(node_id.to_string(), d);
-        d
     }
+    let root_indices: Vec<usize> = (0..ax_nodes.len()).filter(|&i| !is_child[i]).collect();
 
-    let mut depth_cache: HashMap<String, usize> = HashMap::new();
-
-    // If scoping by CSS selector, collect allowed node IDs (descendants of scope root)
-    let scope_set: Option<std::collections::HashSet<i64>> = scope_backend_id.map(|root_id| {
-        let mut allowed = std::collections::HashSet::new();
+    // If scoping by CSS selector, collect allowed backend node IDs
+    let scope_set: Option<HashSet<i64>> = scope_backend_id.map(|root_id| {
+        let mut allowed = HashSet::new();
         allowed.insert(root_id);
-        // BFS to find all descendants
-        let mut queue: Vec<String> = Vec::new();
-        // Find the AX node with this backendDOMNodeId
-        for node in nodes {
-            let bid = node.backend_dom_node_id.unwrap_or(0);
-            if bid == root_id {
-                queue.push(node.node_id.clone());
+        // BFS from the scope root
+        let mut queue: Vec<usize> = Vec::new();
+        for (i, node) in ax_nodes.iter().enumerate() {
+            if node.backend_dom_node_id == Some(root_id) {
+                queue.push(i);
             }
         }
-        while let Some(nid) = queue.pop() {
-            if let Some(children) = child_map.get(&nid) {
-                for child in children {
-                    // Get backend id of this child
-                    if let Some(child_node) = node_map.get(child) {
-                        let bid = child_node.backend_dom_node_id.unwrap_or(0);
-                        if bid > 0 {
-                            allowed.insert(bid);
-                        }
-                    }
-                    queue.push(child.clone());
+        while let Some(idx) = queue.pop() {
+            if let Some(children) = children_map.get(&idx) {
+                for &child_idx in children {
+                    let bid = ax_nodes[child_idx].backend_dom_node_id.unwrap_or(0);
+                    if bid > 0 { allowed.insert(bid); }
+                    queue.push(child_idx);
                 }
             }
         }
         allowed
     });
 
-    let interactive_set: std::collections::HashSet<&str> =
-        INTERACTIVE_ROLES.iter().copied().collect();
-    let skip_set: std::collections::HashSet<&str> = SKIP_ROLES.iter().copied().collect();
-
+    // Recursive tree rendering
     let mut result = Vec::new();
     let mut refs = HashMap::new();
     let mut ref_counter = 0usize;
 
-    for node in nodes {
-        // Skip ignored nodes
-        if node.ignored {
-            continue;
-        }
-
-        let node_id_str = &node.node_id;
-
-        // Phase 2b: Direct field access (no get() overhead)
+    fn render(
+        ax_nodes: &[AxNode],
+        children_map: &HashMap<usize, Vec<usize>>,
+        idx: usize,
+        depth: usize,
+        filter: SnapshotFilter,
+        max_depth: Option<usize>,
+        scope_set: &Option<HashSet<i64>>,
+        interactive_set: &HashSet<&str>,
+        content_set: &HashSet<&str>,
+        skip_set: &HashSet<&str>,
+        result: &mut Vec<A11yNode>,
+        refs: &mut HashMap<String, i64>,
+        ref_counter: &mut usize,
+    ) {
+        let node = &ax_nodes[idx];
         let role = node.role.as_ref().map(|r| r.as_string()).unwrap_or_default();
         let name = node.name.as_ref().map(|n| n.as_string()).unwrap_or_default();
 
-        // Skip noise roles
+        // Ignored nodes: skip self but render children at same depth
+        if node.ignored && role != "RootWebArea" {
+            if let Some(children) = children_map.get(&idx) {
+                for &child_idx in children {
+                    render(ax_nodes, children_map, child_idx, depth, filter, max_depth,
+                           scope_set, interactive_set, content_set, skip_set,
+                           result, refs, ref_counter);
+                }
+            }
+            return;
+        }
+
+        // RootWebArea / WebArea: unwrap (render children, skip self)
+        if role == "RootWebArea" || role == "WebArea" {
+            if let Some(children) = children_map.get(&idx) {
+                for &child_idx in children {
+                    render(ax_nodes, children_map, child_idx, depth, filter, max_depth,
+                           scope_set, interactive_set, content_set, skip_set,
+                           result, refs, ref_counter);
+                }
+            }
+            return;
+        }
+
+        // Skip noise roles (but render their children)
         if skip_set.contains(role.as_str()) {
-            continue;
+            if let Some(children) = children_map.get(&idx) {
+                for &child_idx in children {
+                    render(ax_nodes, children_map, child_idx, depth, filter, max_depth,
+                           scope_set, interactive_set, content_set, skip_set,
+                           result, refs, ref_counter);
+                }
+            }
+            return;
         }
 
         // Skip empty StaticText
         if role == "StaticText" && name.is_empty() {
-            continue;
+            return;
         }
 
-        // Apply interactive filter
-        if filter == SnapshotFilter::Interactive && !interactive_set.contains(role.as_str()) {
-            continue;
-        }
-
-        let depth = get_depth(node_id_str, &parent_map, &mut depth_cache);
-
-        // Apply depth limit
+        // Depth limit
         if let Some(max) = max_depth {
-            if depth > max {
-                continue;
-            }
+            if depth > max { return; }
         }
 
         let backend_node_id = node.backend_dom_node_id.unwrap_or(0);
 
-        // Apply scope filter
+        // Scope filter
         if let Some(ref scope) = scope_set {
             if backend_node_id > 0 && !scope.contains(&backend_node_id) {
-                continue;
+                return;
             }
+        }
+
+        // Determine if this node should get a ref
+        let is_interactive = interactive_set.contains(role.as_str());
+        let is_content = content_set.contains(role.as_str());
+        let should_ref = is_interactive || (is_content && !name.is_empty());
+
+        // Interactive filter: skip non-interactive but render children
+        if filter == SnapshotFilter::Interactive && !should_ref {
+            if let Some(children) = children_map.get(&idx) {
+                for &child_idx in children {
+                    render(ax_nodes, children_map, child_idx, depth, filter, max_depth,
+                           scope_set, interactive_set, content_set, skip_set,
+                           result, refs, ref_counter);
+                }
+            }
+            return;
         }
 
         // Extract value
@@ -309,26 +367,43 @@ pub fn parse_ax_tree(
         // Extract properties
         let mut disabled = false;
         let mut focused = false;
+        let mut level = None;
+        let mut checked = None;
+        let mut expanded = None;
+        let mut selected = false;
+        let mut required = false;
         for prop in &node.properties {
             if let Some(ref prop_value) = prop.value {
                 if let Some(ref val) = prop_value.value {
-                    if let Some(b) = val.as_bool() {
-                        match prop.name.as_str() {
-                            "disabled" => disabled = b,
-                            "focused" => focused = b,
-                            _ => {}
-                        }
+                    match prop.name.as_str() {
+                        "disabled" => disabled = val.as_bool().unwrap_or(false),
+                        "focused" => focused = val.as_bool().unwrap_or(false),
+                        "level" => level = val.as_i64(),
+                        "checked" => checked = match val {
+                            serde_json::Value::String(s) => Some(s.clone()),
+                            serde_json::Value::Bool(b) => Some(b.to_string()),
+                            _ => None,
+                        },
+                        "expanded" => expanded = val.as_bool(),
+                        "selected" => selected = val.as_bool().unwrap_or(false),
+                        "required" => required = val.as_bool().unwrap_or(false),
+                        _ => {}
                     }
                 }
             }
         }
 
-        let ref_id = format!("e{}", ref_counter);
-        ref_counter += 1;
-
-        if backend_node_id > 0 {
-            refs.insert(ref_id.clone(), backend_node_id);
-        }
+        // Assign ref only for actionable nodes
+        let ref_id = if should_ref {
+            let rid = format!("e{}", *ref_counter);
+            *ref_counter += 1;
+            if backend_node_id > 0 {
+                refs.insert(rid.clone(), backend_node_id);
+            }
+            Some(rid)
+        } else {
+            None
+        };
 
         result.push(A11yNode {
             ref_id,
@@ -338,8 +413,28 @@ pub fn parse_ax_tree(
             depth,
             disabled,
             focused,
+            level,
+            checked,
+            expanded,
+            selected,
+            required,
             backend_node_id,
         });
+
+        // Render children
+        if let Some(children) = children_map.get(&idx) {
+            for &child_idx in children {
+                render(ax_nodes, children_map, child_idx, depth + 1, filter, max_depth,
+                       scope_set, interactive_set, content_set, skip_set,
+                       result, refs, ref_counter);
+            }
+        }
+    }
+
+    for &root_idx in &root_indices {
+        render(ax_nodes, &children_map, root_idx, 0, filter, max_depth,
+               &scope_set, &interactive_set, &content_set, &skip_set,
+               &mut result, &mut refs, &mut ref_counter);
     }
 
     let cache = RefCache {
@@ -349,73 +444,86 @@ pub fn parse_ax_tree(
     Ok((result, cache))
 }
 
-/// Format nodes as compact output (most token-efficient)
-/// Format: e0:button "Submit" [focused]
+/// Remove leaf nodes that are structural with no name, no ref, no value.
+/// These are empty `<div>`/`<span>` wrappers that add no information.
+pub fn remove_empty_leaves(nodes: &[A11yNode]) -> Vec<A11yNode> {
+    let structural_set: HashSet<&str> = STRUCTURAL_ROLES.iter().copied().collect();
+    let mut has_child = vec![false; nodes.len()];
+
+    // Mark which nodes have children (next node with deeper depth)
+    for i in 0..nodes.len() {
+        if i + 1 < nodes.len() && nodes[i + 1].depth > nodes[i].depth {
+            has_child[i] = true;
+        }
+    }
+
+    nodes
+        .iter()
+        .enumerate()
+        .filter(|(i, node)| {
+            // Keep non-structural nodes
+            if !structural_set.contains(node.role.as_str()) {
+                return true;
+            }
+            // Keep if it has a ref, name, or value
+            if node.ref_id.is_some() || !node.name.is_empty() || node.value.is_some() {
+                return true;
+            }
+            // Keep if it has children
+            has_child[*i]
+        })
+        .map(|(_, node)| node.clone())
+        .collect()
+}
+
+/// Format nodes as indented tree (agent-browser style)
+///
+/// Format: `- role "name" [level=1, disabled, ref=eN]: value`
+/// Attributes are combined in a single `[...]` block. Value uses `: value` suffix.
 pub fn format_compact(nodes: &[A11yNode]) -> String {
     let mut out = String::new();
     for node in nodes {
-        out.push_str(&node.ref_id);
-        out.push(':');
-        out.push_str(&node.role);
-        if !node.name.is_empty() {
-            out.push_str(" \"");
-            out.push_str(&node.name);
-            out.push('"');
-        }
-        if let Some(ref val) = node.value {
-            out.push_str(" val=\"");
-            out.push_str(val);
-            out.push('"');
-        }
-        let mut flags = Vec::new();
-        if node.focused {
-            flags.push("focused");
-        }
-        if node.disabled {
-            flags.push("disabled");
-        }
-        if !flags.is_empty() {
-            out.push_str(" [");
-            out.push_str(&flags.join(","));
-            out.push(']');
-        }
-        out.push('\n');
-    }
-    out
-}
-
-/// Format nodes as indented text tree
-pub fn format_text(nodes: &[A11yNode]) -> String {
-    let mut out = String::new();
-    for node in nodes {
-        // Indent by depth
         for _ in 0..node.depth {
             out.push_str("  ");
         }
-        out.push_str(&node.ref_id);
-        out.push(' ');
+        out.push_str("- ");
         out.push_str(&node.role);
         if !node.name.is_empty() {
             out.push_str(" \"");
             out.push_str(&node.name);
             out.push('"');
         }
-        if let Some(ref val) = node.value {
-            out.push_str(" val=\"");
-            out.push_str(val);
-            out.push('"');
+
+        // Collect attributes into a single [...] block
+        let mut attrs = Vec::new();
+        if let Some(level) = node.level {
+            attrs.push(format!("level={}", level));
         }
-        let mut flags = Vec::new();
-        if node.focused {
-            flags.push("focused");
+        if let Some(ref checked) = node.checked {
+            attrs.push(format!("checked={}", checked));
         }
-        if node.disabled {
-            flags.push("disabled");
+        if let Some(expanded) = node.expanded {
+            attrs.push(format!("expanded={}", expanded));
         }
-        if !flags.is_empty() {
+        if node.selected { attrs.push("selected".to_string()); }
+        if node.disabled { attrs.push("disabled".to_string()); }
+        if node.required { attrs.push("required".to_string()); }
+        if node.focused { attrs.push("focused".to_string()); }
+        if let Some(ref rid) = node.ref_id {
+            attrs.push(format!("ref={}", rid));
+        }
+        if !attrs.is_empty() {
             out.push_str(" [");
-            out.push_str(&flags.join(","));
+            out.push_str(&attrs.join(", "));
             out.push(']');
+        }
+
+        // Value shown with ": value" suffix (if different from name)
+        if let Some(ref val) = node.value {
+            if !val.is_empty() && val != &node.name {
+                out.push_str(": ");
+                out.push_str(val);
+            }
         }
         out.push('\n');
     }
@@ -468,22 +576,21 @@ pub fn diff_snapshots(
 pub fn estimate_tokens(content: &str, format: SnapshotFormat) -> usize {
     let len = content.len();
     match format {
-        SnapshotFormat::Compact | SnapshotFormat::Text => len / 4,
+        SnapshotFormat::Compact => len / 4,
         SnapshotFormat::Json => len / 3,
     }
 }
 
 /// Estimate the token cost of a single node in a given format
 fn estimate_node_tokens(node: &A11yNode, format: SnapshotFormat) -> usize {
-    let ref_len = node.ref_id.len();
+    let ref_len = node.ref_id.as_ref().map(|r| r.len()).unwrap_or(0);
     let role_len = node.role.len();
     let name_len = node.name.len();
     let value_len = node.value.as_ref().map(|v| v.len()).unwrap_or(0);
     let base = ref_len + role_len + name_len + value_len;
 
     match format {
-        SnapshotFormat::Compact => (base + 8) / 4,
-        SnapshotFormat::Text => (base + 8 + node.depth * 2) / 4,
+        SnapshotFormat::Compact => (base + 12 + node.depth * 2) / 4,
         SnapshotFormat::Json => (base + 60) / 3,
     }
 }
@@ -510,37 +617,23 @@ pub fn truncate_to_tokens(
     (result, false)
 }
 
-/// Remove empty structural elements from the node list.
-///
-/// A structural node is removed if:
-/// - Its role is in `STRUCTURAL_ROLES`
-/// - Its name is empty
-/// - It is not an interactive element
-/// - It has no meaningful descendants (interactive or named nodes below it in the tree)
+/// Compact tree: keep only nodes with [ref=] or values, plus their ancestors.
+/// Matches agent-browser's compact_tree behavior.
 pub fn compact_tree_nodes(nodes: &[A11yNode]) -> Vec<A11yNode> {
-    let structural_set: HashSet<&str> = STRUCTURAL_ROLES.iter().copied().collect();
-    let interactive_set: HashSet<&str> = INTERACTIVE_ROLES.iter().copied().collect();
+    let mut keep = vec![false; nodes.len()];
 
-    // For each node index, determine if it has meaningful descendants.
-    // A node at index i with depth d has descendants at indices j > i where depth > d,
-    // until we hit a node at depth <= d.
-    let mut has_meaningful_descendant = vec![false; nodes.len()];
-
-    // Walk backwards so we can propagate descendant info upward
-    for i in (0..nodes.len()).rev() {
-        let d = nodes[i].depth;
-        // Scan forward for children
-        for j in (i + 1)..nodes.len() {
-            if nodes[j].depth <= d {
-                break; // No longer a descendant
-            }
-            // Check if this descendant is meaningful
-            if interactive_set.contains(nodes[j].role.as_str())
-                || !nodes[j].name.is_empty()
-                || has_meaningful_descendant[j]
-            {
-                has_meaningful_descendant[i] = true;
-                break;
+    for i in 0..nodes.len() {
+        if nodes[i].ref_id.is_some() || nodes[i].value.is_some() {
+            keep[i] = true;
+            // Mark ancestors (walk backwards for nodes at lower depth)
+            let my_depth = nodes[i].depth;
+            for j in (0..i).rev() {
+                if nodes[j].depth < my_depth {
+                    keep[j] = true;
+                    if nodes[j].depth == 0 {
+                        break;
+                    }
+                }
             }
         }
     }
@@ -548,22 +641,7 @@ pub fn compact_tree_nodes(nodes: &[A11yNode]) -> Vec<A11yNode> {
     nodes
         .iter()
         .enumerate()
-        .filter(|(i, node)| {
-            // Keep non-structural nodes always
-            if !structural_set.contains(node.role.as_str()) {
-                return true;
-            }
-            // Keep interactive structural nodes
-            if interactive_set.contains(node.role.as_str()) {
-                return true;
-            }
-            // Keep named structural nodes
-            if !node.name.is_empty() {
-                return true;
-            }
-            // Keep if it has meaningful descendants
-            has_meaningful_descendant[*i]
-        })
+        .filter(|(i, _)| keep[*i])
         .map(|(_, node)| node.clone())
         .collect()
 }
@@ -645,4 +723,177 @@ pub async fn find_cursor_interactive_elements(
 
     let elements: Vec<CursorElement> = serde_json::from_str(&unescaped).unwrap_or_default();
     Ok(elements)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_node(ref_id: Option<&str>, role: &str, name: &str, depth: usize) -> A11yNode {
+        A11yNode {
+            ref_id: ref_id.map(|s| s.to_string()),
+            role: role.to_string(),
+            name: name.to_string(),
+            value: None,
+            depth,
+            disabled: false,
+            focused: false,
+            level: None,
+            checked: None,
+            expanded: None,
+            selected: false,
+            required: false,
+            backend_node_id: 0,
+        }
+    }
+
+    #[test]
+    fn format_compact_basic_tree() {
+        let nodes = vec![
+            make_node(None, "heading", "Title", 0),
+            make_node(None, "navigation", "Primary", 1),
+            make_node(Some("e0"), "link", "Home", 2),
+            make_node(Some("e1"), "link", "About", 2),
+        ];
+        let output = format_compact(&nodes);
+        let lines: Vec<&str> = output.lines().collect();
+        assert_eq!(lines[0], "- heading \"Title\"");
+        assert_eq!(lines[1], "  - navigation \"Primary\"");
+        assert_eq!(lines[2], "    - link \"Home\" [ref=e0]");
+        assert_eq!(lines[3], "    - link \"About\" [ref=e1]");
+    }
+
+    #[test]
+    fn format_compact_with_value() {
+        let mut node = make_node(Some("e0"), "textbox", "Search", 0);
+        node.value = Some("hello".to_string());
+        let output = format_compact(&[node]);
+        assert_eq!(output, "- textbox \"Search\" [ref=e0]: hello\n");
+    }
+
+    #[test]
+    fn format_compact_value_same_as_name_hidden() {
+        let mut node = make_node(Some("e0"), "textbox", "hello", 0);
+        node.value = Some("hello".to_string());
+        let output = format_compact(&[node]);
+        // Value same as name → not shown
+        assert_eq!(output, "- textbox \"hello\" [ref=e0]\n");
+    }
+
+    #[test]
+    fn format_compact_with_all_attrs() {
+        let mut node = make_node(Some("e0"), "checkbox", "Accept", 0);
+        node.checked = Some("true".to_string());
+        node.disabled = true;
+        node.required = true;
+        let output = format_compact(&[node]);
+        assert_eq!(output, "- checkbox \"Accept\" [checked=true, disabled, required, ref=e0]\n");
+    }
+
+    #[test]
+    fn format_compact_heading_level() {
+        let mut node = make_node(None, "heading", "Title", 0);
+        node.level = Some(1);
+        let output = format_compact(&[node]);
+        assert_eq!(output, "- heading \"Title\" [level=1]\n");
+    }
+
+    #[test]
+    fn format_compact_no_name_no_ref() {
+        let node = make_node(None, "main", "", 1);
+        let output = format_compact(&[node]);
+        assert_eq!(output, "  - main\n");
+    }
+
+    #[test]
+    fn format_compact_empty_nodes() {
+        let output = format_compact(&[]);
+        assert_eq!(output, "");
+    }
+
+    #[test]
+    fn format_compact_deep_nesting() {
+        let node = make_node(Some("e9"), "button", "OK", 5);
+        let output = format_compact(&[node]);
+        assert_eq!(output, "          - button \"OK\" [ref=e9]\n");
+    }
+
+    #[test]
+    fn estimate_tokens_compact() {
+        let content = "- heading \"Title\" [level=1]\n  - link \"Home\" [ref=e0]\n";
+        let tokens = estimate_tokens(content, SnapshotFormat::Compact);
+        assert_eq!(tokens, content.len() / 4);
+    }
+
+    #[test]
+    fn estimate_node_tokens_includes_depth() {
+        let shallow = make_node(Some("e0"), "button", "OK", 0);
+        let deep = make_node(Some("e1"), "button", "OK", 5);
+        let t_shallow = estimate_node_tokens(&shallow, SnapshotFormat::Compact);
+        let t_deep = estimate_node_tokens(&deep, SnapshotFormat::Compact);
+        assert!(t_deep > t_shallow, "deeper node should cost more tokens");
+    }
+
+    #[test]
+    fn snapshot_format_has_no_text_variant() {
+        let compact = SnapshotFormat::Compact;
+        let json = SnapshotFormat::Json;
+        assert_ne!(compact, json);
+    }
+
+    #[test]
+    fn truncate_respects_budget() {
+        let nodes: Vec<A11yNode> = (0..100)
+            .map(|i| make_node(Some(&format!("e{}", i)), "button", "X", 0))
+            .collect();
+        let (truncated, did_truncate) = truncate_to_tokens(&nodes, 10, SnapshotFormat::Compact);
+        assert!(did_truncate);
+        assert!(truncated.len() < 100);
+        assert!(!truncated.is_empty());
+    }
+
+    #[test]
+    fn truncate_no_truncation_when_budget_sufficient() {
+        let nodes = vec![make_node(Some("e0"), "button", "OK", 0)];
+        let (result, did_truncate) = truncate_to_tokens(&nodes, 10000, SnapshotFormat::Compact);
+        assert!(!did_truncate);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn diff_snapshots_detects_changes() {
+        let prev = vec![
+            make_node(Some("e0"), "button", "Submit", 0),
+            make_node(Some("e1"), "link", "Home", 0),
+        ];
+        let mut changed_node = make_node(Some("e0"), "button", "Submit", 0);
+        changed_node.disabled = true;
+        let curr = vec![
+            changed_node,
+            make_node(Some("e2"), "link", "New", 0),
+        ];
+        let (added, changed, removed) = diff_snapshots(&prev, &curr);
+        assert_eq!(added.len(), 1);
+        assert_eq!(added[0].name, "New");
+        assert_eq!(changed.len(), 1);
+        assert_eq!(changed[0].name, "Submit");
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0].name, "Home");
+    }
+
+    #[test]
+    fn compact_tree_keeps_ref_nodes_and_ancestors() {
+        let nodes = vec![
+            make_node(None, "banner", "", 0),        // ancestor of ref'd node → keep
+            make_node(None, "navigation", "", 1),    // ancestor of ref'd node → keep
+            make_node(Some("e0"), "link", "Home", 2), // has ref → keep
+            make_node(None, "group", "", 0),         // no ref descendant → remove
+            make_node(None, "paragraph", "", 1),     // no ref → remove
+        ];
+        let compacted = compact_tree_nodes(&nodes);
+        assert_eq!(compacted.len(), 3);
+        assert_eq!(compacted[0].role, "banner");
+        assert_eq!(compacted[1].role, "navigation");
+        assert_eq!(compacted[2].role, "link");
+    }
 }

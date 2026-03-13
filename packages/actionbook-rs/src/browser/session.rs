@@ -2566,10 +2566,16 @@ impl SessionManager {
     // ========== F1: CDP Accessibility Tree ==========
 
     /// Get the full accessibility tree via CDP Accessibility.getFullAXTree
+    ///
+    /// Enables DOM and Accessibility domains first to ensure computed accessible
+    /// names are populated (required for links, headings, etc.).
     pub async fn get_accessibility_tree(
         &self,
         profile_name: Option<&str>,
     ) -> Result<serde_json::Value> {
+        // Enable domains so CDP computes full accessible names
+        let _ = self.send_cdp_command(profile_name, "DOM.enable", serde_json::json!({})).await;
+        let _ = self.send_cdp_command(profile_name, "Accessibility.enable", serde_json::json!({})).await;
         self.send_cdp_command(
             profile_name,
             "Accessibility.getFullAXTree",

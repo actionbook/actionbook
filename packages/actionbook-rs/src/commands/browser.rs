@@ -2548,44 +2548,57 @@ pub(crate) async fn snapshot(
     // Parse format
     let snap_format = match format {
         "compact" => SnapshotFormat::Compact,
-        "text" => SnapshotFormat::Text,
         "json" => SnapshotFormat::Json,
-        f => return Err(ActionbookError::Other(format!("Unknown format: '{}'. Use 'compact', 'text', or 'json'.", f))),
+        f => return Err(ActionbookError::Other(format!("Unknown format: '{}'. Use 'compact' or 'json'.", f))),
     };
 
-    // Extension mode: fall back to the old JS-based snapshot
-    if cli.extension {
-        return snapshot_js_fallback(cli, config, snap_format).await;
-    }
-
-    // Use CDP Accessibility.getFullAXTree
-    let mut driver = create_browser_driver(cli, config).await?;
-    apply_resource_blocking(cli, &mut driver).await;
+    // Get the AX tree and optional driver (needed for cursor mode in non-extension path)
+    let (raw, mut driver_opt) = if cli.extension {
+        // Extension mode: use CDP Accessibility.getFullAXTree through the bridge
+        let _ = extension_send(cli, "DOM.enable", serde_json::json!({})).await;
+        let _ = extension_send(cli, "Accessibility.enable", serde_json::json!({})).await;
+        let raw = extension_send(cli, "Accessibility.getFullAXTree", serde_json::json!({})).await?;
+        (raw, None)
+    } else {
+        let mut driver = create_browser_driver(cli, config).await?;
+        apply_resource_blocking(cli, &mut driver).await;
+        let raw = driver.get_accessibility_tree_raw().await?;
+        (raw, Some(driver))
+    };
 
     // If scoping by CSS selector, resolve to backendNodeId first
     let scope_backend_id = if let Some(sel) = selector {
-        driver.get_backend_node_id(sel).await?
+        if let Some(ref mut driver) = driver_opt {
+            driver.get_backend_node_id(sel).await?
+        } else {
+            None // selector scoping not supported in extension mode
+        }
     } else {
         None
     };
 
-    let raw = driver.get_accessibility_tree_raw().await?;
     let (mut nodes, _cache) = snapshot::parse_ax_tree(raw, snap_filter, depth, scope_backend_id)?;
 
-    // Apply compact tree filtering (-c): remove empty structural elements
+    // Always remove empty leaf structural nodes (empty <div>/<span> wrappers)
+    nodes = snapshot::remove_empty_leaves(&nodes);
+
+    // Apply compact tree filtering (-c): keep only ref'd/valued nodes + ancestors
     if compact {
         nodes = snapshot::compact_tree_nodes(&nodes);
     }
 
-    // Append cursor-interactive elements (-C)
+    // Append cursor-interactive elements (-C) — requires a browser driver (non-extension only)
     if cursor {
-        let cursor_nodes = snapshot::find_cursor_interactive_elements(&mut driver, selector).await?;
+        let driver = driver_opt.as_mut().ok_or_else(|| {
+            ActionbookError::Other("Cursor mode (-C) is not supported in extension mode".to_string())
+        })?;
+        let cursor_nodes = snapshot::find_cursor_interactive_elements(driver, selector).await?;
         if !cursor_nodes.is_empty() {
             // Continue ref numbering from where AX tree left off
             let next_ref = nodes.len();
             for (i, cn) in cursor_nodes.into_iter().enumerate() {
                 nodes.push(snapshot::A11yNode {
-                    ref_id: format!("e{}", next_ref + i),
+                    ref_id: Some(format!("e{}", next_ref + i)),
                     role: if cn.has_cursor_pointer || cn.has_onclick {
                         "clickable".to_string()
                     } else {
@@ -2596,6 +2609,11 @@ pub(crate) async fn snapshot(
                     depth: 0,
                     disabled: false,
                     focused: false,
+                    level: None,
+                    checked: None,
+                    expanded: None,
+                    selected: false,
+                    required: false,
                     backend_node_id: -1,
                 });
             }
@@ -2691,7 +2709,6 @@ pub(crate) async fn snapshot(
     } else {
         let output = match snap_format {
             SnapshotFormat::Compact => snapshot::format_compact(&nodes),
-            SnapshotFormat::Text => snapshot::format_text(&nodes),
             SnapshotFormat::Json => serde_json::to_string_pretty(&nodes)?,
         };
         let tokens = snapshot::estimate_tokens(&output, snap_format);
@@ -2713,7 +2730,7 @@ fn format_nodes_for_json(nodes: &[crate::browser::snapshot::A11yNode]) -> Vec<se
         .iter()
         .map(|n| {
             let mut obj = serde_json::json!({
-                "ref": n.ref_id,
+                "ref": n.ref_id.as_deref().unwrap_or(""),
                 "role": n.role,
                 "name": n.name,
             });
@@ -2731,90 +2748,6 @@ fn format_nodes_for_json(nodes: &[crate::browser::snapshot::A11yNode]) -> Vec<se
         .collect()
 }
 
-/// Fallback: JS-based snapshot for extension mode (no CDP access)
-async fn snapshot_js_fallback(
-    cli: &Cli,
-    _config: &Config,
-    format: crate::browser::snapshot::SnapshotFormat,
-) -> Result<()> {
-    let js = r#"
-        (function() {
-            const SKIP_TAGS = new Set(['script','style','noscript','template','svg','path','defs','clippath','lineargradient','stop','meta','link','br','wbr']);
-            const INTERACTIVE_ROLES = new Set(['button','link','textbox','checkbox','radio','combobox','listbox','menuitem','menuitemcheckbox','menuitemradio','option','searchbox','slider','spinbutton','switch','tab','treeitem']);
-            let refCounter = 0;
-            function getRole(el) {
-                const explicit = el.getAttribute('role');
-                if (explicit) return explicit.toLowerCase();
-                const tag = el.tagName.toLowerCase();
-                const map = {'a': el.hasAttribute('href') ? 'link' : 'generic','button':'button','input':getInputRole(el),'select':'combobox','textarea':'textbox','img':'img','h1':'heading','h2':'heading','h3':'heading','h4':'heading','h5':'heading','h6':'heading','nav':'navigation','main':'main'};
-                return map[tag] || 'generic';
-            }
-            function getInputRole(el) {
-                const t = (el.getAttribute('type') || 'text').toLowerCase();
-                const m = {'text':'textbox','email':'textbox','password':'textbox','search':'searchbox','checkbox':'checkbox','radio':'radio','submit':'button','range':'slider','number':'spinbutton'};
-                return m[t] || 'textbox';
-            }
-            function getName(el) {
-                return el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('title') || '';
-            }
-            function walk(el, depth) {
-                if (depth > 15) return [];
-                const tag = el.tagName?.toLowerCase();
-                if (!tag || SKIP_TAGS.has(tag)) return [];
-                if (el.hidden || el.getAttribute('aria-hidden') === 'true') return [];
-                const role = getRole(el);
-                if (role === 'generic' || role === 'none') {
-                    let results = [];
-                    for (const child of el.children) results.push(...walk(child, depth));
-                    return results;
-                }
-                const name = getName(el);
-                const isInteractive = INTERACTIVE_ROLES.has(role);
-                const ref = isInteractive ? 'e' + (refCounter++) : 'e' + (refCounter++);
-                const node = { ref, role, name, depth };
-                if (role === 'textbox' || role === 'searchbox') node.value = el.value || '';
-                if (el === document.activeElement) node.focused = true;
-                if (el.disabled) node.disabled = true;
-                let results = [node];
-                for (const child of el.children) results.push(...walk(child, depth + 1));
-                return results;
-            }
-            return walk(document.body, 0);
-        })()
-    "#;
-
-    let value = extension_eval(cli, js).await?;
-    let empty = vec![];
-    let nodes_json = value.as_array().unwrap_or(&empty);
-
-    if cli.json || format == crate::browser::snapshot::SnapshotFormat::Json {
-        println!("{}", serde_json::to_string_pretty(&value)?);
-    } else {
-        for node in nodes_json {
-            let ref_id = node.get("ref").and_then(|v| v.as_str()).unwrap_or("");
-            let role = node.get("role").and_then(|v| v.as_str()).unwrap_or("");
-            let name = node.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            print!("{}:{}", ref_id, role);
-            if !name.is_empty() {
-                print!(" \"{}\"", name);
-            }
-            if let Some(val) = node.get("value").and_then(|v| v.as_str()) {
-                if !val.is_empty() {
-                    print!(" val=\"{}\"", val);
-                }
-            }
-            let mut flags = Vec::new();
-            if node.get("focused").and_then(|v| v.as_bool()) == Some(true) { flags.push("focused"); }
-            if node.get("disabled").and_then(|v| v.as_bool()) == Some(true) { flags.push("disabled"); }
-            if !flags.is_empty() {
-                print!(" [{}]", flags.join(","));
-            }
-            println!();
-        }
-    }
-
-    Ok(())
-}
 
 pub(crate) async fn inspect(cli: &Cli, config: &Config, x: f64, y: f64, desc: Option<&str>) -> Result<()> {
     if cli.extension {
@@ -5386,5 +5319,5 @@ mod tests {
     }
 
     // Tests for the new CDP Accessibility Tree snapshot formatting are in
-    // browser/snapshot.rs (format_compact, format_text, parse_ax_tree, diff_snapshots)
+    // browser/snapshot.rs (format_compact, parse_ax_tree, diff_snapshots)
 }

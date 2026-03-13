@@ -18,6 +18,9 @@ const CDP_ALLOWLIST = {
   'DOM.querySelector': 'L1',
   'DOM.querySelectorAll': 'L1',
   'DOM.getOuterHTML': 'L1',
+  'DOM.enable': 'L1',
+  'Accessibility.enable': 'L1',
+  'Accessibility.getFullAXTree': 'L1',
   'Network.getCookies': 'L1',
 
   // L2 - Page modification (auto-approved with logging)

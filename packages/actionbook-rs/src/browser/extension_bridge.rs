@@ -45,6 +45,9 @@ pub fn get_risk_level(method: &str) -> Option<RiskLevel> {
         | "DOM.querySelector"
         | "DOM.querySelectorAll"
         | "DOM.getOuterHTML"
+        | "DOM.enable"
+        | "Accessibility.enable"
+        | "Accessibility.getFullAXTree"
         | "Network.getCookies" => Some(RiskLevel::L1),
 
         // L2 - Page modification (includes Runtime.evaluate which executes arbitrary JS)
@@ -1366,5 +1369,14 @@ mod tests {
         // CWS extension origin → accepted
         let cws_origin = format!("chrome-extension://{}", EXTENSION_ID_CWS);
         assert!(origin_matches_any(Some(&cws_origin)));
+    }
+
+    #[test]
+    fn test_accessibility_methods_allowed() {
+        assert!(get_risk_level("Accessibility.enable").is_some());
+        assert!(get_risk_level("Accessibility.getFullAXTree").is_some());
+        assert!(get_risk_level("DOM.enable").is_some());
+        assert_eq!(get_risk_level("Accessibility.enable"), Some(RiskLevel::L1));
+        assert_eq!(get_risk_level("Accessibility.getFullAXTree"), Some(RiskLevel::L1));
     }
 }

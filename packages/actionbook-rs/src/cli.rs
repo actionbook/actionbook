@@ -418,7 +418,7 @@ pub enum BrowserCommands {
         /// Scope to elements under this CSS selector
         #[arg(short = 's', long)]
         selector: Option<String>,
-        /// Output format: compact, text, json (default: compact)
+        /// Output format: compact, json (default: compact)
         #[arg(long, default_value = "compact")]
         format: String,
         /// Show diff from last snapshot (added/changed/removed)
@@ -793,7 +793,7 @@ pub enum AppCommands {
         /// Scope to elements under this CSS selector
         #[arg(short = 's', long)]
         selector: Option<String>,
-        /// Output format: compact, text, json (default: compact)
+        /// Output format: compact, json (default: compact)
         #[arg(long, default_value = "compact")]
         format: String,
         /// Show diff from last snapshot (added/changed/removed)
