@@ -496,9 +496,6 @@ pub fn format_compact(nodes: &[A11yNode]) -> String {
 
         // Collect attributes into a single [...] block
         let mut attrs = Vec::new();
-        if let Some(level) = node.level {
-            attrs.push(format!("level={}", level));
-        }
         if let Some(ref checked) = node.checked {
             attrs.push(format!("checked={}", checked));
         }
@@ -791,11 +788,12 @@ mod tests {
     }
 
     #[test]
-    fn format_compact_heading_level() {
+    fn format_compact_heading_no_level() {
         let mut node = make_node(None, "heading", "Title", 0);
         node.level = Some(1);
         let output = format_compact(&[node]);
-        assert_eq!(output, "- heading \"Title\" [level=1]\n");
+        // level is not shown in output
+        assert_eq!(output, "- heading \"Title\"\n");
     }
 
     #[test]
