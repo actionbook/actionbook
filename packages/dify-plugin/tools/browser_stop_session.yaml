@@ -3,7 +3,7 @@ identity:
   author: actionbook
   label:
     en_US: Browser Stop Session
-    zh_Hans: Browser Stop Session
+    zh_Hans: 停止浏览器会话
 description:
   human:
     en_US: >

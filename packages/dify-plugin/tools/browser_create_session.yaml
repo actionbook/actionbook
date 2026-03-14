@@ -3,7 +3,7 @@ identity:
   author: actionbook
   label:
     en_US: Browser Create Session
-    zh_Hans: Browser Create Session
+    zh_Hans: 创建浏览器会话
 description:
   human:
     en_US: >
