@@ -2577,7 +2577,7 @@ pub(crate) async fn snapshot(
         None
     };
 
-    let (mut nodes, _cache) = snapshot::parse_ax_tree(raw, snap_filter, depth, scope_backend_id)?;
+    let (mut nodes, cache) = snapshot::parse_ax_tree(raw, snap_filter, depth, scope_backend_id)?;
 
     // Always remove empty leaf structural nodes (empty <div>/<span> wrappers)
     nodes = snapshot::remove_empty_leaves(&nodes);
@@ -2595,7 +2595,7 @@ pub(crate) async fn snapshot(
         let cursor_nodes = snapshot::find_cursor_interactive_elements(driver, selector).await?;
         if !cursor_nodes.is_empty() {
             // Continue ref numbering from where AX tree left off
-            let next_ref = nodes.len();
+            let next_ref = cache.next_ref;
             for (i, cn) in cursor_nodes.into_iter().enumerate() {
                 nodes.push(snapshot::A11yNode {
                     ref_id: Some(format!("e{}", next_ref + i)),

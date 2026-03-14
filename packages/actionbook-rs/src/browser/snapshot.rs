@@ -137,6 +137,8 @@ pub struct RefCache {
     /// Last snapshot nodes
     #[allow(dead_code)]
     pub nodes: Vec<A11yNode>,
+    /// Next available ref counter (for appending cursor nodes etc.)
+    pub next_ref: usize,
 }
 
 /// Snapshot filter options
@@ -328,11 +330,6 @@ pub fn parse_ax_tree(
             return;
         }
 
-        // Skip empty StaticText
-        if role == "StaticText" && name.is_empty() {
-            return;
-        }
-
         // Depth limit
         if let Some(max) = max_depth {
             if depth > max { return; }
@@ -340,9 +337,16 @@ pub fn parse_ax_tree(
 
         let backend_node_id = node.backend_dom_node_id.unwrap_or(0);
 
-        // Scope filter
+        // Scope filter: skip self but still render children (ancestors are outside scope)
         if let Some(ref scope) = scope_set {
             if backend_node_id > 0 && !scope.contains(&backend_node_id) {
+                if let Some(children) = children_map.get(&idx) {
+                    for &child_idx in children {
+                        render(ax_nodes, children_map, child_idx, depth, filter, max_depth,
+                               scope_set, interactive_set, content_set, skip_set,
+                               result, refs, ref_counter);
+                    }
+                }
                 return;
             }
         }
@@ -353,7 +357,7 @@ pub fn parse_ax_tree(
         let should_ref = is_interactive || (is_content && !name.is_empty());
 
         // Interactive filter: skip non-interactive but render children
-        if filter == SnapshotFilter::Interactive && !should_ref {
+        if filter == SnapshotFilter::Interactive && !is_interactive {
             if let Some(children) = children_map.get(&idx) {
                 for &child_idx in children {
                     render(ax_nodes, children_map, child_idx, depth, filter, max_depth,
@@ -452,6 +456,7 @@ pub fn parse_ax_tree(
     let cache = RefCache {
         refs,
         nodes: result.clone(),
+        next_ref: ref_counter,
     };
     Ok((result, cache))
 }
@@ -490,7 +495,7 @@ pub fn remove_empty_leaves(nodes: &[A11yNode]) -> Vec<A11yNode> {
 
 /// Format nodes as indented tree (agent-browser style)
 ///
-/// Format: `- role "name" [level=1, disabled, ref=eN]: value`
+/// Format: `- role "name" [disabled, ref=eN]: value`
 /// Attributes are combined in a single `[...]` block. Value uses `: value` suffix.
 pub fn format_compact(nodes: &[A11yNode]) -> String {
     let mut out = String::new();
@@ -644,14 +649,14 @@ pub fn compact_tree_nodes(nodes: &[A11yNode]) -> Vec<A11yNode> {
     for i in 0..nodes.len() {
         if nodes[i].ref_id.is_some() || nodes[i].value.is_some() {
             keep[i] = true;
-            // Mark ancestors (walk backwards for nodes at lower depth)
-            let my_depth = nodes[i].depth;
+            // Mark true ancestor chain: walk backwards, tracking the next
+            // ancestor depth we need to find (parent = depth - 1)
+            let mut need_depth = nodes[i].depth;
             for j in (0..i).rev() {
-                if nodes[j].depth < my_depth {
+                if need_depth == 0 { break; }
+                if nodes[j].depth == need_depth - 1 {
                     keep[j] = true;
-                    if nodes[j].depth == 0 {
-                        break;
-                    }
+                    need_depth = nodes[j].depth;
                 }
             }
         }
@@ -841,7 +846,7 @@ mod tests {
 
     #[test]
     fn estimate_tokens_compact() {
-        let content = "- heading \"Title\" [level=1]\n  - link \"Home\" [ref=e0]\n";
+        let content = "- heading \"Title\"\n  - link \"Home\" [ref=e0]\n";
         let tokens = estimate_tokens(content, SnapshotFormat::Compact);
         assert_eq!(tokens, content.len() / 4);
     }
