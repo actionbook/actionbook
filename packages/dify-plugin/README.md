@@ -32,7 +32,7 @@ A typical end-to-end browser automation flow:
 
 ```
 1. search_actions("login form", domain="github.com")
-2. browser_create_session()  → returns session_id + ws_endpoint
+2. browser_create_session()  → returns session_id + ws_endpoint (uses Hyperbrowser key from plugin settings)
 3. browser_operator(session_id=…, cdp_url=…, action="navigate", url="https://github.com/login")
 4. browser_operator(session_id=…, cdp_url=…, action="fill", selector="#login_field", text="user@email.com")
 5. browser_operator(session_id=…, cdp_url=…, action="click", selector="input[type=submit]")
