@@ -117,7 +117,7 @@ Selectors:
         result = list(self.tool._invoke(tool_parameters))
 
         assert len(result) == 1
-        assert "Unauthorized" in result[0].message.text
+        assert "invalid" in result[0].message.text
 
     @patch("tools.get_action_by_area_id.requests.get")
     def test_rate_limit_exceeded(self, mock_get):
@@ -232,6 +232,7 @@ Selectors:
         assert len(result) == 1
         args, kwargs = mock_get.call_args
         assert "X-API-Key" not in kwargs["headers"]
+        assert "Authorization" not in kwargs["headers"]
         assert kwargs["headers"]["Accept"] == "text/plain"
 
     @patch("tools.get_action_by_area_id.requests.get")
@@ -254,7 +255,7 @@ Selectors:
 
     @patch("tools.get_action_by_area_id.requests.get")
     def test_http_403_status(self, mock_get):
-        """Test handling of HTTP 403 Forbidden status."""
+        """Test handling of HTTP 403 — treated as invalid API key."""
         mock_response = Mock()
         mock_response.status_code = 403
         mock_response.text = ""
@@ -265,6 +266,7 @@ Selectors:
         result = list(self.tool._invoke(tool_parameters))
 
         assert len(result) == 1
+        assert "invalid" in result[0].message.text
         assert "403" in result[0].message.text
 
     @patch("tools.get_action_by_area_id.requests.get")

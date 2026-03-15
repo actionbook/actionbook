@@ -3,7 +3,6 @@ identity:
   author: actionbook
   label:
     en_US: Browser Stop Session
-    zh_Hans: Browser Stop Session
 description:
   human:
     en_US: >
@@ -11,11 +10,6 @@ description:
       Call this at the end of a workflow to avoid unnecessary billing.
       For Hyperbrowser, stopping a session also saves the Profile state
       (cookies, localStorage) for future sessions using the same profile_id.
-    zh_Hans: >
-      停止云端浏览器会话并释放资源。
-      在工作流结束时调用此工具，避免不必要的计费。
-      对于 Hyperbrowser，停止会话还会保存 Profile 状态
-      （cookies、localStorage），供后续使用相同 profile_id 的会话恢复。
   llm: >
     Stop a cloud browser session when the workflow is done.
     Always call this after completing browser automation to release resources
@@ -30,10 +24,8 @@ parameters:
     required: true
     label:
       en_US: Session ID
-      zh_Hans: Session ID
     human_description:
       en_US: Session ID returned by browser_create_session.
-      zh_Hans: browser_create_session 返回的 Session ID。
     llm_description: >
       Session ID from the browser_create_session output. Required to identify
       which session to stop.

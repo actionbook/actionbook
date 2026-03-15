@@ -3,107 +3,58 @@ identity:
   author: actionbook
   label:
     en_US: Browser Operator
-    zh_Hans: Browser Operator
 description:
   human:
     en_US: Perform browser page operations (navigate, click, type, snapshot, etc.).
-    zh_Hans: 执行浏览器页面操作（导航、点击、输入、快照等）。
   llm: >
-    Unified browser operator for all page interactions. Choose an action and
-    provide the required parameters for that action:
+    Browser operator for page interactions. Choose an action and provide its required params.
 
     ACTIONS:
-    - navigate: requires url. Navigates to URL; returns page title and current URL.
-    - click: requires selector. Waits for element to appear then clicks it. If element not found, returns error — use snapshot to inspect the page and derive a correct selector.
-    - type: requires selector, text. Types text character-by-character (appends to existing).
-    - fill: requires selector. Optional text (empty string clears field). Clears input then fills atomically (preferred for forms).
-    - select: requires selector, value. Selects an <option> by its value attribute in a <select>.
-    - press_key: requires key. Sends a keyboard key (e.g. Enter, Tab, Escape, ArrowDown).
-    - hover: requires selector. Moves mouse over element to trigger hover effects.
-    - snapshot: no extra params. Returns an accessibility-tree snapshot of the current page with all interactive elements labeled [ref=eN]. You can use [ref=eN] directly as a selector for click/fill/type/hover actions (e.g. selector="[ref=e5]"). This is the most reliable way to interact with elements from a snapshot.
-    - get_text: optional selector. Returns visible text of a specific element or entire body.
-    - get_html: optional selector. Returns HTML of a specific element or the full page.
-    - wait: requires selector. Waits for element to appear in DOM within timeout.
-    - wait_navigation: optional timeout_ms. Waits for current page navigation to complete.
-    - go_back: no extra params. Navigates to the previous page in history.
-    - go_forward: no extra params. Navigates to the next page in history.
-    - reload: no extra params. Reloads the current page.
+    - navigate: requires url. Goes to URL; returns page title and URL.
+    - click: requires selector. Clicks element (10s timeout). On "not found", use snapshot.
+    - type: requires selector, text. Types text key-by-key (appends).
+    - fill: requires selector. Optional text (empty="" clears). Clears then fills atomically (preferred for forms).
+    - select: requires selector, value. Picks <option> by value attribute.
+    - press_key: requires key. Sends key (Enter, Tab, Escape, ArrowDown, etc.).
+    - hover: requires selector. Triggers hover on element.
+    - snapshot: no params. Returns accessibility tree with [ref=eN] labels for all interactive elements.
+    - get_text: optional selector. Visible text of element or body.
+    - get_html: optional selector. HTML of element or full page.
+    - wait: requires selector. Waits for element in DOM.
+    - wait_navigation: optional timeout_ms. Waits for navigation to complete.
+    - go_back / go_forward / reload: no params. History navigation or page reload.
 
-    WHEN TO USE SNAPSHOT (important):
-    Use action=snapshot in these situations:
-    1. After navigating to a page, before performing any interaction — to understand
-       what elements are available on the current page.
-    2. When a click/fill/type action fails with "Element not found" — the selector
-       from search_actions or get_action_by_area_id may be outdated. Use snapshot
-       to see the current page elements and derive a correct selector.
-    3. When search_actions returns no results for a website — snapshot lets you
-       discover elements directly from the live page.
-    4. After a page state change (form submission, modal popup, page transition) —
-       to see the updated elements.
-
-    HOW TO USE SNAPSHOT RESULTS:
-    The snapshot output shows an accessibility tree like:
-      - heading "Welcome" [ref=e1] [level=1]
+    USING REFS (most important — most reliable selectors):
+    Snapshot output example:
       - textbox "Email" [ref=e2]
       - button "Sign In" [ref=e3]
+    Use [ref=eN] directly as selector: selector="[ref=e3]" to click Sign In,
+    selector="[ref=e2]" with text="user@example.com" to fill Email.
+    Refs re-walk the DOM so they always match the correct element.
 
-    USING REFS (recommended — most reliable):
-    Use [ref=eN] directly as the selector value:
-      - To click "Sign In": selector="[ref=e3]"
-      - To fill "Email":    selector="[ref=e2]", text="user@example.com"
-      - To click a link:    selector="[ref=e1]"
-    Refs are resolved by re-walking the DOM with the same logic that generated
-    the snapshot, so they always match the correct element.
+    WHEN TO USE SNAPSHOT:
+    After navigating to a new page, when a selector fails ("Element not found"),
+    when search_actions has no results, or after page state changes (form submit, modal, navigation).
 
-    ALTERNATIVE selector formats (when refs are not available):
-      - button:has-text("Sign In")     — button containing text
-      - a:has-text("Home")             — link containing text
-      - text="exact text"              — exact text match
-      - [aria-label="Email"]           — aria label match
-      - #element-id                    — by ID
-      - //xpath/expression             — XPath selector
+    OTHER SELECTOR FORMATS (when refs unavailable):
+    button:has-text("X"), a:has-text("X"), text="exact", [aria-label="X"], #id, //xpath.
+    Avoid .nth(), :nth-match(), :text() — these are invalid.
 
-    INVALID selector formats (NEVER use these):
-      - .nth(N)                        — NOT a valid selector
-      - :nth-match(N)                  — NOT supported
-      - :text("...")                   — use :has-text("...") instead
+    FORM TIPS: Use fill with [ref=eN]; submit with press_key Enter (more reliable than clicking submit).
 
-    TIPS FOR FORMS:
-      - To submit a form, use action=press_key with key=Enter — more reliable
-        than clicking submit buttons.
-      - To fill form fields, use action=fill with [ref=eN] from the snapshot.
+    SESSION CLEANUP (critical): ALWAYS call browser_stop_session when done (success or failure) to release resources.
 
-    RECOMMENDED WORKFLOW:
-    1. search_actions → get_action_by_area_id → use returned selectors
-    2. If selectors fail or no results → snapshot → derive selectors from tree → retry
-    3. For form submission → prefer press_key Enter over clicking submit buttons
-    4. ALWAYS call browser_stop_session when done (success OR failure)
+    TIMEOUTS: click defaults to 10s, navigate to 30s. Override with timeout_ms.
 
-    SESSION CLEANUP (critical):
-    You MUST call browser_stop_session to release the browser session when:
-    - All operations are completed successfully
-    - An error occurs and you decide to stop retrying
-    - You are returning results to the user
-    Failing to stop the session wastes cloud browser resources.
-
-    TIMEOUT NOTES:
-    - click action defaults to 10s timeout (not 30s) for faster failure feedback
-    - navigate defaults to 30s timeout
-    - You can override timeout_ms for any action
-
-    For best reliability in Dify workflows, pass BOTH session_id and cdp_url
-    (ws_endpoint from browser_create_session) on each call. session_id enables
-    pooled reuse; cdp_url provides automatic fallback if pooled state is unavailable.
+    Pass BOTH session_id and cdp_url on each call for best reliability.
 parameters:
   - name: session_id
     type: string
     required: false
     label:
       en_US: Session ID
-      zh_Hans: 会话 ID
     human_description:
       en_US: Session ID from browser_create_session. Preferred for multi-step operations — reuses the same CDP connection.
-      zh_Hans: 来自 browser_create_session 的会话 ID。推荐用于多步操作 — 复用同一 CDP 连接。
     llm_description: >
       Session ID returned by browser_create_session. Use this for multi-step
       workflows (navigate → fill → click → snapshot) within one session.
@@ -115,10 +66,8 @@ parameters:
     required: false
     label:
       en_US: CDP WebSocket URL
-      zh_Hans: CDP WebSocket URL
     human_description:
       en_US: WebSocket endpoint from browser_create_session (ws_endpoint field). Fallback for one-shot operations.
-      zh_Hans: 来自 browser_create_session 的 WebSocket 端点。用于单次操作的后备方案。
     llm_description: >
       WebSocket CDP endpoint. Fallback when session_id is not available.
       Each call creates a new connection and closes it after. For multi-step
@@ -131,69 +80,52 @@ parameters:
       - value: navigate
         label:
           en_US: navigate
-          zh_Hans: navigate
       - value: click
         label:
           en_US: click
-          zh_Hans: click
       - value: type
         label:
           en_US: type
-          zh_Hans: type
       - value: fill
         label:
           en_US: fill
-          zh_Hans: fill
       - value: select
         label:
           en_US: select
-          zh_Hans: select
       - value: press_key
         label:
           en_US: press_key
-          zh_Hans: press_key
       - value: hover
         label:
           en_US: hover
-          zh_Hans: hover
       - value: snapshot
         label:
           en_US: snapshot
-          zh_Hans: snapshot
       - value: get_text
         label:
           en_US: get_text
-          zh_Hans: get_text
       - value: get_html
         label:
           en_US: get_html
-          zh_Hans: get_html
       - value: wait
         label:
           en_US: wait
-          zh_Hans: wait
       - value: wait_navigation
         label:
           en_US: wait_navigation
-          zh_Hans: wait_navigation
       - value: go_back
         label:
           en_US: go_back
-          zh_Hans: go_back
       - value: go_forward
         label:
           en_US: go_forward
-          zh_Hans: go_forward
       - value: reload
         label:
           en_US: reload
-          zh_Hans: reload
     label:
       en_US: Action
-      zh_Hans: 操作
     human_description:
       en_US: The browser operation to perform.
-      zh_Hans: 要执行的浏览器操作。
     llm_description: >
       Browser action to perform. See tool description for required parameters per action.
     form: llm
@@ -202,10 +134,8 @@ parameters:
     required: false
     label:
       en_US: URL
-      zh_Hans: 目标 URL
     human_description:
       en_US: Target URL for navigate action (must start with http:// or https://).
-      zh_Hans: navigate 操作的目标 URL（必须以 http:// 或 https:// 开头）。
     llm_description: >
       Required for action=navigate. Full URL to navigate to (must start with http:// or https://).
     form: llm
@@ -214,10 +144,8 @@ parameters:
     required: false
     label:
       en_US: CSS Selector
-      zh_Hans: CSS 选择器
     human_description:
       en_US: CSS selector for the target element. Required for click, type, fill, select, hover, wait. Optional for get_text, get_html.
-      zh_Hans: 目标元素的 CSS 选择器。click/type/fill/select/hover/wait 必填；get_text/get_html 可选。
     llm_description: >
       CSS selector for the target element.
       Required for: click, type, fill, select, hover, wait.
@@ -229,10 +157,8 @@ parameters:
     required: false
     label:
       en_US: Text
-      zh_Hans: 文本内容
     human_description:
       en_US: Text to type or fill. Required for type and fill actions.
-      zh_Hans: 要输入或填充的文本。type 和 fill 操作必填。
     llm_description: >
       Text content to input.
       Required for action=type (appends text key-by-key to existing content).
@@ -243,10 +169,8 @@ parameters:
     required: false
     label:
       en_US: Select Option Value
-      zh_Hans: 选项 value
     human_description:
       en_US: The value attribute of the <option> to select. Required for select action.
-      zh_Hans: 要选择的 <option> 的 value 属性。select 操作必填。
     llm_description: >
       Required for action=select. The value attribute of the <option> to choose.
       Example: "US" for <option value="US">United States</option>
@@ -256,10 +180,8 @@ parameters:
     required: false
     label:
       en_US: Key
-      zh_Hans: 按键
     human_description:
       en_US: Keyboard key to press. Required for press_key action.
-      zh_Hans: 要按下的键盘键。press_key 操作必填。
     llm_description: >
       Required for action=press_key. Keyboard key name to press.
       Examples: Enter, Tab, Escape, Space, Backspace, Delete,
@@ -271,10 +193,8 @@ parameters:
     default: 30000
     label:
       en_US: Timeout (ms)
-      zh_Hans: 超时（毫秒）
     human_description:
       en_US: Operation timeout in milliseconds (default 30000).
-      zh_Hans: 操作超时，单位毫秒（默认 30000）。
     llm_description: >
       Timeout in milliseconds. Only used by these actions:
       navigate (page load timeout, default 30s), click (wait-for-element timeout, default 10s),

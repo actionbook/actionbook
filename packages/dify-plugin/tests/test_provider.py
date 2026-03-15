@@ -51,6 +51,53 @@ class TestActionbookProvider:
             provider._validate_credentials({})
 
     @patch("provider.actionbook.requests.get")
+    def test_invalid_actionbook_key_401_raises(self, mock_get):
+        """Test that invalid Actionbook API key (401) raises exception."""
+        mock_get.return_value = MagicMock(status_code=401)
+        provider = ActionbookProvider()
+
+        with pytest.raises(Exception, match="invalid"):
+            provider._validate_credentials({"actionbook_api_key": "bad-key"})
+
+    @patch("provider.actionbook.requests.get")
+    def test_invalid_actionbook_key_403_raises(self, mock_get):
+        """Test that invalid Actionbook API key (403) raises exception."""
+        mock_get.return_value = MagicMock(status_code=403)
+        provider = ActionbookProvider()
+
+        with pytest.raises(Exception, match="invalid"):
+            provider._validate_credentials({"actionbook_api_key": "bad-key"})
+
+    @patch("provider.actionbook.requests.get")
+    def test_actionbook_key_sent_as_x_api_key(self, mock_get):
+        """Test that Actionbook API key is sent via X-API-Key header."""
+        mock_get.return_value = MagicMock(status_code=200)
+        provider = ActionbookProvider()
+
+        provider._validate_credentials({"actionbook_api_key": "valid-key-123"})
+
+        _, kwargs = mock_get.call_args
+        assert kwargs["headers"]["X-API-Key"] == "valid-key-123"
+        assert "Authorization" not in kwargs["headers"]
+
+    def test_short_hyperbrowser_key_raises(self):
+        """Test that too-short Hyperbrowser key raises exception."""
+        provider = ActionbookProvider()
+
+        with patch("provider.actionbook.requests.get") as mock_get:
+            mock_get.return_value = MagicMock(status_code=200)
+            with pytest.raises(Exception, match="too short"):
+                provider._validate_credentials({"hyperbrowser_api_key": "abc"})
+
+    def test_valid_hyperbrowser_key_passes(self):
+        """Test that valid-length Hyperbrowser key passes."""
+        provider = ActionbookProvider()
+
+        with patch("provider.actionbook.requests.get") as mock_get:
+            mock_get.return_value = MagicMock(status_code=200)
+            provider._validate_credentials({"hyperbrowser_api_key": "hb-valid-key-12345"})
+
+    @patch("provider.actionbook.requests.get")
     def test_html_response_raises_misroute_error(self, mock_get):
         """HTML responses should be treated as endpoint misconfiguration."""
         mock_get.return_value = MagicMock(

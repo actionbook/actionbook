@@ -5,16 +5,8 @@ name: actionbook
 created_at: "2026-02-07T00:00:00.000000000Z"
 label:
   en_US: Actionbook Browser Automation
-  zh_Hans: Actionbook Browser Automation
 description:
-  en_US: >
-    Browser automation toolkit for AI agents. Query verified website selectors,
-    create cloud browser sessions via Hyperbrowser, and perform page operations
-    (navigate, click, fill, snapshot) — all from Dify workflows.
-  zh_Hans: >
-    面向 AI Agent 的浏览器自动化工具包。查询已验证的网站选择器，
-    通过 Hyperbrowser 创建云端浏览器会话，并执行页面操作
-    （导航、点击、填写、快照）— 全部可在 Dify 工作流中使用。
+  en_US: "Verified website selectors and cloud browser automation for AI agents."
 icon: icon.svg
 privacy: PRIVACY.md
 repo: https://github.com/actionbook/actionbook

@@ -3,17 +3,12 @@ identity:
   author: actionbook
   label:
     en_US: Browser Create Session
-    zh_Hans: Browser Create Session
 description:
   human:
     en_US: >
       Start a cloud browser session via Hyperbrowser.
       Returns a WebSocket endpoint (cdp_url) to pass to browser_operator,
       and a session_id to use with browser_stop_session when finished.
-    zh_Hans: >
-      通过 Hyperbrowser 创建云端浏览器会话。
-      返回 WebSocket 端点（cdp_url）供 browser_operator 使用，
-      以及完成后需传给 browser_stop_session 的 session_id。
   llm: >
     Start a cloud browser session. Returns ws_endpoint (use as cdp_url in
     browser_operator) and session_id (use with browser_stop_session).
@@ -43,49 +38,24 @@ parameters:
       - value: hyperbrowser
         label:
           en_US: Hyperbrowser
-          zh_Hans: Hyperbrowser
     label:
       en_US: Provider
-      zh_Hans: 供应商
     human_description:
       en_US: Cloud browser provider. Hyperbrowser uses Profile-based persistence (no idle billing).
-      zh_Hans: 云端浏览器供应商。Hyperbrowser 使用 Profile 持久化（空闲不计费）。
     llm_description: >
       Cloud browser provider. Use "hyperbrowser" (default and only supported provider).
-    form: form
-  - name: api_key
-    type: secret-input
-    required: true
-    label:
-      en_US: Provider API Key
-      zh_Hans: 供应商 API Key
-    human_description:
-      en_US: >
-        API key for the cloud browser provider.
-        Hyperbrowser: get from https://app.hyperbrowser.ai/
-      zh_Hans: >
-        云端浏览器供应商的 API Key。
-        Hyperbrowser：从 https://app.hyperbrowser.ai/ 获取。
-    placeholder:
-      en_US: Enter your provider API key
-      zh_Hans: 请输入供应商 API Key
     form: form
   - name: profile_id
     type: string
     required: false
     label:
       en_US: Profile ID (for state persistence)
-      zh_Hans: Profile ID（状态持久化）
     human_description:
       en_US: >
         Optional stable identifier for browser profile persistence.
         Use the same profile_id across multiple Dify calls to retain cookies
         and login state. Example: "user-abc123" or "workflow-xyz".
         Leave empty for a stateless ephemeral session.
-      zh_Hans: >
-        可选的浏览器 Profile 持久化标识符。
-        在多次 Dify 调用中使用相同的 profile_id，可保留 cookies 和登录状态。
-        留空则使用无状态的临时会话。
     llm_description: >
       Optional profile identifier for persisting browser state (cookies, localStorage)
       across separate Dify tool calls. Use a stable ID like "user-{userId}".
@@ -99,17 +69,13 @@ parameters:
       - value: "false"
         label:
           en_US: "No"
-          zh_Hans: "否"
       - value: "true"
         label:
           en_US: "Yes (residential proxy)"
-          zh_Hans: "是（住宅代理）"
     label:
       en_US: Use Proxy
-      zh_Hans: 使用代理
     human_description:
       en_US: Route through a residential proxy to bypass geo-restrictions or bot detection.
-      zh_Hans: 通过住宅代理路由，绕过地理限制或机器人检测。
     llm_description: >
       Set to "true" to route through a residential proxy. Useful for geo-restricted
       sites or when the target website uses bot detection.
