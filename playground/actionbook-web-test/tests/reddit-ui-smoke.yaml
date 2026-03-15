@@ -1,0 +1,153 @@
+# Reddit UI Smoke Test
+#
+# Validates core Reddit UI functionality at narrow viewport (~720px):
+#   1. Homepage loads with feed content
+#   2. Top navigation bar (hamburger, search, create post)
+#   3. Feed navigation (Hot sort link)
+#   4. Search functionality (results content verification)
+#   5. Subreddit page (r/programming routing and post rendering)
+#
+# Selectors sourced from:
+#   actionbook search "reddit homepage navigation search" --domain reddit.com
+#   Runtime-verified: 2026-03-13 via snapshot at 722px viewport
+#
+# Known constraints (extension mode, narrow viewport):
+#   - Left sidebar hidden below ~1024px breakpoint (CSS: hidden m:block)
+#   - wait-idle not supported → use wait-fn for condition checks
+#   - Reddit search box is a Web Component (faceplate-search-input),
+#     fill/type incompatible → navigate to /search/?q=... directly
+
+name: reddit-ui-smoke
+description: Verify Reddit homepage, navigation, feed, and search at narrow viewport
+url: https://www.reddit.com
+tags: [smoke, reddit, ui]
+timeout: 30000
+
+actions:
+  - "reddit.com:/search/:default"
+
+setup:
+  auto_dismiss_dialogs: true
+  no_animations: true
+
+steps:
+  # ---- Homepage load ----
+  - name: Open Reddit homepage
+    action: open
+    url: "https://www.reddit.com"
+
+  - name: Wait for main content area
+    action: wait
+    selector: "main"
+    timeout: 10000
+
+  - name: Verify main content exists
+    assert:
+      - type: element-exists
+        selector: "main"
+
+  - name: Verify feed has posts
+    assert:
+      - type: eval-truthy
+        expression: "document.querySelectorAll('article, shreddit-post').length > 0"
+
+  - name: Screenshot — Homepage loaded
+    action: screenshot
+
+  # ---- Top navigation bar ----
+  # At narrow viewport, hamburger menu replaces the sidebar
+  - name: Verify hamburger menu button exists
+    assert:
+      - type: element-exists
+        selector: "#navbar-menu-button"
+
+  - name: Verify navigation bar exists
+    assert:
+      - type: element-exists
+        selector: "nav, header"
+
+  - name: Screenshot — Navigation bar
+    action: screenshot
+
+  # ---- Feed navigation ----
+  # Feed sort links (Hot, New, Top) are in standard DOM
+  # Selector: a[href*='/hot/?feed=home'] (discovered via snapshot)
+
+  - name: Click Hot feed link
+    action: click
+    selector: "a[href*='/hot/?feed=home']"
+
+  - name: Wait for Hot page to load
+    action: wait-fn
+    expression: "window.location.href.includes('hot')"
+    timeout: 10000
+
+  - name: Verify navigated to Hot feed
+    assert:
+      - type: url-contains
+        value: "hot"
+
+  - name: Screenshot — Hot feed
+    action: screenshot
+
+  # ---- Search functionality ----
+  # Reddit search input is a Web Component (faceplate-search-input).
+  # fill/type are incompatible with Shadow DOM inputs in extension mode.
+  # Fallback: navigate directly to search results URL.
+
+  - name: Navigate to search results page
+    action: open
+    url: "https://www.reddit.com/search/?q=actionbook"
+
+  - name: Wait for search results to render
+    action: wait
+    selector: "main"
+    timeout: 10000
+
+  - name: Verify search URL contains query
+    assert:
+      - type: url-contains
+        value: "search"
+      - type: url-contains
+        value: "actionbook"
+
+  - name: Verify search results are displayed
+    assert:
+      - type: eval-truthy
+        expression: "document.querySelector('main')?.textContent.includes('Showing results')"
+
+  - name: Verify search has result links
+    assert:
+      - type: eval-truthy
+        expression: "document.querySelectorAll('main a[href*=\"/r/\"]').length > 0"
+
+  - name: Screenshot — Search results
+    action: screenshot
+
+  # ---- Subreddit page ----
+  # Different page type from homepage feed — tests routing and content rendering
+
+  - name: Navigate to r/programming
+    action: open
+    url: "https://www.reddit.com/r/programming/"
+
+  - name: Wait for subreddit to load
+    action: wait
+    selector: "main"
+    timeout: 10000
+
+  - name: Verify subreddit URL
+    assert:
+      - type: url-contains
+        value: "/r/programming"
+
+  - name: Verify subreddit has posts
+    assert:
+      - type: eval-truthy
+        expression: "document.querySelectorAll('article, shreddit-post').length > 0"
+
+  - name: Screenshot — Subreddit page
+    action: screenshot
+
+  - name: Close browser
+    action: close

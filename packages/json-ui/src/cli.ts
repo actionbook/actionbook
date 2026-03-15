@@ -2231,6 +2231,157 @@ function generateHTML(json: ReportJSON, options: { title?: string } = {}): strin
         display: none;
       }
     }
+
+    /* ── Sidebar TOC ── */
+    .sidebar-toc {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 220px;
+      height: 100vh;
+      overflow-y: auto;
+      background: var(--color-surface);
+      border-right: 1px solid var(--color-border);
+      padding: 1rem 0;
+      z-index: 100;
+      font-size: 0.82rem;
+      transition: transform 0.2s ease;
+    }
+    .sidebar-toc .toc-header {
+      padding: 0.4rem 1rem 0.6rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--color-text-muted);
+      font-family: 'IBM Plex Mono', 'SF Mono', 'Consolas', monospace;
+    }
+    .sidebar-toc ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .sidebar-toc li a {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.45rem 1rem;
+      color: var(--color-text-muted);
+      text-decoration: none;
+      border-left: 2px solid transparent;
+      transition: all 0.15s ease;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sidebar-toc li a:hover {
+      color: var(--color-text);
+      background: var(--color-bg-muted);
+      border-left-color: var(--color-primary);
+    }
+    .sidebar-toc li a.active {
+      color: var(--color-primary);
+      background: var(--color-bg-muted);
+      border-left-color: var(--color-primary);
+      font-weight: 600;
+    }
+    .sidebar-toc .toc-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.4rem;
+      height: 1.4rem;
+      font-size: 0.65rem;
+      border: 1px solid var(--color-border);
+      border-radius: 3px;
+      flex-shrink: 0;
+      font-family: 'IBM Plex Mono', 'SF Mono', 'Consolas', monospace;
+    }
+    .report.has-sidebar {
+      margin-left: 220px;
+    }
+
+    /* Sidebar toggle button for mobile */
+    .sidebar-toggle {
+      display: none;
+      position: fixed;
+      bottom: 1rem;
+      left: 1rem;
+      z-index: 200;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      color: var(--color-text);
+      font-size: 1.1rem;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+      align-items: center;
+      justify-content: center;
+    }
+
+    @media (max-width: 860px) {
+      .sidebar-toc {
+        transform: translateX(-100%);
+      }
+      .sidebar-toc.open {
+        transform: translateX(0);
+        box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+      }
+      .report.has-sidebar {
+        margin-left: 0;
+      }
+      .sidebar-toggle {
+        display: flex;
+      }
+    }
+
+    @media print {
+      .sidebar-toc, .sidebar-toggle {
+        display: none !important;
+      }
+      .report.has-sidebar {
+        margin-left: 0;
+      }
+    }
+
+    /* ── Collapsible Sections ── */
+    .section-collapsible details {
+      width: 100%;
+    }
+    .section-collapsible details > summary {
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+    }
+    .section-collapsible details > summary::-webkit-details-marker {
+      display: none;
+    }
+    .section-collapsible details > summary > h2 {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+    }
+    .collapse-indicator {
+      margin-left: auto;
+      font-size: 0.75rem;
+      transition: transform 0.2s ease;
+      font-family: 'IBM Plex Mono', 'SF Mono', 'Consolas', monospace;
+    }
+    .collapse-indicator::after {
+      content: '+';
+    }
+    details[open] > summary .collapse-indicator::after {
+      content: '-';
+    }
+    .section-content {
+      animation: slideDown 0.15s ease;
+    }
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
   </style>
   <!-- KaTeX for LaTeX rendering -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
@@ -2293,7 +2444,8 @@ function generateHTML(json: ReportJSON, options: { title?: string } = {}): strin
   </script>
 </head>
 <body>
-  <article class="report">
+  ${buildSidebarToc(json)}
+  <article class="report${(json.children || []).some(c => c.type === 'Section') ? ' has-sidebar' : ''}">
     ${renderNode(json)}
   </article>
   <a class="corner-powered" href="https://actionbook.dev" target="_blank" rel="noopener noreferrer">
@@ -2336,6 +2488,60 @@ function generateHTML(json: ReportJSON, options: { title?: string } = {}): strin
     // Update on system theme change
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updatePrismTheme);
   </script>
+
+  <!-- Sidebar toggle + scroll-spy -->
+  <script>
+    (function() {
+      var sidebar = document.getElementById('sidebar-toc');
+      if (!sidebar) return;
+
+      // Add toggle button
+      var toggle = document.createElement('button');
+      toggle.className = 'sidebar-toggle';
+      toggle.setAttribute('aria-label', 'Toggle sidebar');
+      toggle.textContent = '\\u2261';
+      document.body.appendChild(toggle);
+      toggle.addEventListener('click', function() {
+        sidebar.classList.toggle('open');
+      });
+
+      // Close sidebar on link click (mobile)
+      sidebar.querySelectorAll('a').forEach(function(a) {
+        a.addEventListener('click', function() {
+          sidebar.classList.remove('open');
+        });
+      });
+
+      // Scroll-spy: highlight current section in sidebar
+      var tocLinks = Array.from(sidebar.querySelectorAll('a'));
+      var sections = tocLinks.map(function(a) {
+        var id = a.getAttribute('href').slice(1);
+        return document.getElementById(id);
+      }).filter(Boolean);
+
+      function updateActiveLink() {
+        var scrollY = window.scrollY + 80;
+        var current = null;
+        for (var i = sections.length - 1; i >= 0; i--) {
+          if (sections[i].offsetTop <= scrollY) {
+            current = sections[i];
+            break;
+          }
+        }
+        tocLinks.forEach(function(a) {
+          var id = a.getAttribute('href').slice(1);
+          if (current && current.id === id) {
+            a.classList.add('active');
+          } else {
+            a.classList.remove('active');
+          }
+        });
+      }
+
+      window.addEventListener('scroll', updateActiveLink, { passive: true });
+      updateActiveLink();
+    })();
+  </script>
 </body>
 </html>`;
 }
@@ -2358,7 +2564,25 @@ const iconMap: Record<string, string> = {
   paper: '::', user: 'o', calendar: '[]', tag: '#', link: '->', code: '&lt;/&gt;',
   chart: '||', bulb: '*', check: 'v', star: '*', warning: '!', info: 'i',
   github: 'gh', arxiv: 'arx', pdf: 'pdf', copy: 'cp', expand: '+', collapse: '-',
+  list: '=', clock: 'T', skip: '-', settings: '@',
 };
+
+/** Build a sidebar TOC from top-level Section children */
+function buildSidebarToc(json: ReportJSON): string {
+  const sections = (json.children || []).filter(c => c.type === 'Section');
+  if (sections.length === 0) return '';
+
+  const items = sections.map(s => {
+    const title = resolveI18n(s.props?.title, 'en');
+    const id = `section-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`;
+    return `<li><a href="#${id}" title="${escapeHtml(title)}">${escapeHtml(title)}</a></li>`;
+  });
+
+  return `<nav class="sidebar-toc" id="sidebar-toc">
+    <div class="toc-header">Contents</div>
+    <ul>${items.join('\n')}</ul>
+  </nav>`;
+}
 
 function escapeHtml(text: string): string {
   return text
@@ -2661,7 +2885,20 @@ function renderNode(node: ReportJSON, options: RenderOptions = { showLanguageSwi
 
     case 'Section': {
       const icon = props.icon ? iconMap[props.icon as string] || '' : '';
-      return `<section class="section">
+      const collapsible = props.collapsible === true;
+      const defaultExpanded = props.defaultExpanded !== false;
+      const titleText = resolveI18n(props.title, 'en');
+      const sectionId = `section-${titleText.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`;
+
+      if (collapsible) {
+        return `<section class="section section-collapsible" id="${sectionId}">
+          <details${defaultExpanded ? ' open' : ''}>
+            <summary><h2>${icon ? `<span>${icon}</span>` : ''}${renderI18n(props.title)}<span class="collapse-indicator"></span></h2></summary>
+            <div class="section-content">${childrenHtml}</div>
+          </details>
+        </section>`;
+      }
+      return `<section class="section" id="${sectionId}">
         <h2>${icon ? `<span>${icon}</span>` : ''}${renderI18n(props.title)}</h2>
         ${childrenHtml}
       </section>`;
