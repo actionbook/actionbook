@@ -3,11 +3,9 @@ identity:
   author: actionbook
   label:
     en_US: Browser Operator
-    zh_Hans: 浏览器操作
 description:
   human:
     en_US: Perform browser page operations (navigate, click, type, snapshot, etc.).
-    zh_Hans: 执行浏览器页面操作（导航、点击、输入、快照等）。
   llm: >
     Browser operator for page interactions. Choose an action and provide its required params.
 
@@ -55,10 +53,8 @@ parameters:
     required: false
     label:
       en_US: Session ID
-      zh_Hans: 会话 ID
     human_description:
       en_US: Session ID from browser_create_session. Preferred for multi-step operations — reuses the same CDP connection.
-      zh_Hans: 来自 browser_create_session 的会话 ID。推荐用于多步操作 — 复用同一 CDP 连接。
     llm_description: >
       Session ID returned by browser_create_session. Use this for multi-step
       workflows (navigate → fill → click → snapshot) within one session.
@@ -70,10 +66,8 @@ parameters:
     required: false
     label:
       en_US: CDP WebSocket URL
-      zh_Hans: CDP WebSocket URL
     human_description:
       en_US: WebSocket endpoint from browser_create_session (ws_endpoint field). Fallback for one-shot operations.
-      zh_Hans: 来自 browser_create_session 的 WebSocket 端点。用于单次操作的后备方案。
     llm_description: >
       WebSocket CDP endpoint. Fallback when session_id is not available.
       Each call creates a new connection and closes it after. For multi-step
@@ -86,69 +80,52 @@ parameters:
       - value: navigate
         label:
           en_US: navigate
-          zh_Hans: navigate
       - value: click
         label:
           en_US: click
-          zh_Hans: click
       - value: type
         label:
           en_US: type
-          zh_Hans: type
       - value: fill
         label:
           en_US: fill
-          zh_Hans: fill
       - value: select
         label:
           en_US: select
-          zh_Hans: select
       - value: press_key
         label:
           en_US: press_key
-          zh_Hans: press_key
       - value: hover
         label:
           en_US: hover
-          zh_Hans: hover
       - value: snapshot
         label:
           en_US: snapshot
-          zh_Hans: snapshot
       - value: get_text
         label:
           en_US: get_text
-          zh_Hans: get_text
       - value: get_html
         label:
           en_US: get_html
-          zh_Hans: get_html
       - value: wait
         label:
           en_US: wait
-          zh_Hans: wait
       - value: wait_navigation
         label:
           en_US: wait_navigation
-          zh_Hans: wait_navigation
       - value: go_back
         label:
           en_US: go_back
-          zh_Hans: go_back
       - value: go_forward
         label:
           en_US: go_forward
-          zh_Hans: go_forward
       - value: reload
         label:
           en_US: reload
-          zh_Hans: reload
     label:
       en_US: Action
-      zh_Hans: 操作
     human_description:
       en_US: The browser operation to perform.
-      zh_Hans: 要执行的浏览器操作。
     llm_description: >
       Browser action to perform. See tool description for required parameters per action.
     form: llm
@@ -157,10 +134,8 @@ parameters:
     required: false
     label:
       en_US: URL
-      zh_Hans: 目标 URL
     human_description:
       en_US: Target URL for navigate action (must start with http:// or https://).
-      zh_Hans: navigate 操作的目标 URL（必须以 http:// 或 https:// 开头）。
     llm_description: >
       Required for action=navigate. Full URL to navigate to (must start with http:// or https://).
     form: llm
@@ -169,10 +144,8 @@ parameters:
     required: false
     label:
       en_US: CSS Selector
-      zh_Hans: CSS 选择器
     human_description:
       en_US: CSS selector for the target element. Required for click, type, fill, select, hover, wait. Optional for get_text, get_html.
-      zh_Hans: 目标元素的 CSS 选择器。click/type/fill/select/hover/wait 必填；get_text/get_html 可选。
     llm_description: >
       CSS selector for the target element.
       Required for: click, type, fill, select, hover, wait.
@@ -184,10 +157,8 @@ parameters:
     required: false
     label:
       en_US: Text
-      zh_Hans: 文本内容
     human_description:
       en_US: Text to type or fill. Required for type and fill actions.
-      zh_Hans: 要输入或填充的文本。type 和 fill 操作必填。
     llm_description: >
       Text content to input.
       Required for action=type (appends text key-by-key to existing content).
@@ -198,10 +169,8 @@ parameters:
     required: false
     label:
       en_US: Select Option Value
-      zh_Hans: 选项 value
     human_description:
       en_US: The value attribute of the <option> to select. Required for select action.
-      zh_Hans: 要选择的 <option> 的 value 属性。select 操作必填。
     llm_description: >
       Required for action=select. The value attribute of the <option> to choose.
       Example: "US" for <option value="US">United States</option>
@@ -211,10 +180,8 @@ parameters:
     required: false
     label:
       en_US: Key
-      zh_Hans: 按键
     human_description:
       en_US: Keyboard key to press. Required for press_key action.
-      zh_Hans: 要按下的键盘键。press_key 操作必填。
     llm_description: >
       Required for action=press_key. Keyboard key name to press.
       Examples: Enter, Tab, Escape, Space, Backspace, Delete,
@@ -226,10 +193,8 @@ parameters:
     default: 30000
     label:
       en_US: Timeout (ms)
-      zh_Hans: 超时（毫秒）
     human_description:
       en_US: Operation timeout in milliseconds (default 30000).
-      zh_Hans: 操作超时，单位毫秒（默认 30000）。
     llm_description: >
       Timeout in milliseconds. Only used by these actions:
       navigate (page load timeout, default 30s), click (wait-for-element timeout, default 10s),

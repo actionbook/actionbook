@@ -3,14 +3,38 @@ identity:
   name: actionbook
   label:
     en_US: Actionbook
-    zh_Hans: Actionbook
   description:
     en_US: "Verified selectors and cloud browser automation for AI agents."
-    zh_Hans: "面向 AI Agent 的已验证选择器与云端浏览器自动化。"
   icon: icon.svg
   tags:
     - utilities
     - productivity
+credentials_for_provider:
+  actionbook_api_key:
+    type: secret-input
+    required: false
+    label:
+      en_US: Actionbook API Key
+    placeholder:
+      en_US: Optional — for higher search/get quotas
+    help:
+      en_US: >
+        Get your API key from actionbook.dev.
+        Leave empty to use the free tier.
+    url: https://actionbook.dev
+  hyperbrowser_api_key:
+    type: secret-input
+    required: false
+    label:
+      en_US: Hyperbrowser API Key
+    placeholder:
+      en_US: Required for browser automation tools
+    help:
+      en_US: >
+        Get your key from https://app.hyperbrowser.ai/.
+        Required only if you use the browser tools
+        (create session, operator, stop session).
+    url: https://app.hyperbrowser.ai/
 tools:
   - tools/search_actions.yaml
   - tools/get_action_by_area_id.yaml
