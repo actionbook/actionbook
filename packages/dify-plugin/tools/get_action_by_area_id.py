@@ -52,7 +52,11 @@ class GetActionByAreaIdTool(Tool):
                 )
                 return
 
-            headers = {"Accept": "text/plain"}
+            headers: dict[str, str] = {"Accept": "text/plain"}
+            actionbook_key = (self.runtime.credentials.get("actionbook_api_key") or "").strip()
+            if actionbook_key:
+                headers["X-API-Key"] = actionbook_key
+
             request_url = f"{API_BASE_URL}/api/get_action_by_area_id"
 
             response = requests.get(

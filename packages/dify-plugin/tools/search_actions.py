@@ -50,7 +50,11 @@ class SearchActionsTool(Tool):
             if domain:
                 params["domain"] = domain
 
-            headers = {"Accept": "text/plain"}
+            headers: dict[str, str] = {"Accept": "text/plain"}
+            actionbook_key = (self.runtime.credentials.get("actionbook_api_key") or "").strip()
+            if actionbook_key:
+                headers["X-API-Key"] = actionbook_key
+
             request_url = f"{API_BASE_URL}/api/search_actions"
 
             response = requests.get(
