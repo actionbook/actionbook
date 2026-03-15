@@ -41,9 +41,9 @@ class ActionbookProvider(ToolProvider):
             body = response.text or ""
             if looks_like_html_response(response, body):
                 raise Exception(build_html_misroute_message(API_BASE_URL, request_url))
-            if response.status_code == 401:
+            if response.status_code in (401, 403):
                 raise Exception(
-                    "Actionbook API Key is invalid (401 Unauthorized). "
+                    f"Actionbook API Key is invalid ({response.status_code}). "
                     "Please check your key or leave it empty to use the free tier."
                 )
             if response.status_code >= 500:

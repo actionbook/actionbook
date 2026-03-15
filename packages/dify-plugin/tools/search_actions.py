@@ -71,9 +71,10 @@ class SearchActionsTool(Tool):
                 )
                 return
 
-            if response.status_code == 401:
+            if response.status_code in (401, 403):
                 yield self.create_text_message(
-                    "Error: Unauthorized (401). API key may be invalid."
+                    f"Error: API key is invalid ({response.status_code}). "
+                    "Please check your Actionbook API Key or leave it empty to use the free tier."
                 )
                 return
             elif response.status_code == 429:

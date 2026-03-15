@@ -78,9 +78,10 @@ class GetActionByAreaIdTool(Tool):
                     f"Action not found for area_id: {area_id}"
                 )
                 return
-            elif response.status_code == 401:
+            elif response.status_code in (401, 403):
                 yield self.create_text_message(
-                    "Error: Unauthorized (401). Please check your API credentials."
+                    f"Error: API key is invalid ({response.status_code}). "
+                    "Please check your Actionbook API Key or leave it empty to use the free tier."
                 )
                 return
             elif response.status_code == 429:

@@ -32,12 +32,12 @@ A typical end-to-end browser automation flow:
 
 ```
 1. search_actions("login form", domain="github.com")
-2. browser_create_session(api_key="hb-xxx")
-3. browser_operator(action="navigate", url="https://github.com/login")
-4. browser_operator(action="fill", selector="#login_field", text="user@email.com")
-5. browser_operator(action="click", selector="input[type=submit]")
-6. browser_operator(action="snapshot")  → inspect result
-7. browser_stop_session(session_id)
+2. browser_create_session()  → returns session_id + ws_endpoint
+3. browser_operator(session_id=…, cdp_url=…, action="navigate", url="https://github.com/login")
+4. browser_operator(session_id=…, cdp_url=…, action="fill", selector="#login_field", text="user@email.com")
+5. browser_operator(session_id=…, cdp_url=…, action="click", selector="input[type=submit]")
+6. browser_operator(session_id=…, cdp_url=…, action="snapshot")  → inspect result
+7. browser_stop_session(session_id=…)
 ```
 
 ## Open Source & Community
