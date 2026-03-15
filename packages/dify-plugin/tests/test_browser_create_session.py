@@ -12,8 +12,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from tools.browser_create_session import BrowserCreateSessionTool
 
 
-def _make_tool() -> BrowserCreateSessionTool:
-    return BrowserCreateSessionTool.from_credentials({})
+def _make_tool(hyperbrowser_key: str = "hb-test-key") -> BrowserCreateSessionTool:
+    return BrowserCreateSessionTool.from_credentials(
+        {"hyperbrowser_api_key": hyperbrowser_key}
+    )
 
 
 class TestBrowserCreateSessionTool:
@@ -36,7 +38,6 @@ class TestBrowserCreateSessionTool:
 
         result = list(self.tool._invoke({
             "provider": "hyperbrowser",
-            "api_key": "test-key",
         }))
 
         text = result[0].message.text
@@ -55,7 +56,6 @@ class TestBrowserCreateSessionTool:
 
         list(self.tool._invoke({
             "provider": "hyperbrowser",
-            "api_key": "hb-test-key",
             "profile_id": "user-42",
         }))
 
@@ -72,7 +72,6 @@ class TestBrowserCreateSessionTool:
 
         list(self.tool._invoke({
             "provider": "hyperbrowser",
-            "api_key": "hb-test-key",
             "profile_id": "   ",  # whitespace only → None
         }))
 
@@ -91,31 +90,29 @@ class TestBrowserCreateSessionTool:
 
         list(self.tool._invoke({
             "provider": "hyperbrowser",
-            "api_key": "hb-test-key",
             "use_proxy": use_proxy_value,
         }))
 
         _, kwargs = mock_provider.create_session.call_args
         assert kwargs["use_proxy"] is True
 
-    @patch("tools.browser_create_session.resolve_provider_api_key", return_value="")
-    def test_missing_api_key_returns_error(self, _mock_resolve):
-        result = list(self.tool._invoke({"provider": "hyperbrowser"}))
+    def test_missing_api_key_returns_error(self):
+        """Test that missing hyperbrowser_api_key in credentials returns error."""
+        tool = _make_tool(hyperbrowser_key="")
+        result = list(tool._invoke({"provider": "hyperbrowser"}))
         assert len(result) == 1
         assert "Error" in result[0].message.text
-        assert "api_key" in result[0].message.text
+        assert "Hyperbrowser API Key" in result[0].message.text
 
     def test_unknown_provider_returns_error(self):
         result = list(self.tool._invoke({
             "provider": "nonexistent",
-            "api_key": "hb-test-key",
         }))
         assert "Error" in result[0].message.text
 
     def test_not_implemented_provider_returns_error(self):
         result = list(self.tool._invoke({
             "provider": "steel",
-            "api_key": "hb-test-key",
         }))
         assert "Error" in result[0].message.text
         # Steel is still in SUPPORTED_PROVIDERS but raises NotImplementedError
@@ -129,7 +126,6 @@ class TestBrowserCreateSessionTool:
 
         result = list(self.tool._invoke({
             "provider": "hyperbrowser",
-            "api_key": "hb-test-key",
         }))
 
         assert "Error" in result[0].message.text
@@ -142,7 +138,6 @@ class TestBrowserCreateSessionTool:
         mock_get_provider.return_value = mock_provider
 
         list(self.tool._invoke({
-            "api_key": "hb-test-key",
             "use_proxy": "false",
         }))
 
@@ -156,7 +151,7 @@ class TestBrowserCreateSessionTool:
         mock_provider.create_session.return_value = self._fake_session()
         mock_get_provider.return_value = mock_provider
 
-        list(self.tool._invoke({"api_key": "hb-test-key"}))
+        list(self.tool._invoke({}))
 
         mock_get_provider.assert_called_once_with("hyperbrowser", "hb-test-key")
 
@@ -169,9 +164,7 @@ class TestBrowserCreateSessionTool:
         mock_provider.create_session.return_value = fake_session
         mock_get_provider.return_value = mock_provider
 
-        result = list(self.tool._invoke({
-            "api_key": "hb-test-key",
-        }))
+        result = list(self.tool._invoke({}))
 
         mock_pool.connect.assert_called_once_with(
             "s-abc", "wss://example.com/s/abc",
@@ -191,9 +184,7 @@ class TestBrowserCreateSessionTool:
         mock_get_provider.return_value = mock_provider
         mock_pool.connect.side_effect = RuntimeError("pool error")
 
-        result = list(self.tool._invoke({
-            "api_key": "hb-test-key",
-        }))
+        result = list(self.tool._invoke({}))
 
         assert "Error" in result[0].message.text
         assert "pool error" in result[0].message.text
@@ -212,9 +203,7 @@ class TestBrowserCreateSessionTool:
         mock_get_provider.return_value = mock_provider
         mock_pool.connect.side_effect = RuntimeError("pool error")
 
-        result = list(self.tool._invoke({
-            "api_key": "hb-test-key",
-        }))
+        result = list(self.tool._invoke({}))
 
         text = result[0].message.text
         assert "Error" in text

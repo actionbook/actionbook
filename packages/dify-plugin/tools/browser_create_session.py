@@ -9,7 +9,6 @@ from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
 
 from providers import SUPPORTED_PROVIDERS, get_provider
-from utils.api_key import resolve_provider_api_key
 
 # Lazy import — avoid loading connection_pool at module level.
 # connection_pool spawns a background cleanup thread on import,
@@ -48,7 +47,7 @@ class BrowserCreateSessionTool(Tool):
             )
             return
 
-        api_key = resolve_provider_api_key(tool_parameters.get("api_key") or "")
+        api_key = (self.runtime.credentials.get("hyperbrowser_api_key") or "").strip()
         profile_id = (tool_parameters.get("profile_id") or "").strip() or None
         # Dify's type coercion is unreliable (string "false" → bool True),
         # so we manually parse the value as a string comparison.
@@ -57,7 +56,8 @@ class BrowserCreateSessionTool(Tool):
 
         if not api_key:
             yield self.create_text_message(
-                "Error: 'api_key' is required. "
+                "Error: Hyperbrowser API Key is not configured.\n"
+                "Please go to plugin settings and enter your Hyperbrowser API Key.\n"
                 "Get your key at https://app.hyperbrowser.ai/"
             )
             return

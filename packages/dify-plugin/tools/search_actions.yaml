@@ -3,15 +3,11 @@ identity:
   author: actionbook
   label:
     en_US: Search Actions
-    zh_Hans: 搜索操作手册
 description:
   human:
     en_US: >
       Search for website action manuals by keyword.
       Returns verified selectors and operation methods for browser automation.
-    zh_Hans: >
-      按关键词搜索网站操作手册。
-      返回已验证的选择器和操作方法，用于浏览器自动化。
   llm: >
     Search the Actionbook database for verified website action manuals.
     Use this tool FIRST when a user needs to automate browser interactions
@@ -40,14 +36,10 @@ parameters:
     required: true
     label:
       en_US: Search Query
-      zh_Hans: 搜索关键词
     human_description:
       en_US: >
         Keyword or context describing the website action you need.
         Examples: "login form", "submit button", "search bar"
-      zh_Hans: >
-        描述所需网站操作的关键词或上下文。
-        示例："login form"、"submit button"、"search bar"
     llm_description: >
       The search keyword describing what website element or action you need.
       Be specific about the website and the element.
@@ -59,10 +51,8 @@ parameters:
     required: false
     label:
       en_US: Domain Filter
-      zh_Hans: 域名过滤
     human_description:
       en_US: Filter results by website domain (e.g., "github.com")
-      zh_Hans: 按网站域名过滤结果（如 "github.com"）
     llm_description: >
       Optional website domain to narrow search results.
       Example: "github.com", "arxiv.org", "twitter.com".
@@ -73,10 +63,8 @@ parameters:
     default: 10
     label:
       en_US: Result Limit
-      zh_Hans: 结果数量上限
     human_description:
       en_US: Maximum number of results to return (1-50, default 10)
-      zh_Hans: 最大返回结果数（1-50，默认 10）
     llm_description: >
       Maximum number of results to return. Valid range: 1 to 50.
       Default is 10. Increase for broader searches.
