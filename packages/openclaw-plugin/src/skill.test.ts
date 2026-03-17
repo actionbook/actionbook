@@ -25,17 +25,17 @@ describe("SKILL.md", () => {
     expect(content).toContain("data-testid");
     expect(content).toContain("aria-label");
     expect(content).toContain("role selector");
-    expect(content).toContain("browser eval");
   });
 
   it("should contain fallback strategy", () => {
     const content = readFileSync(skillPath, "utf-8");
     expect(content).toContain("Fallback");
-    expect(content).toContain("browser snapshot");
+    expect(content).toContain("browser tools");
   });
 
-  it("should contain null-check patterns in browser eval examples", () => {
+  it("should contain search query construction guidance", () => {
     const content = readFileSync(skillPath, "utf-8");
-    expect(content).toContain("'not found'");
+    expect(content).toContain("Constructing an Effective Search Query");
+    expect(content).toContain("Good query");
   });
 });

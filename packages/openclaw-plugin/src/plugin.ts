@@ -13,7 +13,7 @@ import { ApiClient } from "./lib/api-client.js";
 const DEFAULT_API_URL = "https://api.actionbook.dev";
 const ACTIONBOOK_GUIDANCE = [
   "## Actionbook Browser Automation",
-  "Use `search_actions` before taking snapshots and escalate successful hits to `get_action_by_area_id` (see skills/actionbook/SKILL.md for selector priority and fallback patterns).",
+  "When the user needs to interact with any website, call `search_actions` BEFORE taking page snapshots. Use `get_action_by_area_id` to get pre-verified selectors from the results.",
 ].join("\n");
 const SEARCH_ACTIONS_DESCRIPTION = `Search for website action manuals by keyword.
 
