@@ -15,15 +15,7 @@
     "tag": true
   },
   "ignore": [
-    "@actionbookdev/action-builder",
-    "@actionbookdev/browser",
-    "@actionbookdev/browser-profile",
-    "@actionbookdev/db",
-    "@actionbookdev/eval",
     "@actionbookdev/json-ui-site",
-    "@actionbookdev/knowledge-builder",
-    "@actionbookdev/knowledge-builder-any",
-    "@actionbookdev/playbook-builder",
     "lib-rs-scraper",
     "stagehand-agent"
   ]
