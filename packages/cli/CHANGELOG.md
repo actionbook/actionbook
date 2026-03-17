@@ -1,5 +1,11 @@
 # @actionbookdev/cli
 
+## 0.10.0
+
+### Minor Changes
+
+- [#211](https://github.com/actionbook/actionbook/pull/211) [`bd60552`](https://github.com/actionbook/actionbook/commit/bd60552819a56b0b6ad2b089b3e9d2dc5b6478fe) Thanks [@ZhangHanDong](https://github.com/ZhangHanDong)! - Add per-profile daemon with persistent WebSocket connection for CDP operations. Daemon is enabled by default on Unix+CDP mode, eliminating connect-per-command overhead. Use `--no-daemon` to opt out. New commands: `daemon status`, `daemon stop`.
+
 ## 0.9.2
 
 ### Patch Changes
