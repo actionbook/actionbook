@@ -10,6 +10,7 @@ A high-performance CLI for browser automation with zero installation. Built in R
 | **CDP-First** | Direct Chrome DevTools Protocol control | WebSocket via `chromiumoxide` |
 | **Config Flexibility** | Override at any level | CLI > env > config file > auto-discovery |
 | **Multi-Profile** | Isolated browser sessions | Profile-based user data dirs |
+| **Persistent Daemon** | Reuse WS connection across commands | Per-profile daemon on Unix (default) |
 | **Session Persistence** | Maintain state across commands | Disk-based session storage |
 | **Stealth Mode** | Anti-detection browser automation | Fingerprint spoofing, navigator override |
 | **API Key Auth** | Authenticated API access | `--api-key` / `ACTIONBOOK_API_KEY` |
@@ -46,6 +47,8 @@ A high-performance CLI for browser automation with zero installation. Built in R
 | **Actionbook API** | Built-in | Built-in | - |
 | **Multi-Profile** | Yes | Yes | Yes |
 | **Session Persistence** | Disk-based | Disk-based | Memory |
+| **Persistent WS Daemon** | Yes (per-profile, Unix) | - | Yes (per-session) |
+| **Auto-Discovery** | Yes (DevToolsActivePort + port scan) | - | - |
 | **Stealth Mode** | Yes (built-in) | - | - |
 | **API Key Auth** | Yes | - | - |
 | **Headless Mode** | Yes | Yes | Yes |
@@ -95,6 +98,8 @@ A high-performance CLI for browser automation with zero installation. Built in R
 - **Local Storage Management** - Get, set, remove, clear, and list localStorage/sessionStorage
 - **Device Emulation** - Emulate mobile/tablet devices with preset viewports (iPhone, Pixel, iPad)
 - **Wait for JS Condition** - Poll a JavaScript expression until it returns truthy
+- **Persistent Daemon** - Per-profile daemon holds a persistent WS connection (Unix, default on). Eliminates per-command connect overhead. Opt-out with `--no-daemon`
+- **Auto-Discovery** - Detect running Chrome via `DevToolsActivePort` files and port scanning (9222-9229), with Chrome-specific target type validation
 - **Electron App Automation** - Automate desktop apps (VS Code, Slack, Discord, Figma) via `actionbook app` command
 - **Keyboard Hotkeys** - Send keyboard combinations (Ctrl+C, Cmd+A, multi-modifier shortcuts)
 - **Shadow DOM Support** - Interact with elements inside Shadow DOM using `::shadow-root` selector syntax
@@ -104,33 +109,56 @@ A high-performance CLI for browser automation with zero installation. Built in R
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Actionbook CLI                           │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐    │
-│  │  search  │   │   get    │   │ sources  │   │  browser │    │
-│  │ command  │   │ command  │   │ command  │   │ commands │    │
-│  └────┬─────┘   └────┬─────┘   └────┬─────┘   └────┬─────┘    │
-│       │              │              │              │           │
-│       └──────────────┴──────────────┴──────────────┘           │
-│                          │                                      │
-│  ┌───────────────────────┴───────────────────────────────┐     │
-│  │                    Core Modules                        │     │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │     │
-│  │  │  API Client │  │   Browser   │  │   Config    │   │     │
-│  │  │  (reqwest)  │  │   (CDP)     │  │  (figment)  │   │     │
-│  │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘   │     │
-│  └─────────┼────────────────┼────────────────┼──────────┘     │
-│            │                │                │                 │
-└────────────┼────────────────┼────────────────┼─────────────────┘
-             │                │                │
-             ▼                ▼                ▼
-    ┌────────────────┐ ┌─────────────┐ ┌──────────────┐
-    │  Actionbook    │ │   Chrome    │ │ ~/.config/   │
-    │  API Server    │ │   Browser   │ │ actionbook/  │
-    └────────────────┘ └─────────────┘ └──────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                          Actionbook CLI                               │
+├───────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐ │
+│  │  search  │  │   get    │  │ sources  │  │  browser │  │ daemon │ │
+│  │ command  │  │ command  │  │ command  │  │ commands │  │ status │ │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  └───┬────┘ │
+│       │             │             │              │             │      │
+│       └─────────────┴─────────────┴──────────────┤             │      │
+│                         │                        │             │      │
+│  ┌──────────────────────┴───────────────────┐    │             │      │
+│  │              Core Modules                │    │             │      │
+│  │  ┌───────────┐  ┌───────────┐            │    │             │      │
+│  │  │ API Client│  │  Config   │            │    │             │      │
+│  │  │ (reqwest) │  │ (figment) │            │    │             │      │
+│  │  └─────┬─────┘  └─────┬─────┘            │    │             │      │
+│  └────────┼───────────────┼─────────────────┘    │             │      │
+│           │               │                      │             │      │
+└───────────┼───────────────┼──────────────────────┼─────────────┼──────┘
+            │               │                      │             │
+            ▼               ▼                      ▼             ▼
+   ┌────────────────┐ ┌──────────────┐   ┌──────────────────────────┐
+   │  Actionbook    │ │ ~/.actionbook│   │   Per-Profile Daemon     │
+   │  API Server    │ │  /config.toml│   │  (persistent WS, Unix)   │
+   └────────────────┘ │  /sessions/  │   │                          │
+                      │  /daemons/   │   │  CLI ──UDS──→ Daemon     │
+                      └──────────────┘   │              ↕ WS        │
+                                         │         Chrome Browser   │
+                                         └──────────────────────────┘
 ```
+
+### Daemon Architecture (Unix, default)
+
+```
+                    CLI
+                     │
+        ┌────────────┼────────────┐
+     -P profile1  -P profile2  -P profile3
+        │            │            │
+   Daemon 进程1   Daemon 进程2   Daemon 进程3     ← auto-started on active commands
+   profile1.sock  profile2.sock  profile3.sock
+        │            │            │
+   Persistent WS  Persistent WS  Persistent WS
+        │            │            │
+   Browser/CDP1   Browser/CDP2   Browser/CDP3
+```
+
+Each profile = independent daemon process = independent persistent WS = independent CDP connection.
+Use `--no-daemon` to fall back to per-command direct connections.
 
 ## Module Structure
 
@@ -145,6 +173,7 @@ src/
 │   └── types.rs             # API request/response types
 ├── browser/
 │   ├── mod.rs               # Browser module exports
+│   ├── auto_connect.rs      # Auto-discover running Chrome (DevToolsActivePort + port scan)
 │   ├── discovery.rs         # Auto-detect installed browsers
 │   ├── launcher.rs          # Launch browser with CDP + session integrity (G3)
 │   ├── session.rs           # Session state, animations (G2), fingerprint (G5)
@@ -160,6 +189,12 @@ src/
 │   ├── extension_bridge.rs  # Chrome Extension WebSocket bridge
 │   ├── extension_installer.rs    # Extension download/install
 │   └── native_messaging.rs  # Chrome Native Messaging host
+├── daemon/                  # Per-profile daemon (persistent WS, Unix only)
+│   ├── mod.rs               # Module exports
+│   ├── server.rs            # UDS listener + WS connection loop + target attach
+│   ├── client.rs            # CLI → daemon UDS client (try_send, ensure_daemon)
+│   ├── protocol.rs          # DaemonRequest/DaemonResponse JSON-line protocol
+│   └── lifecycle.rs         # spawn/stop daemon, socket/PID path helpers
 ├── config/
 │   ├── mod.rs               # Configuration loading
 │   └── profile.rs           # Profile management
@@ -169,6 +204,8 @@ src/
     ├── get.rs               # Get action by ID command
     ├── sources.rs           # List/search sources command
     ├── browser.rs           # Browser automation commands
+    ├── daemon.rs            # Daemon serve/status/stop commands
+    ├── app.rs               # Electron app automation commands
     ├── batch.rs             # Batch action execution (G4)
     ├── act.rs               # Action execution command
     ├── execute.rs           # Execute action on element
@@ -356,7 +393,9 @@ CLI args > Environment variables > Config file > Auto-discovery
 | `--headless` | `ACTIONBOOK_HEADLESS` | Run browser in headless mode |
 | `--profile <NAME>` | `ACTIONBOOK_PROFILE` | Use specific profile |
 | `--browser-path <PATH>` | `ACTIONBOOK_BROWSER_PATH` | Custom browser executable path |
-| `--cdp <PORT>` | `ACTIONBOOK_CDP` | Connect to existing CDP port |
+| `--cdp <PORT\|URL>` | `ACTIONBOOK_CDP` | Connect to CDP port or WebSocket URL (verified before persisting) |
+| `--no-daemon` | `ACTIONBOOK_NO_DAEMON` | Disable per-profile daemon (Unix only, daemon is on by default) |
+| `--auto-connect` | `ACTIONBOOK_AUTO_CONNECT` | Auto-discover running Chrome via DevToolsActivePort + port scan |
 | `--api-key <KEY>` | `ACTIONBOOK_API_KEY` | API key for authenticated access |
 | `--stealth` | `ACTIONBOOK_STEALTH` | Enable stealth mode (anti-detection) |
 | `--stealth-os <OS>` | `ACTIONBOOK_STEALTH_OS` | Stealth OS: windows, macos-arm, macos-intel, linux |
@@ -486,6 +525,23 @@ actionbook profile list             # List all profiles
 actionbook profile create <NAME>    # Create new profile
 actionbook profile delete <NAME>    # Delete profile
 ```
+
+### `daemon` - Daemon Management (Unix only)
+
+```bash
+actionbook daemon status            # Check if daemon is running for current profile
+actionbook daemon stop              # Stop the daemon for current profile
+```
+
+The daemon is automatically started when needed by browser commands. These commands
+are for manual inspection and control.
+
+**How It Works:**
+- Each profile gets its own daemon process holding a persistent WebSocket connection
+- CLI commands communicate with the daemon via Unix Domain Sockets (`~/.actionbook/daemons/{profile}.sock`)
+- Daemon auto-starts on active browser commands (snapshot, click, type, etc.)
+- Read-only commands (status, pages, tab list) bypass the daemon
+- Use `--no-daemon` or `ACTIONBOOK_NO_DAEMON=1` to fall back to per-command direct connections
 
 ### `app` - Electron App Automation
 
@@ -1082,7 +1138,7 @@ cargo test --test integration_test  # Integration tests only
 
 ### Test Coverage
 
-- **109 tests** total (unit + integration)
+- **610+ tests** total (unit + integration + e2e)
 
 ## License
 
