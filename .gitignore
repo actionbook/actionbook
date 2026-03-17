@@ -100,7 +100,8 @@ handbooks/
 .vibe/
 .windsurf/
 .zencoder/
-skills/
+**/skills/
+!/skills/
 skills-lock.json
 
 # Browser Profile (Sensitive Session Data)

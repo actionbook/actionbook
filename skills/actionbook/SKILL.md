@@ -179,6 +179,30 @@ When you hit a login/auth wall (sign-in page, password prompt, MFA/OTP, CAPTCHA,
 
 Do not switch tools just because a login page appears.
 
+## Daemon & Multi-Session
+
+By default (on Unix + CDP mode), actionbook runs a **per-profile daemon** that holds a persistent WebSocket connection to the browser. All CLI commands route through this daemon via a Unix Domain Socket, eliminating the overhead of opening a new WS connection per command.
+
+**Key behavior:**
+- Daemon starts automatically on the first browser command — no manual setup needed
+- Each profile gets its own daemon process (`~/.actionbook/daemons/{profile}.sock`)
+- CDP operations reuse a single persistent WebSocket connection
+- Daemon auto-stops after 10 minutes of idle time
+- WS disconnects trigger automatic reconnection with fresh auth tokens
+
+**Opt out:** Use `--no-daemon` to fall back to direct connect-per-command mode.
+
+```bash
+actionbook --no-daemon browser snapshot      # Bypass daemon, direct WS connection
+actionbook daemon status                     # Check daemon status for current profile
+actionbook daemon stop                       # Stop daemon for current profile
+```
+
+**When daemon is NOT used** (automatic):
+- Extension mode (`--extension`)
+- Windows (no Unix Domain Socket support)
+- Non-browser commands (`search`, `get`, `config`, etc.)
+
 ## References
 
 | Reference | Description |

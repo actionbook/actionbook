@@ -164,6 +164,7 @@ actionbook --verbose <command>                 # Enable verbose logging
 actionbook -P <profile> <command>              # Use specific browser profile
 actionbook --cdp <port|url> <command>          # Connect via CDP port or WebSocket URL
 actionbook --browser-path <path> <command>     # Override browser executable path
+actionbook --no-daemon <command>              # Disable daemon, use direct WS per command
 ```
 
 ## Environment Variables
@@ -175,7 +176,21 @@ ACTIONBOOK_BROWSER_PATH="/path/to/chrome"         # Browser executable
 ACTIONBOOK_CDP="9222"                             # CDP port or WebSocket URL
 ACTIONBOOK_PROFILE="default"                      # Default profile name
 ACTIONBOOK_HEADLESS="true"                        # Headless mode
+ACTIONBOOK_NO_DAEMON="true"                       # Disable daemon mode
 ```
+
+## Daemon Management
+
+The daemon runs automatically on Unix + CDP mode. These commands manage daemon lifecycle.
+
+```bash
+actionbook daemon status                     # Show daemon status for current profile
+actionbook daemon status -P myprofile        # Show daemon status for specific profile
+actionbook daemon stop                       # Stop daemon for current profile
+actionbook daemon stop -P myprofile          # Stop daemon for specific profile
+```
+
+**Note:** `daemon serve` is an internal command used by the auto-start mechanism. Do not call it directly.
 
 ## Practical Examples
 
