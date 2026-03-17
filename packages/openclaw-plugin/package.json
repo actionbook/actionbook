@@ -1,6 +1,6 @@
 {
   "name": "@actionbookdev/actionbook",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "type": "module",
   "description": "Actionbook plugin for OpenClaw - token-efficient browser automation with pre-verified selectors",
@@ -18,7 +18,9 @@
     "openclaw.plugin.json"
   ],
   "openclaw": {
-    "extensions": ["./dist/index.js"]
+    "extensions": [
+      "./dist/index.js"
+    ]
   },
   "publishConfig": {
     "access": "public"
