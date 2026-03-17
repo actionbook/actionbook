@@ -1257,14 +1257,18 @@ impl SessionManager {
         let client = crate::daemon::client::DaemonClient::new(profile.to_string());
         match client.send_cdp(method, params).await {
             Ok(value) => Some(Ok(value)),
-            Err(e) => {
-                // Fall back to direct WS on ANY daemon error:
-                // - DaemonNotRunning: socket file stale, daemon dead
-                // - DaemonError: WS not connected yet, attach pending, timeout, etc.
-                // This prevents the daemon layer from amplifying failures for
-                // commands that would succeed via the direct path.
-                tracing::debug!("Daemon error, falling back to direct WS: {}", e);
+            Err(ActionbookError::DaemonNotRunning(msg)) => {
+                // Pre-send failure: daemon unreachable or write failed before the
+                // command was delivered. Safe to fall back to direct WS.
+                tracing::debug!("Daemon not reachable, falling back to direct WS: {}", msg);
                 None
+            }
+            Err(e) => {
+                // Post-send failure (DaemonError): the command may have already been
+                // forwarded to the browser. Do NOT fall back — that would risk
+                // duplicating non-idempotent operations (click, navigate, etc.).
+                tracing::warn!("Daemon error after command may have been sent: {}", e);
+                Some(Err(e))
             }
         }
     }

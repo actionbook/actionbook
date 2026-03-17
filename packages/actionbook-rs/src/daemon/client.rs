@@ -50,9 +50,15 @@ impl DaemonClient {
         let encoded = protocol::encode_line(&request)
             .map_err(|e| ActionbookError::DaemonError(format!("Encode error: {}", e)))?;
 
+        // Pre-send failure: daemon hasn't seen the command — safe to fall back.
         stream.write_all(encoded.as_bytes()).await.map_err(|e| {
-            ActionbookError::DaemonError(format!("Failed to write to daemon socket: {}", e))
+            ActionbookError::DaemonNotRunning(format!("Failed to write to daemon socket: {}", e))
         })?;
+
+        // ---- POINT OF NO RETURN ----
+        // After write_all succeeds, the daemon may have already forwarded the CDP
+        // command to the browser. All errors below use DaemonError (not DaemonNotRunning)
+        // so the caller can distinguish "never sent" from "maybe sent".
 
         // Read response line
         let (reader, _writer) = stream.into_split();
@@ -61,9 +67,9 @@ impl DaemonClient {
         let line = lines
             .next_line()
             .await
-            .map_err(|e| ActionbookError::DaemonError(format!("Read error: {}", e)))?
+            .map_err(|e| ActionbookError::DaemonError(format!("Read error (command may have been executed): {}", e)))?
             .ok_or_else(|| {
-                ActionbookError::DaemonError("Daemon closed connection without response".to_string())
+                ActionbookError::DaemonError("Daemon closed connection without response (command may have been executed)".to_string())
             })?;
 
         let response: DaemonResponse = protocol::decode_line(&line)

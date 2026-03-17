@@ -389,6 +389,16 @@ async fn attach(cli: &Cli, config: &Config, target: &str) -> Result<()> {
         inferred_app_path.clone(),
     )?;
 
+    // Stop any running daemon so it reconnects to the new endpoint on next command.
+    // Without this, the daemon would keep its stale WS connection to the old browser.
+    #[cfg(unix)]
+    {
+        if crate::daemon::lifecycle::is_daemon_alive(profile_name).await {
+            tracing::info!("Stopping daemon for profile '{}' after attach (endpoint changed)", profile_name);
+            let _ = crate::daemon::lifecycle::stop_daemon(profile_name).await;
+        }
+    }
+
     if cli.json {
         let mut json_output = serde_json::json!({
             "success": true,

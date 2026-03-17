@@ -278,15 +278,26 @@ impl WsState {
             guard.clone()
         };
 
-        let tx = tx.ok_or_else(|| "Daemon WS not connected".to_string())?;
-        tx.send(WsCommand {
+        let tx = match tx {
+            Some(tx) => tx,
+            None => {
+                // Clean up the pending entry before returning
+                self.pending.lock().await.remove(&ws_id);
+                return Err("Daemon WS not connected".to_string());
+            }
+        };
+        if let Err(_) = tx.send(WsCommand {
             ws_id,
             method: method.to_string(),
             params,
             session_id,
         })
         .await
-        .map_err(|_| "Daemon WS writer channel closed".to_string())?;
+        {
+            // Writer channel closed — clean up the pending entry
+            self.pending.lock().await.remove(&ws_id);
+            return Err("Daemon WS writer channel closed".to_string());
+        }
 
         // Wait for response with timeout
         match tokio::time::timeout(Duration::from_secs(30), resp_rx).await {
