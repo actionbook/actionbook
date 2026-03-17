@@ -7,7 +7,7 @@ use futures::{SinkExt, StreamExt};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, watch, Mutex};
 
 use super::lifecycle;
 use super::protocol::{self, DaemonRequest, DaemonResponse};
@@ -206,6 +206,12 @@ struct WsState {
     reattach_lock: Mutex<()>,
     /// Profile name for re-reading session state.
     profile: String,
+    /// State-based readiness: `true` once `connect_and_run` finishes initial
+    /// attach and sets session_id + tx. Reset to `false` on WS disconnect.
+    /// Unlike `Notify`, `watch` always reflects the latest value — late
+    /// arrivals see the current state without missing a signal.
+    ready_tx: watch::Sender<bool>,
+    ready_rx: watch::Receiver<bool>,
 }
 
 /// Command sent to the WS writer task.
@@ -219,6 +225,7 @@ struct WsCommand {
 
 impl WsState {
     fn new(profile: String) -> Self {
+        let (ready_tx, ready_rx) = watch::channel(false);
         Self {
             tx: Mutex::new(None),
             pending: Arc::new(Mutex::new(HashMap::new())),
@@ -227,6 +234,8 @@ impl WsState {
             attached_target_id: Mutex::new(None),
             reattach_lock: Mutex::new(()),
             profile,
+            ready_tx,
+            ready_rx,
         }
     }
 
@@ -243,6 +252,42 @@ impl WsState {
         method: &str,
         params: Value,
     ) -> std::result::Result<Value, String> {
+        // Wait for initial attach to complete (connect_and_run sets tx + session_id
+        // then sends `true` on ready_tx). The watch channel is state-based: if
+        // connect_and_run already completed, the current value is `true` and
+        // wait_for returns immediately.
+        if self.tx.lock().await.is_none() {
+            let is_ready = tokio::time::timeout(Duration::from_secs(10), async {
+                let mut rx = self.ready_rx.clone();
+                // Check current value first
+                if *rx.borrow() {
+                    return true;
+                }
+                // Wait for changes until ready
+                loop {
+                    if rx.changed().await.is_err() {
+                        return false; // channel closed
+                    }
+                    if *rx.borrow() {
+                        return true;
+                    }
+                }
+            })
+            .await;
+            match is_ready {
+                Ok(true) => {}
+                Ok(false) => {
+                    return Err("Daemon readiness channel closed".to_string());
+                }
+                Err(_) => {
+                    return Err(
+                        "Daemon WS not ready after 10s (initial connect still in progress)"
+                            .to_string(),
+                    );
+                }
+            }
+        }
+
         let ws_id = self.next_ws_id.fetch_add(1, Ordering::Relaxed);
 
         // Determine if this method needs a target session
@@ -522,6 +567,8 @@ async fn ws_connection_loop(
                 *ws_state.tx.lock().await = None;
                 *ws_state.session_id.lock().await = None;
                 *ws_state.attached_target_id.lock().await = None;
+                // Reset readiness so new callers wait for reconnect
+                let _ = ws_state.ready_tx.send(false);
 
                 // Drain all pending requests immediately so callers get an
                 // error right away instead of waiting until their timeout.
@@ -786,6 +833,11 @@ async fn connect_and_run(
     // Create writer channel
     let (tx, mut rx) = mpsc::channel::<WsCommand>(64);
     *ws_state.tx.lock().await = Some(tx);
+
+    // Signal that the daemon is ready to accept commands.
+    // Any send_cdp() calls waiting on ready_rx.wait_for() will proceed.
+    // Late arrivals also see `true` immediately (watch is state-based).
+    let _ = ws_state.ready_tx.send(true);
 
     // Writer task: receives WsCommand and sends CDP JSON over WS
     let ws_write_clone = ws_write.clone();
