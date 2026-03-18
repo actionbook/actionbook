@@ -662,7 +662,10 @@ impl SessionManager {
     }
 
     #[cfg(feature = "stealth")]
-    async fn apply_stealth_to_active_page(&self, profile_name: Option<&str>) -> Result<()> {
+    pub(crate) async fn apply_stealth_to_active_page(
+        &self,
+        profile_name: Option<&str>,
+    ) -> Result<()> {
         let Some(profile) = self.get_stealth_profile() else {
             return Ok(());
         };
@@ -1017,54 +1020,50 @@ impl SessionManager {
         let profile_name = self.resolve_profile_name(profile_name);
         let page_url = url.unwrap_or("about:blank");
 
-        // Send CDP command Target.createTarget
-        let params = serde_json::json!({
-            "url": page_url
-        });
+        match tokio::time::timeout(create_target_timeout, async {
+            let params = serde_json::json!({
+                "url": page_url
+            });
 
-        let result = match tokio::time::timeout(
-            create_target_timeout,
-            self.send_browser_command(Some(&profile_name), "Target.createTarget", params),
-        )
+            let result = self
+                .send_browser_command(Some(&profile_name), "Target.createTarget", params)
+                .await?;
+            let target_id = result
+                .get("targetId")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ActionbookError::CdpError("No targetId in response".to_string()))?;
+
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            let pages = self.get_pages(Some(&profile_name)).await?;
+            let new_page = pages
+                .iter()
+                .find(|p| p.id == target_id)
+                .ok_or_else(|| ActionbookError::PageNotFound(target_id.to_string()))?
+                .clone();
+
+            self.switch_to_page(Some(&profile_name), &new_page.id)
+                .await?;
+
+            #[cfg(feature = "stealth")]
+            if self.is_stealth_enabled() {
+                if let Err(e) = self.apply_stealth_to_active_page(Some(&profile_name)).await {
+                    tracing::warn!("Failed to apply stealth profile: {}", e);
+                } else {
+                    tracing::info!("Applied stealth profile to page");
+                }
+            }
+
+            Ok(new_page)
+        })
         .await
         {
-            Ok(result) => result?,
-            Err(_) => {
-                return Err(ActionbookError::Timeout(format_page_load_timeout(
-                    create_target_timeout,
-                    page_url,
-                )));
-            }
-        };
-        let target_id = result
-            .get("targetId")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ActionbookError::CdpError("No targetId in response".to_string()))?;
-
-        // Wait for page to appear in /json/list
-        tokio::time::sleep(Duration::from_millis(500)).await;
-
-        let pages = self.get_pages(Some(&profile_name)).await?;
-        let new_page = pages
-            .iter()
-            .find(|p| p.id == target_id)
-            .ok_or_else(|| ActionbookError::PageNotFound(target_id.to_string()))?
-            .clone();
-
-        // Auto-switch to newly created page
-        self.switch_to_page(Some(&profile_name), &new_page.id)
-            .await?;
-
-        #[cfg(feature = "stealth")]
-        if self.is_stealth_enabled() {
-            if let Err(e) = self.apply_stealth_to_active_page(Some(&profile_name)).await {
-                tracing::warn!("Failed to apply stealth profile: {}", e);
-            } else {
-                tracing::info!("Applied stealth profile to page");
-            }
+            Ok(result) => result,
+            Err(_) => Err(ActionbookError::Timeout(format_page_load_timeout(
+                create_target_timeout,
+                page_url,
+            ))),
         }
-
-        Ok(new_page)
     }
 
     /// Close a specific page/tab
@@ -4637,6 +4636,73 @@ mod tests {
                     if req.get("method").and_then(|m| m.as_str()) == Some("Target.createTarget") {
                         tokio::time::sleep(Duration::from_millis(200)).await;
                         break;
+                    }
+                }
+            }
+        });
+
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("x-test-auth".to_string(), "secret".to_string());
+        let remote_ws = format!("ws://127.0.0.1:{port}/automation");
+        sm.save_external_session_full("remote-timeout", 9222, &remote_ws, None, Some(headers))
+            .unwrap();
+
+        let err = sm
+            .new_page_with_timeout(
+                Some("remote-timeout"),
+                Some("https://example.com"),
+                Duration::from_millis(50),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            err,
+            ActionbookError::Timeout(msg)
+                if msg.contains("Page load timed out")
+                    && msg.contains("https://example.com")
+        ));
+
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn new_page_times_out_when_get_targets_stalls_after_create_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+
+            while let Some(msg) = ws.next().await {
+                let Ok(msg) = msg else {
+                    break;
+                };
+                if let tokio_tungstenite::tungstenite::Message::Text(text) = msg {
+                    let req: serde_json::Value = serde_json::from_str(text.as_str()).unwrap();
+                    match req.get("method").and_then(|m| m.as_str()) {
+                        Some("Target.createTarget") => {
+                            let response = serde_json::json!({
+                                "id": req.get("id").cloned().unwrap_or_else(|| serde_json::json!(1)),
+                                "result": {
+                                    "targetId": "page-2"
+                                }
+                            });
+                            ws.send(tokio_tungstenite::tungstenite::Message::Text(
+                                response.to_string().into(),
+                            ))
+                            .await
+                            .unwrap();
+                        }
+                        Some("Target.getTargets") => {
+                            tokio::time::sleep(Duration::from_millis(200)).await;
+                            break;
+                        }
+                        _ => {}
                     }
                 }
             }

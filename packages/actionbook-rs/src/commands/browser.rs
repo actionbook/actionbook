@@ -580,6 +580,15 @@ async fn try_open_on_initial_blank_page(
         return Ok(None);
     }
 
+    #[cfg(feature = "stealth")]
+    if session_manager.is_stealth_enabled() {
+        if let Err(e) = session_manager.apply_stealth_to_active_page(profile_name).await {
+            tracing::warn!("Failed to apply stealth profile before navigating blank tab: {}", e);
+        } else {
+            tracing::info!("Applied stealth profile to reused blank tab");
+        }
+    }
+
     match timeout(
         Duration::from_secs(30),
         session_manager.goto(profile_name, normalized_url),
@@ -5398,7 +5407,7 @@ mod tests {
         effective_profile_name, is_reusable_initial_blank_page_url, normalize_navigation_url,
         should_use_driver_new_page,
     };
-    use crate::browser::{BrowserDriver, session::SessionManager};
+    use crate::browser::{BrowserDriver, SessionManager};
     use crate::cli::{BrowserCommands, BrowserMode, Cli, Commands};
     use crate::config::Config;
     use tempfile::tempdir;

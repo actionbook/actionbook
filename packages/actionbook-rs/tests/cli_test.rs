@@ -265,9 +265,16 @@ default_profile = "{}"
 
     fn spawn_remote_cdp_server(
     ) -> (u16, Arc<Mutex<Vec<serde_json::Value>>>, std::thread::JoinHandle<()>) {
+        spawn_remote_cdp_server_with_initial_url("https://existing.example")
+    }
+
+    fn spawn_remote_cdp_server_with_initial_url(
+        initial_url: &str,
+    ) -> (u16, Arc<Mutex<Vec<serde_json::Value>>>, std::thread::JoinHandle<()>) {
         let (tx, rx) = std::sync::mpsc::channel();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let server_requests = Arc::clone(&requests);
+        let initial_url = initial_url.to_string();
 
         let handle = std::thread::spawn(move || {
             let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -278,8 +285,8 @@ default_profile = "{}"
                 let mut pages = vec![serde_json::json!({
                     "targetId": "page-1",
                     "type": "page",
-                    "title": "Existing Page",
-                    "url": "https://existing.example",
+                    "title": if initial_url == "about:blank" { "Blank Page" } else { "Existing Page" },
+                    "url": initial_url,
                 })];
                 let mut next_page_id = 2usize;
 
@@ -1039,6 +1046,53 @@ default_profile = "{}"
     fn browser_open_remote_session_with_headers_preserves_stealth() {
         let (_tmp, home, config_home, data_home) = setup_config("team");
         let (port, requests, server) = spawn_remote_cdp_server();
+        let ws_url = format!("ws://127.0.0.1:{port}/automation");
+        write_session_state(
+            &home,
+            "team",
+            &ws_url,
+            Some(serde_json::json!({ "x-test-auth": "secret" })),
+        );
+
+        actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args([
+                "--no-daemon",
+                "--stealth",
+                "browser",
+                "open",
+                "https://example.com",
+            ])
+            .timeout(Duration::from_secs(10))
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("https://example.com"));
+
+        server.join().unwrap();
+
+        let requests = requests.lock().unwrap();
+        assert!(requests.iter().any(|request| {
+            request.get("method").and_then(|value| value.as_str())
+                == Some("Page.addScriptToEvaluateOnNewDocument")
+        }));
+        assert!(requests.iter().any(|request| {
+            request.get("method").and_then(|value| value.as_str()) == Some("Runtime.evaluate")
+                && request
+                    .get("params")
+                    .and_then(|params| params.get("expression"))
+                    .and_then(|value| value.as_str())
+                    .is_some_and(|expression| expression.contains("navigator, 'webdriver'"))
+        }));
+    }
+
+    #[cfg(feature = "stealth")]
+    #[test]
+    #[serial]
+    fn browser_open_reused_initial_blank_remote_tab_preserves_stealth() {
+        let (_tmp, home, config_home, data_home) = setup_config("team");
+        let (port, requests, server) = spawn_remote_cdp_server_with_initial_url("about:blank");
         let ws_url = format!("ws://127.0.0.1:{port}/automation");
         write_session_state(
             &home,
