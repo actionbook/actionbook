@@ -1,0 +1,432 @@
+app:
+  description: ''
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  mode: workflow
+  name: BrowserAutomation
+  use_icon_as_answer_icon: false
+dependencies:
+- current_identifier: null
+  type: marketplace
+  value:
+    marketplace_plugin_unique_identifier: langgenius/openai:0.3.2@d70fb969e7c79719bee96573a8f4c9dc4ffd984f4171b9184cc3869c886af45d
+    version: null
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions:
+      - .JPG
+      - .JPEG
+      - .PNG
+      - .GIF
+      - .WEBP
+      - .SVG
+      allowed_file_types:
+      - image
+      allowed_file_upload_methods:
+      - local_file
+      - remote_url
+      enabled: false
+      fileUploadConfig:
+        attachment_image_file_size_limit: 2
+        audio_file_size_limit: 50
+        batch_count_limit: 5
+        file_size_limit: 15
+        file_upload_limit: 50
+        image_file_batch_limit: 10
+        image_file_size_limit: 10
+        single_chunk_attachment_limit: 10
+        video_file_size_limit: 100
+        workflow_file_upload_limit: 10
+      image:
+        enabled: false
+        number_limits: 3
+        transfer_methods:
+        - local_file
+        - remote_url
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource:
+      enabled: true
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: start
+        targetType: agent
+      id: 1772019137084--1772020133220-target
+      source: '1772019137084'
+      sourceHandle: source
+      target: '1772020133220'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: agent
+        targetType: llm
+      id: 1772020133220-source-1773806308979-target
+      source: '1772020133220'
+      sourceHandle: source
+      target: '1773806308979'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: llm
+        targetType: end
+      id: 1773806308979-source-1772020237188-target
+      source: '1773806308979'
+      sourceHandle: source
+      target: '1772020237188'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    nodes:
+    - data:
+        selected: false
+        title: input
+        type: start
+        variables:
+        - default: go to https://huggingface.co/models and click text-generation,
+            click the first trending model, get model info
+          hint: ''
+          label: query
+          max_length: 256
+          options: []
+          placeholder: ''
+          required: true
+          type: text-input
+          variable: query
+      height: 109
+      id: '1772019137084'
+      position:
+        x: -1.4285714285714306
+        y: 39
+      positionAbsolute:
+        x: -1.4285714285714306
+        y: 39
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        agent_parameters:
+          instruction:
+            type: constant
+            value: 'Use the tools in Actionbook to perform browser operations.
+
+
+              First, use the search and get APIs to retrieve the page structure information.
+
+
+              You are not allowed to return immediately after calling search and get
+              — you must continue operating the browser to obtain the latest information.
+
+
+              Then, start operating the browser using Hyperbrowser to execute actions
+              and retrieve the most up-to-date information from the page.
+
+
+              Note: When querying Hugging Face models, you must first navigate to
+              the specific model’s detail page, and then summarize the model’s description
+              and parameters.
+
+
+              Do not stop at the search results page — you must click into the target
+              model page before summarizing.
+
+
+              Before return llm_response you must make sure use browser stop session'
+          maximum_iterations:
+            type: constant
+            value: 20
+          model:
+            type: constant
+            value:
+              completion_params: {}
+              mode: chat
+              model: gpt-5.4-mini
+              model_type: llm
+              provider: langgenius/openai/openai
+              type: model-selector
+          query:
+            type: constant
+            value: '{{#1772019137084.query#}}'
+          tools:
+            type: constant
+            value:
+            - enabled: true
+              extra:
+                description: 'Search for website action manuals by keyword. Returns
+                  verified selectors and operation methods for browser automation.
+
+                  '
+              parameters:
+                domain:
+                  auto: 1
+                  value: null
+                limit:
+                  auto: 1
+                  value: null
+                query:
+                  auto: 1
+                  value: null
+              provider_name: actionbook/actionbook/actionbook
+              provider_show_name: actionbook/actionbook/actionbook
+              settings: {}
+              tool_description: 'Search for website action manuals by keyword. Returns
+                verified selectors and operation methods for browser automation.
+
+                '
+              tool_label: Search Actions
+              tool_name: search_actions
+              type: builtin
+            - enabled: true
+              extra:
+                description: 'Retrieve full action details by area ID. Returns complete
+                  selector information (CSS, XPath, ARIA), allowed interaction methods,
+                  and element structure.
+
+                  '
+              parameters:
+                area_id:
+                  auto: 1
+                  value: null
+              provider_name: actionbook/actionbook/actionbook
+              provider_show_name: actionbook/actionbook/actionbook
+              settings: {}
+              tool_description: 'Retrieve full action details by area ID. Returns
+                complete selector information (CSS, XPath, ARIA), allowed interaction
+                methods, and element structure.
+
+                '
+              tool_label: Get Action Details
+              tool_name: get_action_by_area_id
+              type: builtin
+            - enabled: true
+              extra:
+                description: 'Start a cloud browser session via Hyperbrowser. Returns
+                  a WebSocket endpoint (cdp_url) to pass to browser_operator, and
+                  a session_id to use with browser_stop_session when finished.
+
+                  '
+              parameters:
+                profile_id:
+                  auto: 1
+                  value: null
+              provider_name: actionbook/actionbook/actionbook
+              provider_show_name: actionbook/actionbook/actionbook
+              settings:
+                provider:
+                  value:
+                    type: constant
+                    value: hyperbrowser
+                use_proxy:
+                  value:
+                    type: constant
+                    value: 'false'
+              tool_description: 'Start a cloud browser session via Hyperbrowser. Returns
+                a WebSocket endpoint (cdp_url) to pass to browser_operator, and a
+                session_id to use with browser_stop_session when finished.
+
+                '
+              tool_label: Browser Create Session
+              tool_name: browser_create_session
+              type: builtin
+            - enabled: true
+              extra:
+                description: 'Stop a cloud browser session and release its resources.
+                  Call this at the end of a workflow to avoid unnecessary billing.
+                  For Hyperbrowser, stopping a session also saves the Profile state
+                  (cookies, localStorage) for future sessions using the same profile_id.
+
+                  '
+              parameters:
+                session_id:
+                  auto: 1
+                  value: null
+              provider_name: actionbook/actionbook/actionbook
+              provider_show_name: actionbook/actionbook/actionbook
+              settings: {}
+              tool_description: 'Stop a cloud browser session and release its resources.
+                Call this at the end of a workflow to avoid unnecessary billing. For
+                Hyperbrowser, stopping a session also saves the Profile state (cookies,
+                localStorage) for future sessions using the same profile_id.
+
+                '
+              tool_label: Browser Stop Session
+              tool_name: browser_stop_session
+              type: builtin
+            - enabled: true
+              extra:
+                description: Perform browser page operations (navigate, click, type,
+                  snapshot, etc.).
+              parameters:
+                action:
+                  auto: 1
+                  value: null
+                cdp_url:
+                  auto: 1
+                  value: null
+                key:
+                  auto: 1
+                  value: null
+                selector:
+                  auto: 1
+                  value: null
+                session_id:
+                  auto: 1
+                  value: null
+                text:
+                  auto: 1
+                  value: null
+                timeout_ms:
+                  auto: 1
+                  value: null
+                url:
+                  auto: 1
+                  value: null
+                value:
+                  auto: 1
+                  value: null
+              provider_name: actionbook/actionbook/actionbook
+              provider_show_name: actionbook/actionbook/actionbook
+              settings: {}
+              tool_description: Perform browser page operations (navigate, click,
+                type, snapshot, etc.).
+              tool_label: Browser Operator
+              tool_name: browser_operator
+              type: builtin
+        agent_strategy_label: FunctionCalling
+        agent_strategy_name: function_calling
+        agent_strategy_provider_name: langgenius/agent/agent
+        meta:
+          minimum_dify_version: 1.7.0
+          version: 0.0.2
+        output_schema: {}
+        plugin_unique_identifier: langgenius/agent:0.0.32@7ef46bd94ef1c858ab88617adf75da2729904296ecfbead9373d67d4eec10483
+        selected: false
+        title: Browser
+        tool_node_version: '2'
+        type: agent
+      height: 188
+      id: '1772020133220'
+      position:
+        x: 342
+        y: 0
+      positionAbsolute:
+        x: 342
+        y: 0
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        outputs:
+        - value_selector:
+          - '1773806308979'
+          - text
+          value_type: string
+          variable: report
+        selected: false
+        title: output
+        type: end
+      height: 88
+      id: '1772020237188'
+      position:
+        x: 1026
+        y: 50
+      positionAbsolute:
+        x: 1026
+        y: 50
+      selected: true
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        context:
+          enabled: true
+          variable_selector:
+          - '1772020133220'
+          - text
+        model:
+          completion_params: {}
+          mode: chat
+          name: gpt-5.4-mini
+          provider: langgenius/openai/openai
+        prompt_template:
+        - id: 7822f06f-4fd0-4dec-8b97-fd7a6a4990db
+          role: system
+          text: "You are an information extraction system.\n\nConvert the input text\
+            \ about a Hugging Face model into a structured JSON object.\n\nRequirements:\n\
+            - Output valid JSON only\n- Do not use markdown\n- Do not include explanations\n\
+            - Do not omit any top-level fields\n- Use null for missing scalar fields\n\
+            - Use [] for missing arrays\n- Do not invent information\n- Normalize\
+            \ numeric abbreviations:\n  - k = *1000\n  - M = *1000000\n  - B = *1000000000\n\
+            \nJSON schema:\n{\n  \"source\": {\n    \"platform\": \"huggingface\"\
+            ,\n    \"page_type\": \"model\",\n    \"input_language\": null\n  },\n\
+            \  \"model_identity\": {\n    \"repo_id\": null,\n    \"model_name\":\
+            \ null,\n    \"organization\": null,\n    \"task\": null,\n    \"model_size_params\"\
+            : null,\n    \"model_size_display\": null,\n    \"license\": null\n  },\n\
+            \  \"stats\": {\n    \"downloads_last_month\": null,\n    \"likes\": null,\n\
+            \    \"followers\": null,\n    \"inference_providers\": []\n  },\n  \"\
+            raw_summary\": {\n    \"highlights\": [],\n    \"description\": null,\n\
+            \    \"notes\": []\n  }\n}\n\nInstructions:\n- \"highlights\" should contain\
+            \ key technical features or innovations\n- \"description\" should be a\
+            \ concise 1–2 sentence summary\n- \"notes\" should include important additional\
+            \ details such as benchmarks"
+        - id: ea57e5f8-a466-4ab3-9256-74fed7137650
+          role: user
+          text: '{{#context#}} refine this'
+        selected: false
+        structured_output:
+          schema:
+            additionalProperties: false
+            properties: {}
+            required: []
+            type: object
+        structured_output_enabled: true
+        title: Convert
+        type: llm
+        vision:
+          enabled: false
+      height: 88
+      id: '1773806308979'
+      position:
+        x: 684
+        y: 50
+      positionAbsolute:
+        x: 684
+        y: 50
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    viewport:
+      x: -307.1558933475644
+      y: 345.1982092635823
+      zoom: 0.8702318163448688
+  rag_pipeline_variables: []
