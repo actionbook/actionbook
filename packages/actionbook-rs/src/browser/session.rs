@@ -1274,9 +1274,23 @@ impl SessionManager {
             }
         }
 
-        let state = self
+        let mut state = self
             .load_session_state(&resolved_profile)
             .ok_or(ActionbookError::BrowserNotRunning)?;
+
+        if state.uses_local_http_endpoints() {
+            if let Some(fresh_url) = self.fetch_browser_ws_url(state.cdp_port).await {
+                if fresh_url != state.cdp_url {
+                    tracing::debug!(
+                        "Refreshed browser WS URL for browser-level command: {} -> {}",
+                        state.cdp_url,
+                        fresh_url
+                    );
+                    state.cdp_url = fresh_url;
+                    self.save_session_state(&state)?;
+                }
+            }
+        }
 
         self.send_browser_command_over_ws(
             &state.cdp_url,
@@ -4101,6 +4115,7 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use futures::{SinkExt, StreamExt};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     /// Create a SessionManager with a temp directory for isolation
     fn test_session_manager(dir: &std::path::Path) -> SessionManager {
@@ -4399,6 +4414,135 @@ mod tests {
         // so the URL remains unchanged (no crash)
         let fresh = sm.fetch_browser_ws_url(state.cdp_port).await;
         assert!(fresh.is_none());
+    }
+
+    #[tokio::test]
+    async fn new_page_refreshes_loopback_browser_ws_url_before_create_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+
+        let pages = std::sync::Arc::new(tokio::sync::Mutex::new(vec![serde_json::json!({
+            "id": "page-1",
+            "title": "Existing Page",
+            "url": "https://existing.example",
+            "type": "page",
+            "webSocketDebuggerUrl": serde_json::Value::Null
+        })]));
+
+        let http_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let cdp_port = http_listener.local_addr().unwrap().port();
+        let ws_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let ws_port = ws_listener.local_addr().unwrap().port();
+        let fresh_ws = format!("ws://127.0.0.1:{}/devtools/browser/fresh", ws_port);
+
+        let http_pages = pages.clone();
+        let http_fresh_ws = fresh_ws.clone();
+        let http_server = tokio::spawn(async move {
+            loop {
+                let accepted =
+                    tokio::time::timeout(Duration::from_secs(2), http_listener.accept()).await;
+                let Ok(Ok((mut stream, _))) = accepted else {
+                    break;
+                };
+
+                let mut buf = vec![0u8; 4096];
+                let n = stream.read(&mut buf).await.unwrap();
+                let req = String::from_utf8_lossy(&buf[..n]);
+
+                let (status, body) = if req.starts_with("GET /json/version ") {
+                    (
+                        "200 OK",
+                        serde_json::json!({
+                            "webSocketDebuggerUrl": http_fresh_ws
+                        })
+                        .to_string(),
+                    )
+                } else if req.starts_with("GET /json/list ") {
+                    (
+                        "200 OK",
+                        serde_json::to_string(&*http_pages.lock().await).unwrap(),
+                    )
+                } else {
+                    ("404 Not Found", "{}".to_string())
+                };
+
+                let response = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+
+        let ws_pages = pages.clone();
+        let ws_server = tokio::spawn(async move {
+            let (stream, _) = ws_listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+
+            while let Some(msg) = ws.next().await {
+                let msg = msg.unwrap();
+                if let tokio_tungstenite::tungstenite::Message::Text(text) = msg {
+                    let req: serde_json::Value = serde_json::from_str(text.as_str()).unwrap();
+                    if req.get("method").and_then(|m| m.as_str()) == Some("Target.createTarget") {
+                        assert!(
+                            req.get("sessionId").is_none(),
+                            "browser-level Target.createTarget must not include sessionId"
+                        );
+
+                        let target_id = "page-2";
+                        let url = req
+                            .get("params")
+                            .and_then(|params| params.get("url"))
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("about:blank");
+
+                        ws_pages.lock().await.push(serde_json::json!({
+                            "id": target_id,
+                            "title": "Opened Page",
+                            "url": url,
+                            "type": "page",
+                            "webSocketDebuggerUrl": serde_json::Value::Null
+                        }));
+
+                        let resp = serde_json::json!({
+                            "id": req.get("id").and_then(|v| v.as_i64()).unwrap_or(1),
+                            "result": {
+                                "targetId": target_id
+                            }
+                        });
+
+                        ws.send(tokio_tungstenite::tungstenite::Message::Text(
+                            resp.to_string().into(),
+                        ))
+                        .await
+                        .unwrap();
+                        break;
+                    }
+                }
+            }
+        });
+
+        sm.save_external_session(
+            "local-stale",
+            cdp_port,
+            "ws://127.0.0.1:19997/devtools/browser/stale-session",
+        )
+        .unwrap();
+
+        let new_page = sm
+            .new_page(Some("local-stale"), Some("https://example.com"))
+            .await
+            .unwrap();
+
+        assert_eq!(new_page.id, "page-2");
+        assert_eq!(new_page.url, "https://example.com");
+
+        let state = sm.load_session_state("local-stale").unwrap();
+        assert_eq!(state.cdp_url, fresh_ws);
+
+        ws_server.await.unwrap();
+        http_server.await.unwrap();
     }
 
     #[tokio::test]
