@@ -304,12 +304,11 @@ impl SessionManager {
         }
     }
 
-    /// Whether the saved session for a profile requires custom WS headers.
-    pub fn session_has_ws_headers(&self, profile_name: Option<&str>) -> bool {
+    /// Whether the saved session for a profile uses a remote browser websocket.
+    pub fn session_uses_remote_ws(&self, profile_name: Option<&str>) -> bool {
         let profile_name = self.resolve_profile_name(profile_name);
         self.load_session_state(&profile_name)
-            .and_then(|state| state.ws_headers)
-            .is_some_and(|headers| !headers.is_empty())
+            .is_some_and(|state| !state.uses_local_http_endpoints())
     }
 
     /// Probe a WebSocket endpoint to check if it's reachable and auth succeeds.

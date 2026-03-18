@@ -236,21 +236,26 @@ default_profile = "{}"
         )
     }
 
-    fn write_session_state(home: &str, profile: &str, cdp_url: &str) {
+    fn write_session_state(
+        home: &str,
+        profile: &str,
+        cdp_url: &str,
+        ws_headers: Option<serde_json::Value>,
+    ) {
         let sessions_dir = std::path::Path::new(home)
             .join(".actionbook")
             .join("sessions");
         fs::create_dir_all(&sessions_dir).unwrap();
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "profile_name": profile,
             "cdp_port": 9222,
             "pid": serde_json::Value::Null,
             "cdp_url": cdp_url,
             "active_page_id": "page-1",
-            "ws_headers": {
-                "x-test-auth": "secret"
-            }
         });
+        if let Some(ws_headers) = ws_headers {
+            state["ws_headers"] = ws_headers;
+        }
         fs::write(
             sessions_dir.join(format!("{profile}.json")),
             serde_json::to_vec_pretty(&state).unwrap(),
@@ -987,7 +992,33 @@ default_profile = "{}"
         let (_tmp, home, config_home, data_home) = setup_config("team");
         let (port, _requests, server) = spawn_remote_cdp_server();
         let ws_url = format!("ws://127.0.0.1:{port}/automation");
-        write_session_state(&home, "team", &ws_url);
+        write_session_state(
+            &home,
+            "team",
+            &ws_url,
+            Some(serde_json::json!({ "x-test-auth": "secret" })),
+        );
+
+        actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["--no-daemon", "browser", "open", "https://example.com"])
+            .timeout(Duration::from_secs(10))
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("https://example.com"));
+
+        server.join().unwrap();
+    }
+
+    #[test]
+    #[serial]
+    fn browser_open_reuses_connected_remote_session_without_headers() {
+        let (_tmp, home, config_home, data_home) = setup_config("team");
+        let (port, _requests, server) = spawn_remote_cdp_server();
+        let ws_url = format!("ws://127.0.0.1:{port}/automation");
+        write_session_state(&home, "team", &ws_url, None);
 
         actionbook()
             .env("HOME", &home)
@@ -1009,7 +1040,12 @@ default_profile = "{}"
         let (_tmp, home, config_home, data_home) = setup_config("team");
         let (port, requests, server) = spawn_remote_cdp_server();
         let ws_url = format!("ws://127.0.0.1:{port}/automation");
-        write_session_state(&home, "team", &ws_url);
+        write_session_state(
+            &home,
+            "team",
+            &ws_url,
+            Some(serde_json::json!({ "x-test-auth": "secret" })),
+        );
 
         actionbook()
             .env("HOME", &home)

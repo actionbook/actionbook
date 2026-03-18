@@ -194,6 +194,25 @@ async fn create_browser_driver(cli: &Cli, config: &Config) -> Result<BrowserDriv
     BrowserDriver::from_config(config, profile, cli).await
 }
 
+async fn should_use_driver_new_page(
+    session_manager: &SessionManager,
+    profile_name: &str,
+) -> bool {
+    if !session_manager.session_uses_remote_ws(Some(profile_name)) {
+        return false;
+    }
+
+    if session_manager.is_session_reachable(profile_name).await {
+        return true;
+    }
+
+    tracing::debug!(
+        "Saved remote session for profile '{}' is unreachable; falling back to session recreation",
+        profile_name
+    );
+    false
+}
+
 /// Apply resource blocking based on CLI flags (--block-images, --block-media)
 async fn apply_resource_blocking(cli: &Cli, driver: &mut BrowserDriver) {
     let level = if cli.block_media {
@@ -1024,7 +1043,8 @@ pub(crate) async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
     }
 
     let session_manager = create_session_manager(cli, config);
-    let profile_arg = effective_profile_arg(cli, config);
+    let profile_name = effective_profile_name(cli, config);
+    let profile_arg = Some(profile_name);
 
     if let Some(title) =
         match try_open_on_initial_blank_page(&session_manager, profile_arg, &normalized_url).await
@@ -1052,7 +1072,7 @@ pub(crate) async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
         return Ok(());
     }
 
-    let use_driver_new_page = session_manager.session_has_ws_headers(profile_arg);
+    let use_driver_new_page = should_use_driver_new_page(&session_manager, profile_name).await;
 
     let title = if use_driver_new_page {
         let mut driver = create_browser_driver(cli, config).await?;
@@ -5376,10 +5396,12 @@ pub(crate) async fn switch_frame(cli: &Cli, config: &Config, target: &str) -> Re
 mod tests {
     use super::{
         effective_profile_name, is_reusable_initial_blank_page_url, normalize_navigation_url,
+        should_use_driver_new_page,
     };
-    use crate::browser::BrowserDriver;
+    use crate::browser::{BrowserDriver, session::SessionManager};
     use crate::cli::{BrowserCommands, BrowserMode, Cli, Commands};
     use crate::config::Config;
+    use tempfile::tempdir;
 
     fn test_cli(profile: Option<&str>, command: BrowserCommands) -> Cli {
         Cli {
@@ -5667,5 +5689,48 @@ mod tests {
             #[cfg(feature = "camoufox")]
             _ => panic!("Expected CDP backend"),
         }
+    }
+
+    #[tokio::test]
+    async fn should_use_driver_new_page_for_reachable_remote_session_without_headers() {
+        let dir = tempdir().unwrap();
+        let config = Config::default();
+        let sm = SessionManager::with_sessions_dir(config, dir.path().to_path_buf());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let _ = tokio_tungstenite::accept_async(stream).await.unwrap();
+        });
+
+        let ws_url = format!("ws://127.0.0.1:{port}/automation");
+        sm.save_external_session_full("team", 9222, &ws_url, None, None)
+            .unwrap();
+
+        assert!(should_use_driver_new_page(&sm, "team").await);
+
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn should_not_use_driver_new_page_for_unreachable_remote_session() {
+        let dir = tempdir().unwrap();
+        let config = Config::default();
+        let sm = SessionManager::with_sessions_dir(config, dir.path().to_path_buf());
+
+        sm.save_external_session_full(
+            "team",
+            9222,
+            "ws://127.0.0.1:9/automation",
+            None,
+            Some(std::collections::HashMap::from([(
+                "x-test-auth".to_string(),
+                "secret".to_string(),
+            )])),
+        )
+        .unwrap();
+
+        assert!(!should_use_driver_new_page(&sm, "team").await);
     }
 }
