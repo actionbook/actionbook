@@ -155,8 +155,8 @@ fn main() {
 
     println!("1. Move to username field:");
     let username_trajectory = generate_mouse_trajectory(
-        Point::new(400.0, 300.0),  // Current position
-        Point::new(650.0, 420.0),  // Username field
+        Point::new(400.0, 300.0), // Current position
+        Point::new(650.0, 420.0), // Username field
         15,
     );
     let username_delays = calculate_movement_delays(&username_trajectory, 1.0);
@@ -174,8 +174,8 @@ fn main() {
 
     println!("\n3. Move to password field:");
     let password_trajectory = generate_mouse_trajectory(
-        Point::new(650.0, 420.0),  // Username field
-        Point::new(650.0, 480.0),  // Password field (below)
+        Point::new(650.0, 420.0), // Username field
+        Point::new(650.0, 480.0), // Password field (below)
         8,
     );
     let password_delays = calculate_movement_delays(&password_trajectory, 1.0);
@@ -193,8 +193,8 @@ fn main() {
 
     println!("\n5. Move to submit button:");
     let submit_trajectory = generate_mouse_trajectory(
-        Point::new(650.0, 480.0),  // Password field
-        Point::new(650.0, 560.0),  // Submit button
+        Point::new(650.0, 480.0), // Password field
+        Point::new(650.0, 560.0), // Submit button
         10,
     );
     let submit_delays = calculate_movement_delays(&submit_trajectory, 1.0);
@@ -207,7 +207,7 @@ fn main() {
         + password_type_time
         + submit_move_time;
 
-    println!("\n📈 Total interaction time: {}ms ({:.1}s)", total_time, total_time as f64 / 1000.0);
+    println!("\n📈 Total interaction simulation completed.");
 
     println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("✅ All demonstrations completed!\n");

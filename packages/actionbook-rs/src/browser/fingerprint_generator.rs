@@ -80,9 +80,9 @@ impl OperatingSystem {
     /// Get typical timezone for this OS (based on most common usage)
     pub fn typical_timezone(&self) -> &'static str {
         match self {
-            Self::Windows => "America/New_York",     // Most Windows users in US
+            Self::Windows => "America/New_York", // Most Windows users in US
             Self::MacOsIntel | Self::MacOsArm => "America/Los_Angeles", // Silicon Valley
-            Self::Linux => "America/New_York",       // Developer timezone
+            Self::Linux => "America/New_York",   // Developer timezone
         }
     }
 }
@@ -450,7 +450,7 @@ impl FingerprintGenerator {
             webgl_vendor: gpu.vendor,
             webgl_renderer: gpu.renderer,
             timezone: os.typical_timezone().to_string(),
-            latitude: None,  // User can set if needed
+            latitude: None, // User can set if needed
             longitude: None,
             color_depth: 24, // Standard for modern displays
         }
@@ -460,10 +460,10 @@ impl FingerprintGenerator {
     fn choose_os(&mut self) -> OperatingSystem {
         // Market share as of 2024 (desktop/laptop)
         let choices = vec![
-            (OperatingSystem::Windows, 75.0),     // 75%
-            (OperatingSystem::MacOsArm, 12.0),    // 12% (M-series Macs)
-            (OperatingSystem::MacOsIntel, 8.0),   // 8% (Intel Macs declining)
-            (OperatingSystem::Linux, 5.0),        // 5%
+            (OperatingSystem::Windows, 75.0),   // 75%
+            (OperatingSystem::MacOsArm, 12.0),  // 12% (M-series Macs)
+            (OperatingSystem::MacOsIntel, 8.0), // 8% (Intel Macs declining)
+            (OperatingSystem::Linux, 5.0),      // 5%
         ];
 
         self.weighted_choice(&choices)

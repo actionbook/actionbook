@@ -303,7 +303,10 @@ mod tests {
 
     #[test]
     fn upgrade_command_matches_channel() {
-        assert_eq!(upgrade_command(InstallChannel::Brew), "brew upgrade actionbook");
+        assert_eq!(
+            upgrade_command(InstallChannel::Brew),
+            "brew upgrade actionbook"
+        );
         assert_eq!(
             upgrade_command(InstallChannel::Script),
             "curl -fsSL https://actionbook.dev/install.sh | bash"

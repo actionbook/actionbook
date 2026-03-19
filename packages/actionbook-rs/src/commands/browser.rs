@@ -11,11 +11,13 @@ use tokio::time::timeout;
 use crate::browser::apply_stealth_to_page;
 use crate::browser::extension_backend::ExtensionBackend;
 use crate::browser::{
-    bridge_lifecycle, build_stealth_profile, discover_all_browsers,
-    BrowserDriver, stealth_status, SessionManager, SessionStatus, StealthConfig,
-    ResourceBlockLevel,
+    bridge_lifecycle, build_stealth_profile, discover_all_browsers, stealth_status, BrowserDriver,
+    ResourceBlockLevel, SessionManager, SessionStatus, StealthConfig,
 };
-use crate::cli::{BrowserCommands, BrowserMode, Cli, CookiesCommands, FingerprintCommands, StorageCommands, TabCommands};
+use crate::cli::{
+    BrowserCommands, BrowserMode, Cli, CookiesCommands, FingerprintCommands, SessionCommands,
+    StorageCommands, TabCommands,
+};
 use crate::config::{Config, DEFAULT_EXTENSION_PORT};
 use crate::error::{ActionbookError, Result};
 
@@ -49,7 +51,11 @@ async fn extension_eval(cli: &Cli, expression: &str) -> Result<serde_json::Value
     if let Some(exception) = result.get("exceptionDetails") {
         let msg = exception
             .get("text")
-            .or_else(|| exception.get("exception").and_then(|e| e.get("description")))
+            .or_else(|| {
+                exception
+                    .get("exception")
+                    .and_then(|e| e.get("description"))
+            })
             .and_then(|v| v.as_str())
             .unwrap_or("JavaScript exception");
         return Err(ActionbookError::ExtensionError(format!(
@@ -136,11 +142,46 @@ fn js_resolve_selector(selector: &str) -> String {
     )
 }
 
-/// Check whether a session JSON file exists for the given profile name.
-fn has_session_file(profile_name: &str) -> bool {
-    dirs::home_dir()
-        .map(|h| h.join(".actionbook").join("sessions").join(format!("{}.json", profile_name)))
-        .is_some_and(|p| p.exists())
+/// Check if a session file exists for the given profile and optional session name.
+/// Checks both new-style `{profile}@{session}.json` and legacy `{profile}.json`.
+fn has_session_file_for(profile_name: &str, session: Option<&str>) -> bool {
+    let Some(sessions_dir) = dirs::home_dir().map(|h| h.join(".actionbook").join("sessions"))
+    else {
+        return false;
+    };
+
+    let safe_profile = sanitize_path_component(profile_name);
+    let session_name = session.unwrap_or("default");
+    let safe_session = sanitize_path_component(session_name);
+    let new_path = sessions_dir.join(format!("{}@{}.json", safe_profile, safe_session));
+    if new_path.exists() {
+        return true;
+    }
+
+    // Legacy fallback for default session (use sanitized name so inputs like
+    // "" or "!!!" that sanitize to "default" also get the legacy check)
+    if safe_session == "default" {
+        for legacy_path in legacy_session_paths(&sessions_dir, profile_name) {
+            if legacy_path.exists() {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn legacy_session_paths(
+    sessions_dir: &std::path::Path,
+    profile_name: &str,
+) -> Vec<std::path::PathBuf> {
+    let mut paths = vec![sessions_dir.join(format!("{}.json", profile_name))];
+    let safe_profile = sanitize_path_component(profile_name);
+    let safe_path = sessions_dir.join(format!("{}.json", safe_profile));
+    if !paths.iter().any(|p| p == &safe_path) {
+        paths.push(safe_path);
+    }
+    paths
 }
 
 /// Create a SessionManager with appropriate stealth configuration from CLI flags
@@ -162,6 +203,12 @@ fn create_session_manager(cli: &Cli, config: &Config) -> SessionManager {
 
     // Daemon is on by default; --no-daemon disables it
     sm.set_daemon_enabled(!cli.no_daemon);
+
+    // Multi-session: route to the correct session file + daemon socket
+    if let Some(ref session) = cli.session {
+        sm.set_active_session(session);
+    }
+
     sm
 }
 
@@ -173,11 +220,12 @@ pub async fn create_browser_driver_public(cli: &Cli, config: &Config) -> Result<
 /// Create a browser driver for multi-backend support (CDP or Camoufox)
 async fn create_browser_driver(cli: &Cli, config: &Config) -> Result<BrowserDriver> {
     // Determine profile
-    let profile_name = effective_profile_arg(cli, config).unwrap_or(&config.browser.default_profile);
+    let profile_name =
+        effective_profile_arg(cli, config).unwrap_or(&config.browser.default_profile);
     let default_profile;
     let profile = match config.profiles.get(profile_name) {
         Some(p) => p,
-        None if cli.cdp.is_some() || has_session_file(profile_name) => {
+        None if cli.cdp.is_some() || has_session_file_for(profile_name, cli.session.as_deref()) => {
             // Ad-hoc profile created via --cdp flag, or a session file exists
             // from a previous --cdp invocation. Use sensible defaults.
             default_profile = crate::config::ProfileConfig::default();
@@ -252,11 +300,9 @@ async fn resolve_snapshot_ref(driver: &mut BrowserDriver, ref_str: &str) -> Resu
         None,
         None,
     )?;
-    cache
-        .refs
-        .get(ref_str)
-        .copied()
-        .ok_or_else(|| ActionbookError::Other(format!("Ref '{}' not found in current snapshot", ref_str)))
+    cache.refs.get(ref_str).copied().ok_or_else(|| {
+        ActionbookError::Other(format!("Ref '{}' not found in current snapshot", ref_str))
+    })
 }
 
 /// Resolve a CDP endpoint string (port number or ws:// URL) into a (port, ws_url) pair.
@@ -273,7 +319,11 @@ pub(crate) async fn resolve_cdp_endpoint(endpoint: &str) -> Result<(u16, String)
             .rsplit(':')
             .next()
             .and_then(|p| p.parse::<u16>().ok())
-            .unwrap_or(if endpoint.starts_with("wss://") { 443 } else { 9222 });
+            .unwrap_or(if endpoint.starts_with("wss://") {
+                443
+            } else {
+                9222
+            });
         Ok((port, endpoint.to_string()))
     } else if let Ok(port) = endpoint.parse::<u16>() {
         let version_url = format!("http://127.0.0.1:{}/json/version", port);
@@ -461,9 +511,9 @@ async fn ensure_auto_connect(cli: &Cli, config: &Config) -> Result<()> {
         return Ok(());
     }
 
-    let discovered = auto_connect::auto_discover().await.map_err(|e| {
-        ActionbookError::CdpConnectionFailed(format!("Auto-connect failed: {}", e))
-    })?;
+    let discovered = auto_connect::auto_discover()
+        .await
+        .map_err(|e| ActionbookError::CdpConnectionFailed(format!("Auto-connect failed: {}", e)))?;
 
     session_manager.save_external_session(profile_name, discovered.port, &discovered.ws_url)?;
     tracing::info!(
@@ -481,18 +531,14 @@ async fn ensure_auto_connect(cli: &Cli, config: &Config) -> Result<()> {
         if crate::daemon::lifecycle::is_daemon_alive(profile_name).await {
             tracing::info!(
                 "Stopping stale daemon for '{}' (session changed by auto-connect)",
-                profile_name
+                profile_name,
             );
             let _ = crate::daemon::lifecycle::stop_daemon(profile_name).await;
         }
     }
 
     if cli.verbose {
-        eprintln!(
-            "{} Auto-connected to {}",
-            "✓".green(),
-            discovered.ws_url
-        );
+        eprintln!("{} Auto-connected to {}", "✓".green(), discovered.ws_url);
     }
 
     Ok(())
@@ -546,83 +592,35 @@ fn normalize_navigation_url(raw: &str) -> Result<String> {
     Ok(format!("https://{}", trimmed))
 }
 
-fn is_reusable_initial_blank_page_url(url: &str) -> bool {
-    let normalized = url.trim().to_ascii_lowercase();
-    let normalized = normalized.trim_end_matches('/');
-
-    matches!(
-        normalized,
-        "about:blank"
-            | "about:newtab"
-            | "chrome://newtab"
-            | "chrome://new-tab-page"
-            | "edge://newtab"
-    )
-}
-
-async fn try_open_on_initial_blank_page(
+/// Persist the active page ID to the session file so the daemon can route
+/// commands to the correct tab. Best-effort — failures are only logged.
+///
+/// When `known_page_id` is provided, it is used directly instead of
+/// re-discovering the active page — this avoids saving the wrong tab when
+/// `active_page_id` is still unset (e.g. on a freshly forked named session).
+async fn persist_active_page(
     session_manager: &SessionManager,
     profile_name: Option<&str>,
-    normalized_url: &str,
-) -> Result<Option<String>> {
-    let pages = match session_manager.get_pages(profile_name).await {
-        Ok(pages) => pages,
-        Err(e) => {
-            tracing::debug!(
-                "Unable to inspect current tabs for reuse, falling back to new tab: {}",
-                e
-            );
-            return Ok(None);
+    known_page_id: Option<&str>,
+) {
+    let page_id = if let Some(id) = known_page_id {
+        id.to_string()
+    } else {
+        match session_manager.get_active_page_info(profile_name).await {
+            Ok(info) => info.id,
+            Err(e) => {
+                tracing::debug!("Failed to get active page info for persistence: {}", e);
+                return;
+            }
         }
     };
 
-    if pages.len() != 1 || !is_reusable_initial_blank_page_url(&pages[0].url) {
-        return Ok(None);
-    }
-
-    #[cfg(feature = "stealth")]
-    if session_manager.is_stealth_enabled() {
-        if let Err(e) = session_manager.apply_stealth_to_active_page(profile_name).await {
-            tracing::warn!("Failed to apply stealth profile before navigating blank tab: {}", e);
-        } else {
-            tracing::info!("Applied stealth profile to reused blank tab");
-        }
-    }
-
-    match timeout(
-        Duration::from_secs(30),
-        session_manager.goto(profile_name, normalized_url),
-    )
-    .await
+    if let Err(e) = session_manager
+        .switch_to_page(profile_name, &page_id)
+        .await
     {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => {
-            return Err(ActionbookError::Other(format!(
-                "Failed to open page on initial tab: {}",
-                e
-            )));
-        }
-        Err(_) => {
-            return Err(ActionbookError::Timeout(format!(
-                "Page load timed out after 30 seconds: {}",
-                normalized_url
-            )));
-        }
+        tracing::debug!("Failed to persist active page: {}", e);
     }
-
-    let _ = wait_for_document_complete(session_manager, profile_name, 30_000).await;
-
-    let title = match timeout(
-        Duration::from_secs(5),
-        session_manager.eval_on_page(profile_name, "document.title"),
-    )
-    .await
-    {
-        Ok(Ok(value)) => value.as_str().unwrap_or("").to_string(),
-        _ => String::new(),
-    };
-
-    Ok(Some(title))
 }
 
 async fn wait_for_document_complete(
@@ -702,12 +700,20 @@ fn resolve_browser_mode(
     config_port: u16,
 ) -> (bool, u16) {
     if browser_mode == Some(BrowserMode::Extension) {
-        let port = if extension_port == DEFAULT_EXTENSION_PORT { config_port } else { extension_port };
+        let port = if extension_port == DEFAULT_EXTENSION_PORT {
+            config_port
+        } else {
+            extension_port
+        };
         (true, port)
     } else if browser_mode == Some(BrowserMode::Isolated) {
         (false, extension_port)
     } else if extension_flag {
-        let port = if extension_port == DEFAULT_EXTENSION_PORT { config_port } else { extension_port };
+        let port = if extension_port == DEFAULT_EXTENSION_PORT {
+            config_port
+        } else {
+            extension_port
+        };
         (true, port)
     } else if browser_mode.is_none() && matches!(config_mode, BrowserMode::Extension) {
         (true, config_port)
@@ -722,7 +728,7 @@ fn resolve_browser_mode(
 fn requires_active_session(command: &BrowserCommands) -> bool {
     match command {
         // Read-only commands
-        BrowserCommands::Status | BrowserCommands::Pages => false,
+        BrowserCommands::Status | BrowserCommands::Pages | BrowserCommands::Session { .. } => false,
         // Close is safe to call even when no session exists
         BrowserCommands::Close => false,
         // Connect establishes a new session — daemon starts after it, not before
@@ -742,8 +748,11 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
     // Resolve effective extension mode.
     // Priority: --browser-mode > --extension (deprecated) > config.browser.mode
     let (ext_enabled, ext_port) = resolve_browser_mode(
-        cli.browser_mode, cli.extension, cli.extension_port,
-        config.browser.mode, config.browser.extension.port,
+        cli.browser_mode,
+        cli.extension,
+        cli.extension_port,
+        config.browser.mode,
+        config.browser.extension.port,
     );
     let cli = {
         let mut effective = cli.clone();
@@ -781,11 +790,7 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
     // Auto-discover a running Chrome instance when --auto-connect is set.
     // Runs before --cdp override so explicit --cdp takes precedence.
     // Connect is excluded via requires_active_session().
-    if cli.auto_connect
-        && cli.cdp.is_none()
-        && !cli.extension
-        && requires_active_session(command)
-    {
+    if cli.auto_connect && cli.cdp.is_none() && !cli.extension && requires_active_session(command) {
         ensure_auto_connect(cli, &config).await?;
     }
 
@@ -803,7 +808,8 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
     }
 
     // Auto-start daemon (default on; --no-daemon disables)
-    // The daemon holds a persistent WS connection to avoid per-command connect overhead
+    // The daemon holds a persistent WS connection to avoid per-command connect overhead.
+    // One daemon per profile — all sessions share it via protocol routing.
     #[cfg(unix)]
     if !cli.no_daemon && !cli.extension && requires_active_session(command) {
         let profile_name = effective_profile_name(cli, &config);
@@ -812,7 +818,7 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
 
     match command {
         BrowserCommands::Status => status(cli, &config).await,
-        BrowserCommands::Open { url } => open(cli, &config, url).await,
+        BrowserCommands::Open { url, new_window } => open(cli, &config, url, *new_window).await,
         BrowserCommands::Goto { url, timeout: t } => goto(cli, &config, url, *t).await,
         BrowserCommands::Back => back(cli, &config).await,
         BrowserCommands::Forward => forward(cli, &config).await,
@@ -824,8 +830,21 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
             timeout: t,
         } => wait(cli, &config, selector, *t).await,
         BrowserCommands::WaitNav { timeout: t } => wait_nav(cli, &config, *t).await,
-        BrowserCommands::Click { selector, wait: w, ref_id, human } => {
-            click(cli, &config, selector.as_deref(), *w, ref_id.as_deref(), *human).await
+        BrowserCommands::Click {
+            selector,
+            wait: w,
+            ref_id,
+            human,
+        } => {
+            click(
+                cli,
+                &config,
+                selector.as_deref(),
+                *w,
+                ref_id.as_deref(),
+                *human,
+            )
+            .await
         }
         BrowserCommands::Type {
             selector,
@@ -834,16 +853,33 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
             ref_id,
             human,
         } => {
-            type_text(cli, &config, selector.as_deref(), text, *w, ref_id.as_deref(), *human).await
-        },
+            type_text(
+                cli,
+                &config,
+                selector.as_deref(),
+                text,
+                *w,
+                ref_id.as_deref(),
+                *human,
+            )
+            .await
+        }
         BrowserCommands::Fill {
             selector,
             text,
             wait: w,
             ref_id,
         } => {
-            fill(cli, &config, selector.as_deref(), text, *w, ref_id.as_deref()).await
-        },
+            fill(
+                cli,
+                &config,
+                selector.as_deref(),
+                text,
+                *w,
+                ref_id.as_deref(),
+            )
+            .await
+        }
         BrowserCommands::Select { selector, value } => select(cli, &config, selector, value).await,
         BrowserCommands::Hover { selector } => hover(cli, &config, selector).await,
         BrowserCommands::Focus { selector } => focus(cli, &config, selector).await,
@@ -855,18 +891,43 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
         BrowserCommands::Pdf { path } => pdf(cli, &config, path).await,
         BrowserCommands::Eval { code } => eval(cli, &config, code).await,
         BrowserCommands::Html { selector } => html(cli, &config, selector.as_deref()).await,
-        BrowserCommands::Text { selector, mode } => text(cli, &config, selector.as_deref(), mode).await,
-        BrowserCommands::Snapshot { interactive, cursor, compact, format, depth, selector, diff, max_tokens } => {
-            snapshot(cli, &config, *interactive, *cursor, *compact, format, *depth, selector.as_deref(), *diff, *max_tokens).await
+        BrowserCommands::Text { selector, mode } => {
+            text(cli, &config, selector.as_deref(), mode).await
+        }
+        BrowserCommands::Snapshot {
+            interactive,
+            cursor,
+            compact,
+            format,
+            depth,
+            selector,
+            diff,
+            max_tokens,
+        } => {
+            snapshot(
+                cli,
+                &config,
+                *interactive,
+                *cursor,
+                *compact,
+                format,
+                *depth,
+                selector.as_deref(),
+                *diff,
+                *max_tokens,
+            )
+            .await
         }
         BrowserCommands::Inspect { x, y, desc } => {
             inspect(cli, &config, *x, *y, desc.as_deref()).await
         }
         BrowserCommands::Viewport => viewport(cli, &config).await,
         BrowserCommands::Cookies { command } => cookies(cli, &config, command).await,
-        BrowserCommands::Scroll { direction, smooth, wait } => {
-            scroll(cli, &config, direction, *smooth, *wait).await
-        }
+        BrowserCommands::Scroll {
+            direction,
+            smooth,
+            wait,
+        } => scroll(cli, &config, direction, *smooth, *wait).await,
         BrowserCommands::Batch { file, delay } => {
             crate::commands::batch::run(cli, &config, file.as_deref(), *delay).await
         }
@@ -880,20 +941,42 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
         BrowserCommands::Info { selector } => info(cli, &config, selector).await,
         BrowserCommands::Storage { command } => storage(cli, &config, command).await,
         BrowserCommands::Emulate { device } => emulate(cli, &config, device).await,
-        BrowserCommands::WaitFn { expression, timeout, interval } => {
-            wait_fn(cli, &config, expression, *timeout, *interval).await
+        BrowserCommands::WaitFn {
+            expression,
+            timeout,
+            interval,
+        } => wait_fn(cli, &config, expression, *timeout, *interval).await,
+        BrowserCommands::Upload {
+            files,
+            selector,
+            ref_id,
+            wait: w,
+        } => {
+            upload(
+                cli,
+                &config,
+                files,
+                selector.as_deref(),
+                ref_id.as_deref(),
+                *w,
+            )
+            .await
         }
-        BrowserCommands::Upload { files, selector, ref_id, wait: w } => {
-            upload(cli, &config, files, selector.as_deref(), ref_id.as_deref(), *w).await
-        }
-        BrowserCommands::Fetch { url, format, max_tokens, timeout: t, lite } => {
-            fetch(cli, &config, url, format, *max_tokens, *t, *lite).await
-        }
+        BrowserCommands::Fetch {
+            url,
+            format,
+            max_tokens,
+            timeout: t,
+            lite,
+        } => fetch(cli, &config, url, format, *max_tokens, *t, *lite).await,
         BrowserCommands::Close => close(cli, &config).await,
         BrowserCommands::Restart => restart(cli, &config).await,
-        BrowserCommands::Connect { endpoint, headers } => connect(cli, &config, endpoint, headers).await,
+        BrowserCommands::Connect { endpoint, headers } => {
+            connect(cli, &config, endpoint, headers).await
+        }
         BrowserCommands::Tab { command } => tab_command(cli, &config, command).await,
         BrowserCommands::SwitchFrame { target } => switch_frame(cli, &config, target).await,
+        BrowserCommands::Session { command } => session_command(cli, &config, command).await,
     }
 }
 
@@ -1009,10 +1092,11 @@ pub(crate) async fn status(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-pub(crate) async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
+pub(crate) async fn open(cli: &Cli, config: &Config, url: &str, new_window: bool) -> Result<()> {
     let normalized_url = normalize_navigation_url(url)?;
     let normalized_url = if cli.rewrite_urls {
-        let (rewritten, was_rewritten) = crate::browser::url_rewrite::maybe_rewrite(&normalized_url);
+        let (rewritten, was_rewritten) =
+            crate::browser::url_rewrite::maybe_rewrite(&normalized_url);
         if was_rewritten {
             tracing::info!("URL rewritten: {} -> {}", normalized_url, rewritten);
         }
@@ -1022,6 +1106,12 @@ pub(crate) async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
     };
 
     if cli.extension {
+        if new_window {
+            eprintln!(
+                "{}",
+                "Warning: --new-window is not supported in extension mode, opening as tab".yellow()
+            );
+        }
         let result = extension_send(
             cli,
             "Extension.createTab",
@@ -1055,39 +1145,16 @@ pub(crate) async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
     let profile_name = effective_profile_name(cli, config);
     let profile_arg = Some(profile_name);
 
-    if let Some(title) =
-        match try_open_on_initial_blank_page(&session_manager, profile_arg, &normalized_url).await
-        {
-            Ok(title) => title,
-            Err(e) => {
-                tracing::debug!("Failed to reuse initial blank tab, opening a new tab: {}", e);
-                None
-            }
-        }
-    {
-        if cli.json {
-            println!(
-                "{}",
-                serde_json::json!({
-                    "success": true,
-                    "url": normalized_url,
-                    "title": title
-                })
-            );
-        } else {
-            println!("{} {}", "✓".green(), title.bold());
-            println!("  {}", normalized_url.dimmed());
-        }
-        return Ok(());
-    }
-
     let use_driver_new_page = should_use_driver_new_page(&session_manager, profile_name).await;
 
     let title = if use_driver_new_page {
         let mut driver = create_browser_driver(cli, config).await?;
-        driver.new_page(Some(&normalized_url)).await?;
+        let page_info = driver.new_page(Some(&normalized_url), false).await?;
 
         let _ = wait_for_document_complete(&session_manager, profile_arg, 30_000).await;
+
+        // Persist the exact page we just created so the daemon routes to the correct tab
+        persist_active_page(&session_manager, profile_arg, Some(&page_info.id)).await;
 
         match timeout(
             Duration::from_secs(5),
@@ -1136,6 +1203,10 @@ pub(crate) async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
         // Wait for page to fully load (additional 30 seconds)
         let _ = timeout(Duration::from_secs(30), page.wait_for_navigation()).await;
 
+        // Persist active page ID so the daemon can route to the correct tab.
+        // chromiumoxide makes the new page active, so get_active_page_info is reliable here.
+        persist_active_page(&session_manager, profile_arg, None).await;
+
         // Get page title with timeout
         match timeout(Duration::from_secs(5), page.get_title()).await {
             Ok(Ok(Some(t))) => t,
@@ -1167,7 +1238,8 @@ pub(crate) async fn open(cli: &Cli, config: &Config, url: &str) -> Result<()> {
 pub(crate) async fn goto(cli: &Cli, config: &Config, url: &str, _timeout_ms: u64) -> Result<()> {
     let normalized_url = normalize_navigation_url(url)?;
     let normalized_url = if cli.rewrite_urls {
-        let (rewritten, was_rewritten) = crate::browser::url_rewrite::maybe_rewrite(&normalized_url);
+        let (rewritten, was_rewritten) =
+            crate::browser::url_rewrite::maybe_rewrite(&normalized_url);
         if was_rewritten {
             tracing::info!("URL rewritten: {} -> {}", normalized_url, rewritten);
         }
@@ -1237,8 +1309,17 @@ pub(crate) async fn goto(cli: &Cli, config: &Config, url: &str, _timeout_ms: u64
             })
         );
     } else {
-        let backend_label = if driver.is_camofox() { " (camoufox)" } else { "" };
-        println!("{} Navigated to: {}{}", "✓".green(), normalized_url, backend_label);
+        let backend_label = if driver.is_camofox() {
+            " (camoufox)"
+        } else {
+            ""
+        };
+        println!(
+            "{} Navigated to: {}{}",
+            "✓".green(),
+            normalized_url,
+            backend_label
+        );
     }
 
     Ok(())
@@ -1324,12 +1405,7 @@ pub(crate) async fn reload(cli: &Cli, config: &Config) -> Result<()> {
 
 pub(crate) async fn pages(cli: &Cli, config: &Config) -> Result<()> {
     if cli.extension {
-        let result = extension_send(
-            cli,
-            "Extension.listTabs",
-            serde_json::json!({}),
-        )
-        .await?;
+        let result = extension_send(cli, "Extension.listTabs", serde_json::json!({})).await?;
 
         let tabs = result
             .get("tabs")
@@ -1342,9 +1418,16 @@ pub(crate) async fn pages(cli: &Cli, config: &Config) -> Result<()> {
         } else if tabs.is_empty() {
             println!("{} No tabs found", "!".yellow());
         } else {
-            println!("{} {} tabs open (extension mode)\n", "✓".green(), tabs.len());
+            println!(
+                "{} {} tabs open (extension mode)\n",
+                "✓".green(),
+                tabs.len()
+            );
             for (i, tab) in tabs.iter().enumerate() {
-                let title = tab.get("title").and_then(|t| t.as_str()).unwrap_or("(no title)");
+                let title = tab
+                    .get("title")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("(no title)");
                 let url = tab.get("url").and_then(|u| u.as_str()).unwrap_or("");
                 let id = tab.get("id").and_then(|i| i.as_u64()).unwrap_or(0);
                 println!(
@@ -1399,12 +1482,16 @@ pub(crate) async fn pages(cli: &Cli, config: &Config) -> Result<()> {
 pub(crate) async fn switch(cli: &Cli, _config: &Config, page_id: &str) -> Result<()> {
     if cli.extension {
         // In extension mode, page_id is expected to be a tab ID (numeric)
-        let tab_id: u64 = page_id.strip_prefix("tab:").unwrap_or(page_id).parse().map_err(|_| {
-            ActionbookError::Other(format!(
-                "Invalid tab ID: {}. Use the numeric ID from 'pages' command (extension mode)",
-                page_id
-            ))
-        })?;
+        let tab_id: u64 = page_id
+            .strip_prefix("tab:")
+            .unwrap_or(page_id)
+            .parse()
+            .map_err(|_| {
+                ActionbookError::Other(format!(
+                    "Invalid tab ID: {}. Use the numeric ID from 'pages' command (extension mode)",
+                    page_id
+                ))
+            })?;
 
         extension_send(
             cli,
@@ -1419,11 +1506,7 @@ pub(crate) async fn switch(cli: &Cli, _config: &Config, page_id: &str) -> Result
                 serde_json::json!({ "success": true, "tabId": tab_id })
             );
         } else {
-            println!(
-                "{} Switched to tab {} (extension)",
-                "✓".green(),
-                tab_id
-            );
+            println!("{} Switched to tab {} (extension)", "✓".green(), tab_id);
         }
         return Ok(());
     }
@@ -1438,7 +1521,12 @@ pub(crate) async fn switch(cli: &Cli, _config: &Config, page_id: &str) -> Result
     Ok(())
 }
 
-pub(crate) async fn wait(cli: &Cli, config: &Config, selector: &str, timeout_ms: u64) -> Result<()> {
+pub(crate) async fn wait(
+    cli: &Cli,
+    config: &Config,
+    selector: &str,
+    timeout_ms: u64,
+) -> Result<()> {
     if cli.extension {
         let resolve_js = js_resolve_selector(selector);
         let poll_js = format!(
@@ -1517,10 +1605,7 @@ pub(crate) async fn wait_nav(cli: &Cli, config: &Config, timeout_ms: u64) -> Res
         }
 
         if cli.json {
-            println!(
-                "{}",
-                serde_json::json!({ "success": true, "url": new_url })
-            );
+            println!("{}", serde_json::json!({ "success": true, "url": new_url }));
         } else {
             println!(
                 "{} Navigation complete: {} (extension)",
@@ -1574,11 +1659,19 @@ pub(crate) async fn click(
 
         if human {
             // Human-like click: resolve actual element coords, then bezier path
-            let (target_x, target_y) = driver.get_element_center_by_node_id(backend_node_id).await?;
-            let (start_x, start_y) = crate::browser::human_input::random_start_offset(target_x, target_y);
-            let path = crate::browser::human_input::bezier_mouse_path(start_x, start_y, target_x, target_y);
+            let (target_x, target_y) = driver
+                .get_element_center_by_node_id(backend_node_id)
+                .await?;
+            let (start_x, start_y) =
+                crate::browser::human_input::random_start_offset(target_x, target_y);
+            let path = crate::browser::human_input::bezier_mouse_path(
+                start_x, start_y, target_x, target_y,
+            );
             let _ = driver.dispatch_mouse_moves(&path).await;
-            tokio::time::sleep(Duration::from_millis(crate::browser::human_input::pre_click_delay_ms())).await;
+            tokio::time::sleep(Duration::from_millis(
+                crate::browser::human_input::pre_click_delay_ms(),
+            ))
+            .await;
         }
 
         driver.click_by_node_id(backend_node_id).await?;
@@ -1590,7 +1683,12 @@ pub(crate) async fn click(
                 serde_json::json!({ "success": true, "ref": ref_str, "backendNodeId": backend_node_id })
             );
         } else {
-            println!("{} Clicked: {} (nodeId={})", "✓".green(), label, backend_node_id);
+            println!(
+                "{} Clicked: {} (nodeId={})",
+                "✓".green(),
+                label,
+                backend_node_id
+            );
         }
         return Ok(());
     }
@@ -1693,11 +1791,19 @@ pub(crate) async fn click(
 
     if human {
         // Human-like click: resolve actual element coords, then bezier path
-        let (target_x, target_y) = driver.get_element_center(selector).await.unwrap_or((400.0, 300.0));
-        let (start_x, start_y) = crate::browser::human_input::random_start_offset(target_x, target_y);
-        let path = crate::browser::human_input::bezier_mouse_path(start_x, start_y, target_x, target_y);
+        let (target_x, target_y) = driver
+            .get_element_center(selector)
+            .await
+            .unwrap_or((400.0, 300.0));
+        let (start_x, start_y) =
+            crate::browser::human_input::random_start_offset(target_x, target_y);
+        let path =
+            crate::browser::human_input::bezier_mouse_path(start_x, start_y, target_x, target_y);
         let _ = driver.dispatch_mouse_moves(&path).await;
-        tokio::time::sleep(Duration::from_millis(crate::browser::human_input::pre_click_delay_ms())).await;
+        tokio::time::sleep(Duration::from_millis(
+            crate::browser::human_input::pre_click_delay_ms(),
+        ))
+        .await;
     }
 
     driver.click(selector).await?;
@@ -1712,7 +1818,11 @@ pub(crate) async fn click(
             })
         );
     } else {
-        let backend_label = if driver.is_camofox() { " (camoufox)" } else { "" };
+        let backend_label = if driver.is_camofox() {
+            " (camoufox)"
+        } else {
+            ""
+        };
         println!("{} Clicked: {}{}", "✓".green(), selector, backend_label);
     }
 
@@ -1915,7 +2025,11 @@ pub(crate) async fn type_text(
             })
         );
     } else {
-        let backend_label = if driver.is_camofox() { " (camoufox)" } else { "" };
+        let backend_label = if driver.is_camofox() {
+            " (camoufox)"
+        } else {
+            ""
+        };
         println!("{} Typed into: {}{}", "✓".green(), selector, backend_label);
     }
 
@@ -2286,10 +2400,7 @@ pub(crate) async fn press(cli: &Cli, config: &Config, key: &str) -> Result<()> {
         }
 
         if cli.json {
-            println!(
-                "{}",
-                serde_json::json!({ "success": true, "key": key })
-            );
+            println!("{}", serde_json::json!({ "success": true, "key": key }));
         } else {
             println!("{} Pressed: {} (extension)", "✓".green(), key);
         }
@@ -2327,7 +2438,7 @@ pub(crate) async fn hotkey(cli: &Cli, config: &Config, keys: &str) -> Result<()>
     // Extension mode not supported for hotkeys (requires complex modifier state)
     if cli.extension {
         return Err(ActionbookError::Other(
-            "Hotkey not supported in extension mode, use CDP mode".to_string()
+            "Hotkey not supported in extension mode, use CDP mode".to_string(),
         ));
     }
 
@@ -2351,20 +2462,22 @@ pub(crate) async fn hotkey(cli: &Cli, config: &Config, keys: &str) -> Result<()>
     Ok(())
 }
 
-pub(crate) async fn screenshot(cli: &Cli, config: &Config, path: &str, full_page: bool) -> Result<()> {
+pub(crate) async fn screenshot(
+    cli: &Cli,
+    config: &Config,
+    path: &str,
+    full_page: bool,
+) -> Result<()> {
     if cli.extension {
         if cli.camofox {
             // Route through Extension Bridge with Camoufox backend
             let result = extension_send(cli, "Camoufox.screenshot", serde_json::json!({})).await?;
-            let b64_data = result
-                .get("data")
-                .and_then(|d| d.as_str())
-                .ok_or_else(|| {
-                    ActionbookError::ExtensionError(
-                        "Screenshot response missing 'data' field (extension + camoufox mode)"
-                            .to_string(),
-                    )
-                })?;
+            let b64_data = result.get("data").and_then(|d| d.as_str()).ok_or_else(|| {
+                ActionbookError::ExtensionError(
+                    "Screenshot response missing 'data' field (extension + camoufox mode)"
+                        .to_string(),
+                )
+            })?;
 
             let screenshot_data = base64::engine::general_purpose::STANDARD
                 .decode(b64_data)
@@ -2383,10 +2496,7 @@ pub(crate) async fn screenshot(cli: &Cli, config: &Config, path: &str, full_page
             fs::write(path, screenshot_data)?;
 
             if cli.json {
-                println!(
-                    "{}",
-                    serde_json::json!({ "success": true, "path": path })
-                );
+                println!("{}", serde_json::json!({ "success": true, "path": path }));
             } else {
                 println!(
                     "{} Screenshot saved: {} (extension + camoufox)",
@@ -2404,14 +2514,11 @@ pub(crate) async fn screenshot(cli: &Cli, config: &Config, path: &str, full_page
         }
 
         let result = extension_send(cli, "Page.captureScreenshot", params).await?;
-        let b64_data = result
-            .get("data")
-            .and_then(|d| d.as_str())
-            .ok_or_else(|| {
-                ActionbookError::ExtensionError(
-                    "Screenshot response missing 'data' field (extension mode)".to_string(),
-                )
-            })?;
+        let b64_data = result.get("data").and_then(|d| d.as_str()).ok_or_else(|| {
+            ActionbookError::ExtensionError(
+                "Screenshot response missing 'data' field (extension mode)".to_string(),
+            )
+        })?;
 
         let screenshot_data = base64::engine::general_purpose::STANDARD
             .decode(b64_data)
@@ -2490,7 +2597,11 @@ pub(crate) async fn screenshot(cli: &Cli, config: &Config, path: &str, full_page
         } else {
             ""
         };
-        let backend_label = if driver.is_camofox() { " (camoufox)" } else { "" };
+        let backend_label = if driver.is_camofox() {
+            " (camoufox)"
+        } else {
+            ""
+        };
         println!(
             "{} Screenshot saved{}: {}{}",
             "✓".green(),
@@ -2506,14 +2617,11 @@ pub(crate) async fn screenshot(cli: &Cli, config: &Config, path: &str, full_page
 pub(crate) async fn pdf(cli: &Cli, config: &Config, path: &str) -> Result<()> {
     if cli.extension {
         let result = extension_send(cli, "Page.printToPDF", serde_json::json!({})).await?;
-        let b64_data = result
-            .get("data")
-            .and_then(|d| d.as_str())
-            .ok_or_else(|| {
-                ActionbookError::ExtensionError(
-                    "PDF response missing 'data' field (extension mode)".to_string(),
-                )
-            })?;
+        let b64_data = result.get("data").and_then(|d| d.as_str()).ok_or_else(|| {
+            ActionbookError::ExtensionError(
+                "PDF response missing 'data' field (extension mode)".to_string(),
+            )
+        })?;
 
         let pdf_data = base64::engine::general_purpose::STANDARD
             .decode(b64_data)
@@ -2532,10 +2640,7 @@ pub(crate) async fn pdf(cli: &Cli, config: &Config, path: &str) -> Result<()> {
         fs::write(path, pdf_data)?;
 
         if cli.json {
-            println!(
-                "{}",
-                serde_json::json!({ "success": true, "path": path })
-            );
+            println!("{}", serde_json::json!({ "success": true, "path": path }));
         } else {
             println!("{} PDF saved: {} (extension)", "✓".green(), path);
         }
@@ -2692,7 +2797,12 @@ pub(crate) async fn html(cli: &Cli, config: &Config, selector: Option<&str>) -> 
     Ok(())
 }
 
-pub(crate) async fn text(cli: &Cli, config: &Config, selector: Option<&str>, mode: &str) -> Result<()> {
+pub(crate) async fn text(
+    cli: &Cli,
+    config: &Config,
+    selector: Option<&str>,
+    mode: &str,
+) -> Result<()> {
     if cli.extension {
         // Extension mode: always uses JS-based extraction
         let js = match selector {
@@ -2769,26 +2879,48 @@ pub(crate) async fn text(cli: &Cli, config: &Config, selector: Option<&str>, mod
     Ok(())
 }
 
-/// Get the path for persisting the last snapshot (for --diff across CLI invocations)
-fn snapshot_cache_path() -> Option<std::path::PathBuf> {
-    dirs::home_dir().map(|h| h.join(".actionbook").join("last_snapshot.json"))
+/// Sanitize a name for use in file paths (same logic as session.rs::sanitize_name).
+fn sanitize_path_component(name: &str) -> String {
+    let s: String = name
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    if s.is_empty() {
+        "default".to_string()
+    } else {
+        s
+    }
+}
+
+/// Get the path for persisting the last snapshot (for --diff across CLI invocations).
+/// Scoped by profile and session to avoid cross-session contamination.
+fn snapshot_cache_path(profile: &str, session: &str) -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|h| {
+        h.join(".actionbook").join("snapshots").join(format!(
+            "{}@{}.json",
+            sanitize_path_component(profile),
+            sanitize_path_component(session)
+        ))
+    })
 }
 
 /// Load the last snapshot from disk
-fn load_last_snapshot() -> Option<Vec<crate::browser::snapshot::A11yNode>> {
-    let path = snapshot_cache_path()?;
+fn load_last_snapshot(
+    profile: &str,
+    session: &str,
+) -> Option<Vec<crate::browser::snapshot::A11yNode>> {
+    let path = snapshot_cache_path(profile, session)?;
     let data = std::fs::read_to_string(&path).ok()?;
     serde_json::from_str(&data).ok()
 }
 
 /// Save the current snapshot to disk
-fn save_last_snapshot(nodes: &[crate::browser::snapshot::A11yNode]) {
-    if let Some(path) = snapshot_cache_path() {
+fn save_last_snapshot(profile: &str, session: &str, nodes: &[crate::browser::snapshot::A11yNode]) {
+    if let Some(path) = snapshot_cache_path(profile, session) {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let _ = serde_json::to_string(nodes)
-            .map(|json| std::fs::write(&path, json));
+        let _ = serde_json::to_string(nodes).map(|json| std::fs::write(&path, json));
     }
 }
 
@@ -2804,9 +2936,7 @@ pub(crate) async fn snapshot(
     diff: bool,
     max_tokens: Option<usize>,
 ) -> Result<()> {
-    use crate::browser::snapshot::{
-        self, SnapshotFilter, SnapshotFormat,
-    };
+    use crate::browser::snapshot::{self, SnapshotFilter, SnapshotFormat};
 
     // Parse filter from boolean flag
     let snap_filter = if interactive {
@@ -2819,7 +2949,12 @@ pub(crate) async fn snapshot(
     let snap_format = match format {
         "compact" => SnapshotFormat::Compact,
         "json" => SnapshotFormat::Json,
-        f => return Err(ActionbookError::Other(format!("Unknown format: '{}'. Use 'compact' or 'json'.", f))),
+        f => {
+            return Err(ActionbookError::Other(format!(
+                "Unknown format: '{}'. Use 'compact' or 'json'.",
+                f
+            )))
+        }
     };
 
     // Get the AX tree and optional driver (needed for cursor mode in non-extension path)
@@ -2860,7 +2995,9 @@ pub(crate) async fn snapshot(
     // Append cursor-interactive elements (-C) — requires a browser driver (non-extension only)
     if cursor {
         let driver = driver_opt.as_mut().ok_or_else(|| {
-            ActionbookError::Other("Cursor mode (-C) is not supported in extension mode".to_string())
+            ActionbookError::Other(
+                "Cursor mode (-C) is not supported in extension mode".to_string(),
+            )
         })?;
         let cursor_nodes = snapshot::find_cursor_interactive_elements(driver, selector).await?;
         if !cursor_nodes.is_empty() {
@@ -2892,18 +3029,30 @@ pub(crate) async fn snapshot(
     }
 
     // Handle --diff mode
+    let default_profile = config.effective_default_profile_name();
+    let snap_profile = cli
+        .profile
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&default_profile);
+    let snap_session = cli.session.as_deref().unwrap_or("default");
+
     if diff {
-        let prev_nodes = load_last_snapshot();
-        save_last_snapshot(&nodes);
+        let prev_nodes = load_last_snapshot(snap_profile, snap_session);
+        save_last_snapshot(snap_profile, snap_session, &nodes);
 
         match prev_nodes {
             None => {
                 // First snapshot, no diff available
                 if cli.json {
-                    println!("{}", serde_json::json!({
-                        "message": "First snapshot captured. Run again with --diff to see changes.",
-                        "nodeCount": nodes.len()
-                    }));
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "message": "First snapshot captured. Run again with --diff to see changes.",
+                            "nodeCount": nodes.len()
+                        })
+                    );
                 } else {
                     println!("{} First snapshot captured ({} nodes). Run again with --diff to see changes.",
                         "i".blue(), nodes.len());
@@ -2913,14 +3062,17 @@ pub(crate) async fn snapshot(
                 let (added, changed, removed) = snapshot::diff_snapshots(&prev, &nodes);
 
                 if cli.json {
-                    println!("{}", serde_json::json!({
-                        "added": added.len(),
-                        "changed": changed.len(),
-                        "removed": removed.len(),
-                        "addedNodes": format_nodes_for_json(&added),
-                        "changedNodes": format_nodes_for_json(&changed),
-                        "removedNodes": format_nodes_for_json(&removed),
-                    }));
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "added": added.len(),
+                            "changed": changed.len(),
+                            "removed": removed.len(),
+                            "addedNodes": format_nodes_for_json(&added),
+                            "changedNodes": format_nodes_for_json(&changed),
+                            "removedNodes": format_nodes_for_json(&removed),
+                        })
+                    );
                 } else {
                     if added.is_empty() && changed.is_empty() && removed.is_empty() {
                         println!("{} No changes detected", "=".blue());
@@ -2945,7 +3097,7 @@ pub(crate) async fn snapshot(
     }
 
     // Store for future --diff
-    save_last_snapshot(&nodes);
+    save_last_snapshot(snap_profile, snap_session, &nodes);
 
     // Apply token truncation if requested
     let (nodes, truncated) = if let Some(max_tok) = max_tokens {
@@ -3019,8 +3171,13 @@ fn format_nodes_for_json(nodes: &[crate::browser::snapshot::A11yNode]) -> Vec<se
         .collect()
 }
 
-
-pub(crate) async fn inspect(cli: &Cli, config: &Config, x: f64, y: f64, desc: Option<&str>) -> Result<()> {
+pub(crate) async fn inspect(
+    cli: &Cli,
+    config: &Config,
+    x: f64,
+    y: f64,
+    desc: Option<&str>,
+) -> Result<()> {
     if cli.extension {
         // In extension mode, use JS elementFromPoint + gather info
         let inspect_js = format!(
@@ -3087,7 +3244,11 @@ pub(crate) async fn inspect(cli: &Cli, config: &Config, x: f64, y: f64, desc: Op
             } else {
                 println!(
                     "{} Coordinates ({}, {}) are outside viewport bounds ({}x{}) (extension)",
-                    "!".yellow(), x, y, vw as i32, vh as i32
+                    "!".yellow(),
+                    x,
+                    y,
+                    vw as i32,
+                    vh as i32
                 );
             }
             return Ok(());
@@ -3104,23 +3265,48 @@ pub(crate) async fn inspect(cli: &Cli, config: &Config, x: f64, y: f64, desc: Op
             }
             println!("{}", serde_json::to_string_pretty(&output)?);
         } else {
-            let found = result.get("found").and_then(|v| v.as_bool()).unwrap_or(false);
+            let found = result
+                .get("found")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             if !found {
-                println!("{} No element found at ({}, {}) (extension)", "!".yellow(), x, y);
+                println!(
+                    "{} No element found at ({}, {}) (extension)",
+                    "!".yellow(),
+                    x,
+                    y
+                );
                 return Ok(());
             }
             if let Some(d) = desc {
                 println!("{} Inspecting: {} (extension)\n", "?".cyan(), d.bold());
             }
-            let tag = result.get("tagName").and_then(|v| v.as_str()).unwrap_or("unknown");
-            let id = result.get("id").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
-            let class = result.get("className").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+            let tag = result
+                .get("tagName")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let id = result
+                .get("id")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty());
+            let class = result
+                .get("className")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty());
             print!("{}", "Element: ".bold());
             print!("<{}", tag.cyan());
-            if let Some(i) = id { print!(" id=\"{}\"", i.green()); }
-            if let Some(c) = class { print!(" class=\"{}\"", c.yellow()); }
+            if let Some(i) = id {
+                print!(" id=\"{}\"", i.green());
+            }
+            if let Some(c) = class {
+                print!(" class=\"{}\"", c.yellow());
+            }
             println!(">");
-            if let Some(text) = result.get("textContent").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+            if let Some(text) = result
+                .get("textContent")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            {
                 println!("{}", "Text:".bold());
                 println!("  {}", text.dimmed());
             }
@@ -3347,14 +3533,8 @@ pub(crate) async fn viewport(cli: &Cli, config: &Config) -> Result<()> {
             Some(s) => serde_json::from_str(s).unwrap_or(serde_json::Value::Null),
             None => value,
         };
-        let width = dims
-            .get("width")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-        let height = dims
-            .get("height")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
+        let width = dims.get("width").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let height = dims.get("height").and_then(|v| v.as_f64()).unwrap_or(0.0);
 
         if cli.json {
             println!(
@@ -3392,7 +3572,11 @@ pub(crate) async fn viewport(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-pub(crate) async fn cookies(cli: &Cli, config: &Config, command: &Option<CookiesCommands>) -> Result<()> {
+pub(crate) async fn cookies(
+    cli: &Cli,
+    config: &Config,
+    command: &Option<CookiesCommands>,
+) -> Result<()> {
     if cli.extension {
         return cookies_extension(cli, command).await;
     }
@@ -3490,11 +3674,14 @@ pub(crate) async fn cookies(cli: &Cli, config: &Config, command: &Option<Cookies
                 println!("{} Cookie deleted: {}", "✓".green(), name);
             }
         }
-        Some(CookiesCommands::Clear { domain, dry_run, .. }) => {
+        Some(CookiesCommands::Clear {
+            domain, dry_run, ..
+        }) => {
             if domain.is_some() || *dry_run {
                 return Err(ActionbookError::Other(
                     "--domain and --dry-run are only supported in extension mode (--extension). \
-                     In CDP mode, 'cookies clear' clears all cookies for the session.".to_string()
+                     In CDP mode, 'cookies clear' clears all cookies for the session."
+                        .to_string(),
                 ));
             }
 
@@ -3525,7 +3712,10 @@ async fn cookies_extension(cli: &Cli, command: &Option<CookiesCommands>) -> Resu
         .unwrap_or_default();
 
     /// Build a URL for cookie operations: explicit domain takes priority, fall back to current_url.
-    fn resolve_cookie_url(current_url: &str, domain: Option<&str>) -> std::result::Result<String, ActionbookError> {
+    fn resolve_cookie_url(
+        current_url: &str,
+        domain: Option<&str>,
+    ) -> std::result::Result<String, ActionbookError> {
         // Domain first: user explicitly asked for this domain
         if let Some(d) = domain {
             let clean = d.trim_start_matches('.');
@@ -3560,18 +3750,11 @@ async fn cookies_extension(cli: &Cli, command: &Option<CookiesCommands>) -> Resu
             } else if cookies.is_empty() {
                 println!("{} No cookies (extension)", "!".yellow());
             } else {
-                println!(
-                    "{} {} cookies (extension)\n",
-                    "✓".green(),
-                    cookies.len()
-                );
+                println!("{} {} cookies (extension)\n", "✓".green(), cookies.len());
                 for cookie in &cookies {
                     let name = cookie.get("name").and_then(|v| v.as_str()).unwrap_or("");
                     let value = cookie.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                    let domain = cookie
-                        .get("domain")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
+                    let domain = cookie.get("domain").and_then(|v| v.as_str()).unwrap_or("");
                     println!(
                         "  {} = {} {}",
                         name.bold(),
@@ -3651,19 +3834,16 @@ async fn cookies_extension(cli: &Cli, command: &Option<CookiesCommands>) -> Resu
             extension_send(cli, "Extension.removeCookie", params).await?;
 
             if cli.json {
-                println!(
-                    "{}",
-                    serde_json::json!({ "success": true, "name": name })
-                );
+                println!("{}", serde_json::json!({ "success": true, "name": name }));
             } else {
-                println!(
-                    "{} Cookie deleted: {} (extension)",
-                    "✓".green(),
-                    name
-                );
+                println!("{} Cookie deleted: {} (extension)", "✓".green(), name);
             }
         }
-        Some(CookiesCommands::Clear { domain, dry_run, yes }) => {
+        Some(CookiesCommands::Clear {
+            domain,
+            dry_run,
+            yes,
+        }) => {
             let url = resolve_cookie_url(&current_url, domain.as_deref())?;
 
             // Fetch cookies to preview count.
@@ -3674,12 +3854,7 @@ async fn cookies_extension(cli: &Cli, command: &Option<CookiesCommands>) -> Resu
             if let Some(d) = domain.as_deref() {
                 get_params["domain"] = serde_json::json!(d.trim_start_matches('.'));
             }
-            let preview = extension_send(
-                cli,
-                "Extension.getCookies",
-                get_params,
-            )
-            .await?;
+            let preview = extension_send(cli, "Extension.getCookies", get_params).await?;
             let cookies = preview
                 .get("cookies")
                 .and_then(|c| c.as_array())
@@ -3758,12 +3933,7 @@ async fn cookies_extension(cli: &Cli, command: &Option<CookiesCommands>) -> Resu
             if let Some(d) = domain.as_deref() {
                 clear_params["domain"] = serde_json::json!(d.trim_start_matches('.'));
             }
-            extension_send(
-                cli,
-                "Extension.clearCookies",
-                clear_params,
-            )
-            .await?;
+            extension_send(cli, "Extension.clearCookies", clear_params).await?;
 
             if cli.json {
                 println!(
@@ -3902,13 +4072,17 @@ pub(crate) async fn scroll(
                         "expression": js,
                         "awaitPromise": true,
                         "returnByValue": true,
-                    })
+                    }),
                 )
                 .await?;
 
             // Check if timed out
             if let Some(result_value) = result.get("result").and_then(|r| r.get("value")) {
-                if result_value.get("timedOut").and_then(|v| v.as_bool()).unwrap_or(false) {
+                if result_value
+                    .get("timedOut")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
                     eprintln!("Warning: Scroll wait timed out after 3 seconds");
                 }
             }
@@ -4031,10 +4205,17 @@ pub(crate) async fn fetch(
                 return Ok(());
             }
             Ok(None) => {
-                tracing::info!("[{}] HTTP fetch returned empty/SPA, falling back to browser", session_tag);
+                tracing::info!(
+                    "[{}] HTTP fetch returned empty/SPA, falling back to browser",
+                    session_tag
+                );
             }
             Err(e) => {
-                tracing::warn!("[{}] HTTP fetch error, falling back to browser: {}", session_tag, e);
+                tracing::warn!(
+                    "[{}] HTTP fetch error, falling back to browser: {}",
+                    session_tag,
+                    e
+                );
             }
         }
     }
@@ -4042,7 +4223,14 @@ pub(crate) async fn fetch(
     // Browser-based fetch path
     let fetch_result = timeout(
         Duration::from_millis(timeout_ms),
-        fetch_via_browser(cli, config, &normalized_url, format, max_tokens, &session_tag),
+        fetch_via_browser(
+            cli,
+            config,
+            &normalized_url,
+            format,
+            max_tokens,
+            &session_tag,
+        ),
     )
     .await;
 
@@ -4059,8 +4247,11 @@ pub(crate) async fn fetch(
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".actionbook")
         .join("sessions");
-    let session_file = sessions_dir.join(format!("{}.json", profile_name));
+    // Clean up both legacy and session-aware filenames
+    let session_file = sessions_dir.join(format!("{}@default.json", profile_name));
     let _ = std::fs::remove_file(&session_file);
+    let legacy_session_file = sessions_dir.join(format!("{}.json", profile_name));
+    let _ = std::fs::remove_file(&legacy_session_file);
 
     let data_dir = dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
@@ -4105,6 +4296,7 @@ async fn fetch_via_browser(
         browser_path: cli.browser_path.clone(),
         cdp: cli.cdp.clone(),
         profile: Some(profile_name.clone()),
+        session: None,
         headless: true,
         stealth: cli.stealth,
         stealth_os: cli.stealth_os.clone(),
@@ -4117,7 +4309,7 @@ async fn fetch_via_browser(
         verbose: cli.verbose,
         block_images: cli.block_images,
         block_media: cli.block_media,
-        no_animations: true, // Always disable animations for fetch
+        no_animations: true,        // Always disable animations for fetch
         auto_dismiss_dialogs: true, // Always auto-dismiss for fetch
         session_tag: cli.session_tag.clone(),
         rewrite_urls: false, // Already rewritten above
@@ -4133,15 +4325,21 @@ async fn fetch_via_browser(
 
     // For CDP backend, we need to start the browser session first
     // Otherwise disable_animations() and other methods will fail with BrowserNotRunning
-    match BrowserDriver::from_config(&fetch_config, &fetch_config.get_profile(&profile_name).unwrap(), &temp_cli).await? {
+    match BrowserDriver::from_config(
+        &fetch_config,
+        &fetch_config.get_profile(&profile_name).unwrap(),
+        &temp_cli,
+    )
+    .await?
+    {
         BrowserDriver::Cdp(session_mgr) => {
             // Start browser session
-            let (_browser, mut handler) = session_mgr.get_or_create_session(Some(&profile_name)).await?;
+            let (_browser, mut handler) = session_mgr
+                .get_or_create_session(Some(&profile_name))
+                .await?;
 
             // Spawn handler in background
-            tokio::spawn(async move {
-                while handler.next().await.is_some() {}
-            });
+            tokio::spawn(async move { while handler.next().await.is_some() {} });
 
             // Create driver from existing session manager
             let mut driver = BrowserDriver::Cdp(session_mgr);
@@ -4156,7 +4354,11 @@ async fn fetch_via_browser(
 
             // Apply dialog auto-dismissal
             if let Err(e) = driver.enable_dialog_auto_dismiss().await {
-                tracing::warn!("[{}] Failed to enable dialog auto-dismiss: {}", session_tag, e);
+                tracing::warn!(
+                    "[{}] Failed to enable dialog auto-dismiss: {}",
+                    session_tag,
+                    e
+                );
             }
 
             // Navigate
@@ -4164,7 +4366,17 @@ async fn fetch_via_browser(
             driver.goto(url).await?;
 
             // Continue with rest of fetch logic using driver
-            return complete_fetch(driver, url, format, max_tokens, session_tag, cli, profile_name, fetch_config).await;
+            return complete_fetch(
+                driver,
+                url,
+                format,
+                max_tokens,
+                session_tag,
+                cli,
+                profile_name,
+                fetch_config,
+            )
+            .await;
         }
         #[cfg(feature = "camoufox")]
         driver @ (BrowserDriver::Camofox(_) | BrowserDriver::CamofoxWebDriver(_)) => {
@@ -4181,7 +4393,11 @@ async fn fetch_via_browser(
 
             // Apply dialog auto-dismissal
             if let Err(e) = driver.enable_dialog_auto_dismiss().await {
-                tracing::warn!("[{}] Failed to enable dialog auto-dismiss: {}", session_tag, e);
+                tracing::warn!(
+                    "[{}] Failed to enable dialog auto-dismiss: {}",
+                    session_tag,
+                    e
+                );
             }
 
             // Navigate
@@ -4189,7 +4405,17 @@ async fn fetch_via_browser(
             driver.goto(url).await?;
 
             // Continue with rest of fetch logic using driver
-            return complete_fetch(driver, url, format, max_tokens, session_tag, cli, profile_name, fetch_config).await;
+            return complete_fetch(
+                driver,
+                url,
+                format,
+                max_tokens,
+                session_tag,
+                cli,
+                profile_name,
+                fetch_config,
+            )
+            .await;
         }
     }
 }
@@ -4205,10 +4431,8 @@ async fn complete_fetch(
     _profile_name: String,
     _config: Config,
 ) -> Result<()> {
-
     // I5: Domain-aware wait
-    let wait_ms =
-        crate::browser::wait_hints::resolve_wait_ms(url, cli.wait_hint.as_deref());
+    let wait_ms = crate::browser::wait_hints::resolve_wait_ms(url, cli.wait_hint.as_deref());
     if wait_ms > 0 {
         tracing::info!("[{}] waiting {}ms (domain hint)", session_tag, wait_ms);
         tokio::time::sleep(Duration::from_millis(wait_ms)).await;
@@ -4341,9 +4565,8 @@ pub(crate) async fn upload(
         if !path.exists() {
             return Err(ActionbookError::Other(format!("File not found: {}", f)));
         }
-        let canonical = std::fs::canonicalize(path).map_err(|e| {
-            ActionbookError::Other(format!("Cannot resolve path {}: {}", f, e))
-        })?;
+        let canonical = std::fs::canonicalize(path)
+            .map_err(|e| ActionbookError::Other(format!("Cannot resolve path {}: {}", f, e)))?;
         abs_paths.push(canonical.to_string_lossy().to_string());
     }
 
@@ -4464,19 +4687,21 @@ pub(crate) async fn close(cli: &Cli, config: &Config) -> Result<()> {
         if cli.json {
             println!("{}", serde_json::json!({ "success": true }));
         } else {
-            println!("{} Tab detached and bridge stopped (extension)", "✓".green());
+            println!(
+                "{} Tab detached and bridge stopped (extension)",
+                "✓".green()
+            );
         }
         return Ok(());
     }
 
     let session_manager = create_session_manager(cli, config);
     let profile_name = effective_profile_name(cli, config);
-    session_manager
-        .close_session(Some(profile_name))
-        .await?;
+    session_manager.close_session(Some(profile_name)).await?;
 
     // G3: Mark clean exit to prevent "Chrome didn't shut down correctly" on next launch
-    let profile_dir = crate::browser::launcher::BrowserLauncher::default_user_data_dir(profile_name);
+    let profile_dir =
+        crate::browser::launcher::BrowserLauncher::default_user_data_dir(profile_name);
     crate::browser::launcher::mark_clean_exit(&profile_dir);
 
     if cli.json {
@@ -4493,11 +4718,15 @@ pub(crate) async fn close(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-pub(crate) async fn fingerprint(cli: &Cli, config: &Config, command: &FingerprintCommands) -> Result<()> {
+pub(crate) async fn fingerprint(
+    cli: &Cli,
+    config: &Config,
+    command: &FingerprintCommands,
+) -> Result<()> {
     match command {
         FingerprintCommands::Rotate { os, screen } => {
             use crate::browser::fingerprint_generator::{
-                FingerprintGenerator, OperatingSystem, generate_with_os,
+                generate_with_os, FingerprintGenerator, OperatingSystem,
             };
 
             // Generate fingerprint
@@ -4543,10 +4772,7 @@ pub(crate) async fn fingerprint(cli: &Cli, config: &Config, command: &Fingerprin
                 println!("{} Fingerprint rotated", "✓".green());
                 println!("  UA: {}", fp.user_agent);
                 println!("  Platform: {}", fp.platform);
-                println!(
-                    "  Screen: {}x{}",
-                    fp.screen_width, fp.screen_height
-                );
+                println!("  Screen: {}x{}", fp.screen_width, fp.screen_height);
                 println!("  CPU cores: {}", fp.hardware_concurrency);
                 println!("  Device memory: {} GB", fp.device_memory);
             }
@@ -4557,7 +4783,12 @@ pub(crate) async fn fingerprint(cli: &Cli, config: &Config, command: &Fingerprin
 
 // ========== H1: Console Log Capture ==========
 
-pub(crate) async fn console_log(cli: &Cli, config: &Config, duration_ms: u64, level: &str) -> Result<()> {
+pub(crate) async fn console_log(
+    cli: &Cli,
+    config: &Config,
+    duration_ms: u64,
+    level: &str,
+) -> Result<()> {
     if cli.extension {
         return Err(ActionbookError::FeatureNotSupported(
             "Console capture is not supported in extension mode".to_string(),
@@ -4611,11 +4842,7 @@ pub(crate) async fn console_log(cli: &Cli, config: &Config, duration_ms: u64, le
                 };
                 println!("{} {}", prefix, text);
             }
-            println!(
-                "\n{} {} message(s) captured",
-                "✓".green(),
-                filtered.len()
-            );
+            println!("\n{} {} message(s) captured", "✓".green(), filtered.len());
         }
     }
     Ok(())
@@ -4623,7 +4850,12 @@ pub(crate) async fn console_log(cli: &Cli, config: &Config, duration_ms: u64, le
 
 // ========== H2: Network Idle Wait ==========
 
-pub(crate) async fn wait_idle(cli: &Cli, config: &Config, timeout_ms: u64, idle_ms: u64) -> Result<()> {
+pub(crate) async fn wait_idle(
+    cli: &Cli,
+    config: &Config,
+    timeout_ms: u64,
+    idle_ms: u64,
+) -> Result<()> {
     if cli.extension {
         return Err(ActionbookError::FeatureNotSupported(
             "Network idle wait is not supported in extension mode".to_string(),
@@ -4675,11 +4907,23 @@ pub(crate) async fn info(cli: &Cli, config: &Config, selector: &str) -> Result<(
     if cli.json {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
-        let tag = result.get("tagName").and_then(|v| v.as_str()).unwrap_or("?");
+        let tag = result
+            .get("tagName")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
         let id = result.get("id").and_then(|v| v.as_str());
-        let text = result.get("textContent").and_then(|v| v.as_str()).unwrap_or("");
-        let visible = result.get("isVisible").and_then(|v| v.as_bool()).unwrap_or(false);
-        let interactive = result.get("isInteractive").and_then(|v| v.as_bool()).unwrap_or(false);
+        let text = result
+            .get("textContent")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let visible = result
+            .get("isVisible")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let interactive = result
+            .get("isInteractive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         println!("{} <{}>", "Element:".bold(), tag);
         if let Some(id) = id {
@@ -4700,8 +4944,16 @@ pub(crate) async fn info(cli: &Cli, config: &Config, selector: &str) -> Result<(
         }
         println!(
             "  visible: {} | interactive: {}",
-            if visible { "yes".green().to_string() } else { "no".red().to_string() },
-            if interactive { "yes".green().to_string() } else { "no".dimmed().to_string() }
+            if visible {
+                "yes".green().to_string()
+            } else {
+                "no".red().to_string()
+            },
+            if interactive {
+                "yes".green().to_string()
+            } else {
+                "no".dimmed().to_string()
+            }
         );
         if let Some(selectors) = result.get("suggestedSelectors").and_then(|v| v.as_array()) {
             if !selectors.is_empty() {
@@ -4722,7 +4974,11 @@ pub(crate) async fn info(cli: &Cli, config: &Config, selector: &str) -> Result<(
 pub(crate) async fn storage(cli: &Cli, config: &Config, command: &StorageCommands) -> Result<()> {
     match command {
         StorageCommands::Get { key, session } => {
-            let storage_type = if *session { "sessionStorage" } else { "localStorage" };
+            let storage_type = if *session {
+                "sessionStorage"
+            } else {
+                "localStorage"
+            };
             let js = format!(
                 "(function() {{ var v = {}.getItem('{}'); return v; }})()",
                 storage_type,
@@ -4748,8 +5004,16 @@ pub(crate) async fn storage(cli: &Cli, config: &Config, command: &StorageCommand
                 println!("{}", result.as_str().unwrap_or(&result.to_string()));
             }
         }
-        StorageCommands::Set { key, value, session } => {
-            let storage_type = if *session { "sessionStorage" } else { "localStorage" };
+        StorageCommands::Set {
+            key,
+            value,
+            session,
+        } => {
+            let storage_type = if *session {
+                "sessionStorage"
+            } else {
+                "localStorage"
+            };
             let js = format!(
                 "{}.setItem('{}', '{}')",
                 storage_type,
@@ -4771,12 +5035,12 @@ pub(crate) async fn storage(cli: &Cli, config: &Config, command: &StorageCommand
             }
         }
         StorageCommands::Remove { key, session } => {
-            let storage_type = if *session { "sessionStorage" } else { "localStorage" };
-            let js = format!(
-                "{}.removeItem('{}')",
-                storage_type,
-                escape_js_string(key)
-            );
+            let storage_type = if *session {
+                "sessionStorage"
+            } else {
+                "localStorage"
+            };
+            let js = format!("{}.removeItem('{}')", storage_type, escape_js_string(key));
 
             if cli.extension {
                 extension_eval(cli, &js).await?;
@@ -4792,7 +5056,11 @@ pub(crate) async fn storage(cli: &Cli, config: &Config, command: &StorageCommand
             }
         }
         StorageCommands::Clear { session } => {
-            let storage_type = if *session { "sessionStorage" } else { "localStorage" };
+            let storage_type = if *session {
+                "sessionStorage"
+            } else {
+                "localStorage"
+            };
             let js = format!("{}.clear()", storage_type);
 
             if cli.extension {
@@ -4809,7 +5077,11 @@ pub(crate) async fn storage(cli: &Cli, config: &Config, command: &StorageCommand
             }
         }
         StorageCommands::List { session } => {
-            let storage_type = if *session { "sessionStorage" } else { "localStorage" };
+            let storage_type = if *session {
+                "sessionStorage"
+            } else {
+                "localStorage"
+            };
             let js = format!(
                 "(function() {{ var s = {}; var keys = []; for (var i = 0; i < s.length; i++) {{ var k = s.key(i); keys.push({{ key: k, value: s.getItem(k) }}); }} return keys; }})()",
                 storage_type
@@ -5003,14 +5275,24 @@ pub(crate) async fn restart(cli: &Cli, config: &Config) -> Result<()> {
         return Ok(());
     }
 
+    let session_manager = create_session_manager(cli, config);
+    let profile_arg = effective_profile_arg(cli, config);
+
+    // Remote sessions with auth headers cannot be restarted from the client.
+    // Browser.close shuts down the remote browser, and we cannot re-launch it.
+    if session_manager.is_remote_session(profile_arg).await {
+        return Err(ActionbookError::Other(
+            "Cannot restart a remote browser session. \
+             Use `browser close` and `browser connect` to reconnect."
+                .to_string(),
+        ));
+    }
+
     // Close existing session
     close(cli, config).await?;
 
     // Open a blank page to restart
-    let session_manager = create_session_manager(cli, config);
-    let (_browser, mut handler) = session_manager
-        .get_or_create_session(effective_profile_arg(cli, config))
-        .await?;
+    let (_browser, mut handler) = session_manager.get_or_create_session(profile_arg).await?;
 
     tokio::spawn(async move { while handler.next().await.is_some() {} });
 
@@ -5028,7 +5310,12 @@ pub(crate) async fn restart(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-pub(crate) async fn connect(cli: &Cli, config: &Config, endpoint: &str, raw_headers: &[String]) -> Result<()> {
+pub(crate) async fn connect(
+    cli: &Cli,
+    config: &Config,
+    endpoint: &str,
+    raw_headers: &[String],
+) -> Result<()> {
     let profile_name = effective_profile_name(cli, config);
     let (cdp_port, cdp_url) = resolve_cdp_endpoint(endpoint).await?;
 
@@ -5071,6 +5358,7 @@ pub(crate) async fn connect(cli: &Cli, config: &Config, endpoint: &str, raw_head
         // then start a fresh one with the new session config (if daemon is enabled).
         #[cfg(unix)]
         {
+            // Daemon is per-profile — restart it so it picks up the new CDP URL
             if crate::daemon::lifecycle::is_daemon_alive(profile_name).await {
                 let _ = crate::daemon::lifecycle::stop_daemon(profile_name).await;
                 tracing::debug!("Stopped stale daemon for profile '{}'", profile_name);
@@ -5120,18 +5408,310 @@ pub(crate) async fn connect(cli: &Cli, config: &Config, endpoint: &str, raw_head
 pub(crate) async fn tab_command(cli: &Cli, config: &Config, cmd: &TabCommands) -> Result<()> {
     match cmd {
         TabCommands::List => tab_list(cli, config).await,
-        TabCommands::New { url } => tab_new(cli, config, url.as_deref()).await,
+        TabCommands::New { url, new_window } => {
+            tab_new(cli, config, url.as_deref(), *new_window).await
+        }
         TabCommands::Switch { page_id } => tab_switch(cli, config, page_id).await,
         TabCommands::Close { page_id } => tab_close(cli, config, page_id.as_deref()).await,
         TabCommands::Active => tab_active(cli, config).await,
     }
 }
 
+async fn session_command(cli: &Cli, config: &Config, cmd: &SessionCommands) -> Result<()> {
+    match cmd {
+        SessionCommands::List => session_list(cli, config).await,
+        SessionCommands::Active => session_active(cli, config),
+        SessionCommands::Destroy { name } => session_destroy(cli, config, name).await,
+    }
+}
+
+async fn session_list(cli: &Cli, config: &Config) -> Result<()> {
+    let profile_name = cli
+        .profile
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&config.effective_default_profile_name())
+        .to_string();
+
+    // Try listing via daemon first
+    let daemon_sessions = {
+        let sock_path = crate::daemon::lifecycle::socket_path(&profile_name);
+        if sock_path.exists() {
+            let client = crate::daemon::client::DaemonClient::new(profile_name.clone());
+            match client
+                .send_cdp("__actionbook.listSessions", serde_json::json!({}))
+                .await
+            {
+                Ok(value) => value.get("sessions").cloned(),
+                Err(_) => None,
+            }
+        } else {
+            None
+        }
+    };
+
+    // Collect daemon-attached session names (may be a subset of all sessions)
+    let daemon_attached: std::collections::HashMap<String, serde_json::Value> = daemon_sessions
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|s| {
+            let name = s.get("name").and_then(|v| v.as_str())?.to_string();
+            Some((name, s))
+        })
+        .collect();
+
+    // Scan disk for all session files for this profile
+    let sessions_dir = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".actionbook")
+        .join("sessions");
+    let safe_profile = sanitize_path_component(&profile_name);
+    let prefix = format!("{}@", safe_profile);
+    let mut disk_sessions: Vec<String> = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
+        for entry in entries.flatten() {
+            let fname = entry.file_name().to_string_lossy().to_string();
+            if fname.starts_with(&prefix) && fname.ends_with(".json") {
+                if let Some(session) = fname
+                    .strip_prefix(&prefix)
+                    .and_then(|s| s.strip_suffix(".json"))
+                {
+                    disk_sessions.push(session.to_string());
+                }
+            }
+        }
+    }
+
+    // Also check legacy file
+    if legacy_session_paths(&sessions_dir, &profile_name)
+        .into_iter()
+        .any(|path| path.exists())
+        && !disk_sessions.contains(&"default".to_string())
+    {
+        disk_sessions.push("default".to_string());
+    }
+
+    // Merge: all disk sessions + any daemon-only sessions not on disk
+    let mut all_sessions: Vec<String> = disk_sessions;
+    for name in daemon_attached.keys() {
+        if !all_sessions.contains(name) {
+            all_sessions.push(name.clone());
+        }
+    }
+    all_sessions.sort();
+
+    let cli_selected = sanitize_path_component(cli.session.as_deref().unwrap_or("default"));
+
+    if cli.json {
+        let result: Vec<serde_json::Value> = all_sessions
+            .iter()
+            .map(|name| {
+                let attached = daemon_attached.contains_key(name);
+                let target_id = daemon_attached
+                    .get(name)
+                    .and_then(|v| v.get("targetId"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                serde_json::json!({
+                    "name": name,
+                    "attached": attached,
+                    "selected": *name == cli_selected,
+                    "targetId": target_id,
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else if all_sessions.is_empty() {
+        println!("No sessions found for profile '{}'", profile_name);
+    } else {
+        println!(
+            "{}",
+            format!("Sessions for profile '{}':", profile_name).bold()
+        );
+        for name in &all_sessions {
+            let selected = if *name == cli_selected {
+                " (selected)"
+            } else {
+                ""
+            };
+            if let Some(daemon_info) = daemon_attached.get(name) {
+                let target = daemon_info
+                    .get("targetId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                println!(
+                    "  {} → target {} [attached]{}",
+                    name.cyan(),
+                    target,
+                    selected.green()
+                );
+            } else {
+                println!("  {} [persisted]{}", name.cyan(), selected.green());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn session_active(cli: &Cli, config: &Config) -> Result<()> {
+    // The "active" session is the one the CLI will target: either explicitly
+    // via -S or the default. This is a client-side concept, not daemon state.
+    // Display the sanitized name so UI matches actual routing.
+    let raw_name = cli.session.as_deref().unwrap_or("default");
+    let name = sanitize_path_component(raw_name);
+
+    // Verify the session actually exists on disk
+    let default_profile = config.effective_default_profile_name();
+    let profile_name = cli
+        .profile
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&default_profile);
+    let sessions_dir = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".actionbook")
+        .join("sessions");
+    let safe_profile = sanitize_path_component(profile_name);
+    let session_file = sessions_dir.join(format!("{}@{}.json", safe_profile, &name));
+    let exists = if session_file.exists() {
+        true
+    } else if name == "default" {
+        // Legacy fallback: check old-style {profile}.json
+        legacy_session_paths(&sessions_dir, profile_name)
+            .into_iter()
+            .any(|path| path.exists())
+    } else {
+        false
+    };
+
+    if cli.json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "session": name,
+                "profile": profile_name,
+                "exists": exists,
+            })
+        );
+    } else {
+        if exists {
+            println!("{}", name);
+        } else {
+            println!("{} (no session file)", name);
+        }
+    }
+    Ok(())
+}
+
+async fn session_destroy(cli: &Cli, config: &Config, name: &str) -> Result<()> {
+    // Sanitize to prevent path traversal.
+    // Unlike routing (where empty sanitizes to "default"), destructive operations
+    // must reject invalid names to avoid accidentally destroying the default session.
+    let safe_name: String = name
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    if safe_name.is_empty() {
+        return Err(ActionbookError::Other(format!(
+            "Invalid session name '{}': must contain at least one alphanumeric character, dash, or underscore",
+            name
+        )));
+    }
+
+    let profile_name = cli
+        .profile
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&config.effective_default_profile_name())
+        .to_string();
+
+    // Try destroy via daemon
+    let sock_path = crate::daemon::lifecycle::socket_path(&profile_name);
+    if sock_path.exists() {
+        let client = crate::daemon::client::DaemonClient::new(profile_name.clone());
+        match client
+            .send_cdp(
+                "__actionbook.destroySession",
+                serde_json::json!({"name": safe_name}),
+            )
+            .await
+        {
+            Ok(value) => {
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&value)?);
+                } else {
+                    println!(
+                        "Destroyed session '{}' for profile '{}'",
+                        safe_name, profile_name
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::debug!("Daemon destroy failed: {}", e);
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "status": "not_active",
+                            "session": safe_name,
+                            "profile": profile_name,
+                            "message": format!("Session '{}' not active in daemon (may already be stopped)", safe_name)
+                        })
+                    );
+                } else {
+                    println!(
+                        "Session '{}' not active in daemon (may already be stopped)",
+                        safe_name
+                    );
+                }
+            }
+        }
+    }
+
+    // Also remove the session file
+    let sessions_dir = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".actionbook")
+        .join("sessions");
+    let safe_profile = sanitize_path_component(&profile_name);
+    let session_file = sessions_dir.join(format!("{}@{}.json", safe_profile, safe_name));
+    if session_file.exists() {
+        fs::remove_file(&session_file)?;
+        if !cli.json {
+            println!("Removed session file: {}", session_file.display());
+        }
+    }
+
+    // For "default" session, also remove legacy file to prevent re-migration
+    if safe_name == "default" {
+        for legacy_file in legacy_session_paths(&sessions_dir, &profile_name) {
+            if legacy_file.exists() {
+                fs::remove_file(&legacy_file)?;
+                if !cli.json {
+                    println!("Removed legacy session file: {}", legacy_file.display());
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub(crate) async fn tab_list(cli: &Cli, config: &Config) -> Result<()> {
     if cli.extension {
         // Extension mode
         let result = extension_send(cli, "Extension.listTabs", serde_json::json!({})).await?;
-        let tabs = result.get("tabs").and_then(|t| t.as_array()).cloned().unwrap_or_default();
+        let tabs = result
+            .get("tabs")
+            .and_then(|t| t.as_array())
+            .cloned()
+            .unwrap_or_default();
 
         if cli.json {
             println!("{}", serde_json::to_string_pretty(&tabs)?);
@@ -5139,7 +5719,10 @@ pub(crate) async fn tab_list(cli: &Cli, config: &Config) -> Result<()> {
             println!("{}", "Open tabs:".bold());
             for (i, tab) in tabs.iter().enumerate() {
                 let id = tab.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
-                let title = tab.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled");
+                let title = tab
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Untitled");
                 let url = tab.get("url").and_then(|v| v.as_str()).unwrap_or("");
                 let active = tab.get("active").and_then(|v| v.as_bool()).unwrap_or(false);
 
@@ -5162,7 +5745,11 @@ pub(crate) async fn tab_list(cli: &Cli, config: &Config) -> Result<()> {
             println!("{}", "Open tabs:".bold());
             for (i, page) in pages.iter().enumerate() {
                 let is_active = Some(page.id.as_str()) == active_id;
-                let prefix = if is_active { "→".green() } else { " ".normal() };
+                let prefix = if is_active {
+                    "→".green()
+                } else {
+                    " ".normal()
+                };
 
                 let id_display = if page.id.len() > 12 {
                     &page.id[..12]
@@ -5170,7 +5757,13 @@ pub(crate) async fn tab_list(cli: &Cli, config: &Config) -> Result<()> {
                     &page.id
                 };
 
-                println!("{} {}. [{}] {}", prefix, i + 1, id_display, page.title.cyan());
+                println!(
+                    "{} {}. [{}] {}",
+                    prefix,
+                    i + 1,
+                    id_display,
+                    page.title.cyan()
+                );
                 println!("     {}", page.url.dimmed());
             }
         }
@@ -5179,8 +5772,19 @@ pub(crate) async fn tab_list(cli: &Cli, config: &Config) -> Result<()> {
     Ok(())
 }
 
-pub(crate) async fn tab_new(cli: &Cli, config: &Config, url: Option<&str>) -> Result<()> {
+pub(crate) async fn tab_new(
+    cli: &Cli,
+    config: &Config,
+    url: Option<&str>,
+    new_window: bool,
+) -> Result<()> {
     if cli.extension {
+        if new_window {
+            eprintln!(
+                "{}",
+                "Warning: --new-window is not supported in extension mode, opening as tab".yellow()
+            );
+        }
         let params = if let Some(url) = url {
             serde_json::json!({ "url": url })
         } else {
@@ -5196,7 +5800,7 @@ pub(crate) async fn tab_new(cli: &Cli, config: &Config, url: Option<&str>) -> Re
         }
     } else {
         let mut driver = create_browser_driver(cli, config).await?;
-        let page = driver.new_page(url).await?;
+        let page = driver.new_page(url, new_window).await?;
 
         if cli.json {
             println!("{}", serde_json::to_string_pretty(&page)?);
@@ -5218,13 +5822,15 @@ pub(crate) async fn tab_new(cli: &Cli, config: &Config, url: Option<&str>) -> Re
 
 pub(crate) async fn tab_switch(cli: &Cli, config: &Config, page_id: &str) -> Result<()> {
     if cli.extension {
-        let tab_id: u64 = page_id.parse()
+        let tab_id: u64 = page_id
+            .parse()
             .map_err(|_| ActionbookError::InvalidArgument("Invalid tab ID".to_string()))?;
         let result = extension_send(
             cli,
             "Extension.activateTab",
-            serde_json::json!({ "tabId": tab_id })
-        ).await?;
+            serde_json::json!({ "tabId": tab_id }),
+        )
+        .await?;
 
         if cli.json {
             println!("{}", serde_json::to_string_pretty(&result)?);
@@ -5259,12 +5865,20 @@ pub(crate) async fn tab_close(cli: &Cli, config: &Config, page_id: Option<&str>)
                 .map_err(|_| ActionbookError::InvalidArgument("Invalid tab ID".to_string()))?
         } else {
             // Get active tab ID
-            let result = extension_send(cli, "Extension.getActiveTab", serde_json::json!({})).await?;
-            result.get("id").and_then(|v| v.as_u64())
+            let result =
+                extension_send(cli, "Extension.getActiveTab", serde_json::json!({})).await?;
+            result
+                .get("id")
+                .and_then(|v| v.as_u64())
                 .ok_or_else(|| ActionbookError::InvalidOperation("No active tab".to_string()))?
         };
 
-        extension_send(cli, "Extension.closeTab", serde_json::json!({ "tabId": tab_id })).await?;
+        extension_send(
+            cli,
+            "Extension.closeTab",
+            serde_json::json!({ "tabId": tab_id }),
+        )
+        .await?;
 
         if !cli.json {
             println!("{} Closed tab [{}]", "✓".green(), tab_id);
@@ -5302,7 +5916,10 @@ pub(crate) async fn tab_active(cli: &Cli, config: &Config) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&result)?);
         } else {
             let tab_id = result.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
-            let title = result.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled");
+            let title = result
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Untitled");
             let url = result.get("url").and_then(|v| v.as_str()).unwrap_or("");
 
             println!("{}", "Active tab:".bold());
@@ -5335,7 +5952,7 @@ pub(crate) async fn tab_active(cli: &Cli, config: &Config) -> Result<()> {
 pub(crate) async fn switch_frame(cli: &Cli, config: &Config, target: &str) -> Result<()> {
     if cli.extension {
         return Err(ActionbookError::Other(
-            "Frame switching not supported in extension mode".to_string()
+            "Frame switching not supported in extension mode".to_string(),
         ));
     }
 
@@ -5404,8 +6021,7 @@ pub(crate) async fn switch_frame(cli: &Cli, config: &Config, target: &str) -> Re
 #[cfg(test)]
 mod tests {
     use super::{
-        effective_profile_name, is_reusable_initial_blank_page_url, normalize_navigation_url,
-        should_use_driver_new_page,
+        effective_profile_name, normalize_navigation_url, should_use_driver_new_page,
     };
     use crate::browser::{BrowserDriver, SessionManager};
     use crate::cli::{BrowserCommands, BrowserMode, Cli, Commands};
@@ -5417,6 +6033,7 @@ mod tests {
             browser_path: None,
             cdp: None,
             profile: profile.map(ToString::to_string),
+            session: None,
             headless: false,
             stealth: false,
             stealth_os: None,
@@ -5521,23 +6138,6 @@ mod tests {
     }
 
     #[test]
-    fn reusable_initial_blank_page_urls() {
-        assert!(is_reusable_initial_blank_page_url("about:blank"));
-        assert!(is_reusable_initial_blank_page_url(" ABOUT:BLANK "));
-        assert!(is_reusable_initial_blank_page_url("about:newtab"));
-        assert!(is_reusable_initial_blank_page_url("chrome://newtab/"));
-        assert!(is_reusable_initial_blank_page_url("chrome://new-tab-page/"));
-        assert!(is_reusable_initial_blank_page_url("edge://newtab/"));
-    }
-
-    #[test]
-    fn non_reusable_page_urls() {
-        assert!(!is_reusable_initial_blank_page_url(""));
-        assert!(!is_reusable_initial_blank_page_url("https://example.com"));
-        assert!(!is_reusable_initial_blank_page_url("chrome://settings"));
-    }
-
-    #[test]
     fn effective_profile_name_prefers_cli_profile() {
         let cli = test_cli(Some("work"), BrowserCommands::Status);
         let mut config = Config::default();
@@ -5584,7 +6184,11 @@ mod tests {
     #[test]
     fn browser_mode_extension_enables_extension() {
         let (ext, _port) = super::resolve_browser_mode(
-            Some(BrowserMode::Extension), false, 19222, BrowserMode::Isolated, 19222,
+            Some(BrowserMode::Extension),
+            false,
+            19222,
+            BrowserMode::Isolated,
+            19222,
         );
         assert!(ext, "--browser-mode=extension should enable extension");
     }
@@ -5592,40 +6196,48 @@ mod tests {
     #[test]
     fn browser_mode_isolated_overrides_extension_flag() {
         let (ext, _port) = super::resolve_browser_mode(
-            Some(BrowserMode::Isolated), true, 19222, BrowserMode::Extension, 19222,
+            Some(BrowserMode::Isolated),
+            true,
+            19222,
+            BrowserMode::Extension,
+            19222,
         );
-        assert!(!ext, "--browser-mode=isolated should override --extension flag");
+        assert!(
+            !ext,
+            "--browser-mode=isolated should override --extension flag"
+        );
     }
 
     #[test]
     fn extension_flag_alone_enables_extension() {
-        let (ext, _port) = super::resolve_browser_mode(
-            None, true, 19222, BrowserMode::Isolated, 19222,
-        );
+        let (ext, _port) =
+            super::resolve_browser_mode(None, true, 19222, BrowserMode::Isolated, 19222);
         assert!(ext, "--extension alone should enable extension");
     }
 
     #[test]
     fn config_extension_mode_activates_when_no_flags() {
-        let (ext, port) = super::resolve_browser_mode(
-            None, false, 19222, BrowserMode::Extension, 18000,
-        );
+        let (ext, port) =
+            super::resolve_browser_mode(None, false, 19222, BrowserMode::Extension, 18000);
         assert!(ext, "Config extension mode should activate when no flags");
         assert_eq!(port, 18000, "Should use config port");
     }
 
     #[test]
     fn default_stays_isolated() {
-        let (ext, _port) = super::resolve_browser_mode(
-            None, false, 19222, BrowserMode::Isolated, 19222,
-        );
+        let (ext, _port) =
+            super::resolve_browser_mode(None, false, 19222, BrowserMode::Isolated, 19222);
         assert!(!ext, "Default should stay isolated");
     }
 
     #[test]
     fn custom_cli_port_preserved() {
         let (ext, port) = super::resolve_browser_mode(
-            Some(BrowserMode::Extension), false, 20000, BrowserMode::Isolated, 19222,
+            Some(BrowserMode::Extension),
+            false,
+            20000,
+            BrowserMode::Isolated,
+            19222,
         );
         assert!(ext);
         assert_eq!(port, 20000, "Non-default CLI port should be preserved");
@@ -5634,10 +6246,17 @@ mod tests {
     #[test]
     fn default_port_falls_back_to_config_port() {
         let (ext, port) = super::resolve_browser_mode(
-            Some(BrowserMode::Extension), false, 19222, BrowserMode::Isolated, 18500,
+            Some(BrowserMode::Extension),
+            false,
+            19222,
+            BrowserMode::Isolated,
+            18500,
         );
         assert!(ext);
-        assert_eq!(port, 18500, "Default port (19222) should fall back to config port");
+        assert_eq!(
+            port, 18500,
+            "Default port (19222) should fall back to config port"
+        );
     }
 
     // Tests for the new CDP Accessibility Tree snapshot formatting are in
@@ -5646,7 +6265,10 @@ mod tests {
     #[test]
     fn has_session_file_returns_false_for_nonexistent_profile() {
         // A random profile name should not have a session file
-        assert!(!super::has_session_file("nonexistent-random-profile-xyz-12345"));
+        assert!(!super::has_session_file_for(
+            "nonexistent-random-profile-xyz-12345",
+            None
+        ));
     }
 
     #[tokio::test]
@@ -5658,12 +6280,18 @@ mod tests {
 
         // Should not error with "Profile not found" because --cdp is set
         let result = super::create_browser_driver(&cli, &config).await;
-        assert!(result.is_ok(), "create_browser_driver should succeed with --cdp and unknown profile");
+        assert!(
+            result.is_ok(),
+            "create_browser_driver should succeed with --cdp and unknown profile"
+        );
     }
 
     #[tokio::test]
     async fn create_browser_driver_fails_without_cdp_and_unknown_profile() {
-        let mut cli = test_cli(Some("definitely-nonexistent-profile"), BrowserCommands::Status);
+        let mut cli = test_cli(
+            Some("definitely-nonexistent-profile"),
+            BrowserCommands::Status,
+        );
         cli.browser_mode = Some(BrowserMode::Isolated);
         let config = Config::default();
 

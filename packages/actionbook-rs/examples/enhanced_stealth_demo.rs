@@ -88,9 +88,18 @@ async fn main() -> Result<()> {
     println!("✅ Enhanced stealth applied:");
     println!("   • Platform: {}", profile.platform);
     println!("   • User-Agent: {}...", &profile.user_agent[..50]);
-    println!("   • Hardware: {} cores, {}GB RAM", profile.hardware_concurrency, profile.device_memory);
-    println!("   • Screen: {}x{}", profile.screen_width, profile.screen_height);
-    println!("   • WebGL: {} - {}", profile.webgl_vendor, profile.webgl_renderer);
+    println!(
+        "   • Hardware: {} cores, {}GB RAM",
+        profile.hardware_concurrency, profile.device_memory
+    );
+    println!(
+        "   • Screen: {}x{}",
+        profile.screen_width, profile.screen_height
+    );
+    println!(
+        "   • WebGL: {} - {}",
+        profile.webgl_vendor, profile.webgl_renderer
+    );
     println!("   • Timezone: {}\n", profile.timezone);
 
     // Step 5: Test on bot.sannysoft.com
@@ -187,7 +196,10 @@ async fn main() -> Result<()> {
     println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("✅ Enhanced stealth demo completed successfully!");
     println!("\n📊 Results:");
-    println!("   • Open {} to see the bot detection test", screenshot_path);
+    println!(
+        "   • Open {} to see the bot detection test",
+        screenshot_path
+    );
     println!("   • Green checks = undetected");
     println!("   • Red X's = detected");
     println!("\nExpected results with enhanced stealth:");

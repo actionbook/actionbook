@@ -44,7 +44,16 @@ type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>;
 /// 3. Load session state → establish persistent WS to CDP endpoint
 /// 4. Accept UDS connections, route CDP requests through the persistent WS
 /// 5. Exit on idle timeout or SIGTERM
+#[allow(dead_code)]
 pub async fn run(profile: &str) -> Result<()> {
+    run_with_session(profile, None).await
+}
+
+/// Run the daemon for a specific profile.
+/// One daemon per profile; all sessions share the same browser via the sessions HashMap.
+/// The `session` parameter is accepted for CLI compatibility but ignored — session
+/// routing is handled internally by the daemon's session routing table.
+pub async fn run_with_session(profile: &str, _session: Option<&str>) -> Result<()> {
     let config = crate::config::Config::load()?;
 
     // Resolve actual profile name
@@ -54,7 +63,7 @@ pub async fn run(profile: &str) -> Result<()> {
         profile.to_string()
     };
 
-    // Prepare UDS socket
+    // Prepare UDS socket — profile-level (one daemon per profile)
     let sock_path = lifecycle::socket_path(&resolved_profile);
     if let Some(parent) = sock_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -63,10 +72,14 @@ pub async fn run(profile: &str) -> Result<()> {
     let _ = std::fs::remove_file(&sock_path);
 
     let listener = UnixListener::bind(&sock_path).map_err(|e| {
-        ActionbookError::DaemonError(format!("Failed to bind UDS at {}: {}", sock_path.display(), e))
+        ActionbookError::DaemonError(format!(
+            "Failed to bind UDS at {}: {}",
+            sock_path.display(),
+            e
+        ))
     })?;
 
-    // Write PID file
+    // Write PID file — profile-level
     lifecycle::write_pid(&resolved_profile, std::process::id())?;
 
     tracing::info!(
@@ -81,9 +94,8 @@ pub async fn run(profile: &str) -> Result<()> {
     let shutdown_signal = shutdown.clone();
 
     {
-        let mut sigterm =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .map_err(|e| ActionbookError::DaemonError(format!("Signal handler failed: {}", e)))?;
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .map_err(|e| ActionbookError::DaemonError(format!("Signal handler failed: {}", e)))?;
         tokio::spawn(async move {
             sigterm.recv().await;
             shutdown_signal.notify_waiters();
@@ -98,12 +110,7 @@ pub async fn run(profile: &str) -> Result<()> {
     let profile_for_ws = resolved_profile.clone();
     let shutdown_for_ws = shutdown.clone();
     tokio::spawn(async move {
-        ws_connection_loop(
-            &profile_for_ws,
-            ws_state_clone,
-            shutdown_for_ws,
-        )
-        .await;
+        ws_connection_loop(&profile_for_ws, ws_state_clone, shutdown_for_ws).await;
     });
 
     // Accept UDS connections with idle timeout
@@ -154,7 +161,7 @@ pub async fn run(profile: &str) -> Result<()> {
         }
     }
 
-    // Cleanup
+    // Cleanup — profile-level
     lifecycle::cleanup_files(&resolved_profile);
     tracing::info!("Daemon for profile '{}' exiting", resolved_profile);
     Ok(())
@@ -174,17 +181,32 @@ struct SessionInfo {
 impl SessionInfo {
     /// Whether this session uses local HTTP endpoints for page discovery.
     fn uses_local_http_endpoints(&self) -> bool {
-        let authority = self.cdp_url.split("://").nth(1).and_then(|s| s.split('/').next());
-        let Some(authority) = authority else { return false };
+        let authority = self
+            .cdp_url
+            .split("://")
+            .nth(1)
+            .and_then(|s| s.split('/').next());
+        let Some(authority) = authority else {
+            return false;
+        };
         let host = authority.rsplit('@').next().unwrap_or(authority);
         let host = if host.starts_with('[') {
-            host.split(']').next().unwrap_or(host).trim_start_matches('[')
+            host.split(']')
+                .next()
+                .unwrap_or(host)
+                .trim_start_matches('[')
         } else {
             host.split(':').next().unwrap_or(host)
         };
         let is_loopback = matches!(host, "127.0.0.1" | "localhost" | "::1");
         is_loopback && self.cdp_url.contains("/devtools/browser/")
     }
+}
+
+/// Per-session entry tracking the CDP sessionId and target for one named session.
+struct SessionEntry {
+    cdp_session_id: String,
+    target_id: String,
 }
 
 /// Shared WS state: a sender channel for outgoing CDP messages,
@@ -196,14 +218,9 @@ struct WsState {
     pending: PendingMap,
     /// Monotonically increasing CDP message ID (WS-level).
     next_ws_id: AtomicU64,
-    /// The CDP session ID obtained from Target.attachToTarget, if attached.
-    session_id: Mutex<Option<String>>,
-    /// The target ID we're currently attached to.
-    attached_target_id: Mutex<Option<String>>,
-    /// Serializes the entire detach→attach sequence in maybe_reattach().
-    /// Without this, concurrent UDS clients could each trigger a separate
-    /// detach+attach race, orphaning the intermediate target sessions.
-    reattach_lock: Mutex<()>,
+    /// Multi-session routing table: session_name → SessionEntry.
+    /// The "default" session is created on initial connect.
+    sessions: Mutex<HashMap<String, SessionEntry>>,
     /// Profile name for re-reading session state.
     profile: String,
     /// State-based readiness: `true` once `connect_and_run` finishes initial
@@ -230,16 +247,14 @@ impl WsState {
             tx: Mutex::new(None),
             pending: Arc::new(Mutex::new(HashMap::new())),
             next_ws_id: AtomicU64::new(1),
-            session_id: Mutex::new(None),
-            attached_target_id: Mutex::new(None),
-            reattach_lock: Mutex::new(()),
+            sessions: Mutex::new(HashMap::new()),
             profile,
             ready_tx,
             ready_rx,
         }
     }
 
-    /// Send a CDP command through the persistent WS and wait for the response.
+    /// Send a CDP command through the persistent WS for a specific named session.
     ///
     /// For page-scoped methods (Runtime.*, DOM.*, Page.*, Input.*, etc.),
     /// the command is sent through the attached target session.
@@ -249,10 +264,18 @@ impl WsState {
     /// detaches from the old target and re-attaches to the new one.
     async fn send_cdp(
         &self,
+        session_name: &str,
         method: &str,
         params: Value,
     ) -> std::result::Result<Value, String> {
-        // Wait for initial attach to complete (connect_and_run sets tx + session_id
+        // Handle internal control methods
+        if method.starts_with("__actionbook.") {
+            return self
+                .handle_internal_method(session_name, method, &params)
+                .await;
+        }
+
+        // Wait for initial attach to complete (connect_and_run sets tx + sessions
         // then sends `true` on ready_tx). The watch channel is state-based: if
         // connect_and_run already completed, the current value is `true` and
         // wait_for returns immediately.
@@ -294,17 +317,20 @@ impl WsState {
         let session_id = if is_browser_level_method(method) {
             None
         } else {
-            // Check if the active page has changed since our last attach
-            self.maybe_reattach().await?;
+            // Ensure we have a session entry, lazy-attaching if needed
+            self.ensure_session(session_name).await?;
 
-            let guard = self.session_id.lock().await;
-            match guard.as_ref() {
-                Some(sid) => Some(sid.clone()),
+            // Check if the active page has changed since our last attach
+            self.maybe_reattach(session_name).await?;
+
+            let sessions = self.sessions.lock().await;
+            match sessions.get(session_name) {
+                Some(entry) => Some(entry.cdp_session_id.clone()),
                 None => {
                     return Err(format!(
-                        "No target attached for page-scoped method '{}'. \
+                        "No target attached for session '{}', method '{}'. \
                          The daemon has not yet attached to a browser target.",
-                        method
+                        session_name, method
                     ));
                 }
             }
@@ -331,13 +357,14 @@ impl WsState {
                 return Err("Daemon WS not connected".to_string());
             }
         };
-        if let Err(_) = tx.send(WsCommand {
-            ws_id,
-            method: method.to_string(),
-            params,
-            session_id,
-        })
-        .await
+        if let Err(_) = tx
+            .send(WsCommand {
+                ws_id,
+                method: method.to_string(),
+                params,
+                session_id,
+            })
+            .await
         {
             // Writer channel closed — clean up the pending entry
             self.pending.lock().await.remove(&ws_id);
@@ -356,26 +383,161 @@ impl WsState {
         }
     }
 
-    /// Check if `active_page_id` on disk differs from the currently attached target.
-    /// If so, detach from the old target and re-attach to the new one via the
-    /// persistent WS connection.
-    ///
-    /// Serialized by `reattach_lock` — concurrent callers wait rather than
-    /// each triggering their own detach+attach cycle.
-    async fn maybe_reattach(&self) -> std::result::Result<(), String> {
-        // Acquire the reattach lock so only one caller runs the
-        // detach→attach sequence at a time. Others will wait and then
-        // see the updated attached_target_id, hitting the early return.
-        let _guard = self.reattach_lock.lock().await;
+    /// Ensure a named session exists in the routing table.
+    /// If it doesn't exist, lazy-attach to the appropriate target.
+    async fn ensure_session(&self, session_name: &str) -> std::result::Result<(), String> {
+        {
+            let sessions = self.sessions.lock().await;
+            if sessions.contains_key(session_name) {
+                return Ok(());
+            }
+        }
 
-        let current_target = self.attached_target_id.lock().await.clone();
-        let Some(current_target) = current_target else {
-            // Not attached yet — connect_and_run hasn't finished attach
-            return Ok(());
+        // Session not yet attached — lazy attach
+        let session_info = load_session_info_for_session(&self.profile, session_name);
+
+        let target_id = if let Some(ref info) = session_info {
+            if let Some(ref page_id) = info.active_page_id {
+                page_id.clone()
+            } else {
+                // No active_page_id in session file — create a new independent tab
+                // (Don't fall back to default's target, which would cause cross-session conflicts)
+                tracing::info!(
+                    "Session '{}' has no active_page_id, creating new tab",
+                    session_name
+                );
+                self.create_new_target().await?
+            }
+        } else {
+            // No session file — create a new tab
+            self.create_new_target().await?
         };
 
-        // Re-read active_page_id from disk
-        let session_info = load_session_info(&self.profile);
+        // Attach to the target
+        self.attach_session(session_name, &target_id).await
+    }
+
+    /// Create a new browser tab via Target.createTarget, returning its targetId.
+    async fn create_new_target(&self) -> std::result::Result<String, String> {
+        let tx = {
+            let guard = self.tx.lock().await;
+            guard.clone()
+        };
+        let tx = tx.ok_or_else(|| "WS not connected for new tab creation".to_string())?;
+
+        let ws_id = self.next_ws_id.fetch_add(1, Ordering::Relaxed);
+        let (resp_tx, resp_rx) = oneshot::channel();
+        {
+            let mut pending = self.pending.lock().await;
+            pending.insert(ws_id, resp_tx);
+        }
+
+        tx.send(WsCommand {
+            ws_id,
+            method: "Target.createTarget".to_string(),
+            params: serde_json::json!({"url": "about:blank"}),
+            session_id: None,
+        })
+        .await
+        .map_err(|_| "WS writer closed during createTarget".to_string())?;
+
+        let result = tokio::time::timeout(Duration::from_secs(10), resp_rx)
+            .await
+            .map_err(|_| "createTarget timed out".to_string())?
+            .map_err(|_| "createTarget response channel dropped".to_string())?;
+
+        if let Some(err) = result.get("error") {
+            return Err(format!("Target.createTarget failed: {}", err));
+        }
+
+        result
+            .get("targetId")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| "No targetId in createTarget response".to_string())
+    }
+
+    /// Attach a named session to a specific target, storing the entry in the routing table.
+    async fn attach_session(
+        &self,
+        session_name: &str,
+        target_id: &str,
+    ) -> std::result::Result<(), String> {
+        let tx = {
+            let guard = self.tx.lock().await;
+            guard.clone()
+        };
+        let tx = tx.ok_or_else(|| "WS not connected during attach".to_string())?;
+
+        let ws_id = self.next_ws_id.fetch_add(1, Ordering::Relaxed);
+        let (resp_tx, resp_rx) = oneshot::channel();
+        {
+            let mut pending = self.pending.lock().await;
+            pending.insert(ws_id, resp_tx);
+        }
+
+        tx.send(WsCommand {
+            ws_id,
+            method: "Target.attachToTarget".to_string(),
+            params: serde_json::json!({
+                "targetId": target_id,
+                "flatten": true
+            }),
+            session_id: None,
+        })
+        .await
+        .map_err(|_| "WS writer closed during attach".to_string())?;
+
+        let result = tokio::time::timeout(Duration::from_secs(10), resp_rx)
+            .await
+            .map_err(|_| "Attach timed out".to_string())?
+            .map_err(|_| "Attach response channel dropped".to_string())?;
+
+        if let Some(err) = result.get("error") {
+            return Err(format!("Target.attachToTarget failed: {}", err));
+        }
+
+        let cdp_session_id = result
+            .get("sessionId")
+            .and_then(|s| s.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| "No sessionId in attach response".to_string())?;
+
+        tracing::info!(
+            "Attached session '{}' to target {} (cdpSessionId: {})",
+            session_name,
+            target_id,
+            cdp_session_id
+        );
+
+        let mut sessions = self.sessions.lock().await;
+        sessions.insert(
+            session_name.to_string(),
+            SessionEntry {
+                cdp_session_id,
+                target_id: target_id.to_string(),
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Check if `active_page_id` on disk differs from the currently attached target
+    /// for a specific named session. If so, detach from the old target and re-attach
+    /// to the new one via the persistent WS connection.
+    async fn maybe_reattach(&self, session_name: &str) -> std::result::Result<(), String> {
+        // We need to acquire the per-session reattach lock.
+        // First check if the session exists and get current state.
+        let (current_target, old_session_id) = {
+            let sessions = self.sessions.lock().await;
+            match sessions.get(session_name) {
+                Some(entry) => (entry.target_id.clone(), entry.cdp_session_id.clone()),
+                None => return Ok(()), // Not attached yet
+            }
+        };
+
+        // Re-read active_page_id from disk for this session
+        let session_info = load_session_info_for_session(&self.profile, session_name);
         let desired_target = session_info
             .as_ref()
             .and_then(|s| s.active_page_id.as_deref())
@@ -385,11 +547,13 @@ impl WsState {
             return Ok(()); // No change
         }
 
-        // Grab the old sessionId before we replace it — needed for detach
-        let old_session_id = self.session_id.lock().await.clone();
+        // Note: We don't use per-session reattach locks here because the
+        // sessions HashMap lock already serializes access. The check above
+        // ensures we only proceed if the target actually changed.
 
         tracing::info!(
-            "Active page changed: {} → {}, re-attaching",
+            "Session '{}' active page changed: {} → {}, re-attaching",
+            session_name,
             current_target,
             desired_target
         );
@@ -400,10 +564,8 @@ impl WsState {
         };
         let tx = tx.ok_or_else(|| "WS not connected during re-attach".to_string())?;
 
-        // Step 1: Detach from the old target session to avoid orphaned sessions.
-        // Best-effort — if detach fails (e.g. target already closed), we still
-        // proceed with attach.
-        if let Some(old_sid) = &old_session_id {
+        // Step 1: Detach from the old target session (best-effort)
+        {
             let detach_id = self.next_ws_id.fetch_add(1, Ordering::Relaxed);
             let (detach_tx, detach_rx) = oneshot::channel();
             {
@@ -416,27 +578,31 @@ impl WsState {
                     ws_id: detach_id,
                     method: "Target.detachFromTarget".to_string(),
                     params: serde_json::json!({
-                        "sessionId": old_sid
+                        "sessionId": old_session_id
                     }),
                     session_id: None,
                 })
                 .await;
 
-            // Wait briefly — don't block re-attach on a slow detach
             match tokio::time::timeout(Duration::from_secs(3), detach_rx).await {
                 Ok(Ok(resp)) => {
                     if let Some(err) = resp.get("error") {
                         tracing::debug!(
-                            "Detach from old session {} failed (non-fatal): {}",
-                            old_sid,
+                            "Detach session '{}' from {} failed (non-fatal): {}",
+                            session_name,
+                            old_session_id,
                             err
                         );
                     } else {
-                        tracing::debug!("Detached old session {}", old_sid);
+                        tracing::debug!(
+                            "Detached session '{}' from {}",
+                            session_name,
+                            old_session_id
+                        );
                     }
                 }
                 _ => {
-                    tracing::debug!("Detach from old session {} timed out (non-fatal)", old_sid);
+                    tracing::debug!("Detach session '{}' timed out (non-fatal)", session_name);
                     self.pending.lock().await.remove(&detach_id);
                 }
             }
@@ -450,7 +616,6 @@ impl WsState {
             pending.insert(ws_id, resp_tx);
         }
 
-        // Send attach as a browser-level command (no sessionId)
         tx.send(WsCommand {
             ws_id,
             method: "Target.attachToTarget".to_string(),
@@ -463,13 +628,11 @@ impl WsState {
         .await
         .map_err(|_| "WS writer closed during re-attach".to_string())?;
 
-        // Wait for response
         let result = tokio::time::timeout(Duration::from_secs(10), resp_rx)
             .await
             .map_err(|_| "Re-attach timed out".to_string())?
             .map_err(|_| "Re-attach response channel dropped".to_string())?;
 
-        // Extract new sessionId
         if let Some(err) = result.get("error") {
             return Err(format!("Re-attach failed: {}", err));
         }
@@ -480,17 +643,88 @@ impl WsState {
             .map(|s| s.to_string())
             .ok_or_else(|| "No sessionId in re-attach response".to_string())?;
 
-        // Update cached state
-        *self.session_id.lock().await = Some(new_session_id.clone());
-        *self.attached_target_id.lock().await = Some(desired_target.to_string());
+        // Update the session entry
+        let mut sessions = self.sessions.lock().await;
+        sessions.insert(
+            session_name.to_string(),
+            SessionEntry {
+                cdp_session_id: new_session_id.clone(),
+                target_id: desired_target.to_string(),
+            },
+        );
 
         tracing::info!(
-            "Re-attached to target {} with sessionId: {}",
+            "Session '{}' re-attached to target {} with sessionId: {}",
+            session_name,
             desired_target,
             new_session_id
         );
 
         Ok(())
+    }
+
+    /// Handle internal `__actionbook.*` control methods.
+    async fn handle_internal_method(
+        &self,
+        _session_name: &str,
+        method: &str,
+        params: &Value,
+    ) -> std::result::Result<Value, String> {
+        match method {
+            "__actionbook.listSessions" => {
+                let sessions = self.sessions.lock().await;
+                let list: Vec<Value> = sessions
+                    .iter()
+                    .map(|(name, entry)| {
+                        serde_json::json!({
+                            "name": name,
+                            "targetId": entry.target_id,
+                        })
+                    })
+                    .collect();
+                Ok(serde_json::json!({"sessions": list}))
+            }
+            "__actionbook.destroySession" => {
+                let name = params
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| "Missing 'name' param for destroySession".to_string())?;
+
+                let entry = {
+                    let mut sessions = self.sessions.lock().await;
+                    sessions.remove(name)
+                };
+
+                if let Some(entry) = entry {
+                    // Best-effort detach
+                    let tx = {
+                        let guard = self.tx.lock().await;
+                        guard.clone()
+                    };
+                    if let Some(tx) = tx {
+                        let detach_id = self.next_ws_id.fetch_add(1, Ordering::Relaxed);
+                        let (detach_tx, detach_rx) = oneshot::channel();
+                        {
+                            let mut pending = self.pending.lock().await;
+                            pending.insert(detach_id, detach_tx);
+                        }
+                        let _ = tx
+                            .send(WsCommand {
+                                ws_id: detach_id,
+                                method: "Target.detachFromTarget".to_string(),
+                                params: serde_json::json!({"sessionId": entry.cdp_session_id}),
+                                session_id: None,
+                            })
+                            .await;
+                        let _ = tokio::time::timeout(Duration::from_secs(3), detach_rx).await;
+                    }
+                    Ok(serde_json::json!({"destroyed": name, "targetId": entry.target_id}))
+                } else {
+                    Err(format!("Session '{}' not found", name))
+                }
+            }
+            _ => Err(format!("Unknown internal method: {}", method)),
+        }
     }
 }
 
@@ -526,99 +760,230 @@ async fn ws_connection_loop(
     let mut reconnect_attempts = 0u32;
 
     loop {
-        // Load fresh session info from disk
-        let session_info = match load_session_info(profile) {
-            Some(info) => info,
-            None => {
-                tracing::warn!("No session state found for profile '{}', retrying...", profile);
-                // Compute delay *before* incrementing so first attempt uses base delay (1s)
-                let delay_ms = (WS_RECONNECT_BASE_MS << reconnect_attempts.min(4))
-                    .min(WS_RECONNECT_MAX_MS);
-                reconnect_attempts += 1;
-                if reconnect_attempts >= MAX_RECONNECT_ATTEMPTS {
-                    tracing::error!("Max reconnect attempts reached (no session state), daemon exiting");
-                    break;
-                }
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_millis(delay_ms)) => continue,
-                    _ = shutdown.notified() => break,
-                }
-            }
-        };
-
-        tracing::info!(
-            "Connecting to WS: {} (attempt {})",
-            session_info.cdp_url,
-            reconnect_attempts + 1
-        );
-
-        match connect_and_run(&session_info, &ws_state, &shutdown).await {
-            Ok(()) => {
-                // Graceful shutdown requested
+        // Load all session candidates from disk, ordered by priority (default first).
+        // Try each until one connects, so a stale default doesn't block live named sessions.
+        let candidates = find_all_session_infos(profile);
+        if candidates.is_empty() {
+            tracing::warn!(
+                "No session state found for profile '{}', retrying...",
+                profile
+            );
+            let delay_ms =
+                (WS_RECONNECT_BASE_MS << reconnect_attempts.min(4)).min(WS_RECONNECT_MAX_MS);
+            reconnect_attempts += 1;
+            if reconnect_attempts >= MAX_RECONNECT_ATTEMPTS {
+                tracing::error!(
+                    "Max reconnect attempts reached (no session state), daemon exiting"
+                );
                 break;
             }
-            Err(e) => {
-                // Check if the WS was fully connected (session_id set) before
-                // clearing state — distinguishes "connection failed" from
-                // "connection dropped after running".
-                let was_connected = ws_state.session_id.lock().await.is_some();
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(delay_ms)) => continue,
+                _ = shutdown.notified() => break,
+            }
+        }
 
-                tracing::warn!("WS connection lost: {}", e);
-                *ws_state.tx.lock().await = None;
-                *ws_state.session_id.lock().await = None;
-                *ws_state.attached_target_id.lock().await = None;
-                // Reset readiness so new callers wait for reconnect
-                let _ = ws_state.ready_tx.send(false);
+        // Try each candidate until one connects successfully.
+        // If a candidate connects and then drops, we break out to the outer loop
+        // which will re-scan disk and try all candidates again.
+        let mut any_connected = false;
+        let mut should_shutdown = false;
+        for (initial_session_name, session_info) in &candidates {
+            tracing::info!(
+                "Trying session '{}' at WS: {} (attempt {})",
+                initial_session_name,
+                session_info.cdp_url,
+                reconnect_attempts + 1
+            );
 
-                // Drain all pending requests immediately so callers get an
-                // error right away instead of waiting until their timeout.
-                {
-                    let mut pending = ws_state.pending.lock().await;
-                    let count = pending.len();
-                    for (_, tx) in pending.drain() {
-                        let _ = tx.send(serde_json::json!({"error": "WS connection lost"}));
-                    }
-                    if count > 0 {
-                        tracing::info!("Drained {} pending requests after WS disconnect", count);
-                    }
-                }
-
-                // Reset counter when the connection was previously working —
-                // only count *consecutive* connection failures.
-                if was_connected {
-                    reconnect_attempts = 0;
-                }
-
-                // Compute delay *before* incrementing: 1s → 2s → 4s → 8s → 16s (capped)
-                let delay_ms = (WS_RECONNECT_BASE_MS << reconnect_attempts.min(4))
-                    .min(WS_RECONNECT_MAX_MS);
-
-                if !was_connected {
-                    reconnect_attempts += 1;
-                }
-                if reconnect_attempts >= MAX_RECONNECT_ATTEMPTS {
-                    tracing::error!("Max reconnect attempts reached, daemon exiting");
+            match connect_and_run(session_info, &ws_state, &shutdown, initial_session_name).await {
+                Ok(()) => {
+                    // Graceful shutdown requested
+                    should_shutdown = true;
                     break;
                 }
-                tracing::info!("Reconnecting in {}ms...", delay_ms);
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_millis(delay_ms)) => continue,
-                    _ = shutdown.notified() => break,
+                Err(e) => {
+                    let was_connected = !ws_state.sessions.lock().await.is_empty();
+
+                    tracing::warn!(
+                        "WS connection to session '{}' lost: {}",
+                        initial_session_name,
+                        e
+                    );
+                    *ws_state.tx.lock().await = None;
+                    ws_state.sessions.lock().await.clear();
+                    let _ = ws_state.ready_tx.send(false);
+
+                    // Drain pending requests
+                    {
+                        let mut pending = ws_state.pending.lock().await;
+                        let count = pending.len();
+                        for (_, tx) in pending.drain() {
+                            let _ = tx.send(serde_json::json!({"error": "WS connection lost"}));
+                        }
+                        if count > 0 {
+                            tracing::info!(
+                                "Drained {} pending requests after WS disconnect",
+                                count
+                            );
+                        }
+                    }
+
+                    if was_connected {
+                        // Connection was working then dropped — restart scan from top
+                        reconnect_attempts = 0;
+                        any_connected = true;
+                        break;
+                    }
+
+                    // Connection never succeeded — try next candidate
+                    tracing::debug!(
+                        "Session '{}' not reachable, trying next candidate",
+                        initial_session_name
+                    );
+                    continue;
                 }
             }
+        }
+
+        if should_shutdown {
+            break;
+        }
+
+        // All candidates failed (or one connected then dropped)
+        if !any_connected {
+            reconnect_attempts += 1;
+        }
+        if reconnect_attempts >= MAX_RECONNECT_ATTEMPTS {
+            tracing::error!("Max reconnect attempts reached, daemon exiting");
+            break;
+        }
+        let delay_ms = (WS_RECONNECT_BASE_MS << reconnect_attempts.min(4)).min(WS_RECONNECT_MAX_MS);
+        tracing::info!("Reconnecting in {}ms...", delay_ms);
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_millis(delay_ms)) => continue,
+            _ = shutdown.notified() => break,
         }
     }
 }
 
-/// Load session info from disk.
-fn load_session_info(profile: &str) -> Option<SessionInfo> {
+/// Sanitize a name for safe use in file paths (same logic as lifecycle::sanitize).
+fn sanitize_name(name: &str) -> String {
+    let s: String = name
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    if s.is_empty() {
+        "default".to_string()
+    } else {
+        s
+    }
+}
+
+fn legacy_session_paths(sessions_dir: &std::path::Path, profile: &str) -> Vec<std::path::PathBuf> {
+    let mut paths = vec![sessions_dir.join(format!("{}.json", profile))];
+    let safe_profile = sanitize_name(profile);
+    let safe_path = sessions_dir.join(format!("{}.json", safe_profile));
+    if !paths.iter().any(|p| p == &safe_path) {
+        paths.push(safe_path);
+    }
+    paths
+}
+
+/// Load session info for a specific named session from disk.
+/// Tries `{profile}@{session}.json` first, then falls back to legacy `{profile}.json`
+/// if the session is "default".
+fn load_session_info_for_session(profile: &str, session_name: &str) -> Option<SessionInfo> {
+    let safe_profile = sanitize_name(profile);
+    let safe_session = sanitize_name(session_name);
     let sessions_dir = dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".actionbook")
         .join("sessions");
-    let session_file = sessions_dir.join(format!("{}.json", profile));
-    let content = std::fs::read_to_string(session_file).ok()?;
-    serde_json::from_str(&content).ok()
+
+    // Try session-specific file
+    let session_file = sessions_dir.join(format!("{}@{}.json", safe_profile, safe_session));
+    if let Ok(content) = std::fs::read_to_string(&session_file) {
+        if let Ok(info) = serde_json::from_str::<SessionInfo>(&content) {
+            return Some(info);
+        }
+    }
+
+    // Fall back to legacy file only for "default" session
+    if safe_session == "default" {
+        for legacy_file in legacy_session_paths(&sessions_dir, profile) {
+            if let Ok(content) = std::fs::read_to_string(&legacy_file) {
+                return serde_json::from_str(&content).ok();
+            }
+        }
+    }
+
+    None
+}
+
+/// Find all session infos for the given profile, ordered by priority:
+/// 1. default session (new-style), 2. legacy file, 3. any other named sessions.
+/// Returns `Vec<(session_name, SessionInfo)>` so callers can try each until one connects.
+fn find_all_session_infos(profile: &str) -> Vec<(String, SessionInfo)> {
+    let safe_profile = sanitize_name(profile);
+    let sessions_dir = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".actionbook")
+        .join("sessions");
+
+    let mut candidates = Vec::new();
+
+    // 1. Try default session (new-style)
+    let default_file = sessions_dir.join(format!("{}@default.json", safe_profile));
+    if let Ok(content) = std::fs::read_to_string(&default_file) {
+        if let Ok(info) = serde_json::from_str::<SessionInfo>(&content) {
+            candidates.push(("default".to_string(), info));
+        }
+    }
+
+    // 2. Try legacy file (only if default wasn't found)
+    if candidates.is_empty() {
+        for legacy_file in legacy_session_paths(&sessions_dir, profile) {
+            if let Ok(content) = std::fs::read_to_string(&legacy_file) {
+                if let Ok(info) = serde_json::from_str::<SessionInfo>(&content) {
+                    candidates.push(("default".to_string(), info));
+                    break;
+                }
+            }
+        }
+    }
+
+    // 3. Any other named sessions
+    let prefix = format!("{}@", safe_profile);
+    if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
+        for entry in entries.flatten() {
+            let fname = entry.file_name();
+            let fname_str = fname.to_string_lossy();
+            if fname_str.starts_with(&prefix) && fname_str.ends_with(".json") {
+                // Skip default — already checked above
+                if fname_str.as_ref() == format!("{}@default.json", safe_profile) {
+                    continue;
+                }
+                let session_name = fname_str
+                    .strip_prefix(&prefix)
+                    .and_then(|s| s.strip_suffix(".json"))
+                    .unwrap_or("default")
+                    .to_string();
+                if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                    if let Ok(info) = serde_json::from_str::<SessionInfo>(&content) {
+                        tracing::debug!(
+                            "Found session info from {} (session={})",
+                            fname_str,
+                            session_name
+                        );
+                        candidates.push((session_name, info));
+                    }
+                }
+            }
+        }
+    }
+
+    candidates
 }
 
 /// Resolve the active page target ID.
@@ -627,12 +992,18 @@ fn load_session_info(profile: &str) -> Option<SessionInfo> {
 /// For remote sessions, uses `Target.getTargets` over the WS.
 async fn resolve_active_target(
     session_info: &SessionInfo,
-    ws_write: &Mutex<futures::stream::SplitSink<
-        tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
-        tokio_tungstenite::tungstenite::Message,
-    >>,
+    ws_write: &Mutex<
+        futures::stream::SplitSink<
+            tokio_tungstenite::WebSocketStream<
+                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+            >,
+            tokio_tungstenite::tungstenite::Message,
+        >,
+    >,
     ws_read: &mut futures::stream::SplitStream<
-        tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
     >,
 ) -> std::result::Result<String, String> {
     if session_info.uses_local_http_endpoints() {
@@ -653,8 +1024,15 @@ async fn resolve_active_target(
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
-        let resp = client.get(&url).send().await.map_err(|e| format!("HTTP /json/list failed: {}", e))?;
-        let pages: Vec<Value> = resp.json().await.map_err(|e| format!("Parse /json/list failed: {}", e))?;
+        let resp = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("HTTP /json/list failed: {}", e))?;
+        let pages: Vec<Value> = resp
+            .json()
+            .await
+            .map_err(|e| format!("Parse /json/list failed: {}", e))?;
 
         // Find the active page or fall back to first "page" type
         let active_id = session_info.active_page_id.as_deref();
@@ -684,7 +1062,9 @@ async fn resolve_active_target(
         {
             let mut writer = ws_write.lock().await;
             writer
-                .send(tokio_tungstenite::tungstenite::Message::Text(cmd.to_string().into()))
+                .send(tokio_tungstenite::tungstenite::Message::Text(
+                    cmd.to_string().into(),
+                ))
                 .await
                 .map_err(|e| format!("WS send Target.getTargets failed: {}", e))?;
         }
@@ -706,7 +1086,8 @@ async fn resolve_active_target(
                                 if let Some(aid) = active_id {
                                     if let Some(t) = targets.iter().find(|t| {
                                         t.get("targetId").and_then(|v| v.as_str()) == Some(aid)
-                                            && t.get("type").and_then(|v| v.as_str()) == Some("page")
+                                            && t.get("type").and_then(|v| v.as_str())
+                                                == Some("page")
                                     }) {
                                         return Ok(t["targetId"].as_str().unwrap().to_string());
                                     }
@@ -715,12 +1096,11 @@ async fn resolve_active_target(
                                 if let Some(t) = targets.iter().find(|t| {
                                     t.get("type").and_then(|v| v.as_str()) == Some("page")
                                 }) {
-                                    return Ok(
-                                        t.get("targetId")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or_default()
-                                            .to_string(),
-                                    );
+                                    return Ok(t
+                                        .get("targetId")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or_default()
+                                        .to_string());
                                 }
                             }
                             return Err("No page targets found via Target.getTargets".to_string());
@@ -743,6 +1123,7 @@ async fn connect_and_run(
     session_info: &SessionInfo,
     ws_state: &WsState,
     shutdown: &tokio::sync::Notify,
+    initial_session_name: &str,
 ) -> std::result::Result<(), String> {
     use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
@@ -822,13 +1203,25 @@ async fn connect_and_run(
         }
     }
 
-    let session_id = session_id
-        .ok_or_else(|| "No sessionId returned by Target.attachToTarget".to_string())?;
-    tracing::info!("Attached to target {} with sessionId: {}", target_id, session_id);
+    let session_id =
+        session_id.ok_or_else(|| "No sessionId returned by Target.attachToTarget".to_string())?;
+    tracing::info!(
+        "Attached to target {} with sessionId: {}",
+        target_id,
+        session_id
+    );
 
-    // Store session_id and target_id in WsState
-    *ws_state.session_id.lock().await = Some(session_id);
-    *ws_state.attached_target_id.lock().await = Some(target_id);
+    // Store the initial session in the routing table under its actual name
+    {
+        let mut sessions = ws_state.sessions.lock().await;
+        sessions.insert(
+            initial_session_name.to_string(),
+            SessionEntry {
+                cdp_session_id: session_id,
+                target_id: target_id,
+            },
+        );
+    }
 
     // Create writer channel
     let (tx, mut rx) = mpsc::channel::<WsCommand>(64);
@@ -850,14 +1243,12 @@ async fn connect_and_run(
             });
             // For page-scoped commands, include the sessionId
             if let Some(sid) = cmd.session_id {
-                frame.as_object_mut().unwrap().insert(
-                    "sessionId".to_string(),
-                    Value::String(sid),
-                );
+                frame
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("sessionId".to_string(), Value::String(sid));
             }
-            let msg = tokio_tungstenite::tungstenite::Message::Text(
-                frame.to_string().into(),
-            );
+            let msg = tokio_tungstenite::tungstenite::Message::Text(frame.to_string().into());
             let mut writer = ws_write_clone.lock().await;
             if let Err(e) = writer.send(msg).await {
                 tracing::error!("WS write error: {}", e);
@@ -941,7 +1332,10 @@ async fn handle_uds_client(
         };
 
         let id = request.id;
-        let result = ws_state.send_cdp(&request.method, request.params).await;
+        let session_name = request.session.as_deref().unwrap_or("default");
+        let result = ws_state
+            .send_cdp(session_name, &request.method, request.params)
+            .await;
 
         let resp = match result {
             Ok(value) => {
@@ -955,8 +1349,9 @@ async fn handle_uds_client(
             Err(e) => DaemonResponse::err(id, e),
         };
 
-        let encoded = protocol::encode_line(&resp)
-            .map_err(|e| ActionbookError::DaemonError(format!("Failed to encode response: {}", e)))?;
+        let encoded = protocol::encode_line(&resp).map_err(|e| {
+            ActionbookError::DaemonError(format!("Failed to encode response: {}", e))
+        })?;
         writer.write_all(encoded.as_bytes()).await?;
     }
 

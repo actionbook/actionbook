@@ -11,6 +11,7 @@ use crate::error::{ActionbookError, Result};
 /// Client for communicating with a per-profile daemon over Unix Domain Socket.
 pub struct DaemonClient {
     profile: String,
+    session: Option<String>,
     next_id: AtomicU64,
 }
 
@@ -18,6 +19,16 @@ impl DaemonClient {
     pub fn new(profile: String) -> Self {
         Self {
             profile,
+            session: None,
+            next_id: AtomicU64::new(1),
+        }
+    }
+
+    /// Create a client with a specific session name for multi-session routing.
+    pub fn with_session(profile: String, session: Option<String>) -> Self {
+        Self {
+            profile,
+            session,
             next_id: AtomicU64::new(1),
         }
     }
@@ -26,11 +37,9 @@ impl DaemonClient {
     ///
     /// Returns `Ok(Value)` on success, or an error if the daemon is unreachable
     /// or the CDP command fails.
-    pub async fn send_cdp(
-        &self,
-        method: &str,
-        params: Value,
-    ) -> Result<Value> {
+    pub async fn send_cdp(&self, method: &str, params: Value) -> Result<Value> {
+        // Always connect to the profile-level daemon socket.
+        // Session routing happens inside the daemon via the request's session field.
         let sock_path = lifecycle::socket_path(&self.profile);
 
         let mut stream = UnixStream::connect(&sock_path).await.map_err(|e| {
@@ -45,6 +54,7 @@ impl DaemonClient {
             id,
             method: method.to_string(),
             params,
+            session: self.session.clone(),
         };
 
         let encoded = protocol::encode_line(&request)
@@ -67,9 +77,17 @@ impl DaemonClient {
         let line = lines
             .next_line()
             .await
-            .map_err(|e| ActionbookError::DaemonError(format!("Read error (command may have been executed): {}", e)))?
+            .map_err(|e| {
+                ActionbookError::DaemonError(format!(
+                    "Read error (command may have been executed): {}",
+                    e
+                ))
+            })?
             .ok_or_else(|| {
-                ActionbookError::DaemonError("Daemon closed connection without response (command may have been executed)".to_string())
+                ActionbookError::DaemonError(
+                    "Daemon closed connection without response (command may have been executed)"
+                        .to_string(),
+                )
             })?;
 
         let response: DaemonResponse = protocol::decode_line(&line)
@@ -101,11 +119,7 @@ impl DaemonClient {
 /// Returns `None` if daemon cannot be started, `Some(Err)` on CDP failure,
 /// `Some(Ok(Value))` on success.
 #[allow(dead_code)]
-pub async fn try_send(
-    profile: &str,
-    method: &str,
-    params: Value,
-) -> Option<Result<Value>> {
+pub async fn try_send(profile: &str, method: &str, params: Value) -> Option<Result<Value>> {
     // Ensure daemon is running
     if let Err(e) = lifecycle::ensure_daemon(profile).await {
         tracing::warn!("Failed to ensure daemon for profile '{}': {}", profile, e);
@@ -124,10 +138,15 @@ mod tests {
     async fn try_send_returns_none_for_nonexistent_profile() {
         // No daemon running for this profile, ensure_daemon will fail
         // because there's no session state to connect to
-        let result = try_send("nonexistent-test-profile-xyz", "Runtime.evaluate", serde_json::json!({})).await;
+        let result = try_send(
+            "nonexistent-test-profile-xyz",
+            "Runtime.evaluate",
+            serde_json::json!({}),
+        )
+        .await;
         // Either None (daemon couldn't start) or Some(Err) (daemon started but no WS)
         match result {
-            None => {} // Expected
+            None => {}         // Expected
             Some(Err(_)) => {} // Also acceptable
             Some(Ok(_)) => panic!("Should not succeed with nonexistent profile"),
         }

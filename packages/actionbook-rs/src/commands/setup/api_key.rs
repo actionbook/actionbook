@@ -160,11 +160,7 @@ pub async fn configure_api_key(
                         })
                     );
                 } else {
-                    println!(
-                        "  {}  API key validated: {}",
-                        "✓".green(),
-                        key.dimmed()
-                    );
+                    println!("  {}  API key validated: {}", "✓".green(), key.dimmed());
                 }
 
                 config.api.api_key = Some(key);
@@ -181,9 +177,7 @@ pub async fn configure_api_key(
                             "error": "Invalid API key format or unauthorized",
                         })
                     );
-                    return Err(ActionbookError::SetupError(
-                        "Invalid API key".to_string(),
-                    ));
+                    return Err(ActionbookError::SetupError("Invalid API key".to_string()));
                 } else {
                     println!(
                         "  {}  Invalid API key. Please check and try again.",
@@ -210,11 +204,7 @@ pub async fn configure_api_key(
                     );
                     return Err(e);
                 } else {
-                    println!(
-                        "  {}  Failed to validate API key: {}",
-                        "⚠".yellow(),
-                        e
-                    );
+                    println!("  {}  Failed to validate API key: {}", "⚠".yellow(), e);
                     println!(
                         "  {}  The key will be saved, but you may need to check your connection.",
                         "│".dimmed()
@@ -232,11 +222,7 @@ pub async fn configure_api_key(
 
                     if save_anyway {
                         if !cli.json {
-                            println!(
-                                "  {}  API key saved: {}",
-                                "◇".green(),
-                                key.dimmed()
-                            );
+                            println!("  {}  API key saved: {}", "◇".green(), key.dimmed());
                         }
                         config.api.api_key = Some(key);
                         return Ok(());

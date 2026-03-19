@@ -34,12 +34,9 @@ fn should_run_target_only(args: &SetupArgs<'_>) -> bool {
         && !args.reset
 }
 
-
 fn should_install_skills_for_target(target: Option<SetupTarget>) -> bool {
     !matches!(target, Some(SetupTarget::Standalone))
 }
-
-
 
 /// Run the setup wizard. Orchestrates all steps in order.
 ///
@@ -63,7 +60,11 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
         print_welcome();
         print_step_header(1, "Environment");
     }
-    let spinner = create_spinner(cli.json, effective_non_interactive, "Scanning environment...");
+    let spinner = create_spinner(
+        cli.json,
+        effective_non_interactive,
+        "Scanning environment...",
+    );
     let env = detect::detect_environment();
     finish_spinner(spinner, "Environment detected");
     detect::print_environment_report(&env, cli.json);
@@ -79,15 +80,28 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
         if !cli.json {
             print_step_header(2, "API Key");
         }
-        api_key::configure_api_key(cli, &env, args.api_key, effective_non_interactive, &mut config)
-            .await?;
+        api_key::configure_api_key(
+            cli,
+            &env,
+            args.api_key,
+            effective_non_interactive,
+            &mut config,
+        )
+        .await?;
 
         // Step 3: Browser
         if !cli.json {
             print_step_connector();
             print_step_header(3, "Browser");
         }
-        browser_cfg::configure_browser(cli, &env, browser_flag, effective_non_interactive, &mut config).await?;
+        browser_cfg::configure_browser(
+            cli,
+            &env,
+            browser_flag,
+            effective_non_interactive,
+            &mut config,
+        )
+        .await?;
 
         // Step 4: Save configuration
         if !cli.json {
@@ -98,15 +112,15 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
         // Show recap (interactive only)
         if !cli.json && !effective_non_interactive {
             let bar = "│".dimmed();
-            let api_display = config
-                .api
-                .api_key
-                .as_deref()
-                .unwrap_or("not configured");
+            let api_display = config.api.api_key.as_deref().unwrap_or("not configured");
             let mode_display = match config.browser.mode {
                 BrowserMode::Isolated => {
                     let browser_name = config.browser.executable.as_deref().unwrap_or("built-in");
-                    let headless_label = if config.browser.headless { "headless" } else { "visible" };
+                    let headless_label = if config.browser.headless {
+                        "headless"
+                    } else {
+                        "visible"
+                    };
                     format!("isolated — {} ({})", browser_name, headless_label)
                 }
                 BrowserMode::Extension => "extension".to_string(),
@@ -558,7 +572,11 @@ fn print_completion(cli: &Cli, config: &Config, skills_result: &mode::SkillsResu
                 .as_deref()
                 .map(shorten_browser_path)
                 .unwrap_or_else(|| "built-in".to_string());
-            let headless_str = if config.browser.headless { "headless" } else { "visible" };
+            let headless_str = if config.browser.headless {
+                "headless"
+            } else {
+                "visible"
+            };
             format!("isolated — {} ({})", name, headless_str)
         }
         BrowserMode::Extension => "extension".to_string(),
@@ -660,7 +678,8 @@ mod tests {
 
     #[test]
     fn standalone_target_skips_skills_install() {
-        assert!(!should_install_skills_for_target(Some(SetupTarget::Standalone)));
+        assert!(!should_install_skills_for_target(Some(
+            SetupTarget::Standalone
+        )));
     }
-
 }

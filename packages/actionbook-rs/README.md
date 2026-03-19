@@ -10,6 +10,7 @@ A high-performance CLI for browser automation with zero installation. Built in R
 | **CDP-First** | Direct Chrome DevTools Protocol control | WebSocket via `chromiumoxide` |
 | **Config Flexibility** | Override at any level | CLI > env > config file > auto-discovery |
 | **Multi-Profile** | Isolated browser sessions | Profile-based user data dirs |
+| **Multi-Session** | Multiple tabs per profile | `-S` flag, per-session tab routing |
 | **Persistent Daemon** | Reuse WS connection across commands | Per-profile daemon on Unix (default) |
 | **Session Persistence** | Maintain state across commands | Disk-based session storage |
 | **Stealth Mode** | Anti-detection browser automation | Fingerprint spoofing, navigator override |
@@ -105,6 +106,7 @@ A high-performance CLI for browser automation with zero installation. Built in R
 - **Shadow DOM Support** - Interact with elements inside Shadow DOM using `::shadow-root` selector syntax
 - **IFrame Context Switching** - Switch between main frame and iframes for embedded content
 - **Scroll with Wait** - Scroll and wait for `scrollend` event, essential for lazy-loaded content
+- **Multi-Session** - Run multiple independent sessions per profile (`-S`), each bound to its own tab
 
 ## Architecture
 
@@ -149,7 +151,7 @@ A high-performance CLI for browser automation with zero installation. Built in R
         ┌────────────┼────────────┐
      -P profile1  -P profile2  -P profile3
         │            │            │
-   Daemon 进程1   Daemon 进程2   Daemon 进程3     ← auto-started on active commands
+   Daemon 1       Daemon 2       Daemon 3        ← auto-started on active commands
    profile1.sock  profile2.sock  profile3.sock
         │            │            │
    Persistent WS  Persistent WS  Persistent WS
@@ -159,6 +161,33 @@ A high-performance CLI for browser automation with zero installation. Built in R
 
 Each profile = independent daemon process = independent persistent WS = independent CDP connection.
 Use `--no-daemon` to fall back to per-command direct connections.
+
+### Multi-Session Architecture
+
+```
+1 Profile → 1 Daemon → 1 Chrome Process → N Sessions (each bound to its own tab)
+```
+
+```
+                    CLI
+                     │
+        ┌────────────┼────────────┐
+     -S arxiv     -S twitter    -S amazon       (all using -P work)
+        │            │            │
+        └────────────┼────────────┘
+                     │
+              Daemon (work)
+              work.sock
+                     │
+              Persistent WS
+                     │
+              Chrome (CDP)
+           ┌─────────┼─────────┐
+          Tab 1     Tab 2     Tab 3
+         (arxiv)  (twitter)  (amazon)
+```
+
+Each session tracks its own `active_page_id`. Sessions share the same Chrome process, cookies, and login state. Use `-S <name>` to create and route to sessions.
 
 ## Module Structure
 
@@ -404,6 +433,7 @@ CLI args > Environment variables > Config file > Auto-discovery
 | `--block-media` | `ACTIONBOOK_BLOCK_MEDIA` | Block images, fonts, CSS, and media |
 | `--no-animations` | `ACTIONBOOK_NO_ANIMATIONS` | Disable CSS animations, transitions, and smooth scrolling |
 | `--auto-dismiss-dialogs` | `ACTIONBOOK_AUTO_DISMISS_DIALOGS` | Auto-dismiss JS alert/confirm/prompt dialogs |
+| `-S, --session <NAME>` | `ACTIONBOOK_SESSION` | Use a named session (each session binds to its own tab) |
 
 ## Commands Reference
 
@@ -542,6 +572,72 @@ are for manual inspection and control.
 - Daemon auto-starts on active browser commands (snapshot, click, type, etc.)
 - Read-only commands (status, pages, tab list) bypass the daemon
 - Use `--no-daemon` or `ACTIONBOOK_NO_DAEMON=1` to fall back to per-command direct connections
+- The `-S`/`--session` flag is ignored by daemon commands (daemon is profile-scoped)
+
+### `browser session` - Session Management
+
+Manage multiple named sessions within a single profile. Each session binds to its own browser tab.
+
+```bash
+actionbook browser session list                    # List all sessions for current profile
+actionbook browser session list --json             # JSON output
+actionbook browser session active                  # Show current session name
+actionbook browser session active --json           # JSON with exists/profile info
+actionbook browser session destroy <NAME>          # Detach session from daemon routing table
+```
+
+**Multi-Session Usage:**
+
+```bash
+# Open different sites in separate sessions (same profile, same Chrome process)
+actionbook -S arxiv   -P work browser open "https://arxiv.org"
+actionbook -S twitter -P work browser open "https://x.com"
+actionbook -S amazon  -P work browser open "https://amazon.com"
+
+# Each session operates on its own tab independently
+actionbook -S arxiv   -P work browser snapshot     # arXiv page
+actionbook -S twitter -P work browser snapshot     # X/Twitter page
+actionbook -S amazon  -P work browser snapshot     # Amazon page
+
+# All browser commands support -S
+actionbook -S arxiv -P work browser click "#search-input"
+actionbook -S arxiv -P work browser type "machine learning"
+actionbook -S arxiv -P work browser screenshot
+```
+
+**Session Naming Rules:**
+- Allowed: alphanumeric characters, dashes (`-`), underscores (`_`)
+- Not allowed: spaces, slashes, dots, colons, or any other special characters
+- Invalid names are rejected immediately (not silently rewritten)
+
+**Session File Storage:**
+
+```
+~/.actionbook/sessions/
+├── work@default.json    # default session
+├── work@arxiv.json      # arxiv session
+├── work@twitter.json    # twitter session
+└── work@amazon.json     # amazon session
+```
+
+**Session Fork Mechanism:**
+When `-S` specifies a non-existent session, it forks from the first alive session in the same profile (inheriting CDP connection info but creating a new tab).
+
+**Key Behaviors:**
+- Without `-S`, defaults to the `default` session (backward compatible)
+- Sessions share cookies and login state (same Chrome process)
+- Snapshot cache is per-session (`~/.actionbook/snapshots/{profile}@{session}.json`)
+- Legacy session files (`{profile}.json`) are auto-migrated to `{profile}@default.json`
+- Multiple terminals/agents can operate different sessions concurrently
+
+**Multi-Profile vs Multi-Session:**
+
+| | Multi-Profile (`-P`) | Multi-Session (`-S`) |
+|---|---|---|
+| Chrome processes | N (independent) | 1 (shared) |
+| Cookies/login | Independent | Shared |
+| Resource usage | High (~200MB per process) | Low (~50MB per tab) |
+| Use case | Different login identities | Same identity, parallel operations |
 
 ### `app` - Electron App Automation
 

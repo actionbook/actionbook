@@ -55,14 +55,8 @@ pub async fn run(cli: &Cli, area_id: &str) -> Result<()> {
         sorted_elements.sort_by_key(|(id, _)| id.to_string());
 
         for (i, (id, el)) in sorted_elements.iter().enumerate() {
-            let el_type = el
-                .element_type
-                .as_deref()
-                .unwrap_or("unknown");
-            let desc = el
-                .description
-                .as_deref()
-                .unwrap_or("");
+            let el_type = el.element_type.as_deref().unwrap_or("unknown");
+            let desc = el.description.as_deref().unwrap_or("");
 
             println!(
                 "  {}. {} {} - {}",

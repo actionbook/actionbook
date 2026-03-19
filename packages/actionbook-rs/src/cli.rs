@@ -1,9 +1,44 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
+use std::ffi::OsString;
 
 use crate::commands;
 use crate::config::DEFAULT_EXTENSION_PORT;
 use crate::error::Result;
+
+/// Validate session name: must contain only alphanumeric characters, dashes,
+/// or underscores. Rejects names with any invalid characters to prevent
+/// silently routing to an unintended session.
+fn validate_session_name(s: &str) -> std::result::Result<String, String> {
+    if s.is_empty() {
+        return Err("Session name must not be empty".to_string());
+    }
+    if !s
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(format!(
+            "Invalid session name '{}': only alphanumeric characters, dashes (-), and underscores (_) are allowed",
+            s
+        ));
+    }
+    Ok(s.to_string())
+}
+
+fn parse_session_env(raw: OsString) -> std::result::Result<Option<String>, String> {
+    let value = raw.to_string_lossy();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    validate_session_name(&value).map(Some)
+}
+
+fn session_from_env() -> std::result::Result<Option<String>, String> {
+    match std::env::var_os("ACTIONBOOK_SESSION") {
+        Some(raw) => parse_session_env(raw),
+        None => Ok(None),
+    }
+}
 
 /// Parse truthy values: "true", "1", "yes" (case-insensitive) → true; everything else → false.
 /// Compatible with common env var conventions (e.g. `ACTIONBOOK_AUTO_CONNECT=1`).
@@ -11,7 +46,10 @@ fn parse_truthy(s: &str) -> std::result::Result<bool, String> {
     match s.to_ascii_lowercase().as_str() {
         "true" | "1" | "yes" => Ok(true),
         "false" | "0" | "no" | "" => Ok(false),
-        _ => Err(format!("Invalid boolean value '{}'. Expected: true/false/1/0/yes/no", s)),
+        _ => Err(format!(
+            "Invalid boolean value '{}'. Expected: true/false/1/0/yes/no",
+            s
+        )),
     }
 }
 
@@ -55,6 +93,11 @@ pub struct Cli {
     /// Profile name to use
     #[arg(short = 'P', long, env = "ACTIONBOOK_PROFILE", global = true)]
     pub profile: Option<String>,
+
+    /// Session name for multi-session support (multiple tabs per profile).
+    /// Must contain only alphanumeric characters, dashes, or underscores.
+    #[arg(short = 'S', long, global = true, value_parser = validate_session_name)]
+    pub session: Option<String>,
 
     /// Run in headless mode
     #[arg(long, env = "ACTIONBOOK_HEADLESS", global = true)]
@@ -145,7 +188,7 @@ pub struct Cli {
         long = "no-daemon",
         env = "ACTIONBOOK_NO_DAEMON",
         global = true,
-        default_value_t = false,
+        default_value_t = false
     )]
     pub no_daemon: bool,
 
@@ -275,10 +318,13 @@ pub enum BrowserCommands {
     /// Show browser status and detection results
     Status,
 
-    /// Open a URL in a new tab
+    /// Open a URL in a new tab (or new window with --new-window)
     Open {
         /// URL to open
         url: String,
+        /// Open in a new browser window instead of a new tab
+        #[arg(long)]
+        new_window: bool,
     },
 
     /// Navigate current page to URL
@@ -627,6 +673,25 @@ pub enum BrowserCommands {
     SwitchFrame {
         /// Target: iframe selector, "parent", or "default" for main frame
         target: String,
+    },
+
+    /// Manage sessions (multiple tabs per profile)
+    Session {
+        #[command(subcommand)]
+        command: SessionCommands,
+    },
+}
+
+#[derive(Subcommand, Clone)]
+pub enum SessionCommands {
+    /// List all sessions for the current profile
+    List,
+    /// Show the currently selected session name (set via -S flag or default)
+    Active,
+    /// Destroy a named session
+    Destroy {
+        /// Session name to destroy
+        name: String,
     },
 }
 
@@ -977,10 +1042,13 @@ pub enum TabCommands {
     /// List all open tabs/pages
     List,
 
-    /// Create a new tab with optional URL
+    /// Create a new tab (or new window with --new-window) with optional URL
     New {
         /// Optional URL to open in the new tab
         url: Option<String>,
+        /// Open in a new browser window instead of a new tab
+        #[arg(long)]
+        new_window: bool,
     },
 
     /// Switch to a specific tab by ID
@@ -1259,6 +1327,60 @@ pub enum ProfileCommands {
 }
 
 impl Cli {
+    fn apply_session_env_fallback(&mut self) -> std::result::Result<(), clap::Error> {
+        if self.session.is_none() {
+            match session_from_env() {
+                Ok(session) => self.session = session,
+                Err(message) => {
+                    return Err(clap::Error::raw(
+                        clap::error::ErrorKind::ValueValidation,
+                        message,
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn parse() -> Self {
+        let mut cli = <Self as Parser>::parse();
+        if let Err(err) = cli.apply_session_env_fallback() {
+            err.exit();
+        }
+        cli
+    }
+
+    #[allow(dead_code)]
+    pub fn try_parse() -> std::result::Result<Self, clap::Error> {
+        let mut cli = <Self as Parser>::try_parse()?;
+        cli.apply_session_env_fallback()?;
+        Ok(cli)
+    }
+
+    #[allow(dead_code)]
+    pub fn parse_from<I, T>(itr: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<OsString> + Clone,
+    {
+        let mut cli = <Self as Parser>::parse_from(itr);
+        if let Err(err) = cli.apply_session_env_fallback() {
+            err.exit();
+        }
+        cli
+    }
+
+    #[allow(dead_code)]
+    pub fn try_parse_from<I, T>(itr: I) -> std::result::Result<Self, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<OsString> + Clone,
+    {
+        let mut cli = <Self as Parser>::try_parse_from(itr)?;
+        cli.apply_session_env_fallback()?;
+        Ok(cli)
+    }
+
     pub async fn run(&self) -> Result<()> {
         crate::update_notifier::maybe_notify(self).await;
 
@@ -1309,5 +1431,25 @@ impl Cli {
                 .await
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn try_parse_from_treats_empty_actionbook_session_as_unset() {
+        let _guard = env_lock().lock().unwrap();
+        std::env::set_var("ACTIONBOOK_SESSION", "");
+        let parsed = Cli::try_parse_from(["actionbook", "config", "path"]).unwrap();
+        assert!(parsed.session.is_none());
+        std::env::remove_var("ACTIONBOOK_SESSION");
     }
 }

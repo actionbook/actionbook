@@ -273,10 +273,8 @@ async fn configure_extension(cli: &Cli, config: &mut Config) -> Result<()> {
         "actionbook browser open https://example.com".cyan()
     );
 
-    let web_store_installed = select_yes_no(
-        " Installed from Chrome Web Store successfully?",
-        true,
-    )?;
+    let web_store_installed =
+        select_yes_no(" Installed from Chrome Web Store successfully?", true)?;
 
     if web_store_installed {
         println!(
@@ -378,10 +376,8 @@ async fn configure_extension(cli: &Cli, config: &mut Config) -> Result<()> {
         "actionbook browser open https://example.com".cyan()
     );
 
-    let fallback_ready = select_yes_no(
-        " Completed local debug fallback setup successfully?",
-        true,
-    )?;
+    let fallback_ready =
+        select_yes_no(" Completed local debug fallback setup successfully?", true)?;
 
     if !fallback_ready {
         println!();
@@ -495,6 +491,7 @@ mod tests {
             browser_path: None,
             cdp: None,
             profile: None,
+            session: None,
             headless: false,
             stealth: false,
             stealth_os: None,

@@ -153,7 +153,10 @@ fn test_session_path_consistency() {
 
     // app restart should use the same path (verified in implementation)
     // This test documents the expected behavior
-    assert!(expected_sessions_dir.to_str().unwrap().contains(".actionbook/sessions"));
+    assert!(expected_sessions_dir
+        .to_str()
+        .unwrap()
+        .contains(".actionbook/sessions"));
 }
 
 #[test]
@@ -181,15 +184,25 @@ fn test_save_external_session_with_app() {
     assert!(result.is_ok(), "Should save session with app path");
 
     // Read back and verify custom_app_path is saved
-    let session_file = sessions_dir.join(format!("{}.json", profile_name));
-    assert!(session_file.exists(), "Session file should be created");
+    // Multi-session format: {profile}@{session}.json (default session)
+    let session_file = sessions_dir.join(format!("{}@default.json", profile_name));
+    let legacy_file = sessions_dir.join(format!("{}.json", profile_name));
+    let actual_file = if session_file.exists() {
+        session_file
+    } else {
+        legacy_file
+    };
+    assert!(actual_file.exists(), "Session file should be created");
 
-    let content = fs::read_to_string(&session_file).expect("read saved session");
+    let content = fs::read_to_string(&actual_file).expect("read saved session");
     assert!(
         content.contains("custom_app_path"),
         "Session should contain custom_app_path field"
     );
-    assert!(content.contains("TestApp"), "Session should contain app path");
+    assert!(
+        content.contains("TestApp"),
+        "Session should contain app path"
+    );
 }
 
 #[tokio::test]

@@ -88,7 +88,10 @@ impl AccessibilityNode {
         // Split by = to get attribute and value
         if let Some(eq_pos) = inner.find('=') {
             let attr = inner[..eq_pos].trim();
-            let value = inner[eq_pos + 1..].trim().trim_matches('"').trim_matches('\'');
+            let value = inner[eq_pos + 1..]
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'');
 
             match attr {
                 "aria-label" | "name" => {
@@ -125,7 +128,11 @@ impl AccessibilityNode {
 mod tests {
     use super::*;
 
-    fn create_test_node(role: &str, name: Option<&str>, element_ref: Option<&str>) -> AccessibilityNode {
+    fn create_test_node(
+        role: &str,
+        name: Option<&str>,
+        element_ref: Option<&str>,
+    ) -> AccessibilityNode {
         AccessibilityNode {
             role: role.to_string(),
             name: name.map(|s| s.to_string()),

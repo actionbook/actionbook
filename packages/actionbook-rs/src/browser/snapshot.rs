@@ -180,22 +180,53 @@ const INTERACTIVE_ROLES: &[&str] = &[
 
 /// Content roles — get refs only if they have a name
 const CONTENT_ROLES: &[&str] = &[
-    "heading", "cell", "gridcell", "columnheader", "rowheader",
-    "listitem", "article", "region", "main", "navigation",
+    "heading",
+    "cell",
+    "gridcell",
+    "columnheader",
+    "rowheader",
+    "listitem",
+    "article",
+    "region",
+    "main",
+    "navigation",
 ];
 
 /// Roles to skip entirely (noise — text content is already in parent's name)
 const SKIP_ROLES: &[&str] = &[
-    "InlineTextBox", "StaticText", "LineBreak", "ListMarker",
-    "strong", "emphasis", "subscript", "superscript", "mark",
+    "InlineTextBox",
+    "StaticText",
+    "LineBreak",
+    "ListMarker",
+    "strong",
+    "emphasis",
+    "subscript",
+    "superscript",
+    "mark",
 ];
 
 /// Structural roles that may be removed during compact filtering
 const STRUCTURAL_ROLES: &[&str] = &[
-    "generic", "group", "list", "table", "row", "rowgroup",
-    "grid", "treegrid", "menu", "menubar", "toolbar", "tablist",
-    "tree", "directory", "document", "application", "presentation", "none",
-    "WebArea", "RootWebArea",
+    "generic",
+    "group",
+    "list",
+    "table",
+    "row",
+    "rowgroup",
+    "grid",
+    "treegrid",
+    "menu",
+    "menubar",
+    "toolbar",
+    "tablist",
+    "tree",
+    "directory",
+    "document",
+    "application",
+    "presentation",
+    "none",
+    "WebArea",
+    "RootWebArea",
 ];
 
 /// Parse the raw CDP Accessibility.getFullAXTree response into A11yNode list.
@@ -262,7 +293,9 @@ pub fn parse_ax_tree(
             if let Some(children) = children_map.get(&idx) {
                 for &child_idx in children {
                     let bid = ax_nodes[child_idx].backend_dom_node_id.unwrap_or(0);
-                    if bid > 0 { allowed.insert(bid); }
+                    if bid > 0 {
+                        allowed.insert(bid);
+                    }
                     queue.push(child_idx);
                 }
             }
@@ -291,16 +324,36 @@ pub fn parse_ax_tree(
         ref_counter: &mut usize,
     ) {
         let node = &ax_nodes[idx];
-        let role = node.role.as_ref().map(|r| r.as_string()).unwrap_or_default();
-        let name = node.name.as_ref().map(|n| n.as_string()).unwrap_or_default();
+        let role = node
+            .role
+            .as_ref()
+            .map(|r| r.as_string())
+            .unwrap_or_default();
+        let name = node
+            .name
+            .as_ref()
+            .map(|n| n.as_string())
+            .unwrap_or_default();
 
         // Ignored nodes: skip self but render children at same depth
         if node.ignored && role != "RootWebArea" {
             if let Some(children) = children_map.get(&idx) {
                 for &child_idx in children {
-                    render(ax_nodes, children_map, child_idx, depth, filter, max_depth,
-                           scope_set, interactive_set, content_set, skip_set,
-                           result, refs, ref_counter);
+                    render(
+                        ax_nodes,
+                        children_map,
+                        child_idx,
+                        depth,
+                        filter,
+                        max_depth,
+                        scope_set,
+                        interactive_set,
+                        content_set,
+                        skip_set,
+                        result,
+                        refs,
+                        ref_counter,
+                    );
                 }
             }
             return;
@@ -310,9 +363,21 @@ pub fn parse_ax_tree(
         if role == "RootWebArea" || role == "WebArea" {
             if let Some(children) = children_map.get(&idx) {
                 for &child_idx in children {
-                    render(ax_nodes, children_map, child_idx, depth, filter, max_depth,
-                           scope_set, interactive_set, content_set, skip_set,
-                           result, refs, ref_counter);
+                    render(
+                        ax_nodes,
+                        children_map,
+                        child_idx,
+                        depth,
+                        filter,
+                        max_depth,
+                        scope_set,
+                        interactive_set,
+                        content_set,
+                        skip_set,
+                        result,
+                        refs,
+                        ref_counter,
+                    );
                 }
             }
             return;
@@ -322,9 +387,21 @@ pub fn parse_ax_tree(
         if skip_set.contains(role.as_str()) {
             if let Some(children) = children_map.get(&idx) {
                 for &child_idx in children {
-                    render(ax_nodes, children_map, child_idx, depth, filter, max_depth,
-                           scope_set, interactive_set, content_set, skip_set,
-                           result, refs, ref_counter);
+                    render(
+                        ax_nodes,
+                        children_map,
+                        child_idx,
+                        depth,
+                        filter,
+                        max_depth,
+                        scope_set,
+                        interactive_set,
+                        content_set,
+                        skip_set,
+                        result,
+                        refs,
+                        ref_counter,
+                    );
                 }
             }
             return;
@@ -332,7 +409,9 @@ pub fn parse_ax_tree(
 
         // Depth limit
         if let Some(max) = max_depth {
-            if depth > max { return; }
+            if depth > max {
+                return;
+            }
         }
 
         let backend_node_id = node.backend_dom_node_id.unwrap_or(0);
@@ -342,9 +421,21 @@ pub fn parse_ax_tree(
             if backend_node_id > 0 && !scope.contains(&backend_node_id) {
                 if let Some(children) = children_map.get(&idx) {
                     for &child_idx in children {
-                        render(ax_nodes, children_map, child_idx, depth, filter, max_depth,
-                               scope_set, interactive_set, content_set, skip_set,
-                               result, refs, ref_counter);
+                        render(
+                            ax_nodes,
+                            children_map,
+                            child_idx,
+                            depth,
+                            filter,
+                            max_depth,
+                            scope_set,
+                            interactive_set,
+                            content_set,
+                            skip_set,
+                            result,
+                            refs,
+                            ref_counter,
+                        );
                     }
                 }
                 return;
@@ -360,16 +451,32 @@ pub fn parse_ax_tree(
         if filter == SnapshotFilter::Interactive && !is_interactive {
             if let Some(children) = children_map.get(&idx) {
                 for &child_idx in children {
-                    render(ax_nodes, children_map, child_idx, depth, filter, max_depth,
-                           scope_set, interactive_set, content_set, skip_set,
-                           result, refs, ref_counter);
+                    render(
+                        ax_nodes,
+                        children_map,
+                        child_idx,
+                        depth,
+                        filter,
+                        max_depth,
+                        scope_set,
+                        interactive_set,
+                        content_set,
+                        skip_set,
+                        result,
+                        refs,
+                        ref_counter,
+                    );
                 }
             }
             return;
         }
 
         // Extract value
-        let value = node.value.as_ref().map(|v| v.as_string()).filter(|s| !s.is_empty());
+        let value = node
+            .value
+            .as_ref()
+            .map(|v| v.as_string())
+            .filter(|s| !s.is_empty());
 
         // Extract properties
         let mut disabled = false;
@@ -387,11 +494,13 @@ pub fn parse_ax_tree(
                         "disabled" => disabled = val.as_bool().unwrap_or(false),
                         "focused" => focused = val.as_bool().unwrap_or(false),
                         "level" => level = val.as_i64(),
-                        "checked" => checked = match val {
-                            serde_json::Value::String(s) => Some(s.clone()),
-                            serde_json::Value::Bool(b) => Some(b.to_string()),
-                            _ => None,
-                        },
+                        "checked" => {
+                            checked = match val {
+                                serde_json::Value::String(s) => Some(s.clone()),
+                                serde_json::Value::Bool(b) => Some(b.to_string()),
+                                _ => None,
+                            }
+                        }
                         "expanded" => expanded = val.as_bool(),
                         "selected" => selected = val.as_bool().unwrap_or(false),
                         "required" => required = val.as_bool().unwrap_or(false),
@@ -440,17 +549,41 @@ pub fn parse_ax_tree(
         // Render children
         if let Some(children) = children_map.get(&idx) {
             for &child_idx in children {
-                render(ax_nodes, children_map, child_idx, depth + 1, filter, max_depth,
-                       scope_set, interactive_set, content_set, skip_set,
-                       result, refs, ref_counter);
+                render(
+                    ax_nodes,
+                    children_map,
+                    child_idx,
+                    depth + 1,
+                    filter,
+                    max_depth,
+                    scope_set,
+                    interactive_set,
+                    content_set,
+                    skip_set,
+                    result,
+                    refs,
+                    ref_counter,
+                );
             }
         }
     }
 
     for &root_idx in &root_indices {
-        render(ax_nodes, &children_map, root_idx, 0, filter, max_depth,
-               &scope_set, &interactive_set, &content_set, &skip_set,
-               &mut result, &mut refs, &mut ref_counter);
+        render(
+            ax_nodes,
+            &children_map,
+            root_idx,
+            0,
+            filter,
+            max_depth,
+            &scope_set,
+            &interactive_set,
+            &content_set,
+            &skip_set,
+            &mut result,
+            &mut refs,
+            &mut ref_counter,
+        );
     }
 
     let cache = RefCache {
@@ -519,10 +652,18 @@ pub fn format_compact(nodes: &[A11yNode]) -> String {
         if let Some(expanded) = node.expanded {
             attrs.push(format!("expanded={}", expanded));
         }
-        if node.selected { attrs.push("selected".to_string()); }
-        if node.disabled { attrs.push("disabled".to_string()); }
-        if node.required { attrs.push("required".to_string()); }
-        if node.focused { attrs.push("focused".to_string()); }
+        if node.selected {
+            attrs.push("selected".to_string());
+        }
+        if node.disabled {
+            attrs.push("disabled".to_string());
+        }
+        if node.required {
+            attrs.push("required".to_string());
+        }
+        if node.focused {
+            attrs.push("focused".to_string());
+        }
         if let Some(ref rid) = node.ref_id {
             attrs.push(format!("ref={}", rid));
         }
@@ -653,7 +794,9 @@ pub fn compact_tree_nodes(nodes: &[A11yNode]) -> Vec<A11yNode> {
             // ancestor depth we need to find (parent = depth - 1)
             let mut need_depth = nodes[i].depth;
             for j in (0..i).rev() {
-                if need_depth == 0 { break; }
+                if need_depth == 0 {
+                    break;
+                }
                 if nodes[j].depth == need_depth - 1 {
                     keep[j] = true;
                     need_depth = nodes[j].depth;
@@ -812,7 +955,10 @@ mod tests {
         node.disabled = true;
         node.required = true;
         let output = format_compact(&[node]);
-        assert_eq!(output, "- checkbox \"Accept\" [checked=true, disabled, required, ref=e0]\n");
+        assert_eq!(
+            output,
+            "- checkbox \"Accept\" [checked=true, disabled, required, ref=e0]\n"
+        );
     }
 
     #[test]
@@ -894,10 +1040,7 @@ mod tests {
         ];
         let mut changed_node = make_node(Some("e0"), "button", "Submit", 0);
         changed_node.disabled = true;
-        let curr = vec![
-            changed_node,
-            make_node(Some("e2"), "link", "New", 0),
-        ];
+        let curr = vec![changed_node, make_node(Some("e2"), "link", "New", 0)];
         let (added, changed, removed) = diff_snapshots(&prev, &curr);
         assert_eq!(added.len(), 1);
         assert_eq!(added[0].name, "New");
@@ -910,11 +1053,11 @@ mod tests {
     #[test]
     fn compact_tree_keeps_ref_nodes_and_ancestors() {
         let nodes = vec![
-            make_node(None, "banner", "", 0),        // ancestor of ref'd node → keep
-            make_node(None, "navigation", "", 1),    // ancestor of ref'd node → keep
+            make_node(None, "banner", "", 0), // ancestor of ref'd node → keep
+            make_node(None, "navigation", "", 1), // ancestor of ref'd node → keep
             make_node(Some("e0"), "link", "Home", 2), // has ref → keep
-            make_node(None, "group", "", 0),         // no ref descendant → remove
-            make_node(None, "paragraph", "", 1),     // no ref → remove
+            make_node(None, "group", "", 0),  // no ref descendant → remove
+            make_node(None, "paragraph", "", 1), // no ref → remove
         ];
         let compacted = compact_tree_nodes(&nodes);
         assert_eq!(compacted.len(), 3);

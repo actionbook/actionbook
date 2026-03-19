@@ -10,7 +10,6 @@
 ///     ↓ WebDriver protocol
 /// Camoufox --marionette (port 2828)
 /// ```
-
 mod driver;
 
 pub use driver::CamofoxDriver;

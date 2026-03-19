@@ -59,10 +59,7 @@ impl CamofoxDriver {
             .args(&args)
             .spawn()
             .map_err(|e| {
-                ActionbookError::BrowserLaunchFailed(format!(
-                    "Failed to launch geckodriver: {}",
-                    e
-                ))
+                ActionbookError::BrowserLaunchFailed(format!("Failed to launch geckodriver: {}", e))
             })?;
 
         // 4. Wait for geckodriver to be ready
@@ -125,10 +122,7 @@ impl CamofoxDriver {
         // Set headless mode via capabilities
         if headless {
             caps.set_headless().map_err(|e| {
-                ActionbookError::BrowserLaunchFailed(format!(
-                    "Failed to set headless mode: {}",
-                    e
-                ))
+                ActionbookError::BrowserLaunchFailed(format!("Failed to set headless mode: {}", e))
             })?;
         }
 
@@ -177,7 +171,8 @@ impl CamofoxDriver {
             "geckodriver not found. Please install it:\n\
              macOS: brew install geckodriver\n\
              Linux: Download from https://github.com/mozilla/geckodriver/releases\n\
-             Or set it in PATH".to_string(),
+             Or set it in PATH"
+                .to_string(),
         ))
     }
 
@@ -216,16 +211,13 @@ impl CamofoxDriver {
     /// Click an element
     pub async fn click(&self, selector: &str) -> Result<()> {
         let element = self.find_element(selector).await?;
-        element
-            .click()
-            .await
-            .map_err(|e| {
-                ActionbookError::ElementActionFailed(
-                    selector.to_string(),
-                    "click".to_string(),
-                    e.to_string(),
-                )
-            })?;
+        element.click().await.map_err(|e| {
+            ActionbookError::ElementActionFailed(
+                selector.to_string(),
+                "click".to_string(),
+                e.to_string(),
+            )
+        })?;
 
         Ok(())
     }
@@ -233,16 +225,13 @@ impl CamofoxDriver {
     /// Type text into an element
     pub async fn type_text(&self, selector: &str, text: &str) -> Result<()> {
         let element = self.find_element(selector).await?;
-        element
-            .send_keys(text)
-            .await
-            .map_err(|e| {
-                ActionbookError::ElementActionFailed(
-                    selector.to_string(),
-                    "type".to_string(),
-                    e.to_string(),
-                )
-            })?;
+        element.send_keys(text).await.map_err(|e| {
+            ActionbookError::ElementActionFailed(
+                selector.to_string(),
+                "type".to_string(),
+                e.to_string(),
+            )
+        })?;
 
         Ok(())
     }
@@ -316,7 +305,8 @@ impl CamofoxDriver {
 
         let paths = vec![
             // macOS
-            PathBuf::from(&home).join("Library/Caches/camoufox/Camoufox.app/Contents/MacOS/camoufox"),
+            PathBuf::from(&home)
+                .join("Library/Caches/camoufox/Camoufox.app/Contents/MacOS/camoufox"),
             // Linux
             PathBuf::from(&home).join(".cache/camoufox/camoufox"),
             PathBuf::from(&home).join(".local/share/camoufox/camoufox"),

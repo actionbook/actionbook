@@ -110,8 +110,7 @@ mod tests {
 
     #[test]
     fn test_preserves_path_and_query() {
-        let (url, rewritten) =
-            maybe_rewrite("https://x.com/user/status/123?s=20&t=abc");
+        let (url, rewritten) = maybe_rewrite("https://x.com/user/status/123?s=20&t=abc");
         assert!(rewritten);
         assert_eq!(url, "https://xcancel.com/user/status/123?s=20&t=abc");
     }

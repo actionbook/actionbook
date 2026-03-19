@@ -28,7 +28,9 @@ async fn serve(_cli: &Cli, port: u16) -> Result<()> {
             .unwrap_or_default();
         format!("{}{}", dir.display(), version)
     } else {
-        "(not installed - run 'actionbook extension install')".dimmed().to_string()
+        "(not installed - run 'actionbook extension install')"
+            .dimmed()
+            .to_string()
     };
 
     // Show deprecation notice (only in non-JSON mode)
@@ -55,11 +57,7 @@ async fn serve(_cli: &Cli, port: u16) -> Result<()> {
         "◆".cyan(),
         port
     );
-    println!(
-        "  {}  Extension: {}",
-        "◆".cyan(),
-        extension_path
-    );
+    println!("  {}  Extension: {}", "◆".cyan(), extension_path);
     println!();
     println!("  {}  Press Ctrl+C to stop", "ℹ".dimmed());
     println!();
@@ -103,12 +101,8 @@ async fn status(_cli: &Cli, port: u16) -> Result<()> {
 
 async fn ping(_cli: &Cli, port: u16) -> Result<()> {
     let start = std::time::Instant::now();
-    let result = extension_bridge::send_command(
-        port,
-        "Extension.ping",
-        serde_json::json!({}),
-    )
-    .await;
+    let result =
+        extension_bridge::send_command(port, "Extension.ping", serde_json::json!({})).await;
 
     match result {
         Ok(resp) => {
@@ -226,10 +220,7 @@ async fn stop(cli: &Cli, port: u16) -> Result<()> {
             } else if cli.json {
                 println!("{}", serde_json::json!({ "status": "not_running" }));
             } else {
-                println!(
-                    "  {} Bridge server is not running",
-                    "ℹ".dimmed()
-                );
+                println!("  {} Bridge server is not running", "ℹ".dimmed());
             }
             return Ok(());
         }
@@ -242,10 +233,7 @@ async fn stop(cli: &Cli, port: u16) -> Result<()> {
         if cli.json {
             println!("{}", serde_json::json!({ "status": "not_running" }));
         } else {
-            println!(
-                "  {} Invalid PID file (cleaned up)",
-                "ℹ".dimmed()
-            );
+            println!("  {} Invalid PID file (cleaned up)", "ℹ".dimmed());
         }
         return Ok(());
     }
@@ -330,7 +318,10 @@ async fn stop(cli: &Cli, port: u16) -> Result<()> {
                     extension_bridge::delete_pid_file().await;
                 }
                 if cli.json {
-                    println!("{}", serde_json::json!({ "status": "error", "error": "Failed to stop bridge process" }));
+                    println!(
+                        "{}",
+                        serde_json::json!({ "status": "error", "error": "Failed to stop bridge process" })
+                    );
                 } else {
                     println!("  {} Failed to stop bridge (PID {})", "✗".red(), pid);
                 }
@@ -362,16 +353,9 @@ async fn stop(cli: &Cli, port: u16) -> Result<()> {
     extension_bridge::delete_pid_file().await;
 
     if cli.json {
-        println!(
-            "{}",
-            serde_json::json!({ "status": "stopped", "pid": pid })
-        );
+        println!("{}", serde_json::json!({ "status": "stopped", "pid": pid }));
     } else {
-        println!(
-            "  {} Bridge server stopped (PID {})",
-            "✓".green(),
-            pid
-        );
+        println!("  {} Bridge server stopped (PID {})", "✓".green(), pid);
     }
 
     Ok(())
@@ -383,34 +367,25 @@ mod tests {
 
     #[test]
     fn resolve_pid_prefers_alive_when_both_match_port() {
-        let result = resolve_pid_for_port(
-            Some((1001, 19222)),
-            Some((2002, 19222)),
-            19222,
-            |pid| pid == 2002,
-        );
+        let result = resolve_pid_for_port(Some((1001, 19222)), Some((2002, 19222)), 19222, |pid| {
+            pid == 2002
+        });
         assert_eq!(result, PidResolution::Selected(2002));
     }
 
     #[test]
     fn resolve_pid_marks_ambiguous_when_both_alive() {
-        let result = resolve_pid_for_port(
-            Some((1001, 19222)),
-            Some((2002, 19222)),
-            19222,
-            |_pid| true,
-        );
+        let result =
+            resolve_pid_for_port(Some((1001, 19222)), Some((2002, 19222)), 19222, |_pid| true);
         assert_eq!(result, PidResolution::Ambiguous);
     }
 
     #[test]
     fn resolve_pid_marks_both_dead_when_both_dead() {
-        let result = resolve_pid_for_port(
-            Some((1001, 19222)),
-            Some((2002, 19222)),
-            19222,
-            |_pid| false,
-        );
+        let result =
+            resolve_pid_for_port(Some((1001, 19222)), Some((2002, 19222)), 19222, |_pid| {
+                false
+            });
         assert_eq!(result, PidResolution::BothMatchedButDead);
     }
 
@@ -422,12 +397,8 @@ mod tests {
 
     #[test]
     fn resolve_pid_returns_no_match_for_other_port() {
-        let result = resolve_pid_for_port(
-            Some((1001, 18080)),
-            Some((2002, 19090)),
-            19222,
-            |_pid| true,
-        );
+        let result =
+            resolve_pid_for_port(Some((1001, 18080)), Some((2002, 19090)), 19222, |_pid| true);
         assert_eq!(result, PidResolution::NoMatch);
     }
 }
@@ -448,10 +419,7 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
 
     // Handle "already up to date" as a success case, not an error
     match &result {
-        Err(crate::error::ActionbookError::ExtensionAlreadyUpToDate {
-            current,
-            latest: _,
-        }) => {
+        Err(crate::error::ActionbookError::ExtensionAlreadyUpToDate { current, latest: _ }) => {
             if cli.json {
                 println!(
                     "{}",
@@ -500,21 +468,17 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
         println!("  {}", "Next steps:".bold());
         println!(
             "  1. Open {} and install from Chrome Web Store (recommended)",
-            "https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo".cyan()
+            "https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo"
+                .cyan()
         );
         println!(
             "  2. If Web Store install is unavailable, open {}",
             "chrome://extensions".cyan()
         );
         println!("  3. Enable {}", "Developer mode".bold());
-        println!(
-            "  4. Click {} and select:",
-            "Load unpacked".bold()
-        );
+        println!("  4. Click {} and select:", "Load unpacked".bold());
         println!("     {}", dir.display().to_string().dimmed());
-        println!(
-            "  5. Run any browser command (bridge auto-starts):"
-        );
+        println!("  5. Run any browser command (bridge auto-starts):");
         println!(
             "     {}",
             "actionbook browser open https://example.com".cyan()
@@ -547,15 +511,9 @@ async fn path(cli: &Cli) -> Result<()> {
 async fn uninstall(cli: &Cli) -> Result<()> {
     if !extension_installer::is_installed() {
         if cli.json {
-            println!(
-                "{}",
-                serde_json::json!({ "status": "not_installed" })
-            );
+            println!("{}", serde_json::json!({ "status": "not_installed" }));
         } else {
-            println!(
-                "  {} Extension is not installed",
-                "ℹ".dimmed()
-            );
+            println!("  {} Extension is not installed", "ℹ".dimmed());
         }
         return Ok(());
     }
@@ -572,11 +530,7 @@ async fn uninstall(cli: &Cli) -> Result<()> {
             })
         );
     } else {
-        println!(
-            "  {} Extension removed from {}",
-            "✓".green(),
-            dir.display()
-        );
+        println!("  {} Extension removed from {}", "✓".green(), dir.display());
     }
 
     Ok(())

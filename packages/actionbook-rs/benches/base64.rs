@@ -20,9 +20,7 @@ fn bench_base64_encode(c: &mut Criterion) {
         let size_kb = size / 1000;
 
         group.bench_with_input(BenchmarkId::new("standard", size_kb), size, |b, _| {
-            b.iter(|| {
-                base64::engine::general_purpose::STANDARD.encode(black_box(&data))
-            });
+            b.iter(|| base64::engine::general_purpose::STANDARD.encode(black_box(&data)));
         });
     }
 

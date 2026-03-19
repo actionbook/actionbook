@@ -54,9 +54,7 @@ fn parse_ax_tree_value(ax_tree: &Value) -> Vec<A11yNode> {
         .iter()
         .filter_map(|node| {
             let node_id = node.get("nodeId")?.as_str()?.to_string();
-            let backend_node_id = node
-                .get("backendDOMNodeId")
-                .and_then(|v| v.as_i64());
+            let backend_node_id = node.get("backendDOMNodeId").and_then(|v| v.as_i64());
             let role = node
                 .get("role")
                 .and_then(|r| r.get("value"))?
@@ -228,7 +226,11 @@ fn parse_ax_tree_value_full(json: &str) -> Vec<A11yNode> {
     }
 
     // Depth calculation function (same as real implementation)
-    fn get_depth(node_id: &str, parent_map: &HashMap<String, String>, cache: &mut HashMap<String, usize>) -> usize {
+    fn get_depth(
+        node_id: &str,
+        parent_map: &HashMap<String, String>,
+        cache: &mut HashMap<String, usize>,
+    ) -> usize {
         if let Some(&d) = cache.get(node_id) {
             return d;
         }
@@ -247,7 +249,11 @@ fn parse_ax_tree_value_full(json: &str) -> Vec<A11yNode> {
         .iter()
         .filter_map(|node| {
             // Skip ignored nodes
-            if node.get("ignored").and_then(|i| i.as_bool()).unwrap_or(false) {
+            if node
+                .get("ignored")
+                .and_then(|i| i.as_bool())
+                .unwrap_or(false)
+            {
                 return None;
             }
 
@@ -267,9 +273,7 @@ fn parse_ax_tree_value_full(json: &str) -> Vec<A11yNode> {
                 .unwrap_or("")
                 .to_string();
 
-            let backend_node_id = node
-                .get("backendDOMNodeId")
-                .and_then(|v| v.as_i64());
+            let backend_node_id = node.get("backendDOMNodeId").and_then(|v| v.as_i64());
 
             let child_ids = node
                 .get("childIds")
@@ -331,13 +335,9 @@ fn bench_parse_ax_tree(c: &mut Criterion) {
         // Phase 2b: Real implementation (AFTER optimization) — accepts Value directly
         group.bench_with_input(BenchmarkId::new("real_typed", size), size, |b, _| {
             b.iter(|| {
-                let value: serde_json::Value = serde_json::from_str(black_box(&ax_tree_json)).unwrap();
-                parse_ax_tree(
-                    black_box(value),
-                    SnapshotFilter::All,
-                    None,
-                    None,
-                ).unwrap()
+                let value: serde_json::Value =
+                    serde_json::from_str(black_box(&ax_tree_json)).unwrap();
+                parse_ax_tree(black_box(value), SnapshotFilter::All, None, None).unwrap()
             });
         });
     }

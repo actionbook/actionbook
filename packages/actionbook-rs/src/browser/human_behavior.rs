@@ -169,22 +169,18 @@ fn cubic_bezier(t: f64, p0: Point, p1: Point, p2: Point, p3: Point) -> Point {
 /// Calculate delays between mouse movements
 ///
 /// Uses easing function to simulate acceleration and deceleration
-pub fn calculate_movement_delays(
-    points: &[Point],
-    speed_multiplier: f64,
-) -> Vec<Duration> {
+pub fn calculate_movement_delays(points: &[Point], speed_multiplier: f64) -> Vec<Duration> {
     if points.len() <= 1 {
         return Vec::new();
     }
 
     let mut delays = Vec::with_capacity(points.len() - 1);
-    let total_distance: f64 = points
-        .windows(2)
-        .map(|w| w[0].distance_to(&w[1]))
-        .sum();
+    let total_distance: f64 = points.windows(2).map(|w| w[0].distance_to(&w[1])).sum();
 
     // Base duration: ~500ms for typical mouse movements
-    let base_duration_ms = (total_distance * 0.5 / speed_multiplier).max(100.0).min(2000.0);
+    let base_duration_ms = (total_distance * 0.5 / speed_multiplier)
+        .max(100.0)
+        .min(2000.0);
 
     for i in 0..points.len() - 1 {
         let progress = i as f64 / (points.len() - 1) as f64;
@@ -232,10 +228,10 @@ pub fn generate_typing_delays(text: &str, wpm: u32) -> Vec<Duration> {
 
         // Longer pauses for certain characters
         let char_multiplier = match ch {
-            ' ' => 1.5,  // Slight pause at spaces
-            '.' | '!' | '?' => 2.5,  // Longer pause at sentence end
-            ',' | ';' | ':' => 1.8,  // Medium pause at punctuation
-            '\n' => 3.0,  // Long pause at line breaks
+            ' ' => 1.5,             // Slight pause at spaces
+            '.' | '!' | '?' => 2.5, // Longer pause at sentence end
+            ',' | ';' | ':' => 1.8, // Medium pause at punctuation
+            '\n' => 3.0,            // Long pause at line breaks
             _ => 1.0,
         };
 

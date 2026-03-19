@@ -74,15 +74,14 @@ pub async fn run() -> crate::error::Result<()> {
         crate::error::ActionbookError::Other(format!("Failed to read native message: {}", e))
     })?;
 
-    let msg_type = msg
-        .get("type")
-        .and_then(|t| t.as_str())
-        .unwrap_or("");
+    let msg_type = msg.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
     let response = match msg_type {
         "get_bridge_info" | "get_token" => {
             // "get_token" kept for backward compatibility, but no token is used anymore
-            let port = extension_bridge::read_port_file().await.unwrap_or(DEFAULT_EXTENSION_PORT);
+            let port = extension_bridge::read_port_file()
+                .await
+                .unwrap_or(DEFAULT_EXTENSION_PORT);
             let bridge_running = extension_bridge::is_bridge_running(port).await;
 
             if bridge_running {
@@ -173,10 +172,7 @@ pub fn install_manifest() -> crate::error::Result<std::path::PathBuf> {
     // Determine actionbook binary path
     let binary_path = std::env::current_exe()
         .map_err(|e| {
-            crate::error::ActionbookError::Other(format!(
-                "Cannot determine binary path: {}",
-                e
-            ))
+            crate::error::ActionbookError::Other(format!("Cannot determine binary path: {}", e))
         })?
         .to_string_lossy()
         .to_string();
@@ -228,7 +224,6 @@ pub fn uninstall_manifest() -> crate::error::Result<()> {
     }
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {

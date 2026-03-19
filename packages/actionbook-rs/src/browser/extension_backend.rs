@@ -90,7 +90,10 @@ impl ExtensionBackend {
                         other => {
                             // Extension connected successfully
                             if other.is_ok() && user_notified {
-                                eprintln!("  {} Extension connected", colored::Colorize::green("✓"));
+                                eprintln!(
+                                    "  {} Extension connected",
+                                    colored::Colorize::green("✓")
+                                );
                             }
                             return other;
                         }
@@ -124,7 +127,11 @@ impl ExtensionBackend {
         if let Some(exception) = result.get("exceptionDetails") {
             let msg = exception
                 .get("text")
-                .or_else(|| exception.get("exception").and_then(|e| e.get("description")))
+                .or_else(|| {
+                    exception
+                        .get("exception")
+                        .and_then(|e| e.get("description"))
+                })
                 .and_then(|v| v.as_str())
                 .unwrap_or("JavaScript exception");
             return Err(ActionbookError::ExtensionError(format!(
@@ -137,12 +144,7 @@ impl ExtensionBackend {
             .get("result")
             .and_then(|r| r.get("value"))
             .cloned()
-            .unwrap_or_else(|| {
-                result
-                    .get("result")
-                    .cloned()
-                    .unwrap_or(Value::Null)
-            }))
+            .unwrap_or_else(|| result.get("result").cloned().unwrap_or(Value::Null)))
     }
 
     /// Evaluate JS with `awaitPromise: true` — used by internal action helpers.
@@ -271,10 +273,7 @@ fn js_resolve_selector(selector: &str) -> String {
 impl super::backend::BrowserBackend for ExtensionBackend {
     async fn open(&self, url: &str) -> Result<OpenResult> {
         let result = self
-            .send(
-                "Extension.createTab",
-                serde_json::json!({ "url": url }),
-            )
+            .send("Extension.createTab", serde_json::json!({ "url": url }))
             .await?;
 
         let title = result
@@ -577,14 +576,11 @@ impl super::backend::BrowserBackend for ExtensionBackend {
         };
 
         let result = self.send("Page.captureScreenshot", params).await?;
-        let b64_data = result
-            .get("data")
-            .and_then(|d| d.as_str())
-            .ok_or_else(|| {
-                ActionbookError::ExtensionError(
-                    "Screenshot response missing 'data' field (extension mode)".to_string(),
-                )
-            })?;
+        let b64_data = result.get("data").and_then(|d| d.as_str()).ok_or_else(|| {
+            ActionbookError::ExtensionError(
+                "Screenshot response missing 'data' field (extension mode)".to_string(),
+            )
+        })?;
 
         base64::engine::general_purpose::STANDARD
             .decode(b64_data)
@@ -597,17 +593,12 @@ impl super::backend::BrowserBackend for ExtensionBackend {
     }
 
     async fn pdf(&self) -> Result<Vec<u8>> {
-        let result = self
-            .send("Page.printToPDF", serde_json::json!({}))
-            .await?;
-        let b64_data = result
-            .get("data")
-            .and_then(|d| d.as_str())
-            .ok_or_else(|| {
-                ActionbookError::ExtensionError(
-                    "PDF response missing 'data' field (extension mode)".to_string(),
-                )
-            })?;
+        let result = self.send("Page.printToPDF", serde_json::json!({})).await?;
+        let b64_data = result.get("data").and_then(|d| d.as_str()).ok_or_else(|| {
+            ActionbookError::ExtensionError(
+                "PDF response missing 'data' field (extension mode)".to_string(),
+            )
+        })?;
 
         base64::engine::general_purpose::STANDARD
             .decode(b64_data)
@@ -720,14 +711,8 @@ impl super::backend::BrowserBackend for ExtensionBackend {
             other => other,
         };
 
-        let w = parsed
-            .get("width")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
-        let h = parsed
-            .get("height")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
+        let w = parsed.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let h = parsed.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
 
         Ok((w, h))
     }
@@ -738,10 +723,7 @@ impl super::backend::BrowserBackend for ExtensionBackend {
         let url = url_result.as_str().unwrap_or("").to_string();
 
         let result = self
-            .send(
-                "Extension.getCookies",
-                serde_json::json!({ "url": url }),
-            )
+            .send("Extension.getCookies", serde_json::json!({ "url": url }))
             .await?;
 
         let cookies = result
@@ -840,9 +822,17 @@ mod tests {
         let input = "');alert(1);//";
         let escaped = escape_js_string(input);
         // The single quote is escaped so it can't break out of a JS string literal
-        assert!(escaped.starts_with(r"\'"), "leading quote must be escaped: {}", escaped);
+        assert!(
+            escaped.starts_with(r"\'"),
+            "leading quote must be escaped: {}",
+            escaped
+        );
         // When embedded in JS as '...', the escaped version is safe
-        assert!(escaped.contains(r"\'"), "single quote must be escaped: {}", escaped);
+        assert!(
+            escaped.contains(r"\'"),
+            "single quote must be escaped: {}",
+            escaped
+        );
     }
 
     #[test]

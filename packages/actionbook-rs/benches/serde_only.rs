@@ -78,7 +78,8 @@ fn bench_deserialize_bytes(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("from_slice", size), size, |b, _| {
             b.iter(|| {
-                let _state: MockSessionState = serde_json::from_slice(black_box(&json_bytes)).unwrap();
+                let _state: MockSessionState =
+                    serde_json::from_slice(black_box(&json_bytes)).unwrap();
             });
         });
     }

@@ -9,10 +9,7 @@ use super::{
 };
 
 #[cfg(feature = "camoufox")]
-use super::{
-    camofox::CamofoxSession,
-    camofox_webdriver::CamofoxDriver,
-};
+use super::{camofox::CamofoxSession, camofox_webdriver::CamofoxDriver};
 #[allow(unused_imports)]
 use crate::{
     cli::Cli,
@@ -39,7 +36,12 @@ impl BrowserDriver {
     #[allow(dead_code)]
     pub async fn from_cli(cli: &Cli) -> Result<Self> {
         let config = Config::load()?;
-        let profile_name = match cli.profile.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let profile_name = match cli
+            .profile
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             Some(name) => name.to_string(),
             None => config.effective_default_profile_name(),
         };
@@ -62,11 +64,7 @@ impl BrowserDriver {
     /// 2. Profile config: `profiles.{name}.backend`
     /// 3. Global config: `browser.backend`
     /// 4. Default: CDP
-    pub async fn from_config(
-        config: &Config,
-        profile: &ProfileConfig,
-        cli: &Cli,
-    ) -> Result<Self> {
+    pub async fn from_config(config: &Config, profile: &ProfileConfig, cli: &Cli) -> Result<Self> {
         // Determine backend
         let backend = if cli.camofox {
             BrowserBackend::Camofox
@@ -102,6 +100,9 @@ impl BrowserDriver {
                 };
                 session_mgr.set_daemon_enabled(!cli.no_daemon);
                 session_mgr.set_active_profile(&active_profile);
+                if let Some(ref session) = cli.session {
+                    session_mgr.set_active_session(session);
+                }
                 Ok(Self::Cdp(session_mgr))
             }
             #[cfg(feature = "camoufox")]
@@ -138,12 +139,10 @@ impl BrowserDriver {
                 }
             }
             #[cfg(not(feature = "camoufox"))]
-            BrowserBackend::Camofox => {
-                Err(crate::error::ActionbookError::FeatureNotEnabled(
-                    "camoufox".to_string(),
-                    "Compile with --features camoufox to use Camoufox backend".to_string(),
-                ))
-            }
+            BrowserBackend::Camofox => Err(crate::error::ActionbookError::FeatureNotEnabled(
+                "camoufox".to_string(),
+                "Compile with --features camoufox to use Camoufox backend".to_string(),
+            )),
         }
     }
 
@@ -151,7 +150,7 @@ impl BrowserDriver {
     pub async fn goto(&mut self, url: &str) -> Result<()> {
         match self {
             Self::Cdp(mgr) => mgr.goto(None, url).await,
-                        #[cfg(feature = "camoufox")]
+            #[cfg(feature = "camoufox")]
             Self::Camofox(session) => {
                 // If no active tab, create one
                 if session.active_tab().is_err() {
@@ -161,7 +160,7 @@ impl BrowserDriver {
                     session.navigate(url).await
                 }
             }
-                                    #[cfg(feature = "camoufox")]
+            #[cfg(feature = "camoufox")]
             Self::CamofoxWebDriver(driver) => driver.goto(url).await,
         }
     }
@@ -185,7 +184,7 @@ impl BrowserDriver {
                 Self::ensure_camofox_tab(session).await?;
                 session.click(selector).await
             }
-                        #[cfg(feature = "camoufox")]
+            #[cfg(feature = "camoufox")]
             Self::CamofoxWebDriver(driver) => driver.click(selector).await,
         }
     }
@@ -252,7 +251,7 @@ impl BrowserDriver {
                 Self::ensure_camofox_tab(session).await?;
                 session.type_text(selector, text).await
             }
-                        #[cfg(feature = "camoufox")]
+            #[cfg(feature = "camoufox")]
             Self::CamofoxWebDriver(driver) => driver.type_text(selector, text).await,
         }
     }
@@ -266,7 +265,7 @@ impl BrowserDriver {
                 Self::ensure_camofox_tab(session).await?;
                 session.screenshot().await
             }
-                        #[cfg(feature = "camoufox")]
+            #[cfg(feature = "camoufox")]
             Self::CamofoxWebDriver(driver) => driver.screenshot().await,
         }
     }
@@ -331,7 +330,7 @@ impl BrowserDriver {
     ) -> Result<()> {
         match self {
             Self::Cdp(mgr) => mgr.set_resource_blocking(None, level).await,
-                        #[cfg(feature = "camoufox")]
+            #[cfg(feature = "camoufox")]
             Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
                 Err(ActionbookError::FeatureNotSupported(
                     "Resource blocking is only supported on CDP backend".to_string(),
@@ -349,7 +348,7 @@ impl BrowserDriver {
     ) -> Result<String> {
         match self {
             Self::Cdp(mgr) => mgr.get_readable_text(None, mode).await,
-                        #[cfg(feature = "camoufox")]
+            #[cfg(feature = "camoufox")]
             Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
                 // Fallback: use eval for raw mode
                 Err(ActionbookError::FeatureNotSupported(
@@ -365,7 +364,7 @@ impl BrowserDriver {
     pub async fn get_accessibility_tree_raw(&mut self) -> Result<serde_json::Value> {
         match self {
             Self::Cdp(mgr) => mgr.get_accessibility_tree(None).await,
-                        #[cfg(feature = "camoufox")]
+            #[cfg(feature = "camoufox")]
             Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
                 Err(ActionbookError::FeatureNotSupported(
                     "CDP Accessibility Tree is only supported on CDP backend".to_string(),
@@ -378,7 +377,7 @@ impl BrowserDriver {
     pub async fn get_backend_node_id(&mut self, selector: &str) -> Result<Option<i64>> {
         match self {
             Self::Cdp(mgr) => mgr.get_backend_node_id(None, selector).await,
-                        #[cfg(feature = "camoufox")]
+            #[cfg(feature = "camoufox")]
             Self::Camofox(_) | Self::CamofoxWebDriver(_) => Ok(None),
         }
     }
@@ -389,7 +388,7 @@ impl BrowserDriver {
     pub async fn click_by_node_id(&mut self, backend_node_id: i64) -> Result<()> {
         match self {
             Self::Cdp(mgr) => mgr.click_by_node_id(None, backend_node_id).await,
-                        #[cfg(feature = "camoufox")]
+            #[cfg(feature = "camoufox")]
             Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
                 Err(ActionbookError::FeatureNotSupported(
                     "Node ID actions are only supported on CDP backend".to_string(),
@@ -402,7 +401,7 @@ impl BrowserDriver {
     pub async fn type_by_node_id(&mut self, backend_node_id: i64, text: &str) -> Result<()> {
         match self {
             Self::Cdp(mgr) => mgr.type_by_node_id(None, backend_node_id, text).await,
-                        #[cfg(feature = "camoufox")]
+            #[cfg(feature = "camoufox")]
             Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
                 Err(ActionbookError::FeatureNotSupported(
                     "Node ID actions are only supported on CDP backend".to_string(),
@@ -415,7 +414,7 @@ impl BrowserDriver {
     pub async fn fill_by_node_id(&mut self, backend_node_id: i64, text: &str) -> Result<()> {
         match self {
             Self::Cdp(mgr) => mgr.fill_by_node_id(None, backend_node_id, text).await,
-                        #[cfg(feature = "camoufox")]
+            #[cfg(feature = "camoufox")]
             Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
                 Err(ActionbookError::FeatureNotSupported(
                     "Node ID actions are only supported on CDP backend".to_string(),
@@ -428,7 +427,7 @@ impl BrowserDriver {
     pub async fn focus_by_node_id(&mut self, backend_node_id: i64) -> Result<()> {
         match self {
             Self::Cdp(mgr) => mgr.focus_by_node_id(None, backend_node_id).await,
-                        #[cfg(feature = "camoufox")]
+            #[cfg(feature = "camoufox")]
             Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
                 Err(ActionbookError::FeatureNotSupported(
                     "Node ID actions are only supported on CDP backend".to_string(),
@@ -438,10 +437,16 @@ impl BrowserDriver {
     }
 
     /// Get the center coordinates of an element by backendNodeId
-    pub async fn get_element_center_by_node_id(&mut self, backend_node_id: i64) -> Result<(f64, f64)> {
+    pub async fn get_element_center_by_node_id(
+        &mut self,
+        backend_node_id: i64,
+    ) -> Result<(f64, f64)> {
         match self {
-            Self::Cdp(mgr) => mgr.get_element_center_by_node_id(None, backend_node_id).await,
-                        #[cfg(feature = "camoufox")]
+            Self::Cdp(mgr) => {
+                mgr.get_element_center_by_node_id(None, backend_node_id)
+                    .await
+            }
+            #[cfg(feature = "camoufox")]
             Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
                 Err(ActionbookError::FeatureNotSupported(
                     "Node ID actions are only supported on CDP backend".to_string(),
@@ -454,7 +459,7 @@ impl BrowserDriver {
     pub async fn get_element_center(&mut self, selector: &str) -> Result<(f64, f64)> {
         match self {
             Self::Cdp(mgr) => mgr.get_element_center(None, selector).await,
-                        #[cfg(feature = "camoufox")]
+            #[cfg(feature = "camoufox")]
             Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
                 Err(ActionbookError::FeatureNotSupported(
                     "Element center lookup is only supported on CDP backend".to_string(),
@@ -504,7 +509,7 @@ impl BrowserDriver {
     pub async fn dispatch_mouse_moves(&mut self, points: &[(f64, f64)]) -> Result<()> {
         match self {
             Self::Cdp(mgr) => mgr.dispatch_mouse_moves(None, points).await,
-                        #[cfg(feature = "camoufox")]
+            #[cfg(feature = "camoufox")]
             Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
                 Err(ActionbookError::FeatureNotSupported(
                     "Human mouse simulation is only supported on CDP backend".to_string(),
@@ -704,7 +709,7 @@ impl BrowserDriver {
             #[cfg(feature = "camoufox")]
             Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
                 Err(ActionbookError::FeatureNotSupported(
-                    "Page listing not yet supported for Camoufox backend".to_string()
+                    "Page listing not yet supported for Camoufox backend".to_string(),
                 ))
             }
         }
@@ -717,18 +722,27 @@ impl BrowserDriver {
             #[cfg(feature = "camoufox")]
             Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
                 Err(ActionbookError::FeatureNotSupported(
-                    "Page switching not supported for Camoufox backend".to_string()
+                    "Page switching not supported for Camoufox backend".to_string(),
                 ))
             }
         }
     }
 
-    /// Create a new tab/page
-    pub async fn new_page(&mut self, url: Option<&str>) -> Result<super::session::PageInfo> {
+    /// Create a new tab/page (or window if `new_window` is true)
+    pub async fn new_page(
+        &mut self,
+        url: Option<&str>,
+        new_window: bool,
+    ) -> Result<super::session::PageInfo> {
         match self {
-            Self::Cdp(mgr) => mgr.new_page(None, url).await,
+            Self::Cdp(mgr) => mgr.new_page(None, url, new_window).await,
             #[cfg(feature = "camoufox")]
             Self::Camofox(session) => {
+                if new_window {
+                    tracing::warn!(
+                        "--new-window is not supported for Camoufox backend, opening as tab"
+                    );
+                }
                 let page_url = url.unwrap_or("about:blank");
                 session.create_tab(page_url).await?;
                 // Return a mock PageInfo since Camoufox doesn't expose full page details
@@ -741,11 +755,9 @@ impl BrowserDriver {
                 })
             }
             #[cfg(feature = "camoufox")]
-            Self::CamofoxWebDriver(_) => {
-                Err(ActionbookError::FeatureNotSupported(
-                    "New tab creation not supported for Camoufox WebDriver backend".to_string()
-                ))
-            }
+            Self::CamofoxWebDriver(_) => Err(ActionbookError::FeatureNotSupported(
+                "New tab creation not supported for Camoufox WebDriver backend".to_string(),
+            )),
         }
     }
 
@@ -756,7 +768,7 @@ impl BrowserDriver {
             #[cfg(feature = "camoufox")]
             Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
                 Err(ActionbookError::FeatureNotSupported(
-                    "Page closing not supported for Camoufox backend".to_string()
+                    "Page closing not supported for Camoufox backend".to_string(),
                 ))
             }
         }
@@ -778,11 +790,9 @@ impl BrowserDriver {
                 })
             }
             #[cfg(feature = "camoufox")]
-            Self::CamofoxWebDriver(_) => {
-                Err(ActionbookError::FeatureNotSupported(
-                    "Get active page not supported for Camoufox WebDriver backend".to_string()
-                ))
-            }
+            Self::CamofoxWebDriver(_) => Err(ActionbookError::FeatureNotSupported(
+                "Get active page not supported for Camoufox WebDriver backend".to_string(),
+            )),
         }
     }
 

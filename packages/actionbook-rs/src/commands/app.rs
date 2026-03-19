@@ -46,7 +46,12 @@ pub async fn run(cli: &Cli, command: &AppCommands) -> Result<()> {
         AppCommands::WaitNav { timeout } => {
             crate::commands::browser::wait_nav(cli, &config, *timeout).await
         }
-        AppCommands::Click { selector, wait, ref_id, human } => {
+        AppCommands::Click {
+            selector,
+            wait,
+            ref_id,
+            human,
+        } => {
             crate::commands::browser::click(
                 cli,
                 &config,
@@ -57,7 +62,13 @@ pub async fn run(cli: &Cli, command: &AppCommands) -> Result<()> {
             )
             .await
         }
-        AppCommands::Type { selector, text, wait, ref_id, human } => {
+        AppCommands::Type {
+            selector,
+            text,
+            wait,
+            ref_id,
+            human,
+        } => {
             crate::commands::browser::type_text(
                 cli,
                 &config,
@@ -69,7 +80,12 @@ pub async fn run(cli: &Cli, command: &AppCommands) -> Result<()> {
             )
             .await
         }
-        AppCommands::Fill { selector, text, wait, ref_id } => {
+        AppCommands::Fill {
+            selector,
+            text,
+            wait,
+            ref_id,
+        } => {
             crate::commands::browser::fill(
                 cli,
                 &config,
@@ -89,21 +105,13 @@ pub async fn run(cli: &Cli, command: &AppCommands) -> Result<()> {
         AppCommands::Focus { selector } => {
             crate::commands::browser::focus(cli, &config, selector).await
         }
-        AppCommands::Press { key } => {
-            crate::commands::browser::press(cli, &config, key).await
-        }
-        AppCommands::Hotkey { keys } => {
-            crate::commands::browser::hotkey(cli, &config, keys).await
-        }
+        AppCommands::Press { key } => crate::commands::browser::press(cli, &config, key).await,
+        AppCommands::Hotkey { keys } => crate::commands::browser::hotkey(cli, &config, keys).await,
         AppCommands::Screenshot { path, full_page } => {
             crate::commands::browser::screenshot(cli, &config, path, *full_page).await
         }
-        AppCommands::Pdf { path } => {
-            crate::commands::browser::pdf(cli, &config, path).await
-        }
-        AppCommands::Eval { code } => {
-            crate::commands::browser::eval(cli, &config, code).await
-        }
+        AppCommands::Pdf { path } => crate::commands::browser::pdf(cli, &config, path).await,
+        AppCommands::Eval { code } => crate::commands::browser::eval(cli, &config, code).await,
         AppCommands::Html { selector } => {
             crate::commands::browser::html(cli, &config, selector.as_deref()).await
         }
@@ -137,15 +145,15 @@ pub async fn run(cli: &Cli, command: &AppCommands) -> Result<()> {
         AppCommands::Inspect { x, y, desc } => {
             crate::commands::browser::inspect(cli, &config, *x, *y, desc.as_deref()).await
         }
-        AppCommands::Viewport => {
-            crate::commands::browser::viewport(cli, &config).await
-        }
+        AppCommands::Viewport => crate::commands::browser::viewport(cli, &config).await,
         AppCommands::Cookies { command } => {
             crate::commands::browser::cookies(cli, &config, command).await
         }
-        AppCommands::Scroll { direction, smooth, wait } => {
-            crate::commands::browser::scroll(cli, &config, direction, *smooth, *wait).await
-        }
+        AppCommands::Scroll {
+            direction,
+            smooth,
+            wait,
+        } => crate::commands::browser::scroll(cli, &config, direction, *smooth, *wait).await,
         AppCommands::Batch { file, delay } => {
             crate::commands::batch::run(cli, &config, file.as_deref(), *delay).await
         }
@@ -167,11 +175,26 @@ pub async fn run(cli: &Cli, command: &AppCommands) -> Result<()> {
         AppCommands::Emulate { device } => {
             crate::commands::browser::emulate(cli, &config, device).await
         }
-        AppCommands::WaitFn { expression, timeout, interval } => {
-            crate::commands::browser::wait_fn(cli, &config, expression, *timeout, *interval).await
-        }
-        AppCommands::Upload { files, selector, ref_id, wait } => {
-            crate::commands::browser::upload(cli, &config, files, selector.as_deref(), ref_id.as_deref(), *wait).await
+        AppCommands::WaitFn {
+            expression,
+            timeout,
+            interval,
+        } => crate::commands::browser::wait_fn(cli, &config, expression, *timeout, *interval).await,
+        AppCommands::Upload {
+            files,
+            selector,
+            ref_id,
+            wait,
+        } => {
+            crate::commands::browser::upload(
+                cli,
+                &config,
+                files,
+                selector.as_deref(),
+                ref_id.as_deref(),
+                *wait,
+            )
+            .await
         }
         AppCommands::Tab { command } => {
             crate::commands::browser::tab_command(cli, &config, command).await
@@ -216,7 +239,10 @@ async fn launch(cli: &Cli, config: &Config, app_name: &str) -> Result<()> {
     let profile_name = crate::commands::browser::effective_profile_name(cli, config);
 
     // Launch the app with CDP debugging
-    let session_manager = SessionManager::new(config.clone());
+    let mut session_manager = SessionManager::new(config.clone());
+    if let Some(ref session) = cli.session {
+        session_manager.set_active_session(session);
+    }
 
     // Convert PathBuf to string
     let app_path = app
@@ -326,7 +352,10 @@ async fn attach(cli: &Cli, config: &Config, target: &str) -> Result<()> {
             let (cdp_port, cdp_url) =
                 crate::commands::browser::resolve_cdp_endpoint(&port.to_string()).await?;
 
-            let session_manager = SessionManager::new(config.clone());
+            let mut session_manager = SessionManager::new(config.clone());
+            if let Some(ref session) = cli.session {
+                session_manager.set_active_session(session);
+            }
             let app_path_str = app.path.to_str().map(|s| s.to_string());
             session_manager.save_external_session_with_app(
                 profile_name,
@@ -376,12 +405,14 @@ async fn attach(cli: &Cli, config: &Config, target: &str) -> Result<()> {
     // Verify reachability and resolve fresh WS URL — same logic as ensure_cdp_override().
     // For local ws:// endpoints, query /json/version to get the current webSocketDebuggerUrl
     // (browser IDs rotate on every launch). For remote wss://, do a full WS handshake.
-    let resolved_url = crate::commands::browser::verify_and_resolve_cdp_url(
-        cli, config, cdp_port, &cdp_url,
-    )
-    .await?;
+    let resolved_url =
+        crate::commands::browser::verify_and_resolve_cdp_url(cli, config, cdp_port, &cdp_url)
+            .await?;
 
-    let session_manager = SessionManager::new(config.clone());
+    let mut session_manager = SessionManager::new(config.clone());
+    if let Some(ref session) = cli.session {
+        session_manager.set_active_session(session);
+    }
     session_manager.save_external_session_with_app(
         profile_name,
         cdp_port,
@@ -394,7 +425,10 @@ async fn attach(cli: &Cli, config: &Config, target: &str) -> Result<()> {
     #[cfg(unix)]
     {
         if crate::daemon::lifecycle::is_daemon_alive(profile_name).await {
-            tracing::info!("Stopping daemon for profile '{}' after attach (endpoint changed)", profile_name);
+            tracing::info!(
+                "Stopping daemon for profile '{}' after attach (endpoint changed)",
+                profile_name
+            );
             let _ = crate::daemon::lifecycle::stop_daemon(profile_name).await;
         }
     }
@@ -513,7 +547,9 @@ fn cdp_info_matches_app(cdp_info: &serde_json::Value, app_name: &str) -> bool {
         // Only accept if it's Electron AND app name has some match in the CDP response
         if browser_lower.contains("electron") {
             // Check if any field contains the app name
-            let json_str = serde_json::to_string(cdp_info).unwrap_or_default().to_lowercase();
+            let json_str = serde_json::to_string(cdp_info)
+                .unwrap_or_default()
+                .to_lowercase();
             if json_str.contains(&app_name_lower) {
                 return true;
             }
@@ -570,28 +606,25 @@ async fn close(cli: &Cli, config: &Config) -> Result<()> {
 /// Restart the connected application
 async fn restart(cli: &Cli, config: &Config) -> Result<()> {
     use crate::browser::SessionManager;
-    use std::fs;
-    use std::path::PathBuf;
 
     let profile_name = crate::commands::browser::effective_profile_name(cli, config);
 
-    // Load session state to check if it's a custom app
-    // Use same path as SessionManager: ~/.actionbook/sessions
-    let sessions_dir = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".actionbook")
-        .join("sessions");
-    let session_file = sessions_dir.join(format!("{}.json", profile_name));
+    // Load session state via SessionManager (handles sanitization, multi-session naming,
+    // and legacy migration consistently)
+    let mut session_manager = SessionManager::new(config.clone());
+    if let Some(ref s) = cli.session {
+        session_manager.set_active_session(s);
+    }
 
-    let session_state_content = fs::read_to_string(&session_file).map_err(|_| {
-        ActionbookError::BrowserNotRunning
-    })?;
-
-    let session_state: serde_json::Value = serde_json::from_str(&session_state_content)
-        .map_err(|e| ActionbookError::ConfigError(format!("Failed to parse session state: {}", e)))?;
+    let session_state = session_manager
+        .load_session_json(profile_name)
+        .ok_or(ActionbookError::BrowserNotRunning)?;
 
     // Check if this is a custom app session
-    if let Some(app_path) = session_state.get("custom_app_path").and_then(|v| v.as_str()) {
+    if let Some(app_path) = session_state
+        .get("custom_app_path")
+        .and_then(|v| v.as_str())
+    {
         // This is a custom app - restart it properly
         println!("{} Restarting application: {}", "ℹ".blue(), app_path);
 
@@ -599,10 +632,12 @@ async fn restart(cli: &Cli, config: &Config) -> Result<()> {
         crate::commands::browser::close(cli, config).await?;
 
         // Get CDP port from old session
-        let port = session_state.get("cdp_port").and_then(|v| v.as_u64()).map(|p| p as u16);
+        let port = session_state
+            .get("cdp_port")
+            .and_then(|v| v.as_u64())
+            .map(|p| p as u16);
 
-        // Relaunch the custom app
-        let session_manager = SessionManager::new(config.clone());
+        // Relaunch the custom app (reuse session_manager created above)
         let (_browser, _handler) = session_manager
             .launch_custom_app(profile_name, app_path, vec![], port)
             .await?;

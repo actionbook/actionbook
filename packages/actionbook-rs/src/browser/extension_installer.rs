@@ -18,9 +18,7 @@ const ALLOWED_DOWNLOAD_HOSTS: &[&str] = &["github.com", "githubusercontent.com"]
 /// Returns Actionbook home directory: ~/.actionbook
 fn actionbook_home_dir() -> Result<PathBuf> {
     let home_dir = dirs::home_dir().ok_or_else(|| {
-        ActionbookError::ExtensionError(
-            "Could not determine home directory".to_string(),
-        )
+        ActionbookError::ExtensionError("Could not determine home directory".to_string())
     })?;
     Ok(home_dir.join(".actionbook"))
 }
@@ -54,7 +52,10 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
         } else {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Unsupported file type in extension dir: {}", src_path.display()),
+                format!(
+                    "Unsupported file type in extension dir: {}",
+                    src_path.display()
+                ),
             ));
         }
     }
@@ -75,11 +76,7 @@ fn migrate_legacy_extension_if_needed() -> Result<()> {
 
     if let Some(parent) = target_dir.parent() {
         fs::create_dir_all(parent).map_err(|e| {
-            ActionbookError::ExtensionError(format!(
-                "Failed to create {}: {}",
-                parent.display(),
-                e
-            ))
+            ActionbookError::ExtensionError(format!("Failed to create {}: {}", parent.display(), e))
         })?;
     }
 
@@ -151,11 +148,7 @@ pub fn uninstall() -> Result<()> {
     let dir = extension_dir()?;
     if dir.exists() {
         fs::remove_dir_all(&dir).map_err(|e| {
-            ActionbookError::ExtensionError(format!(
-                "Failed to remove {}: {}",
-                dir.display(),
-                e
-            ))
+            ActionbookError::ExtensionError(format!("Failed to remove {}: {}", dir.display(), e))
         })?;
     }
 
@@ -182,10 +175,7 @@ fn build_http_client() -> Result<reqwest::Client> {
         .connect_timeout(Duration::from_secs(10))
         .build()
         .map_err(|e| {
-            ActionbookError::ExtensionError(format!(
-                "Failed to create HTTP client: {}",
-                e
-            ))
+            ActionbookError::ExtensionError(format!("Failed to create HTTP client: {}", e))
         })
 }
 
@@ -241,10 +231,7 @@ pub async fn download_and_install(force: bool) -> Result<String> {
         ))
     })?;
     let tmp_dir = tempfile::tempdir_in(parent).map_err(|e| {
-        ActionbookError::ExtensionError(format!(
-            "Failed to create temp directory: {}",
-            e
-        ))
+        ActionbookError::ExtensionError(format!("Failed to create temp directory: {}", e))
     })?;
 
     extract_zip(&zip_bytes, tmp_dir.path())?;
@@ -257,10 +244,7 @@ pub async fn download_and_install(force: bool) -> Result<String> {
         )
     })?;
     let parsed: serde_json::Value = serde_json::from_str(&manifest_content).map_err(|e| {
-        ActionbookError::ExtensionError(format!(
-            "Extracted manifest.json is invalid JSON: {}",
-            e
-        ))
+        ActionbookError::ExtensionError(format!("Extracted manifest.json is invalid JSON: {}", e))
     })?;
     let extracted_version = parsed
         .get("version")
@@ -341,10 +325,7 @@ async fn fetch_latest_release() -> Result<(String, String)> {
     }
 
     let releases: Vec<serde_json::Value> = resp.json().await.map_err(|e| {
-        ActionbookError::ExtensionError(format!(
-            "Failed to parse GitHub releases response: {}",
-            e
-        ))
+        ActionbookError::ExtensionError(format!("Failed to parse GitHub releases response: {}", e))
     })?;
 
     // Find the latest release with an actionbook-extension-v* tag
@@ -365,15 +346,10 @@ async fn fetch_latest_release() -> Result<(String, String)> {
 
         // Find the .zip asset with exact name match
         let expected_asset_name = format!("actionbook-extension-v{}.zip", version);
-        let assets = release
-            .get("assets")
-            .and_then(|v| v.as_array());
+        let assets = release.get("assets").and_then(|v| v.as_array());
 
         for asset in assets.into_iter().flatten() {
-            let name = asset
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let name = asset.get("name").and_then(|v| v.as_str()).unwrap_or("");
 
             if name == expected_asset_name {
                 let download_url = asset
@@ -402,9 +378,8 @@ async fn fetch_latest_release() -> Result<(String, String)> {
 
 /// Validate that a download URL points to an allowed GitHub host.
 fn validate_download_url(url: &str) -> Result<()> {
-    let parsed = reqwest::Url::parse(url).map_err(|e| {
-        ActionbookError::ExtensionError(format!("Invalid download URL: {}", e))
-    })?;
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|e| ActionbookError::ExtensionError(format!("Invalid download URL: {}", e)))?;
 
     if parsed.scheme() != "https" {
         return Err(ActionbookError::ExtensionError(
@@ -413,7 +388,10 @@ fn validate_download_url(url: &str) -> Result<()> {
     }
 
     let host = parsed.host_str().unwrap_or("");
-    if !ALLOWED_DOWNLOAD_HOSTS.iter().any(|&allowed| host == allowed || host.ends_with(&format!(".{}", allowed))) {
+    if !ALLOWED_DOWNLOAD_HOSTS
+        .iter()
+        .any(|&allowed| host == allowed || host.ends_with(&format!(".{}", allowed)))
+    {
         return Err(ActionbookError::ExtensionError(format!(
             "Download URL host '{}' is not allowed (expected GitHub)",
             host
@@ -435,10 +413,7 @@ async fn download_asset(url: &str) -> Result<Vec<u8>> {
         .send()
         .await
         .map_err(|e| {
-            ActionbookError::ExtensionError(format!(
-                "Failed to download extension: {}",
-                e
-            ))
+            ActionbookError::ExtensionError(format!("Failed to download extension: {}", e))
         })?;
 
     if !resp.status().is_success() {
@@ -460,10 +435,7 @@ async fn download_asset(url: &str) -> Result<Vec<u8>> {
     }
 
     let bytes = resp.bytes().await.map_err(|e| {
-        ActionbookError::ExtensionError(format!(
-            "Failed to read download response: {}",
-            e
-        ))
+        ActionbookError::ExtensionError(format!("Failed to read download response: {}", e))
     })?;
 
     if bytes.len() > MAX_DOWNLOAD_SIZE {
@@ -503,10 +475,7 @@ pub fn extract_zip(bytes: &[u8], target_dir: &Path) -> Result<()> {
 
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| {
-            ActionbookError::ExtensionError(format!(
-                "Failed to read zip entry {}: {}",
-                i, e
-            ))
+            ActionbookError::ExtensionError(format!("Failed to read zip entry {}: {}", i, e))
         })?;
 
         // Zip bomb protection: check uncompressed size
@@ -584,9 +553,15 @@ mod tests {
 
     #[test]
     fn test_is_cross_device_error_detects_known_errno() {
-        assert!(is_cross_device_error(&std::io::Error::from_raw_os_error(18)));
-        assert!(is_cross_device_error(&std::io::Error::from_raw_os_error(17)));
-        assert!(!is_cross_device_error(&std::io::Error::from_raw_os_error(2)));
+        assert!(is_cross_device_error(&std::io::Error::from_raw_os_error(
+            18
+        )));
+        assert!(is_cross_device_error(&std::io::Error::from_raw_os_error(
+            17
+        )));
+        assert!(!is_cross_device_error(&std::io::Error::from_raw_os_error(
+            2
+        )));
     }
 
     #[test]
@@ -614,16 +589,16 @@ mod tests {
         writer
             .start_file("background.js", options)
             .expect("start_file");
-        std::io::Write::write_all(&mut writer, b"// background")
-            .expect("write");
+        std::io::Write::write_all(&mut writer, b"// background").expect("write");
 
-        writer.add_directory("icons", options).expect("add_directory");
+        writer
+            .add_directory("icons", options)
+            .expect("add_directory");
 
         writer
             .start_file("icons/icon-16.png", options)
             .expect("start_file");
-        std::io::Write::write_all(&mut writer, b"fake-png-data")
-            .expect("write");
+        std::io::Write::write_all(&mut writer, b"fake-png-data").expect("write");
 
         let result = writer.finish().expect("finish");
         let zip_bytes = result.into_inner();
@@ -655,8 +630,7 @@ mod tests {
         writer
             .start_file("../../../etc/passwd", options)
             .expect("start_file");
-        std::io::Write::write_all(&mut writer, b"malicious content")
-            .expect("write");
+        std::io::Write::write_all(&mut writer, b"malicious content").expect("write");
 
         let result = writer.finish().expect("finish");
         let zip_bytes = result.into_inner();
@@ -677,8 +651,8 @@ mod tests {
     #[test]
     fn test_extract_real_extension_zip() {
         // Read version from manifest.json so this test doesn't break on version bumps
-        let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../actionbook-extension/manifest.json");
+        let manifest_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../actionbook-extension/manifest.json");
         let manifest_content =
             fs::read_to_string(&manifest_path).expect("should read manifest.json");
         let manifest_parsed: serde_json::Value =
@@ -707,15 +681,33 @@ mod tests {
         extract_zip(&zip_bytes, &target).expect("extract should succeed");
 
         // Verify all expected files
-        assert!(target.join("manifest.json").exists(), "manifest.json missing");
-        assert!(target.join("background.js").exists(), "background.js missing");
+        assert!(
+            target.join("manifest.json").exists(),
+            "manifest.json missing"
+        );
+        assert!(
+            target.join("background.js").exists(),
+            "background.js missing"
+        );
         assert!(target.join("popup.html").exists(), "popup.html missing");
         assert!(target.join("popup.js").exists(), "popup.js missing");
-        assert!(target.join("offscreen.html").exists(), "offscreen.html missing");
+        assert!(
+            target.join("offscreen.html").exists(),
+            "offscreen.html missing"
+        );
         assert!(target.join("offscreen.js").exists(), "offscreen.js missing");
-        assert!(target.join("icons/icon-16.png").exists(), "icon-16.png missing");
-        assert!(target.join("icons/icon-48.png").exists(), "icon-48.png missing");
-        assert!(target.join("icons/icon-128.png").exists(), "icon-128.png missing");
+        assert!(
+            target.join("icons/icon-16.png").exists(),
+            "icon-16.png missing"
+        );
+        assert!(
+            target.join("icons/icon-48.png").exists(),
+            "icon-48.png missing"
+        );
+        assert!(
+            target.join("icons/icon-128.png").exists(),
+            "icon-128.png missing"
+        );
 
         // Verify manifest version matches what we read from source
         let extracted_manifest = fs::read_to_string(target.join("manifest.json")).unwrap();
@@ -737,10 +729,12 @@ mod tests {
     fn test_validate_download_url_accepts_github() {
         assert!(validate_download_url(
             "https://github.com/actionbook/actionbook/releases/download/v0.2.0/ext.zip"
-        ).is_ok());
-        assert!(validate_download_url(
-            "https://objects.githubusercontent.com/some-path/ext.zip"
-        ).is_ok());
+        )
+        .is_ok());
+        assert!(
+            validate_download_url("https://objects.githubusercontent.com/some-path/ext.zip")
+                .is_ok()
+        );
     }
 
     #[test]

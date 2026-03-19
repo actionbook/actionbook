@@ -32,10 +32,7 @@ fn main() {
         );
         println!(
             "  Screen:      {}x{} (avail: {}x{})",
-            profile.screen_width,
-            profile.screen_height,
-            profile.avail_width,
-            profile.avail_height
+            profile.screen_width, profile.screen_height, profile.avail_width, profile.avail_height
         );
         println!(
             "  WebGL:       {} - {}",
@@ -136,10 +133,7 @@ fn main() {
         "  Screen:      {}x{}",
         profile1.screen_width, profile1.screen_height
     );
-    println!(
-        "  Hardware:    {} cores",
-        profile1.hardware_concurrency
-    );
+    println!("  Hardware:    {} cores", profile1.hardware_concurrency);
 
     println!("\nProfile 2 (same seed):");
     println!("  Platform:    {}", profile2.platform);
@@ -147,10 +141,7 @@ fn main() {
         "  Screen:      {}x{}",
         profile2.screen_width, profile2.screen_height
     );
-    println!(
-        "  Hardware:    {} cores",
-        profile2.hardware_concurrency
-    );
+    println!("  Hardware:    {} cores", profile2.hardware_concurrency);
 
     assert_eq!(
         profile1.platform, profile2.platform,

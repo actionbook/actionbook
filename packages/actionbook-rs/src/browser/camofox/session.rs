@@ -170,8 +170,9 @@ impl CamofoxSession {
 
         if let Some(cache) = &self.snapshot_cache {
             // Convert to JSON for readability
-            serde_json::to_string_pretty(&cache.tree)
-                .map_err(|e| ActionbookError::BrowserOperation(format!("Failed to serialize tree: {}", e)))
+            serde_json::to_string_pretty(&cache.tree).map_err(|e| {
+                ActionbookError::BrowserOperation(format!("Failed to serialize tree: {}", e))
+            })
         } else {
             Err(ActionbookError::BrowserOperation(
                 "No snapshot available".to_string(),
@@ -194,18 +195,21 @@ mod tests {
         assert!(selector.starts_with('e') && selector[1..].parse::<u32>().is_ok());
 
         let selector = "#login";
-        assert!(!(selector.starts_with('e') && selector.get(1..).and_then(|s| s.parse::<u32>().ok()).is_some()));
+        assert!(
+            !(selector.starts_with('e')
+                && selector
+                    .get(1..)
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .is_some())
+        );
     }
 
     #[tokio::test]
     #[ignore] // Requires camofox-browser running
     async fn test_session_connect() {
-        let result = CamofoxSession::connect(
-            9377,
-            "test-user".to_string(),
-            "test-session".to_string(),
-        )
-        .await;
+        let result =
+            CamofoxSession::connect(9377, "test-user".to_string(), "test-session".to_string())
+                .await;
 
         assert!(result.is_ok(), "Should connect to Camoufox server");
     }
@@ -213,13 +217,10 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires camofox-browser running
     async fn test_create_tab_and_interact() {
-        let mut session = CamofoxSession::connect(
-            9377,
-            "test-user".to_string(),
-            "test-session".to_string(),
-        )
-        .await
-        .unwrap();
+        let mut session =
+            CamofoxSession::connect(9377, "test-user".to_string(), "test-session".to_string())
+                .await
+                .unwrap();
 
         let tab_id = session.create_tab("https://example.com").await.unwrap();
         assert!(!tab_id.is_empty());

@@ -54,11 +54,7 @@ impl CamofoxClient {
     }
 
     /// Create a new browser tab and navigate to URL
-    pub async fn create_tab(
-        &self,
-        session_key: &str,
-        url: &str,
-    ) -> Result<CreateTabResponse> {
+    pub async fn create_tab(&self, session_key: &str, url: &str) -> Result<CreateTabResponse> {
         let request_url = format!("{}/tabs", self.base_url);
         let body = CreateTabRequest {
             user_id: self.user_id.clone(),
@@ -72,7 +68,9 @@ impl CamofoxClient {
             .json(&body)
             .send()
             .await
-            .map_err(|e| ActionbookError::BrowserOperation(format!("Failed to create tab: {}", e)))?;
+            .map_err(|e| {
+                ActionbookError::BrowserOperation(format!("Failed to create tab: {}", e))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -83,10 +81,9 @@ impl CamofoxClient {
             )));
         }
 
-        response
-            .json::<CreateTabResponse>()
-            .await
-            .map_err(|e| ActionbookError::BrowserOperation(format!("Failed to parse response: {}", e)))
+        response.json::<CreateTabResponse>().await.map_err(|e| {
+            ActionbookError::BrowserOperation(format!("Failed to parse response: {}", e))
+        })
     }
 
     /// Get accessibility tree snapshot for a tab
@@ -99,7 +96,9 @@ impl CamofoxClient {
             .query(&[("user_id", &self.user_id)])
             .send()
             .await
-            .map_err(|e| ActionbookError::BrowserOperation(format!("Failed to get snapshot: {}", e)))?;
+            .map_err(|e| {
+                ActionbookError::BrowserOperation(format!("Failed to get snapshot: {}", e))
+            })?;
 
         if response.status() == StatusCode::NOT_FOUND {
             return Err(ActionbookError::TabNotFound(tab_id.to_string()));
@@ -114,10 +113,9 @@ impl CamofoxClient {
             )));
         }
 
-        response
-            .json::<SnapshotResponse>()
-            .await
-            .map_err(|e| ActionbookError::BrowserOperation(format!("Failed to parse snapshot: {}", e)))
+        response.json::<SnapshotResponse>().await.map_err(|e| {
+            ActionbookError::BrowserOperation(format!("Failed to parse snapshot: {}", e))
+        })
     }
 
     /// Click an element by its element reference
@@ -167,7 +165,9 @@ impl CamofoxClient {
             .json(&body)
             .send()
             .await
-            .map_err(|e| ActionbookError::BrowserOperation(format!("Failed to type text: {}", e)))?;
+            .map_err(|e| {
+                ActionbookError::BrowserOperation(format!("Failed to type text: {}", e))
+            })?;
 
         if response.status() == StatusCode::NOT_FOUND {
             return Err(ActionbookError::ElementNotFound(element_ref.to_string()));
@@ -227,7 +227,9 @@ impl CamofoxClient {
             .query(&[("user_id", &self.user_id)])
             .send()
             .await
-            .map_err(|e| ActionbookError::BrowserOperation(format!("Failed to take screenshot: {}", e)))?;
+            .map_err(|e| {
+                ActionbookError::BrowserOperation(format!("Failed to take screenshot: {}", e))
+            })?;
 
         if response.status() == StatusCode::NOT_FOUND {
             return Err(ActionbookError::TabNotFound(tab_id.to_string()));
@@ -242,28 +244,32 @@ impl CamofoxClient {
             )));
         }
 
-        let screenshot_response = response
-            .json::<ScreenshotResponse>()
-            .await
-            .map_err(|e| ActionbookError::BrowserOperation(format!("Failed to parse screenshot: {}", e)))?;
+        let screenshot_response = response.json::<ScreenshotResponse>().await.map_err(|e| {
+            ActionbookError::BrowserOperation(format!("Failed to parse screenshot: {}", e))
+        })?;
 
         // Decode base64 to bytes
         use base64::{engine::general_purpose, Engine as _};
         general_purpose::STANDARD
             .decode(&screenshot_response.data)
-            .map_err(|e| ActionbookError::BrowserOperation(format!("Failed to decode screenshot: {}", e)))
+            .map_err(|e| {
+                ActionbookError::BrowserOperation(format!("Failed to decode screenshot: {}", e))
+            })
     }
 
     /// Get the active tab ID for a session
     pub async fn get_active_tab(&self, session_key: &str) -> Result<Option<String>> {
-        let url = format!("{}/sessions/{}/active-tab", self.base_url, session_key);
+        let url = format!("{}/sessions/active-tab", self.base_url);
 
         let response = self
             .client
             .get(&url)
+            .header("X-Session-Key", session_key)
             .send()
             .await
-            .map_err(|e| ActionbookError::BrowserOperation(format!("Failed to get active tab: {}", e)))?;
+            .map_err(|e| {
+                ActionbookError::BrowserOperation(format!("Failed to get active tab: {}", e))
+            })?;
 
         if response.status() == StatusCode::NOT_FOUND {
             // No active tab for this session
@@ -284,10 +290,9 @@ impl CamofoxClient {
             tab_id: String,
         }
 
-        let active_tab_response = response
-            .json::<ActiveTabResponse>()
-            .await
-            .map_err(|e| ActionbookError::BrowserOperation(format!("Failed to parse active tab response: {}", e)))?;
+        let active_tab_response = response.json::<ActiveTabResponse>().await.map_err(|e| {
+            ActionbookError::BrowserOperation(format!("Failed to parse active tab response: {}", e))
+        })?;
 
         Ok(Some(active_tab_response.tab_id))
     }
@@ -309,14 +314,19 @@ mod tests {
     async fn test_health_check() {
         let client = CamofoxClient::new(9377, "test-user".to_string());
         let result = client.health_check().await;
-        assert!(result.is_ok(), "Health check should succeed when server is running");
+        assert!(
+            result.is_ok(),
+            "Health check should succeed when server is running"
+        );
     }
 
     #[tokio::test]
     #[ignore] // Requires camofox-browser running
     async fn test_create_tab() {
         let client = CamofoxClient::new(9377, "test-user".to_string());
-        let result = client.create_tab("test-session", "https://example.com").await;
+        let result = client
+            .create_tab("test-session", "https://example.com")
+            .await;
         assert!(result.is_ok(), "Create tab should succeed");
 
         let response = result.unwrap();

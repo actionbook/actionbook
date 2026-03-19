@@ -12,8 +12,7 @@
 
 use crate::error::{ActionbookError, Result};
 use chromiumoxide::cdp::browser_protocol::emulation::{
-    SetDeviceMetricsOverrideParams, SetTimezoneOverrideParams,
-    SetUserAgentOverrideParams,
+    SetDeviceMetricsOverrideParams, SetTimezoneOverrideParams, SetUserAgentOverrideParams,
 };
 use chromiumoxide::Page;
 
@@ -341,10 +340,7 @@ console.log('✅ Enhanced stealth script loaded (Camoufox-inspired)');
 }
 
 /// Apply enhanced stealth profile to a page using CDP native commands + JavaScript
-pub async fn apply_enhanced_stealth(
-    page: &Page,
-    profile: &EnhancedStealthProfile,
-) -> Result<()> {
+pub async fn apply_enhanced_stealth(page: &Page, profile: &EnhancedStealthProfile) -> Result<()> {
     // ========== PHASE 1: CDP Native Commands (Less Detectable) ==========
 
     // 1. Set User-Agent via CDP
@@ -368,13 +364,19 @@ pub async fn apply_enhanced_stealth(
         .screen_width(profile.screen_width as i64)
         .screen_height(profile.screen_height as i64)
         .build()
-        .map_err(|e| ActionbookError::Other(format!("Failed to build device metrics params: {}", e)))?;
+        .map_err(|e| {
+            ActionbookError::Other(format!("Failed to build device metrics params: {}", e))
+        })?;
 
     page.execute(device_metrics)
         .await
         .map_err(|e| ActionbookError::Other(format!("Failed to set device metrics: {}", e)))?;
 
-    tracing::debug!("✅ Set screen metrics via CDP: {}x{}", profile.screen_width, profile.screen_height);
+    tracing::debug!(
+        "✅ Set screen metrics via CDP: {}x{}",
+        profile.screen_width,
+        profile.screen_height
+    );
 
     // 3. Set Timezone via CDP
     let timezone_params = SetTimezoneOverrideParams::new(profile.timezone.clone());
@@ -444,23 +446,18 @@ pub fn get_enhanced_stealth_args() -> Vec<String> {
 
         // ========== WebRTC Protection ==========
         "--force-webrtc-ip-handling-policy=disable_non_proxied_udp".to_string(),
-
         // ========== Stability & Performance ==========
         "--disable-dev-shm-usage".to_string(),
         "--disable-setuid-sandbox".to_string(),
-
         // ========== Remove Automation UI ==========
         // NOTE: --disable-infobars removed (deprecated since Chrome 76+, no longer works)
         "--disable-save-password-bubble".to_string(),
         "--disable-translate".to_string(),
-
         // ========== Disable Features That Leak Automation ==========
         "--disable-features=IsolateOrigins,site-per-process".to_string(),
         "--disable-site-isolation-trials".to_string(),
-
         // ========== Window Size ==========
         "--window-size=1920,1080".to_string(),
-
         // ========== Extensions Support ==========
         "--disable-extensions-except".to_string(), // Will be followed by extension paths
         "--load-extension".to_string(),            // Will be followed by extension paths
@@ -498,7 +495,8 @@ mod tests {
         let args = get_enhanced_stealth_args();
         // AutomationControlled removed — triggers Chrome warning, handled via CDP instead
         assert!(!args.contains(&"--disable-blink-features=AutomationControlled".to_string()));
-        assert!(args
-            .contains(&"--force-webrtc-ip-handling-policy=disable_non_proxied_udp".to_string()));
+        assert!(
+            args.contains(&"--force-webrtc-ip-handling-policy=disable_non_proxied_udp".to_string())
+        );
     }
 }

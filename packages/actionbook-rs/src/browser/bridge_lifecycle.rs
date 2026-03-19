@@ -47,14 +47,17 @@ pub async fn ensure_bridge_running(port: u16) -> Result<bool> {
             // Clean up stale files REGARDLESS of port match
             tracing::debug!(
                 "Cleaning up stale bridge files (PID {} dead, was port {})",
-                pid, recorded_port
+                pid,
+                recorded_port
             );
             cleanup_files().await;
         } else if recorded_port != port {
             // Different port, process alive - potential conflict or old bridge
             tracing::warn!(
                 "Found PID file for different port {} (requested {}), process {} still alive",
-                recorded_port, port, pid
+                recorded_port,
+                port,
+                pid
             );
             // Continue anyway - user may be switching ports intentionally
         }
@@ -185,10 +188,7 @@ pub async fn stop_bridge(port: u16) -> Result<()> {
                         );
                         found_pid
                     } else {
-                        tracing::warn!(
-                            "Bridge running on port {} but cannot determine PID",
-                            port
-                        );
+                        tracing::warn!("Bridge running on port {} but cannot determine PID", port);
                         return Ok(());
                     }
                 } else {
@@ -353,12 +353,16 @@ mod tests {
             Err(e) => {
                 let msg = e.to_string();
                 assert!(
-                    msg.contains("did not start") || msg.contains("spawn") || msg.contains("Bridge"),
+                    msg.contains("did not start")
+                        || msg.contains("spawn")
+                        || msg.contains("Bridge"),
                     "Expected bridge start/spawn error, got: {}",
                     msg
                 );
             }
-            Ok(false) => panic!("Should not return Ok(false) when bridge was not previously running"),
+            Ok(false) => {
+                panic!("Should not return Ok(false) when bridge was not previously running")
+            }
         }
     }
 }

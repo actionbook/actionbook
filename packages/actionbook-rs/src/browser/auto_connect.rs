@@ -27,7 +27,12 @@ pub async fn auto_discover() -> Result<DiscoveredBrowser, String> {
     // only add latency and false negatives.
     for dir in chrome_user_data_dirs() {
         if let Some((port, ws_path)) = read_devtools_active_port(&dir) {
-            tracing::debug!("DevToolsActivePort found in {:?}: port={}, ws_path={}", dir, port, ws_path);
+            tracing::debug!(
+                "DevToolsActivePort found in {:?}: port={}, ws_path={}",
+                dir,
+                port,
+                ws_path
+            );
 
             // Try HTTP /json/version first — gives us the real webSocketDebuggerUrl
             // (pre-M144 Chrome, or Chrome launched with --remote-debugging-port).
@@ -54,10 +59,7 @@ pub async fn auto_discover() -> Result<DiscoveredBrowser, String> {
                         );
                         return Ok(DiscoveredBrowser { ws_url, port });
                     }
-                    tracing::debug!(
-                        "Skipping DevToolsActivePort for port {} ({})",
-                        port, reason
-                    );
+                    tracing::debug!("Skipping DevToolsActivePort for port {} ({})", port, reason);
                     continue;
                 }
             }
@@ -85,12 +87,10 @@ pub async fn auto_discover() -> Result<DiscoveredBrowser, String> {
         return Ok(browser);
     }
 
-    Err(
-        "No running Chrome instance found. \
+    Err("No running Chrome instance found. \
          Launch Chrome with --remote-debugging-port=9222, \
          or use `browser connect <endpoint>` to specify a URL."
-            .to_string(),
-    )
+        .to_string())
 }
 
 /// Read Chrome's `DevToolsActivePort` file from a user data directory.
@@ -149,10 +149,9 @@ async fn discover_via_http(port: u16) -> Result<DiscoveredBrowser, DiscoverError
         )));
     }
 
-    let info: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| DiscoverError::Transient(format!("Parse /json/version port {}: {}", port, e)))?;
+    let info: serde_json::Value = resp.json().await.map_err(|e| {
+        DiscoverError::Transient(format!("Parse /json/version port {}: {}", port, e))
+    })?;
 
     // Positive match: require Chrome or Chromium in the User-Agent.
     // This rejects Electron apps (Slack, Discord, VS Code), Node.js inspector,
@@ -175,7 +174,12 @@ async fn discover_via_http(port: u16) -> Result<DiscoveredBrowser, DiscoverError
         .get("webSocketDebuggerUrl")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| DiscoverError::Transient(format!("No webSocketDebuggerUrl in /json/version on port {}", port)))?;
+        .ok_or_else(|| {
+            DiscoverError::Transient(format!(
+                "No webSocketDebuggerUrl in /json/version on port {}",
+                port
+            ))
+        })?;
 
     Ok(DiscoveredBrowser { ws_url, port })
 }
@@ -314,7 +318,10 @@ mod tests {
         std::fs::write(tmp.path().join("DevToolsActivePort"), content).unwrap();
 
         let result = read_devtools_active_port(tmp.path());
-        assert_eq!(result, Some((9222, "/devtools/browser/abc-123".to_string())));
+        assert_eq!(
+            result,
+            Some((9222, "/devtools/browser/abc-123".to_string()))
+        );
     }
 
     #[test]

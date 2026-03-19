@@ -11,6 +11,9 @@ pub struct DaemonRequest {
     /// CDP params (JSON object).
     #[serde(default)]
     pub params: Value,
+    /// Session name for multi-session routing (None = "default").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 /// A response sent from daemon → CLI client over UDS (JSON-line).
@@ -66,6 +69,7 @@ mod tests {
             id: 42,
             method: "Runtime.evaluate".to_string(),
             params: serde_json::json!({"expression": "1+1"}),
+            session: None,
         };
         let line = encode_line(&req).unwrap();
         assert!(line.ends_with('\n'));
@@ -73,6 +77,29 @@ mod tests {
         let decoded: DaemonRequest = decode_line(&line).unwrap();
         assert_eq!(decoded.id, 42);
         assert_eq!(decoded.method, "Runtime.evaluate");
+        assert!(decoded.session.is_none());
+    }
+
+    #[test]
+    fn round_trip_request_with_session() {
+        let req = DaemonRequest {
+            id: 10,
+            method: "Page.navigate".to_string(),
+            params: serde_json::json!({"url": "https://example.com"}),
+            session: Some("work".to_string()),
+        };
+        let line = encode_line(&req).unwrap();
+        let decoded: DaemonRequest = decode_line(&line).unwrap();
+        assert_eq!(decoded.id, 10);
+        assert_eq!(decoded.session.as_deref(), Some("work"));
+    }
+
+    #[test]
+    fn backward_compat_request_without_session_field() {
+        // Simulate an old client that doesn't send the session field
+        let json = r#"{"id":1,"method":"Runtime.evaluate","params":{}}"#;
+        let decoded: DaemonRequest = serde_json::from_str(json).unwrap();
+        assert!(decoded.session.is_none());
     }
 
     #[test]

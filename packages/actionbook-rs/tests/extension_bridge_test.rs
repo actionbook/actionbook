@@ -26,9 +26,7 @@ async fn free_port() -> u16 {
 /// Connect a WebSocket client to the given port.
 async fn ws_connect(
     port: u16,
-) -> tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-> {
+) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
     let url = format!("ws://127.0.0.1:{}", port);
     let (ws, _) = tokio_tungstenite::connect_async(&url)
         .await
@@ -40,9 +38,7 @@ async fn ws_connect(
 /// This simulates a real Chrome extension connection.
 async fn ws_connect_as_extension(
     port: u16,
-) -> tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-> {
+) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
     let origin = format!(
         "chrome-extension://{}",
         actionbook::browser::native_messaging::EXTENSION_ID_CWS
@@ -163,7 +159,11 @@ async fn hello_extension(
     let ack = recv_json_timeout(ws, 3000)
         .await
         .expect("Should receive hello_ack");
-    assert_eq!(ack["type"].as_str(), Some("hello_ack"), "Expected hello_ack");
+    assert_eq!(
+        ack["type"].as_str(),
+        Some("hello_ack"),
+        "Expected hello_ack"
+    );
 }
 
 /// Send the hello handshake as CLI and wait for hello_ack.
@@ -188,7 +188,11 @@ async fn hello_cli(
     let ack = recv_json_timeout(ws, 3000)
         .await
         .expect("Should receive hello_ack");
-    assert_eq!(ack["type"].as_str(), Some("hello_ack"), "Expected hello_ack");
+    assert_eq!(
+        ack["type"].as_str(),
+        Some("hello_ack"),
+        "Expected hello_ack"
+    );
 }
 
 /// Start a bridge server on the given port. Returns the handle and the auth token.
@@ -221,15 +225,14 @@ mod bridge_tests {
         let mut ws = ws_connect(port).await;
 
         // Send a non-hello message (old-style extension identification)
-        send_json(
-            &mut ws,
-            serde_json::json!({ "type": "extension" }),
-        )
-        .await;
+        send_json(&mut ws, serde_json::json!({ "type": "extension" })).await;
 
         // Should be closed
         let result = try_recv_json_timeout(&mut ws, 2000).await;
-        assert!(result.is_none(), "Connection should be closed without hello");
+        assert!(
+            result.is_none(),
+            "Connection should be closed without hello"
+        );
 
         server_handle.abort();
     }
@@ -263,9 +266,7 @@ mod bridge_tests {
             .expect("Should receive response");
 
         assert!(response.get("error").is_some(), "Should have error field");
-        let error_msg = response["error"]["message"]
-            .as_str()
-            .unwrap_or("");
+        let error_msg = response["error"]["message"].as_str().unwrap_or("");
         assert!(
             error_msg.contains("not connected"),
             "Error should mention extension not connected: {}",
@@ -308,11 +309,11 @@ mod bridge_tests {
             .await
             .expect("Extension should receive command");
 
-        assert_eq!(
-            ext_msg["method"].as_str().unwrap(),
-            "Runtime.evaluate"
+        assert_eq!(ext_msg["method"].as_str().unwrap(), "Runtime.evaluate");
+        assert!(
+            ext_msg["id"].is_number(),
+            "Should have a bridge-assigned id"
         );
-        assert!(ext_msg["id"].is_number(), "Should have a bridge-assigned id");
         assert_eq!(
             ext_msg["risk_level"].as_str(),
             Some("L2"),
@@ -342,10 +343,7 @@ mod bridge_tests {
 
         assert_eq!(cli_response["id"].as_u64(), Some(42));
         assert!(cli_response.get("result").is_some());
-        assert_eq!(
-            cli_response["result"]["result"]["value"].as_u64(),
-            Some(2)
-        );
+        assert_eq!(cli_response["result"]["result"]["value"].as_u64(), Some(2));
 
         server_handle.abort();
     }
@@ -402,12 +400,10 @@ mod bridge_tests {
 
         assert_eq!(cli_response["id"].as_u64(), Some(7));
         assert!(cli_response.get("error").is_some());
-        assert!(
-            cli_response["error"]["message"]
-                .as_str()
-                .unwrap()
-                .contains("chrome://")
-        );
+        assert!(cli_response["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("chrome://"));
 
         server_handle.abort();
     }
@@ -542,7 +538,10 @@ mod bridge_tests {
 
         // Extension should NOT have received anything
         let ext_msg = try_recv_json_timeout(&mut ext_ws, 500).await;
-        assert!(ext_msg.is_none(), "Extension should not receive rejected commands");
+        assert!(
+            ext_msg.is_none(),
+            "Extension should not receive rejected commands"
+        );
 
         server_handle.abort();
     }
@@ -667,7 +666,10 @@ mod bridge_tests {
         use actionbook::browser::extension_bridge::{get_risk_level, RiskLevel};
 
         // L1 - Read only
-        assert_eq!(get_risk_level("Page.captureScreenshot"), Some(RiskLevel::L1));
+        assert_eq!(
+            get_risk_level("Page.captureScreenshot"),
+            Some(RiskLevel::L1)
+        );
         assert_eq!(get_risk_level("DOM.getDocument"), Some(RiskLevel::L1));
         assert_eq!(get_risk_level("DOM.querySelector"), Some(RiskLevel::L1));
         assert_eq!(get_risk_level("DOM.querySelectorAll"), Some(RiskLevel::L1));
@@ -677,17 +679,35 @@ mod bridge_tests {
         assert_eq!(get_risk_level("Runtime.evaluate"), Some(RiskLevel::L2));
         assert_eq!(get_risk_level("Page.navigate"), Some(RiskLevel::L2));
         assert_eq!(get_risk_level("Page.reload"), Some(RiskLevel::L2));
-        assert_eq!(get_risk_level("Input.dispatchMouseEvent"), Some(RiskLevel::L2));
-        assert_eq!(get_risk_level("Input.dispatchKeyEvent"), Some(RiskLevel::L2));
-        assert_eq!(get_risk_level("Emulation.setDeviceMetricsOverride"), Some(RiskLevel::L2));
+        assert_eq!(
+            get_risk_level("Input.dispatchMouseEvent"),
+            Some(RiskLevel::L2)
+        );
+        assert_eq!(
+            get_risk_level("Input.dispatchKeyEvent"),
+            Some(RiskLevel::L2)
+        );
+        assert_eq!(
+            get_risk_level("Emulation.setDeviceMetricsOverride"),
+            Some(RiskLevel::L2)
+        );
         assert_eq!(get_risk_level("Page.printToPDF"), Some(RiskLevel::L2));
 
         // L3 - High risk
         assert_eq!(get_risk_level("Network.setCookie"), Some(RiskLevel::L3));
         assert_eq!(get_risk_level("Network.deleteCookies"), Some(RiskLevel::L3));
-        assert_eq!(get_risk_level("Network.clearBrowserCookies"), Some(RiskLevel::L3));
-        assert_eq!(get_risk_level("Page.setDownloadBehavior"), Some(RiskLevel::L3));
-        assert_eq!(get_risk_level("Storage.clearDataForOrigin"), Some(RiskLevel::L3));
+        assert_eq!(
+            get_risk_level("Network.clearBrowserCookies"),
+            Some(RiskLevel::L3)
+        );
+        assert_eq!(
+            get_risk_level("Page.setDownloadBehavior"),
+            Some(RiskLevel::L3)
+        );
+        assert_eq!(
+            get_risk_level("Storage.clearDataForOrigin"),
+            Some(RiskLevel::L3)
+        );
 
         // Extension.* methods - L1
         assert_eq!(get_risk_level("Extension.ping"), Some(RiskLevel::L1));
@@ -737,7 +757,8 @@ mod bridge_tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         // The command may succeed (exit 0) but print a failure message
         assert!(
-            stdout.contains("failed") || stdout.contains("Cannot connect")
+            stdout.contains("failed")
+                || stdout.contains("Cannot connect")
                 || !output.status.success(),
             "Should indicate ping failed: {}",
             stdout
@@ -924,7 +945,11 @@ mod bridge_tests {
         .await;
         let ext_msg = recv_json_timeout(&mut ext_ws, 3000).await.unwrap();
         let bid = ext_msg["id"].as_u64().unwrap();
-        send_json(&mut ext_ws, serde_json::json!({ "id": bid, "result": { "tabId": 100, "attached": true } })).await;
+        send_json(
+            &mut ext_ws,
+            serde_json::json!({ "id": bid, "result": { "tabId": 100, "attached": true } }),
+        )
+        .await;
         let _ = recv_json_timeout(&mut cli1, 3000).await;
 
         // CLI connection 2: Switch to tab B (activateTab)
@@ -969,7 +994,7 @@ mod bridge_tests {
             .failure()
             .stderr(
                 predicates::str::contains("--profile is not supported in extension mode")
-                    .or(predicates::str::contains("not supported in extension"))
+                    .or(predicates::str::contains("not supported in extension")),
             );
     }
 
@@ -1055,7 +1080,11 @@ mod bridge_tests {
         let resp = recv_json_timeout(&mut ws, 3000)
             .await
             .expect("Should receive hello_ack");
-        assert_eq!(resp["type"].as_str(), Some("hello_ack"), "Extension should get hello_ack without token");
+        assert_eq!(
+            resp["type"].as_str(),
+            Some("hello_ack"),
+            "Extension should get hello_ack without token"
+        );
 
         server_handle.abort();
     }
@@ -1113,7 +1142,10 @@ mod bridge_tests {
             .await
             .expect("CLI should receive response");
         assert_eq!(cli_resp["id"].as_u64(), Some(100));
-        assert_eq!(cli_resp["result"]["data"].as_str(), Some("base64screenshot"));
+        assert_eq!(
+            cli_resp["result"]["data"].as_str(),
+            Some("base64screenshot")
+        );
 
         // Cleanup
         server_handle.abort();

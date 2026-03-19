@@ -72,8 +72,9 @@ struct BatchOutput {
 pub async fn run(cli: &Cli, config: &Config, file: Option<&str>, delay_ms: u64) -> Result<()> {
     // Read JSON input
     let json_str = match file {
-        Some(path) => std::fs::read_to_string(path)
-            .map_err(|e| ActionbookError::Other(format!("Failed to read file '{}': {}", path, e)))?,
+        Some(path) => std::fs::read_to_string(path).map_err(|e| {
+            ActionbookError::Other(format!("Failed to read file '{}': {}", path, e))
+        })?,
         None => {
             let mut buf = String::new();
             std::io::stdin()

@@ -35,11 +35,7 @@ static KNOWN_APPS: &[AppDefinition] = &[
         #[cfg(target_os = "macos")]
         macos_path: "/Applications/Visual Studio Code.app/Contents/MacOS/Electron",
         #[cfg(target_os = "linux")]
-        linux_paths: &[
-            "/usr/bin/code",
-            "/usr/local/bin/code",
-            "~/.local/bin/code",
-        ],
+        linux_paths: &["/usr/bin/code", "/usr/local/bin/code", "~/.local/bin/code"],
         #[cfg(target_os = "windows")]
         windows_paths: &[
             r"C:\Program Files\Microsoft VS Code\Code.exe",
@@ -188,7 +184,10 @@ fn detect_app(app_def: &AppDefinition) -> Option<ElectronAppInfo> {
                                         && sub_path
                                             .file_name()
                                             .and_then(|n| n.to_str())
-                                            .map(|n| n.to_lowercase() == app_def.name.to_lowercase() + ".exe")
+                                            .map(|n| {
+                                                n.to_lowercase()
+                                                    == app_def.name.to_lowercase() + ".exe"
+                                            })
                                             .unwrap_or(false)
                                     {
                                         return Some(ElectronAppInfo {

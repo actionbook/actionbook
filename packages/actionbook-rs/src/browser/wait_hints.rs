@@ -151,10 +151,7 @@ mod tests {
 
     #[test]
     fn test_cli_override() {
-        assert_eq!(
-            resolve_wait_ms("https://github.com", Some("slow")),
-            10_000
-        );
+        assert_eq!(resolve_wait_ms("https://github.com", Some("slow")), 10_000);
         assert_eq!(resolve_wait_ms("https://github.com", Some("instant")), 0);
         // Raw millis
         assert_eq!(resolve_wait_ms("https://github.com", Some("7500")), 7_500);

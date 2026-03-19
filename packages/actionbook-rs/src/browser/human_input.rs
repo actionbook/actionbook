@@ -6,12 +6,7 @@
 use rand::Rng;
 
 /// Generate a bezier curve mouse path from start to end point
-pub fn bezier_mouse_path(
-    start_x: f64,
-    start_y: f64,
-    end_x: f64,
-    end_y: f64,
-) -> Vec<(f64, f64)> {
+pub fn bezier_mouse_path(start_x: f64, start_y: f64, end_x: f64, end_y: f64) -> Vec<(f64, f64)> {
     let mut rng = rand::thread_rng();
 
     let dx = end_x - start_x;
@@ -91,18 +86,41 @@ pub fn typing_delays(text: &str, fast: bool) -> Vec<(char, u64)> {
         if ch.is_ascii_alphabetic() && rng.gen_range(0..100) < 3 {
             // Pick a nearby key on QWERTY layout
             let neighbors: &[u8] = match ch.to_ascii_lowercase() as u8 {
-                b'a' => b"sq", b'b' => b"vn", b'c' => b"xv", b'd' => b"sf",
-                b'e' => b"wr", b'f' => b"dg", b'g' => b"fh", b'h' => b"gj",
-                b'i' => b"uo", b'j' => b"hk", b'k' => b"jl", b'l' => b"k;",
-                b'm' => b"n,", b'n' => b"bm", b'o' => b"ip", b'p' => b"o[",
-                b'q' => b"wa", b'r' => b"et", b's' => b"ad", b't' => b"ry",
-                b'u' => b"yi", b'v' => b"cb", b'w' => b"qe", b'x' => b"zc",
-                b'y' => b"tu", b'z' => b"x",
+                b'a' => b"sq",
+                b'b' => b"vn",
+                b'c' => b"xv",
+                b'd' => b"sf",
+                b'e' => b"wr",
+                b'f' => b"dg",
+                b'g' => b"fh",
+                b'h' => b"gj",
+                b'i' => b"uo",
+                b'j' => b"hk",
+                b'k' => b"jl",
+                b'l' => b"k;",
+                b'm' => b"n,",
+                b'n' => b"bm",
+                b'o' => b"ip",
+                b'p' => b"o[",
+                b'q' => b"wa",
+                b'r' => b"et",
+                b's' => b"ad",
+                b't' => b"ry",
+                b'u' => b"yi",
+                b'v' => b"cb",
+                b'w' => b"qe",
+                b'x' => b"zc",
+                b'y' => b"tu",
+                b'z' => b"x",
                 _ => b"",
             };
             if !neighbors.is_empty() {
                 let wrong = neighbors[rng.gen_range(0..neighbors.len())] as char;
-                let wrong = if ch.is_ascii_uppercase() { wrong.to_ascii_uppercase() } else { wrong };
+                let wrong = if ch.is_ascii_uppercase() {
+                    wrong.to_ascii_uppercase()
+                } else {
+                    wrong
+                };
                 result.push((wrong, delay));
                 result.push(('\u{0008}', rng.gen_range(50..100))); // backspace
                 delay = rng.gen_range(30..60);

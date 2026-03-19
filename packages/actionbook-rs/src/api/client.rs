@@ -105,10 +105,7 @@ impl ApiClient {
     }
 
     /// Get action by area ID (returns structured JSON)
-    pub async fn get_action_by_area_id_json(
-        &self,
-        area_id: &str,
-    ) -> Result<AreaActionDetail> {
+    pub async fn get_action_by_area_id_json(&self, area_id: &str) -> Result<AreaActionDetail> {
         let response = self
             .request(reqwest::Method::GET, "/api/get_action_by_area_id")
             .query(&[("area_id", area_id)])
@@ -121,10 +118,7 @@ impl ApiClient {
 
     /// Post validation report to the backend API
     #[allow(dead_code)]
-    pub async fn post_validation_report(
-        &self,
-        report: &serde_json::Value,
-    ) -> Result<()> {
+    pub async fn post_validation_report(&self, report: &serde_json::Value) -> Result<()> {
         let response = self
             .request(reqwest::Method::POST, "/api/validation_report")
             .json(report)

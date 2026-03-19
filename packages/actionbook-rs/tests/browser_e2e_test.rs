@@ -134,14 +134,18 @@ fn assert_failure(output: &Output, ctx: &str) {
 
 #[test]
 fn t01_open_url() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "open", "https://example.com"], 30);
     assert_success(&out, "open");
 }
 
 #[test]
 fn t02_goto_and_eval_location() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "goto", "https://example.com"], 30);
     assert_success(&out, "goto");
 
@@ -156,7 +160,9 @@ fn t02_goto_and_eval_location() {
 
 #[test]
 fn t03_eval_title() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "eval", "document.title"], 30);
     assert_success(&out, "eval title");
     assert!(
@@ -168,21 +174,27 @@ fn t03_eval_title() {
 
 #[test]
 fn t04_back() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "back"], 30);
     assert_success(&out, "back");
 }
 
 #[test]
 fn t05_forward() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "forward"], 30);
     assert_success(&out, "forward");
 }
 
 #[test]
 fn t06_reload() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "reload"], 30);
     assert_success(&out, "reload");
 }
@@ -191,52 +203,82 @@ fn t06_reload() {
 
 #[test]
 fn t07_html() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(&["browser", "goto", "https://example.com"], 30);
     let out = headless(&["browser", "html"], 30);
     assert_success(&out, "html");
-    assert!(stdout_str(&out).contains("<html"), "output should contain <html");
+    assert!(
+        stdout_str(&out).contains("<html"),
+        "output should contain <html"
+    );
 }
 
 #[test]
 fn t08_html_selector() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "html", "h1"], 30);
     assert_success(&out, "html h1");
-    assert!(!stdout_str(&out).is_empty(), "html h1 output should not be empty");
+    assert!(
+        !stdout_str(&out).is_empty(),
+        "html h1 output should not be empty"
+    );
 }
 
 #[test]
 fn t09_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "text"], 30);
     assert_success(&out, "text");
-    assert!(stdout_str(&out).contains("Example Domain"), "text should contain 'Example Domain'");
+    assert!(
+        stdout_str(&out).contains("Example Domain"),
+        "text should contain 'Example Domain'"
+    );
 }
 
 #[test]
 fn t10_viewport() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "viewport"], 30);
     assert_success(&out, "viewport");
     let s = stdout_str(&out);
-    assert!(s.chars().any(|c| c.is_ascii_digit()), "viewport should contain digits, got: {s}");
+    assert!(
+        s.chars().any(|c| c.is_ascii_digit()),
+        "viewport should contain digits, got: {s}"
+    );
 }
 
 #[test]
 fn t11_snapshot() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "snapshot"], 30);
     assert_success(&out, "snapshot");
-    assert!(!stdout_str(&out).is_empty(), "snapshot output should not be empty");
+    assert!(
+        !stdout_str(&out).is_empty(),
+        "snapshot output should not be empty"
+    );
 }
 
 #[test]
 fn t12_pages() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "pages"], 30);
     assert_success(&out, "pages");
-    assert!(!stdout_str(&out).is_empty(), "pages output should not be empty");
+    assert!(
+        !stdout_str(&out).is_empty(),
+        "pages output should not be empty"
+    );
 }
 
 // form interaction: fill, click, eval (login flow)
@@ -247,7 +289,11 @@ static LOGIN_SITE_OK: OnceLock<bool> = OnceLock::new();
 fn login_site_available() -> bool {
     *LOGIN_SITE_OK.get_or_init(|| {
         headless(
-            &["browser", "goto", "https://the-internet.herokuapp.com/login"],
+            &[
+                "browser",
+                "goto",
+                "https://the-internet.herokuapp.com/login",
+            ],
             30,
         )
         .status
@@ -257,7 +303,9 @@ fn login_site_available() -> bool {
 
 #[test]
 fn t13_login_page() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     if !login_site_available() {
         eprintln!("SKIP: login test site unavailable");
         return;
@@ -268,16 +316,27 @@ fn t13_login_page() {
 
 #[test]
 fn t14_fill_username() {
-    if skip() || !login_site_available() { return; }
-    let out = headless(&["browser", "fill", "--wait", "5000", "#username", "tomsmith"], 30);
+    if skip() || !login_site_available() {
+        return;
+    }
+    let out = headless(
+        &["browser", "fill", "--wait", "5000", "#username", "tomsmith"],
+        30,
+    );
     assert_success(&out, "fill username");
 }
 
 #[test]
 fn t15_eval_verify_username() {
-    if skip() || !login_site_available() { return; }
+    if skip() || !login_site_available() {
+        return;
+    }
     let out = headless(
-        &["browser", "eval", "document.querySelector('#username')?.value ?? ''"],
+        &[
+            "browser",
+            "eval",
+            "document.querySelector('#username')?.value ?? ''",
+        ],
         30,
     );
     assert_success(&out, "eval username value");
@@ -290,14 +349,29 @@ fn t15_eval_verify_username() {
 
 #[test]
 fn t16_click_submit() {
-    if skip() || !login_site_available() { return; }
+    if skip() || !login_site_available() {
+        return;
+    }
     // Fill password first
     headless(
-        &["browser", "fill", "--wait", "5000", "#password", "SuperSecretPassword!"],
+        &[
+            "browser",
+            "fill",
+            "--wait",
+            "5000",
+            "#password",
+            "SuperSecretPassword!",
+        ],
         30,
     );
     let out = headless(
-        &["browser", "click", "--wait", "5000", "button[type=\"submit\"]"],
+        &[
+            "browser",
+            "click",
+            "--wait",
+            "5000",
+            "button[type=\"submit\"]",
+        ],
         30,
     );
     assert_success(&out, "click submit");
@@ -305,10 +379,16 @@ fn t16_click_submit() {
 
 #[test]
 fn t17_verify_navigation_after_login() {
-    if skip() || !login_site_available() { return; }
+    if skip() || !login_site_available() {
+        return;
+    }
     // Submit form via JS
     let submit = headless(
-        &["browser", "eval", "document.querySelector('form#login').submit(); 'submitted'"],
+        &[
+            "browser",
+            "eval",
+            "document.querySelector('form#login').submit(); 'submitted'",
+        ],
         30,
     );
     assert_success(&submit, "submit form");
@@ -329,22 +409,34 @@ fn t17_verify_navigation_after_login() {
 
 #[test]
 fn t18_screenshot() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(&["browser", "goto", "https://example.com"], 30);
 
     let path = std::env::temp_dir().join("e2e-rust-screenshot.png");
     let out = headless(&["browser", "screenshot", path.to_str().unwrap()], 30);
     assert_success(&out, "screenshot");
     assert!(path.exists(), "screenshot file should exist");
-    assert!(fs::metadata(&path).unwrap().len() > 0, "screenshot should not be empty");
+    assert!(
+        fs::metadata(&path).unwrap().len() > 0,
+        "screenshot should not be empty"
+    );
 }
 
 #[test]
 fn t19_fullpage_screenshot() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let path = std::env::temp_dir().join("e2e-rust-screenshot-full.png");
     let out = headless(
-        &["browser", "screenshot", path.to_str().unwrap(), "--full-page"],
+        &[
+            "browser",
+            "screenshot",
+            path.to_str().unwrap(),
+            "--full-page",
+        ],
         30,
     );
     assert_success(&out, "full-page screenshot");
@@ -353,19 +445,26 @@ fn t19_fullpage_screenshot() {
 
 #[test]
 fn t20_pdf() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let path = std::env::temp_dir().join("e2e-rust-page.pdf");
     let out = headless(&["browser", "pdf", path.to_str().unwrap()], 30);
     assert_success(&out, "pdf");
     assert!(path.exists(), "PDF file should exist");
-    assert!(fs::metadata(&path).unwrap().len() > 0, "PDF should not be empty");
+    assert!(
+        fs::metadata(&path).unwrap().len() > 0,
+        "PDF should not be empty"
+    );
 }
 
 // cookies: list, set, get, delete, clear
 
 #[test]
 fn t21_cookies_list() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(&["browser", "goto", "https://example.com"], 30);
     let out = headless(&["browser", "cookies", "list"], 30);
     assert_success(&out, "cookies list");
@@ -373,9 +472,17 @@ fn t21_cookies_list() {
 
 #[test]
 fn t22_cookies_set() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(
-        &["browser", "cookies", "set", "e2e_test_cookie", "hello_from_e2e"],
+        &[
+            "browser",
+            "cookies",
+            "set",
+            "e2e_test_cookie",
+            "hello_from_e2e",
+        ],
         30,
     );
     assert_success(&out, "cookies set");
@@ -383,7 +490,9 @@ fn t22_cookies_set() {
 
 #[test]
 fn t23_cookies_get() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "cookies", "get", "e2e_test_cookie"], 30);
     assert_success(&out, "cookies get");
     assert!(
@@ -395,7 +504,9 @@ fn t23_cookies_get() {
 
 #[test]
 fn t24_cookies_delete() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "cookies", "delete", "e2e_test_cookie"], 30);
     assert_success(&out, "cookies delete");
 
@@ -408,7 +519,9 @@ fn t24_cookies_delete() {
 
 #[test]
 fn t25_cookies_clear() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(
         &["browser", "cookies", "set", "clear_test", "to_be_cleared"],
         30,
@@ -427,7 +540,9 @@ fn t25_cookies_clear() {
 
 #[test]
 fn t26_click_nonexistent() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(&["browser", "goto", "https://example.com"], 30);
     let out = headless(&["browser", "click", "#nonexistent-element-xyz"], 10);
     assert_failure(&out, "click nonexistent");
@@ -435,9 +550,17 @@ fn t26_click_nonexistent() {
 
 #[test]
 fn t27_wait_timeout() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(
-        &["browser", "wait", "#nonexistent-element-xyz", "--timeout", "2000"],
+        &[
+            "browser",
+            "wait",
+            "#nonexistent-element-xyz",
+            "--timeout",
+            "2000",
+        ],
         10,
     );
     assert_failure(&out, "wait timeout");
@@ -445,7 +568,9 @@ fn t27_wait_timeout() {
 
 #[test]
 fn t28_eval_throw_error() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(
         &["browser", "eval", "throw new Error('test error from e2e')"],
         30,
@@ -454,37 +579,53 @@ fn t28_eval_throw_error() {
     assert_success(&out, "eval throw");
     let s = stdout_str(&out);
     assert!(s.contains("Error"), "should contain 'Error', got: {s}");
-    assert!(s.contains("test error from e2e"), "should contain error message, got: {s}");
+    assert!(
+        s.contains("test error from e2e"),
+        "should contain error message, got: {s}"
+    );
 }
 
 // --json output
 
 #[test]
 fn t29_json_eval() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(&["browser", "goto", "https://example.com"], 30);
     let out = headless_json(&["browser", "eval", "1+1"], 30);
     assert_success(&out, "json eval");
     let s = stdout_str(&out);
-    assert!(serde_json::from_str::<serde_json::Value>(&s).is_ok(), "should be valid JSON, got: {s}");
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&s).is_ok(),
+        "should be valid JSON, got: {s}"
+    );
 }
 
 #[test]
 fn t30_json_pages() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless_json(&["browser", "pages"], 30);
     assert_success(&out, "json pages");
     let s = stdout_str(&out);
-    assert!(serde_json::from_str::<serde_json::Value>(&s).is_ok(), "should be valid JSON, got: {s}");
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&s).is_ok(),
+        "should be valid JSON, got: {s}"
+    );
 }
 
 #[test]
 fn t31_json_viewport() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless_json(&["browser", "viewport"], 30);
     assert_success(&out, "json viewport");
     let s = stdout_str(&out);
-    let json: serde_json::Value = serde_json::from_str(&s).unwrap_or_else(|_| panic!("should parse JSON, got: {s}"));
+    let json: serde_json::Value =
+        serde_json::from_str(&s).unwrap_or_else(|_| panic!("should parse JSON, got: {s}"));
     assert!(json.get("width").is_some(), "JSON should have 'width'");
     assert!(json.get("height").is_some(), "JSON should have 'height'");
 }
@@ -493,7 +634,9 @@ fn t31_json_viewport() {
 
 #[test]
 fn t32_inspect() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(&["browser", "goto", "https://example.com"], 30);
     let out = headless(&["browser", "inspect", "100", "100"], 30);
     assert_success(&out, "inspect");
@@ -501,8 +644,11 @@ fn t32_inspect() {
     assert!(!s.is_empty(), "inspect output should not be empty");
     let lower = s.to_lowercase();
     assert!(
-        lower.contains("tag") || lower.contains("selector") || lower.contains("<")
-            || lower.contains("id") || lower.contains("class"),
+        lower.contains("tag")
+            || lower.contains("selector")
+            || lower.contains("<")
+            || lower.contains("id")
+            || lower.contains("class"),
         "inspect output should contain element info, got: {s}"
     );
 }
@@ -511,8 +657,13 @@ fn t32_inspect() {
 
 #[test]
 fn t33_scroll_down() {
-    if skip() { return; }
-    headless(&["browser", "goto", "https://the-internet.herokuapp.com"], 30);
+    if skip() {
+        return;
+    }
+    headless(
+        &["browser", "goto", "https://the-internet.herokuapp.com"],
+        30,
+    );
     headless(&["browser", "scroll", "top"], 30);
 
     let before = headless(&["browser", "eval", "window.scrollY"], 30);
@@ -523,12 +674,17 @@ fn t33_scroll_down() {
 
     let after = headless(&["browser", "eval", "window.scrollY"], 30);
     let y_after: f64 = stdout_str(&after).trim().parse().unwrap_or(0.0);
-    assert!(y_after > y_before, "scrollY should increase ({y_after} > {y_before})");
+    assert!(
+        y_after > y_before,
+        "scrollY should increase ({y_after} > {y_before})"
+    );
 }
 
 #[test]
 fn t34_scroll_up() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(&["browser", "scroll", "down", "500"], 30);
     let before = headless(&["browser", "eval", "window.scrollY"], 30);
     let y_before: f64 = stdout_str(&before).trim().parse().unwrap_or(0.0);
@@ -539,25 +695,40 @@ fn t34_scroll_up() {
 
     let after = headless(&["browser", "eval", "window.scrollY"], 30);
     let y_after: f64 = stdout_str(&after).trim().parse().unwrap_or(0.0);
-    assert!(y_after < y_before, "scrollY should decrease ({y_after} < {y_before})");
+    assert!(
+        y_after < y_before,
+        "scrollY should decrease ({y_after} < {y_before})"
+    );
 }
 
 #[test]
 fn t35_scroll_bottom() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "scroll", "bottom"], 30);
     assert_success(&out, "scroll bottom");
 
     let at_bottom = headless(
-        &["browser", "eval", "window.scrollY + window.innerHeight >= document.body.scrollHeight - 1"],
+        &[
+            "browser",
+            "eval",
+            "window.scrollY + window.innerHeight >= document.body.scrollHeight - 1",
+        ],
         30,
     );
-    assert_eq!(stdout_str(&at_bottom).trim(), "true", "should be at bottom of page");
+    assert_eq!(
+        stdout_str(&at_bottom).trim(),
+        "true",
+        "should be at bottom of page"
+    );
 }
 
 #[test]
 fn t36_scroll_top() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(&["browser", "scroll", "down", "500"], 30);
     let out = headless(&["browser", "scroll", "top"], 30);
     assert_success(&out, "scroll top");
@@ -569,7 +740,9 @@ fn t36_scroll_top() {
 
 #[test]
 fn t37_scroll_to_element() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(&["browser", "scroll", "top"], 30);
     headless(&["browser", "scroll", "down", "500"], 30);
 
@@ -577,29 +750,56 @@ fn t37_scroll_to_element() {
     assert_success(&out, "scroll to h1");
 
     let rect = headless(
-        &["browser", "eval", "document.querySelector('h1').getBoundingClientRect().top"],
+        &[
+            "browser",
+            "eval",
+            "document.querySelector('h1').getBoundingClientRect().top",
+        ],
         30,
     );
     let top: f64 = stdout_str(&rect).trim().parse().unwrap_or(9999.0);
-    assert!(top.abs() < 300.0, "h1 top should be within 300px of viewport, got: {top}");
+    assert!(
+        top.abs() < 300.0,
+        "h1 top should be within 300px of viewport, got: {top}"
+    );
 }
 
 // type
 
 #[test]
 fn t38_type_text() {
-    if skip() { return; }
-    headless(&["browser", "goto", "https://the-internet.herokuapp.com/login"], 30);
+    if skip() {
+        return;
+    }
+    headless(
+        &[
+            "browser",
+            "goto",
+            "https://the-internet.herokuapp.com/login",
+        ],
+        30,
+    );
     headless(&["browser", "fill", "--wait", "5000", "#username", ""], 30);
 
     let out = headless(
-        &["browser", "type", "--wait", "5000", "#username", "appended-text"],
+        &[
+            "browser",
+            "type",
+            "--wait",
+            "5000",
+            "#username",
+            "appended-text",
+        ],
         30,
     );
     assert_success(&out, "type text");
 
     let val = headless(
-        &["browser", "eval", "document.querySelector('#username').value"],
+        &[
+            "browser",
+            "eval",
+            "document.querySelector('#username').value",
+        ],
         30,
     );
     assert!(
@@ -613,14 +813,27 @@ fn t38_type_text() {
 
 #[test]
 fn t39_select_dropdown() {
-    if skip() { return; }
-    headless(&["browser", "goto", "https://the-internet.herokuapp.com/dropdown"], 30);
+    if skip() {
+        return;
+    }
+    headless(
+        &[
+            "browser",
+            "goto",
+            "https://the-internet.herokuapp.com/dropdown",
+        ],
+        30,
+    );
 
     let out = headless(&["browser", "select", "#dropdown", "1"], 30);
     assert_success(&out, "select");
 
     let val = headless(
-        &["browser", "eval", "document.querySelector('#dropdown').value"],
+        &[
+            "browser",
+            "eval",
+            "document.querySelector('#dropdown').value",
+        ],
         30,
     );
     let v = stdout_str(&val).trim().replace('"', "");
@@ -629,28 +842,41 @@ fn t39_select_dropdown() {
 
 #[test]
 fn t40_hover() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "hover", "#dropdown"], 30);
     assert_success(&out, "hover");
 }
 
 #[test]
 fn t41_focus() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "focus", "#dropdown"], 30);
     assert_success(&out, "focus");
 
     let focused = headless(
-        &["browser", "eval", "document.activeElement?.id || document.activeElement?.tagName"],
+        &[
+            "browser",
+            "eval",
+            "document.activeElement?.id || document.activeElement?.tagName",
+        ],
         30,
     );
     let f = stdout_str(&focused).trim().replace('"', "");
-    assert_eq!(f, "dropdown", "active element should be 'dropdown', got: {f}");
+    assert_eq!(
+        f, "dropdown",
+        "active element should be 'dropdown', got: {f}"
+    );
 }
 
 #[test]
 fn t42_press_key() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "press", "Tab"], 30);
     assert_success(&out, "press Tab");
 }
@@ -659,33 +885,55 @@ fn t42_press_key() {
 
 #[test]
 fn t43_wait_nav() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(&["browser", "goto", "https://example.com"], 30);
     let out = headless(&["browser", "wait-nav", "--timeout", "5000"], 30);
     let code = out.status.code().unwrap_or(-1);
-    assert!(code == 0 || code == 1, "exit code should be 0 or 1, got: {code}");
+    assert!(
+        code == 0 || code == 1,
+        "exit code should be 0 or 1, got: {code}"
+    );
 }
 
 // inspect --desc
 
 #[test]
 fn t44_inspect_desc() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(&["browser", "goto", "https://example.com"], 30);
     let out = headless(
-        &["browser", "inspect", "100", "100", "--desc", "looking for header element"],
+        &[
+            "browser",
+            "inspect",
+            "100",
+            "100",
+            "--desc",
+            "looking for header element",
+        ],
         30,
     );
     assert_success(&out, "inspect --desc");
-    assert!(!stdout_str(&out).is_empty(), "inspect --desc output should not be empty");
+    assert!(
+        !stdout_str(&out).is_empty(),
+        "inspect --desc output should not be empty"
+    );
 }
 
 // scroll variants: pixels, --smooth, --align
 
 #[test]
 fn t45_scroll_down_200px() {
-    if skip() { return; }
-    headless(&["browser", "goto", "https://the-internet.herokuapp.com"], 30);
+    if skip() {
+        return;
+    }
+    headless(
+        &["browser", "goto", "https://the-internet.herokuapp.com"],
+        30,
+    );
     headless(&["browser", "scroll", "top"], 30);
 
     let out = headless(&["browser", "scroll", "down", "200"], 30);
@@ -698,7 +946,9 @@ fn t45_scroll_down_200px() {
 
 #[test]
 fn t46_scroll_up_100px() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(&["browser", "scroll", "top"], 30);
     headless(&["browser", "scroll", "down", "500"], 30);
 
@@ -713,7 +963,9 @@ fn t46_scroll_up_100px() {
 
 #[test]
 fn t47_scroll_smooth() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(&["browser", "scroll", "top"], 30);
     let out = headless(&["browser", "scroll", "--smooth", "down", "300"], 30);
     assert_success(&out, "scroll --smooth");
@@ -721,52 +973,87 @@ fn t47_scroll_smooth() {
     std::thread::sleep(Duration::from_millis(500));
     let after = headless(&["browser", "eval", "window.scrollY"], 30);
     let y: f64 = stdout_str(&after).trim().parse().unwrap_or(0.0);
-    assert!(y > 0.0, "scrollY should be > 0 after smooth scroll, got: {y}");
+    assert!(
+        y > 0.0,
+        "scrollY should be > 0 after smooth scroll, got: {y}"
+    );
 }
 
 #[test]
 fn t48_scroll_align_start() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(&["browser", "scroll", "down", "500"], 30);
     let out = headless(&["browser", "scroll", "to", "h1", "--align", "start"], 30);
     assert_success(&out, "scroll --align start");
 
     let rect = headless(
-        &["browser", "eval", "document.querySelector('h1').getBoundingClientRect().top"],
+        &[
+            "browser",
+            "eval",
+            "document.querySelector('h1').getBoundingClientRect().top",
+        ],
         30,
     );
     let top: f64 = stdout_str(&rect).trim().parse().unwrap_or(9999.0);
-    assert!(top.abs() < 50.0, "h1 top should be near viewport top (<50), got: {top}");
+    assert!(
+        top.abs() < 50.0,
+        "h1 top should be near viewport top (<50), got: {top}"
+    );
 }
 
 #[test]
 fn t49_scroll_align_end() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(&["browser", "scroll", "down", "500"], 30);
     let out = headless(&["browser", "scroll", "to", "h1", "--align", "end"], 30);
     assert_success(&out, "scroll --align end");
 
     let visible = headless(
-        &["browser", "eval", "document.querySelector('h1').getBoundingClientRect().bottom <= window.innerHeight"],
+        &[
+            "browser",
+            "eval",
+            "document.querySelector('h1').getBoundingClientRect().bottom <= window.innerHeight",
+        ],
         30,
     );
-    assert_eq!(stdout_str(&visible).trim(), "true", "h1 bottom should be within viewport");
+    assert_eq!(
+        stdout_str(&visible).trim(),
+        "true",
+        "h1 bottom should be within viewport"
+    );
 }
 
 // cookies variants: --domain, --dry-run
 
 #[test]
 fn t50_cookies_set_domain() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(&["browser", "goto", "https://example.com"], 30);
     let out = headless(
-        &["browser", "cookies", "set", "domain_cookie", "domain_value", "--domain", "example.com"],
+        &[
+            "browser",
+            "cookies",
+            "set",
+            "domain_cookie",
+            "domain_value",
+            "--domain",
+            "example.com",
+        ],
         30,
     );
     // --domain may require extension mode; accept graceful failure
     if out.status.success() {
         let after = headless(&["browser", "cookies", "get", "domain_cookie"], 30);
-        assert!(stdout_str(&after).contains("domain_value"), "cookie should contain 'domain_value'");
+        assert!(
+            stdout_str(&after).contains("domain_value"),
+            "cookie should contain 'domain_value'"
+        );
     } else {
         let code = out.status.code().unwrap_or(-1);
         assert_ne!(code, 2, "should not be a CLI parse error");
@@ -775,8 +1062,13 @@ fn t50_cookies_set_domain() {
 
 #[test]
 fn t51_cookies_clear_dry_run() {
-    if skip() { return; }
-    headless(&["browser", "cookies", "set", "dry_run_test", "should_remain"], 30);
+    if skip() {
+        return;
+    }
+    headless(
+        &["browser", "cookies", "set", "dry_run_test", "should_remain"],
+        30,
+    );
     let out = headless(&["browser", "cookies", "clear", "--dry-run"], 30);
     if out.status.success() {
         let after = headless(&["browser", "cookies", "get", "dry_run_test"], 30);
@@ -792,13 +1084,30 @@ fn t51_cookies_clear_dry_run() {
 
 #[test]
 fn t52_cookies_clear_domain() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     headless(
-        &["browser", "cookies", "set", "domain_clear_test", "domain_val", "--domain", "example.com"],
+        &[
+            "browser",
+            "cookies",
+            "set",
+            "domain_clear_test",
+            "domain_val",
+            "--domain",
+            "example.com",
+        ],
         30,
     );
     let out = headless(
-        &["browser", "cookies", "clear", "--domain", "example.com", "--yes"],
+        &[
+            "browser",
+            "cookies",
+            "clear",
+            "--domain",
+            "example.com",
+            "--yes",
+        ],
         30,
     );
     if out.status.success() {
@@ -817,14 +1126,18 @@ fn t52_cookies_clear_domain() {
 
 #[test]
 fn t53_open_new_tab() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "open", "https://example.com"], 30);
     assert_success(&out, "open new tab");
 }
 
 #[test]
 fn t54_pages_multiple_tabs() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "pages"], 30);
     assert_success(&out, "pages");
     let pages_output = stdout_str(&out);
@@ -833,12 +1146,17 @@ fn t54_pages_multiple_tabs() {
         .lines()
         .filter(|l| !l.trim().is_empty())
         .count();
-    assert!(line_count >= 2, "should list at least 2 pages, got {line_count} lines:\n{pages_output}");
+    assert!(
+        line_count >= 2,
+        "should list at least 2 pages, got {line_count} lines:\n{pages_output}"
+    );
 }
 
 #[test]
 fn t55_switch_tab() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let pages = headless(&["browser", "pages"], 30);
     assert_success(&pages, "pages for switch");
 
@@ -848,7 +1166,11 @@ fn t55_switch_tab() {
     for pat in &patterns {
         if let Some(pos) = pages_out.to_lowercase().find(pat) {
             let after = &pages_out[pos + pat.len()..];
-            let id: String = after.trim().chars().take_while(|c| !c.is_whitespace()).collect();
+            let id: String = after
+                .trim()
+                .chars()
+                .take_while(|c| !c.is_whitespace())
+                .collect();
             if !id.is_empty() {
                 page_id = Some(id);
                 break;
@@ -867,7 +1189,9 @@ fn t55_switch_tab() {
 
 #[test]
 fn t56_restart() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "restart"], 60);
     assert_success(&out, "restart");
 
@@ -877,7 +1201,9 @@ fn t56_restart() {
 
 #[test]
 fn t57_close() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let out = headless(&["browser", "close"], 30);
     assert_success(&out, "close");
 }

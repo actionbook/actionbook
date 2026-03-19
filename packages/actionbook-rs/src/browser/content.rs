@@ -165,8 +165,8 @@ impl ContentResponse {
     pub fn compression_ratio(&self) -> f64 {
         match self.format {
             ContentFormat::Html => 1.0,
-            ContentFormat::Markdown => 0.2,  // ~80% reduction
-            ContentFormat::AccessibilityTree => 0.05,  // ~95% reduction
+            ContentFormat::Markdown => 0.2, // ~80% reduction
+            ContentFormat::AccessibilityTree => 0.05, // ~95% reduction
         }
     }
 
@@ -199,11 +199,26 @@ mod tests {
 
     #[test]
     fn test_content_format_parsing() {
-        assert_eq!("html".parse::<ContentFormat>().unwrap(), ContentFormat::Html);
-        assert_eq!("markdown".parse::<ContentFormat>().unwrap(), ContentFormat::Markdown);
-        assert_eq!("md".parse::<ContentFormat>().unwrap(), ContentFormat::Markdown);
-        assert_eq!("accessibility-tree".parse::<ContentFormat>().unwrap(), ContentFormat::AccessibilityTree);
-        assert_eq!("tree".parse::<ContentFormat>().unwrap(), ContentFormat::AccessibilityTree);
+        assert_eq!(
+            "html".parse::<ContentFormat>().unwrap(),
+            ContentFormat::Html
+        );
+        assert_eq!(
+            "markdown".parse::<ContentFormat>().unwrap(),
+            ContentFormat::Markdown
+        );
+        assert_eq!(
+            "md".parse::<ContentFormat>().unwrap(),
+            ContentFormat::Markdown
+        );
+        assert_eq!(
+            "accessibility-tree".parse::<ContentFormat>().unwrap(),
+            ContentFormat::AccessibilityTree
+        );
+        assert_eq!(
+            "tree".parse::<ContentFormat>().unwrap(),
+            ContentFormat::AccessibilityTree
+        );
     }
 
     #[test]
@@ -212,12 +227,8 @@ mod tests {
         let response = ContentResponse::new(html.to_string(), ContentFormat::Html);
         assert_eq!(response.estimated_tokens, None);
 
-        let response = ContentResponse::with_metadata(
-            html.to_string(),
-            ContentFormat::Html,
-            None,
-            None,
-        );
+        let response =
+            ContentResponse::with_metadata(html.to_string(), ContentFormat::Html, None, None);
         assert!(response.estimated_tokens.is_some());
     }
 

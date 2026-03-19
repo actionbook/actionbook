@@ -175,7 +175,10 @@ pub async fn delete_port_file() {
 /// Read the token from the token file. Returns None if file doesn't exist.
 pub async fn read_token_file() -> Option<String> {
     let path = token_file_path().ok()?;
-    tokio::fs::read_to_string(&path).await.ok().map(|s| s.trim().to_string())
+    tokio::fs::read_to_string(&path)
+        .await
+        .ok()
+        .map(|s| s.trim().to_string())
 }
 
 // --- PID file helpers ---
@@ -294,7 +297,9 @@ impl BridgeState {
         session_key: String,
     ) -> Result<&mut crate::browser::camofox::CamofoxSession> {
         if self.camofox_session.is_none() {
-            let session = crate::browser::camofox::CamofoxSession::connect(port, user_id, session_key).await?;
+            let session =
+                crate::browser::camofox::CamofoxSession::connect(port, user_id, session_key)
+                    .await?;
             self.camofox_session = Some(session);
         }
         Ok(self.camofox_session.as_mut().unwrap())
@@ -343,9 +348,9 @@ pub async fn serve_with_shutdown(
     delete_port_file().await;
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    let listener = TcpListener::bind(&addr).await.map_err(|e| {
-        ActionbookError::Other(format!("Failed to bind to {}: {}", addr, e))
-    })?;
+    let listener = TcpListener::bind(&addr)
+        .await
+        .map_err(|e| ActionbookError::Other(format!("Failed to bind to {}: {}", addr, e)))?;
 
     // Write PID file after successful bind so `extension stop` can find this process.
     // Fail fast: a running bridge without a PID file causes ensure_bridge_running to
@@ -364,7 +369,10 @@ pub async fn serve_with_shutdown(
 
     // Write port file so native messaging can discover the actual port.
     if let Err(e) = write_port_file(port).await {
-        tracing::warn!("Failed to write port file: {}. Native messaging auto-pairing may not work.", e);
+        tracing::warn!(
+            "Failed to write port file: {}. Native messaging auto-pairing may not work.",
+            e
+        );
         eprintln!(
             "  Warning: Failed to write port file: {}. Auto-pairing may not work.",
             e
@@ -378,7 +386,10 @@ pub async fn serve_with_shutdown(
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
             let mut s = ttl_state.lock().await;
             if s.last_activity.elapsed().as_secs() >= TOKEN_TTL_SECS {
-                tracing::warn!("Token idle timeout reached ({}min). Generating new token.", TOKEN_TTL_SECS / 60);
+                tracing::warn!(
+                    "Token idle timeout reached ({}min). Generating new token.",
+                    TOKEN_TTL_SECS / 60
+                );
                 let new_token = generate_token();
                 // Send token_expired notification before closing
                 if let Some(ext_tx) = s.extension_tx.take() {
@@ -412,9 +423,10 @@ pub async fn serve_with_shutdown(
 
     let accept_loop = async {
         loop {
-            let (stream, peer) = listener.accept().await.map_err(|e| {
-                ActionbookError::Other(format!("Accept failed: {}", e))
-            })?;
+            let (stream, peer) = listener
+                .accept()
+                .await
+                .map_err(|e| ActionbookError::Other(format!("Accept failed: {}", e)))?;
 
             tracing::debug!("New connection from {}", peer);
 
@@ -562,11 +574,7 @@ async fn handle_connection(stream: TcpStream, state: Arc<Mutex<BridgeState>>) {
     let (mut write, mut read) = ws.split();
 
     // Read first message - must be a hello handshake
-    let first_msg = match tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        read.next(),
-    )
-    .await
+    let first_msg = match tokio::time::timeout(std::time::Duration::from_secs(5), read.next()).await
     {
         Ok(Some(Ok(Message::Text(text)))) => text.to_string(),
         _ => {
@@ -619,9 +627,7 @@ async fn handle_connection(stream: TcpStream, state: Arc<Mutex<BridgeState>>) {
                 ),
                 "required_version": PROTOCOL_VERSION,
             });
-            let _ = write
-                .send(Message::Text(err_msg.to_string().into()))
-                .await;
+            let _ = write.send(Message::Text(err_msg.to_string().into())).await;
             return;
         }
     }
@@ -648,9 +654,7 @@ async fn handle_connection(stream: TcpStream, state: Arc<Mutex<BridgeState>>) {
                 "error": "invalid_origin",
                 "message": "Extension origin does not match the Actionbook extension ID.",
             });
-            let _ = write
-                .send(Message::Text(err_msg.to_string().into()))
-                .await;
+            let _ = write.send(Message::Text(err_msg.to_string().into())).await;
             return;
         }
     } else {
@@ -663,9 +667,7 @@ async fn handle_connection(stream: TcpStream, state: Arc<Mutex<BridgeState>>) {
                 "error": "invalid_token",
                 "message": "Token mismatch. Reconnect via native messaging to obtain the current token.",
             });
-            let _ = write
-                .send(Message::Text(err_msg.to_string().into()))
-                .await;
+            let _ = write.send(Message::Text(err_msg.to_string().into())).await;
             return;
         }
     }
@@ -696,9 +698,7 @@ async fn handle_connection(stream: TcpStream, state: Arc<Mutex<BridgeState>>) {
                 "type": "replaced",
                 "message": "Another extension instance is already connected to the bridge.",
             });
-            let _ = write
-                .send(Message::Text(err_msg.to_string().into()))
-                .await;
+            let _ = write.send(Message::Text(err_msg.to_string().into())).await;
             return;
         }
         drop(s);
@@ -733,10 +733,7 @@ async fn handle_connection(stream: TcpStream, state: Arc<Mutex<BridgeState>>) {
 /// Handle the extension client connection.
 /// Stores the sender channel and routes responses back to pending CLI requests.
 async fn handle_extension_client(
-    mut write: futures::stream::SplitSink<
-        tokio_tungstenite::WebSocketStream<TcpStream>,
-        Message,
-    >,
+    mut write: futures::stream::SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
     mut read: futures::stream::SplitStream<tokio_tungstenite::WebSocketStream<TcpStream>>,
     state: Arc<Mutex<BridgeState>>,
 ) {
@@ -771,7 +768,8 @@ async fn handle_extension_client(
         let _ = write
             .send(Message::Close(Some(
                 tokio_tungstenite::tungstenite::protocol::CloseFrame {
-                    code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Normal,
+                    code:
+                        tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Normal,
                     reason: "Session ended".into(),
                 },
             )))
@@ -843,20 +841,12 @@ async fn handle_extension_client(
 /// Handle a CLI client connection.
 /// After the hello handshake, the CLI sends commands and receives responses.
 async fn handle_cli_client(
-    mut write: futures::stream::SplitSink<
-        tokio_tungstenite::WebSocketStream<TcpStream>,
-        Message,
-    >,
+    mut write: futures::stream::SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
     mut read: futures::stream::SplitStream<tokio_tungstenite::WebSocketStream<TcpStream>>,
     state: Arc<Mutex<BridgeState>>,
 ) {
     // Read the actual command message (second message after hello)
-    let cmd_msg = match tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        read.next(),
-    )
-    .await
-    {
+    let cmd_msg = match tokio::time::timeout(std::time::Duration::from_secs(5), read.next()).await {
         Ok(Some(Ok(Message::Text(text)))) => text.to_string(),
         _ => {
             tracing::warn!("CLI disconnected before sending command");
@@ -886,10 +876,7 @@ async fn handle_cli_client(
         .get("params")
         .cloned()
         .unwrap_or(serde_json::Value::Null);
-    let cli_id = first_msg
-        .get("id")
-        .cloned()
-        .unwrap_or(serde_json::json!(0));
+    let cli_id = first_msg.get("id").cloned().unwrap_or(serde_json::json!(0));
 
     tracing::debug!("CLI command: {} {:?}", method, params);
 
@@ -994,9 +981,7 @@ async fn handle_cli_client(
             // Rewrite the id to match the CLI's original id
             if let Ok(mut resp) = serde_json::from_str::<serde_json::Value>(&resp_str) {
                 resp["id"] = cli_id;
-                let _ = write
-                    .send(Message::Text(resp.to_string().into()))
-                    .await;
+                let _ = write.send(Message::Text(resp.to_string().into())).await;
             }
         }
         Ok(Err(_)) => {
@@ -1073,7 +1058,9 @@ async fn handle_camofox_command(
             let selector = params
                 .get("selector")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| ActionbookError::Other("Missing 'selector' parameter".to_string()))?;
+                .ok_or_else(|| {
+                    ActionbookError::Other("Missing 'selector' parameter".to_string())
+                })?;
             session.click(selector).await?;
             serde_json::json!({ "success": true })
         }
@@ -1081,7 +1068,9 @@ async fn handle_camofox_command(
             let selector = params
                 .get("selector")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| ActionbookError::Other("Missing 'selector' parameter".to_string()))?;
+                .ok_or_else(|| {
+                    ActionbookError::Other("Missing 'selector' parameter".to_string())
+                })?;
             let text = params
                 .get("text")
                 .and_then(|v| v.as_str())
@@ -1116,14 +1105,11 @@ pub async fn send_command(
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value> {
-    let token = read_token_file()
-        .await
-        .ok_or_else(|| {
-            ActionbookError::ExtensionError(
-                "No bridge token found. Is `actionbook extension serve` running?"
-                    .to_string(),
-            )
-        })?;
+    let token = read_token_file().await.ok_or_else(|| {
+        ActionbookError::ExtensionError(
+            "No bridge token found. Is `actionbook extension serve` running?".to_string(),
+        )
+    })?;
 
     send_command_with_token(port, method, params, &token).await
 }
@@ -1160,8 +1146,7 @@ pub async fn send_command_with_token(
     // Wait for hello_ack from server
     match tokio::time::timeout(std::time::Duration::from_secs(5), ws.next()).await {
         Ok(Some(Ok(Message::Text(text)))) => {
-            let ack: serde_json::Value =
-                serde_json::from_str(text.as_str()).unwrap_or_default();
+            let ack: serde_json::Value = serde_json::from_str(text.as_str()).unwrap_or_default();
             if ack.get("type").and_then(|t| t.as_str()) != Some("hello_ack") {
                 return Err(ActionbookError::ExtensionError(
                     "Authentication failed: invalid token".to_string(),
@@ -1217,7 +1202,10 @@ pub async fn send_command_with_token(
                             .to_string(),
                     ));
                 }
-                return Ok(resp.get("result").cloned().unwrap_or(serde_json::Value::Null));
+                return Ok(resp
+                    .get("result")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null));
             }
             Ok(Message::Close(_)) => break,
             Ok(_) => continue,
@@ -1291,8 +1279,12 @@ mod tests {
         assert!(is_origin_allowed(Some("http://[::1]/")));
 
         // Chrome extension origins
-        assert!(is_origin_allowed(Some("chrome-extension://abcdefghijklmnop")));
-        assert!(is_origin_allowed(Some("chrome-extension://dpfioflkmnkklgjldmaggkodhlidkdcd")));
+        assert!(is_origin_allowed(Some(
+            "chrome-extension://abcdefghijklmnop"
+        )));
+        assert!(is_origin_allowed(Some(
+            "chrome-extension://dpfioflkmnkklgjldmaggkodhlidkdcd"
+        )));
 
         // Case insensitive
         assert!(is_origin_allowed(Some("HTTP://LOCALHOST")));
@@ -1322,12 +1314,27 @@ mod tests {
 
     #[test]
     fn test_parse_origin() {
-        assert_eq!(parse_origin("http://127.0.0.1"), Some(("http", "127.0.0.1", None)));
-        assert_eq!(parse_origin("http://127.0.0.1:8080"), Some(("http", "127.0.0.1", Some("8080"))));
-        assert_eq!(parse_origin("http://localhost/"), Some(("http", "localhost", None)));
+        assert_eq!(
+            parse_origin("http://127.0.0.1"),
+            Some(("http", "127.0.0.1", None))
+        );
+        assert_eq!(
+            parse_origin("http://127.0.0.1:8080"),
+            Some(("http", "127.0.0.1", Some("8080")))
+        );
+        assert_eq!(
+            parse_origin("http://localhost/"),
+            Some(("http", "localhost", None))
+        );
         assert_eq!(parse_origin("http://[::1]"), Some(("http", "[::1]", None)));
-        assert_eq!(parse_origin("http://[::1]:8080"), Some(("http", "[::1]", Some("8080"))));
-        assert_eq!(parse_origin("chrome-extension://abcdef"), Some(("chrome-extension", "abcdef", None)));
+        assert_eq!(
+            parse_origin("http://[::1]:8080"),
+            Some(("http", "[::1]", Some("8080")))
+        );
+        assert_eq!(
+            parse_origin("chrome-extension://abcdef"),
+            Some(("chrome-extension", "abcdef", None))
+        );
         assert_eq!(parse_origin("http://"), None);
         assert_eq!(parse_origin("not-a-url"), None);
     }
@@ -1360,7 +1367,9 @@ mod tests {
         assert!(!origin_matches_any(Some("http://localhost:8080")));
 
         // Random other extension → rejected
-        assert!(!origin_matches_any(Some("chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")));
+        assert!(!origin_matches_any(Some(
+            "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        )));
 
         // Dev extension origin → accepted
         let dev_origin = format!("chrome-extension://{}", EXTENSION_ID_DEV);
@@ -1377,6 +1386,9 @@ mod tests {
         assert!(get_risk_level("Accessibility.getFullAXTree").is_some());
         assert!(get_risk_level("DOM.enable").is_some());
         assert_eq!(get_risk_level("Accessibility.enable"), Some(RiskLevel::L1));
-        assert_eq!(get_risk_level("Accessibility.getFullAXTree"), Some(RiskLevel::L1));
+        assert_eq!(
+            get_risk_level("Accessibility.getFullAXTree"),
+            Some(RiskLevel::L1)
+        );
     }
 }

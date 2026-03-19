@@ -3,7 +3,6 @@
 /// For static pages (Wikipedia, blogs, docs) we can skip launching a browser
 /// entirely and just fetch the HTML via HTTP. This saves 5-10 seconds of
 /// browser startup time.
-
 use std::time::Duration;
 
 /// Result of a successful HTTP fetch.
@@ -129,8 +128,26 @@ fn strip_html_tags(html: &str) -> String {
 
     const SKIP_TAGS: &[&str] = &["script", "style", "noscript", "template", "svg"];
     const BLOCK_TAGS: &[&str] = &[
-        "div", "p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr", "br", "hr", "blockquote",
-        "pre", "article", "section", "header", "footer", "nav", "main",
+        "div",
+        "p",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "li",
+        "tr",
+        "br",
+        "hr",
+        "blockquote",
+        "pre",
+        "article",
+        "section",
+        "header",
+        "footer",
+        "nav",
+        "main",
     ];
 
     for ch in html.chars() {

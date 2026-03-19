@@ -33,8 +33,10 @@ pub fn was_unclean_exit(profile_dir: &std::path::Path) -> bool {
     }
 
     match std::fs::read_to_string(&prefs_path) {
-        Ok(content) => content.contains("\"exit_type\":\"Crashed\"")
-            || content.contains("\"exited_cleanly\":false"),
+        Ok(content) => {
+            content.contains("\"exit_type\":\"Crashed\"")
+                || content.contains("\"exited_cleanly\":false")
+        }
         Err(_) => false,
     }
 }
@@ -291,7 +293,9 @@ impl BrowserLauncher {
         if self.mock_keychain {
             args.push("--use-mock-keychain".to_string());
             args.push("--password-store=basic".to_string());
-            args.push("--disable-features=PasswordGeneration,AutofillServerCommunication".to_string());
+            args.push(
+                "--disable-features=PasswordGeneration,AutofillServerCommunication".to_string(),
+            );
         }
 
         if self.stealth {
@@ -721,8 +725,6 @@ mod tests {
         assert!(!tmp.path().join("Default").join("Preferences").exists());
     }
 
-
-
     #[test]
     fn build_args_excludes_deprecated_flags() {
         // AutomationControlled and disable-infobars were removed because they
@@ -769,9 +771,8 @@ mod tests {
 
     #[test]
     fn sanitize_mixed_blink_features_preserves_other_tokens() {
-        let mut args = vec![
-            "--disable-blink-features=TranslateUI,AutomationControlled,Foo".to_string(),
-        ];
+        let mut args =
+            vec!["--disable-blink-features=TranslateUI,AutomationControlled,Foo".to_string()];
         sanitize_deprecated_flags(&mut args);
         assert_eq!(args, vec!["--disable-blink-features=TranslateUI,Foo"]);
     }
@@ -845,9 +846,8 @@ mod tests {
 
     #[test]
     fn sanitize_spaced_tokens_removes_target() {
-        let mut args = vec![
-            "--disable-blink-features=TranslateUI, AutomationControlled, Foo".to_string(),
-        ];
+        let mut args =
+            vec!["--disable-blink-features=TranslateUI, AutomationControlled, Foo".to_string()];
         sanitize_deprecated_flags(&mut args);
         assert_eq!(args, vec!["--disable-blink-features=TranslateUI,Foo"]);
     }

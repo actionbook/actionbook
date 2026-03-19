@@ -8,7 +8,6 @@ mod daemon;
 mod error;
 mod update_notifier;
 
-use clap::Parser;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use cli::Cli;

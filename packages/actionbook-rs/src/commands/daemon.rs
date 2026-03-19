@@ -28,23 +28,44 @@ async fn run_unix(cli: &Cli, command: &DaemonCommands) -> Result<()> {
     let profile = effective_profile_name(cli, &config).to_string();
 
     match command {
-        DaemonCommands::Serve { profile: prof_override } => {
+        DaemonCommands::Serve {
+            profile: prof_override,
+        } => {
             let profile = prof_override
                 .as_deref()
                 .filter(|s| !s.is_empty())
                 .unwrap_or(&profile);
-            server::run(profile).await
+            // Daemon is profile-scoped; -S/--session is not applicable here.
+            // Session routing is handled internally by the daemon's routing table.
+            if cli.session.is_some() {
+                tracing::warn!(
+                    "The -S/--session flag is ignored by `daemon serve`. \
+                     The daemon manages all sessions for profile '{}'.",
+                    profile
+                );
+            }
+            server::run_with_session(profile, None).await
         }
         DaemonCommands::Status => {
+            // Daemon is per-profile, not per-session
+            if cli.session.is_some() {
+                tracing::warn!(
+                    "The -S/--session flag is ignored by `daemon status`. \
+                     The daemon is profile-scoped (profile '{}').",
+                    profile
+                );
+            }
             let alive = lifecycle::is_daemon_alive(&profile).await;
+            let sock = lifecycle::socket_path(&profile);
+            let pid = lifecycle::pid_path(&profile);
             if cli.json {
                 println!(
                     "{}",
                     serde_json::json!({
                         "profile": profile,
                         "running": alive,
-                        "socket": lifecycle::socket_path(&profile).display().to_string(),
-                        "pid_file": lifecycle::pid_path(&profile).display().to_string(),
+                        "socket": sock.display().to_string(),
+                        "pid_file": pid.display().to_string(),
                     })
                 );
             } else if alive {
@@ -54,10 +75,7 @@ async fn run_unix(cli: &Cli, command: &DaemonCommands) -> Result<()> {
                     profile,
                     "running".green()
                 );
-                println!(
-                    "  Socket: {}",
-                    lifecycle::socket_path(&profile).display()
-                );
+                println!("  Socket: {}", sock.display());
             } else {
                 println!(
                     "{} Daemon for profile '{}' is {}",
@@ -69,6 +87,13 @@ async fn run_unix(cli: &Cli, command: &DaemonCommands) -> Result<()> {
             Ok(())
         }
         DaemonCommands::Stop => {
+            if cli.session.is_some() {
+                tracing::warn!(
+                    "The -S/--session flag is ignored by `daemon stop`. \
+                     The daemon is profile-scoped (profile '{}').",
+                    profile
+                );
+            }
             lifecycle::stop_daemon(&profile).await?;
             if cli.json {
                 println!(
