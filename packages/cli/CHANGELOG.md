@@ -1,5 +1,11 @@
 # @actionbookdev/cli
 
+## 0.11.1
+
+### Patch Changes
+
+- [`4964fd5`](https://github.com/actionbook/actionbook/commit/4964fd54639045af62d3a865d3328a11d1c950c6) Thanks [@mcfn](https://github.com/mcfn)! - fix: Windows build failure — wrap daemon calls in cfg(unix) for session list/destroy commands
+
 ## 0.11.0
 
 ### Minor Changes
