@@ -1,5 +1,11 @@
 # @actionbookdev/cli
 
+## 0.11.3
+
+### Patch Changes
+
+- [#238](https://github.com/actionbook/actionbook/pull/238) [`259150b`](https://github.com/actionbook/actionbook/commit/259150b6375dca5b958659b4e1c04d181078210f) Thanks [@mcfn](https://github.com/mcfn)! - Fix daemon mode liveness probes conflicting with single-connection WSS endpoints (e.g. AgentCore)
+
 ## 0.11.2
 
 ### Patch Changes
