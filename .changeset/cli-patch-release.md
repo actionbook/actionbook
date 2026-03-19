@@ -2,4 +2,4 @@
 "@actionbookdev/cli": patch
 ---
 
-fix: browser open session reuse and multi-session stability improvements
+fix: Windows build failure — wrap daemon calls in cfg(unix) for session list/destroy commands

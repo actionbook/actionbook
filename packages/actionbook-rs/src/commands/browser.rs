@@ -5437,19 +5437,26 @@ async fn session_list(cli: &Cli, config: &Config) -> Result<()> {
         .unwrap_or(&config.effective_default_profile_name())
         .to_string();
 
-    // Try listing via daemon first
-    let daemon_sessions = {
-        let sock_path = crate::daemon::lifecycle::socket_path(&profile_name);
-        if sock_path.exists() {
-            let client = crate::daemon::client::DaemonClient::new(profile_name.clone());
-            match client
-                .send_cdp("__actionbook.listSessions", serde_json::json!({}))
-                .await
-            {
-                Ok(value) => value.get("sessions").cloned(),
-                Err(_) => None,
+    // Try listing via daemon first (Unix only — daemon uses Unix sockets)
+    let daemon_sessions: Option<serde_json::Value> = {
+        #[cfg(unix)]
+        {
+            let sock_path = crate::daemon::lifecycle::socket_path(&profile_name);
+            if sock_path.exists() {
+                let client = crate::daemon::client::DaemonClient::new(profile_name.clone());
+                match client
+                    .send_cdp("__actionbook.listSessions", serde_json::json!({}))
+                    .await
+                {
+                    Ok(value) => value.get("sessions").cloned(),
+                    Err(_) => None,
+                }
+            } else {
+                None
             }
-        } else {
+        }
+        #[cfg(not(unix))]
+        {
             None
         }
     };
@@ -5634,44 +5641,47 @@ async fn session_destroy(cli: &Cli, config: &Config, name: &str) -> Result<()> {
         .unwrap_or(&config.effective_default_profile_name())
         .to_string();
 
-    // Try destroy via daemon
-    let sock_path = crate::daemon::lifecycle::socket_path(&profile_name);
-    if sock_path.exists() {
-        let client = crate::daemon::client::DaemonClient::new(profile_name.clone());
-        match client
-            .send_cdp(
-                "__actionbook.destroySession",
-                serde_json::json!({"name": safe_name}),
-            )
-            .await
-        {
-            Ok(value) => {
-                if cli.json {
-                    println!("{}", serde_json::to_string_pretty(&value)?);
-                } else {
-                    println!(
-                        "Destroyed session '{}' for profile '{}'",
-                        safe_name, profile_name
-                    );
+    // Try destroy via daemon (Unix only — daemon uses Unix sockets)
+    #[cfg(unix)]
+    {
+        let sock_path = crate::daemon::lifecycle::socket_path(&profile_name);
+        if sock_path.exists() {
+            let client = crate::daemon::client::DaemonClient::new(profile_name.clone());
+            match client
+                .send_cdp(
+                    "__actionbook.destroySession",
+                    serde_json::json!({"name": safe_name}),
+                )
+                .await
+            {
+                Ok(value) => {
+                    if cli.json {
+                        println!("{}", serde_json::to_string_pretty(&value)?);
+                    } else {
+                        println!(
+                            "Destroyed session '{}' for profile '{}'",
+                            safe_name, profile_name
+                        );
+                    }
                 }
-            }
-            Err(e) => {
-                tracing::debug!("Daemon destroy failed: {}", e);
-                if cli.json {
-                    println!(
-                        "{}",
-                        serde_json::json!({
-                            "status": "not_active",
-                            "session": safe_name,
-                            "profile": profile_name,
-                            "message": format!("Session '{}' not active in daemon (may already be stopped)", safe_name)
-                        })
-                    );
-                } else {
-                    println!(
-                        "Session '{}' not active in daemon (may already be stopped)",
-                        safe_name
-                    );
+                Err(e) => {
+                    tracing::debug!("Daemon destroy failed: {}", e);
+                    if cli.json {
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "status": "not_active",
+                                "session": safe_name,
+                                "profile": profile_name,
+                                "message": format!("Session '{}' not active in daemon (may already be stopped)", safe_name)
+                            })
+                        );
+                    } else {
+                        println!(
+                            "Session '{}' not active in daemon (may already be stopped)",
+                            safe_name
+                        );
+                    }
                 }
             }
         }
