@@ -468,6 +468,25 @@ impl SessionManager {
         Err(ActionbookError::BrowserNotRunning)
     }
 
+    fn saved_session_state_for_reuse(&self, profile_name: &str) -> Option<SessionState> {
+        if let Some(state) = self.load_session_state(profile_name) {
+            return Some(state);
+        }
+
+        if self
+            .active_session
+            .as_deref()
+            .is_some_and(|session| session != "default")
+        {
+            return self
+                .find_shareable_session_states(profile_name)
+                .into_iter()
+                .next();
+        }
+
+        None
+    }
+
     fn initial_blank_launch_artifact_id(
         state: &SessionState,
         pages: &[PageInfo],
@@ -563,10 +582,17 @@ impl SessionManager {
         }
     }
 
+    /// Whether there is saved session state for the current session, or a shareable
+    /// parent session when running a named session that has not been materialized yet.
+    pub fn has_saved_session_state(&self, profile_name: Option<&str>) -> bool {
+        let profile_name = self.resolve_profile_name(profile_name);
+        self.saved_session_state_for_reuse(&profile_name).is_some()
+    }
+
     /// Whether the saved session for a profile uses a remote browser websocket.
     pub fn session_uses_remote_ws(&self, profile_name: Option<&str>) -> bool {
         let profile_name = self.resolve_profile_name(profile_name);
-        self.load_session_state(&profile_name)
+        self.saved_session_state_for_reuse(&profile_name)
             .is_some_and(|state| !state.uses_local_http_endpoints())
     }
 
@@ -684,7 +710,6 @@ impl SessionManager {
         profile_name: Option<&str>,
     ) -> Result<(Browser, Handler)> {
         let profile_name = self.resolve_profile_name(profile_name);
-        let profile = self.config.get_profile(&profile_name)?;
 
         // Check for existing session state
         if let Some(mut state) = self.load_session_state(&profile_name) {
@@ -738,6 +763,7 @@ impl SessionManager {
             "No existing browser found, creating new session for profile: {}",
             profile_name
         );
+        let profile = self.config.get_profile(&profile_name)?;
         self.create_session(&profile_name, &profile).await
     }
 
@@ -1715,13 +1741,8 @@ impl SessionManager {
             }
         }
 
-        self.send_browser_command_over_ws(
-            &state.cdp_url,
-            method,
-            params,
-            state.ws_headers.as_ref(),
-        )
-        .await
+        self.send_browser_command_over_ws(&state.cdp_url, method, params, state.ws_headers.as_ref())
+            .await
     }
 
     /// Try to send a CDP command through the daemon for this profile.
@@ -5025,6 +5046,31 @@ mod tests {
         server.abort();
     }
 
+    #[test]
+    fn named_session_detects_shareable_saved_remote_session_state() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let default_sm = test_session_manager(dir.path());
+        default_sm
+            .save_external_session_full(
+                "remote",
+                9222,
+                "wss://agent.example.com/automation",
+                None,
+                Some(std::collections::HashMap::from([(
+                    "authorization".to_string(),
+                    "Bearer test".to_string(),
+                )])),
+            )
+            .unwrap();
+
+        let mut named_sm = test_session_manager(dir.path());
+        named_sm.set_active_session("work");
+
+        assert!(named_sm.has_saved_session_state(Some("remote")));
+        assert!(named_sm.session_uses_remote_ws(Some("remote")));
+    }
+
     #[tokio::test]
     async fn is_remote_session_skips_stale_first_candidate() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -5295,10 +5341,8 @@ mod tests {
                 while let Some(msg) = ws.next().await {
                     let msg = msg.unwrap();
                     if let tokio_tungstenite::tungstenite::Message::Text(text) = msg {
-                        let req: serde_json::Value =
-                            serde_json::from_str(text.as_str()).unwrap();
-                        if req.get("method").and_then(|m| m.as_str())
-                            == Some("Target.createTarget")
+                        let req: serde_json::Value = serde_json::from_str(text.as_str()).unwrap();
+                        if req.get("method").and_then(|m| m.as_str()) == Some("Target.createTarget")
                         {
                             // Stall so the caller times out
                             tokio::time::sleep(Duration::from_millis(200)).await;
@@ -5364,8 +5408,7 @@ mod tests {
                         break;
                     };
                     if let tokio_tungstenite::tungstenite::Message::Text(text) = msg {
-                        let req: serde_json::Value =
-                            serde_json::from_str(text.as_str()).unwrap();
+                        let req: serde_json::Value = serde_json::from_str(text.as_str()).unwrap();
                         match req.get("method").and_then(|m| m.as_str()) {
                             Some("Target.createTarget") => {
                                 let response = serde_json::json!({

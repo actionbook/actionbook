@@ -263,14 +263,21 @@ default_profile = "{}"
         .unwrap();
     }
 
-    fn spawn_remote_cdp_server(
-    ) -> (u16, Arc<Mutex<Vec<serde_json::Value>>>, std::thread::JoinHandle<()>) {
+    fn spawn_remote_cdp_server() -> (
+        u16,
+        Arc<Mutex<Vec<serde_json::Value>>>,
+        std::thread::JoinHandle<()>,
+    ) {
         spawn_remote_cdp_server_with_initial_url("https://existing.example")
     }
 
     fn spawn_remote_cdp_server_with_initial_url(
         initial_url: &str,
-    ) -> (u16, Arc<Mutex<Vec<serde_json::Value>>>, std::thread::JoinHandle<()>) {
+    ) -> (
+        u16,
+        Arc<Mutex<Vec<serde_json::Value>>>,
+        std::thread::JoinHandle<()>,
+    ) {
         let (tx, rx) = std::sync::mpsc::channel();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let server_requests = Arc::clone(&requests);

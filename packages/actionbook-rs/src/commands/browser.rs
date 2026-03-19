@@ -142,35 +142,6 @@ fn js_resolve_selector(selector: &str) -> String {
     )
 }
 
-/// Check if a session file exists for the given profile and optional session name.
-/// Checks both new-style `{profile}@{session}.json` and legacy `{profile}.json`.
-fn has_session_file_for(profile_name: &str, session: Option<&str>) -> bool {
-    let Some(sessions_dir) = dirs::home_dir().map(|h| h.join(".actionbook").join("sessions"))
-    else {
-        return false;
-    };
-
-    let safe_profile = sanitize_path_component(profile_name);
-    let session_name = session.unwrap_or("default");
-    let safe_session = sanitize_path_component(session_name);
-    let new_path = sessions_dir.join(format!("{}@{}.json", safe_profile, safe_session));
-    if new_path.exists() {
-        return true;
-    }
-
-    // Legacy fallback for default session (use sanitized name so inputs like
-    // "" or "!!!" that sanitize to "default" also get the legacy check)
-    if safe_session == "default" {
-        for legacy_path in legacy_session_paths(&sessions_dir, profile_name) {
-            if legacy_path.exists() {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
 fn legacy_session_paths(
     sessions_dir: &std::path::Path,
     profile_name: &str,
@@ -219,13 +190,32 @@ pub async fn create_browser_driver_public(cli: &Cli, config: &Config) -> Result<
 
 /// Create a browser driver for multi-backend support (CDP or Camoufox)
 async fn create_browser_driver(cli: &Cli, config: &Config) -> Result<BrowserDriver> {
+    create_browser_driver_inner(cli, config, None).await
+}
+
+async fn create_browser_driver_inner(
+    cli: &Cli,
+    config: &Config,
+    sessions_dir: Option<&std::path::Path>,
+) -> Result<BrowserDriver> {
     // Determine profile
     let profile_name =
         effective_profile_arg(cli, config).unwrap_or(&config.browser.default_profile);
     let default_profile;
+    let has_reusable_session = if let Some(dir) = sessions_dir {
+        let mut session_manager =
+            SessionManager::with_sessions_dir(config.clone(), dir.to_path_buf());
+        if let Some(ref session) = cli.session {
+            session_manager.set_active_session(session);
+        }
+        session_manager.has_saved_session_state(Some(profile_name))
+    } else {
+        let session_manager = create_session_manager(cli, config);
+        session_manager.has_saved_session_state(Some(profile_name))
+    };
     let profile = match config.profiles.get(profile_name) {
         Some(p) => p,
-        None if cli.cdp.is_some() || has_session_file_for(profile_name, cli.session.as_deref()) => {
+        None if cli.cdp.is_some() || has_reusable_session => {
             // Ad-hoc profile created via --cdp flag, or a session file exists
             // from a previous --cdp invocation. Use sensible defaults.
             default_profile = crate::config::ProfileConfig::default();
@@ -242,23 +232,17 @@ async fn create_browser_driver(cli: &Cli, config: &Config) -> Result<BrowserDriv
     BrowserDriver::from_config(config, profile, cli).await
 }
 
-async fn should_use_driver_new_page(
-    session_manager: &SessionManager,
-    profile_name: &str,
-) -> bool {
-    if !session_manager.session_uses_remote_ws(Some(profile_name)) {
-        return false;
-    }
+#[cfg(test)]
+async fn create_browser_driver_with_sessions_dir(
+    cli: &Cli,
+    config: &Config,
+    sessions_dir: std::path::PathBuf,
+) -> Result<BrowserDriver> {
+    create_browser_driver_inner(cli, config, Some(&sessions_dir)).await
+}
 
-    if session_manager.is_session_reachable(profile_name).await {
-        return true;
-    }
-
-    tracing::debug!(
-        "Saved remote session for profile '{}' is unreachable; falling back to session recreation",
-        profile_name
-    );
-    false
+async fn should_use_driver_new_page(session_manager: &SessionManager, profile_name: &str) -> bool {
+    session_manager.session_uses_remote_ws(Some(profile_name))
 }
 
 /// Apply resource blocking based on CLI flags (--block-images, --block-media)
@@ -615,10 +599,7 @@ async fn persist_active_page(
         }
     };
 
-    if let Err(e) = session_manager
-        .switch_to_page(profile_name, &page_id)
-        .await
-    {
+    if let Err(e) = session_manager.switch_to_page(profile_name, &page_id).await {
         tracing::debug!("Failed to persist active page: {}", e);
     }
 }
@@ -6020,9 +6001,7 @@ pub(crate) async fn switch_frame(cli: &Cli, config: &Config, target: &str) -> Re
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        effective_profile_name, normalize_navigation_url, should_use_driver_new_page,
-    };
+    use super::{effective_profile_name, normalize_navigation_url, should_use_driver_new_page};
     use crate::browser::{BrowserDriver, SessionManager};
     use crate::cli::{BrowserCommands, BrowserMode, Cli, Commands};
     use crate::config::Config;
@@ -6263,12 +6242,14 @@ mod tests {
     // browser/snapshot.rs (format_compact, parse_ax_tree, diff_snapshots)
 
     #[test]
-    fn has_session_file_returns_false_for_nonexistent_profile() {
-        // A random profile name should not have a session file
-        assert!(!super::has_session_file_for(
-            "nonexistent-random-profile-xyz-12345",
-            None
-        ));
+    fn has_saved_session_state_returns_false_for_nonexistent_profile() {
+        let dir = tempdir().unwrap();
+        let config = Config::default();
+        let session_manager = SessionManager::with_sessions_dir(config, dir.path().to_path_buf());
+
+        assert!(
+            !session_manager.has_saved_session_state(Some("nonexistent-random-profile-xyz-12345"))
+        );
     }
 
     #[tokio::test]
@@ -6329,6 +6310,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_browser_driver_succeeds_with_unknown_profile_when_shareable_session_exists() {
+        let dir = tempdir().unwrap();
+        let config = Config::default();
+
+        let session_manager =
+            SessionManager::with_sessions_dir(config.clone(), dir.path().to_path_buf());
+        session_manager
+            .save_external_session_full(
+                "adhoc-test-profile",
+                9222,
+                "wss://agent.example.com/automation",
+                None,
+                Some(std::collections::HashMap::from([(
+                    "authorization".to_string(),
+                    "Bearer test".to_string(),
+                )])),
+            )
+            .unwrap();
+
+        let mut cli = test_cli(Some("adhoc-test-profile"), BrowserCommands::Status);
+        cli.browser_mode = Some(BrowserMode::Isolated);
+        cli.session = Some("work".to_string());
+
+        let result =
+            super::create_browser_driver_with_sessions_dir(&cli, &config, dir.path().to_path_buf())
+                .await;
+
+        assert!(
+            result.is_ok(),
+            "create_browser_driver should reuse a shareable saved session for ad-hoc profiles"
+        );
+    }
+
+    #[tokio::test]
+    async fn should_use_driver_new_page_for_saved_remote_session_without_reachability_probe() {
+        let dir = tempdir().unwrap();
+        let config = Config::default();
+        let sm = SessionManager::with_sessions_dir(config, dir.path().to_path_buf());
+
+        sm.save_external_session_full(
+            "team",
+            9222,
+            "wss://agent.example.com/automation",
+            None,
+            Some(std::collections::HashMap::from([(
+                "x-test-auth".to_string(),
+                "secret".to_string(),
+            )])),
+        )
+        .unwrap();
+
+        assert!(should_use_driver_new_page(&sm, "team").await);
+    }
+
+    #[tokio::test]
     async fn should_use_driver_new_page_for_reachable_remote_session_without_headers() {
         let dir = tempdir().unwrap();
         let config = Config::default();
@@ -6348,26 +6384,5 @@ mod tests {
         assert!(should_use_driver_new_page(&sm, "team").await);
 
         server.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn should_not_use_driver_new_page_for_unreachable_remote_session() {
-        let dir = tempdir().unwrap();
-        let config = Config::default();
-        let sm = SessionManager::with_sessions_dir(config, dir.path().to_path_buf());
-
-        sm.save_external_session_full(
-            "team",
-            9222,
-            "ws://127.0.0.1:9/automation",
-            None,
-            Some(std::collections::HashMap::from([(
-                "x-test-auth".to_string(),
-                "secret".to_string(),
-            )])),
-        )
-        .unwrap();
-
-        assert!(!should_use_driver_new_page(&sm, "team").await);
     }
 }

@@ -87,8 +87,10 @@ impl BrowserDriver {
         match backend {
             BrowserBackend::Cdp => {
                 let mut session_mgr = if cli.stealth {
-                    let stealth_profile =
-                        build_stealth_profile(cli.stealth_os.as_deref(), cli.stealth_gpu.as_deref());
+                    let stealth_profile = build_stealth_profile(
+                        cli.stealth_os.as_deref(),
+                        cli.stealth_gpu.as_deref(),
+                    );
                     let stealth_config = StealthConfig {
                         enabled: true,
                         headless: cli.headless,

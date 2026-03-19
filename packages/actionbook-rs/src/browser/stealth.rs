@@ -119,12 +119,12 @@ fn platform_for_os(os: StealthOs) -> &'static str {
 #[cfg(feature = "stealth")]
 fn webgl_vendor_for_gpu(gpu: StealthGpu) -> &'static str {
     match gpu {
-        StealthGpu::NvidiaRtx4080 | StealthGpu::NvidiaRtx3080 | StealthGpu::NvidiaGtx1660 =>
-            "NVIDIA Corporation",
+        StealthGpu::NvidiaRtx4080 | StealthGpu::NvidiaRtx3080 | StealthGpu::NvidiaGtx1660 => {
+            "NVIDIA Corporation"
+        }
         StealthGpu::AmdRadeonRx6800 => "AMD",
         StealthGpu::IntelUhd630 | StealthGpu::IntelIrisXe => "Intel Inc.",
-        StealthGpu::AppleM1Pro | StealthGpu::AppleM2Max | StealthGpu::AppleM4Max =>
-            "Apple Inc.",
+        StealthGpu::AppleM1Pro | StealthGpu::AppleM2Max | StealthGpu::AppleM4Max => "Apple Inc.",
     }
 }
 
