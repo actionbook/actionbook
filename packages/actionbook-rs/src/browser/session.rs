@@ -201,9 +201,17 @@ impl SessionManager {
         self.daemon_enabled = enabled;
     }
 
-    /// Whether daemon routing is enabled for this session manager.
+    /// Whether daemon routing is actually available.
+    /// Returns false on non-Unix platforms where daemon transport is compiled out.
     pub fn is_daemon_mode(&self) -> bool {
-        self.daemon_enabled
+        #[cfg(unix)]
+        {
+            self.daemon_enabled
+        }
+        #[cfg(not(unix))]
+        {
+            false
+        }
     }
 
     /// Set the active session name for multi-session support.
@@ -434,7 +442,7 @@ impl SessionManager {
         // In daemon mode the daemon owns the WS connection — skip liveness
         // probes that would open a competing handshake on single-connection
         // endpoints (e.g. AgentCore WSS). Just trust the saved state.
-        if self.daemon_enabled {
+        if self.is_daemon_mode() {
             if let Some(state) = self.load_session_state(profile_name) {
                 return Ok(state);
             }
@@ -1222,7 +1230,7 @@ impl SessionManager {
         // In daemon mode, route Target.getTargets through the daemon to avoid
         // opening a second WS connection that would 429 on single-connection
         // endpoints.
-        if self.daemon_enabled {
+        if self.is_daemon_mode() {
             let result = self
                 .send_browser_command(Some(&profile_name), "Target.getTargets", serde_json::json!({}))
                 .await?;
