@@ -114,7 +114,7 @@ If you've configured `mode = "extension"` in your config file, you only need to 
 
 ## Browser Commands
 
-All commands below work in both modes, using whichever mode you've configured.
+Most commands work in both modes. Commands marked with **<sup>CDP</sup>** require isolated mode (CDP) and are not available in extension mode.
 
 ### Navigation
 
@@ -140,7 +140,7 @@ actionbook browser press "Enter"
 actionbook browser hotkey "Control+A"        # keyboard shortcuts
 actionbook browser scroll down 500           # scroll by pixels
 actionbook browser wait "#username" --timeout 10000
-actionbook browser wait-idle                 # wait for network idle
+actionbook browser wait-idle                 # wait for network idle  [CDP]
 actionbook browser wait-fn "document.readyState === 'complete'"
 ```
 
@@ -161,7 +161,7 @@ actionbook browser snapshot --diff           # show changes since last snapshot
 actionbook browser html
 actionbook browser text
 actionbook browser text --mode readability   # smart content extraction
-actionbook browser console --level error     # capture console logs
+actionbook browser console --level error     # capture console logs  [CDP]
 actionbook browser info "#submit"            # element bounding box & attributes
 actionbook browser viewport                  # get viewport dimensions
 actionbook browser inspect 100 200           # inspect element at coordinates
@@ -193,7 +193,7 @@ actionbook browser upload doc.pdf -s "input[type=file]" # specific selector
 actionbook browser upload a.png b.png                   # multiple files
 ```
 
-### Fetch (One-Shot)
+### Fetch (One-Shot) <sup>CDP</sup>
 
 Fetch page content in a single command — opens a temporary browser, extracts content, then closes:
 
@@ -215,12 +215,12 @@ actionbook browser batch --file actions.json --delay 100
 ### Advanced Features
 
 ```bash
-# IFrame context switching
+# IFrame context switching  [CDP]
 actionbook browser switch-frame "iframe#editor"   # switch into iframe
 actionbook browser switch-frame parent             # back to parent
 actionbook browser switch-frame default            # back to main frame
 
-# Device emulation
+# Device emulation  [CDP]
 actionbook browser emulate iphone-14
 actionbook browser emulate pixel-7
 actionbook browser emulate "1920x1080"             # custom resolution
