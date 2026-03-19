@@ -254,10 +254,11 @@ async fn should_use_driver_new_page(
         return false;
     }
 
-    // For configured profiles, preserve the previous liveness safeguard so a
-    // stale remote session file can still fall back to the local recreation
-    // path instead of failing with BrowserNotRunning.
-    if config.profiles.contains_key(profile_name) {
+    // Preserve the previous liveness safeguard for any profile that still has
+    // a local/browser-config fallback, including the implicit default profile
+    // returned by Config::get_profile(). This avoids regressing stale remote
+    // session files into BrowserNotRunning for default/local profiles.
+    if config.get_profile(profile_name).is_ok() {
         return session_manager.is_session_reachable(profile_name).await;
     }
 
@@ -6433,6 +6434,22 @@ mod tests {
                 ..ProfileConfig::default()
             },
         );
+        let sm = SessionManager::with_sessions_dir(config.clone(), dir.path().to_path_buf());
+
+        sm.save_external_session_full("team", 9222, "ws://127.0.0.1:9/automation", None, None)
+            .unwrap();
+
+        assert!(!should_use_driver_new_page(&sm, &config, "team").await);
+    }
+
+    #[tokio::test]
+    async fn should_not_use_driver_new_page_for_unreachable_remote_session_when_profile_is_implicit_default(
+    ) {
+        let dir = tempdir().unwrap();
+        let mut config = Config::default();
+        config.browser.default_profile = "team".to_string();
+        config.profiles.clear();
+
         let sm = SessionManager::with_sessions_dir(config.clone(), dir.path().to_path_buf());
 
         sm.save_external_session_full("team", 9222, "ws://127.0.0.1:9/automation", None, None)
