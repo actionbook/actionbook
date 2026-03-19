@@ -11,8 +11,8 @@ use tokio::time::timeout;
 use crate::browser::apply_stealth_to_page;
 use crate::browser::extension_backend::ExtensionBackend;
 use crate::browser::{
-    bridge_lifecycle, build_stealth_profile, discover_all_browsers, stealth_status, BrowserDriver,
-    ResourceBlockLevel, SessionManager, SessionStatus, StealthConfig,
+    bridge_lifecycle, build_stealth_profile, discover_all_browsers, stealth_status, BrowserBackend,
+    BrowserDriver, ResourceBlockLevel, SessionManager, SessionStatus, StealthConfig,
 };
 use crate::cli::{
     BrowserCommands, BrowserMode, Cli, CookiesCommands, FingerprintCommands, SessionCommands,
@@ -216,9 +216,13 @@ async fn create_browser_driver_inner(
     let profile = match config.profiles.get(profile_name) {
         Some(p) => p,
         None if cli.cdp.is_some() || has_reusable_session => {
-            // Ad-hoc profile created via --cdp flag, or a session file exists
-            // from a previous --cdp invocation. Use sensible defaults.
-            default_profile = crate::config::ProfileConfig::default();
+            // Ad-hoc profile created via --cdp flag, or a reusable external
+            // session exists on disk. Force the CDP backend so global Camoufox
+            // configuration does not override these external-session flows.
+            default_profile = crate::config::ProfileConfig {
+                backend: Some(BrowserBackend::Cdp),
+                ..crate::config::ProfileConfig::default()
+            };
             &default_profile
         }
         None => {
@@ -241,8 +245,24 @@ async fn create_browser_driver_with_sessions_dir(
     create_browser_driver_inner(cli, config, Some(&sessions_dir)).await
 }
 
-async fn should_use_driver_new_page(session_manager: &SessionManager, profile_name: &str) -> bool {
-    session_manager.session_uses_remote_ws(Some(profile_name))
+async fn should_use_driver_new_page(
+    session_manager: &SessionManager,
+    config: &Config,
+    profile_name: &str,
+) -> bool {
+    if !session_manager.session_uses_remote_ws(Some(profile_name)) {
+        return false;
+    }
+
+    // For configured profiles, preserve the previous liveness safeguard so a
+    // stale remote session file can still fall back to the local recreation
+    // path instead of failing with BrowserNotRunning.
+    if config.profiles.contains_key(profile_name) {
+        return session_manager.is_session_reachable(profile_name).await;
+    }
+
+    // Ad-hoc/custom profiles rely entirely on saved external session state.
+    true
 }
 
 /// Apply resource blocking based on CLI flags (--block-images, --block-media)
@@ -1126,7 +1146,8 @@ pub(crate) async fn open(cli: &Cli, config: &Config, url: &str, new_window: bool
     let profile_name = effective_profile_name(cli, config);
     let profile_arg = Some(profile_name);
 
-    let use_driver_new_page = should_use_driver_new_page(&session_manager, profile_name).await;
+    let use_driver_new_page =
+        should_use_driver_new_page(&session_manager, config, profile_name).await;
 
     let title = if use_driver_new_page {
         let mut driver = create_browser_driver(cli, config).await?;
@@ -6002,9 +6023,9 @@ pub(crate) async fn switch_frame(cli: &Cli, config: &Config, target: &str) -> Re
 #[cfg(test)]
 mod tests {
     use super::{effective_profile_name, normalize_navigation_url, should_use_driver_new_page};
-    use crate::browser::{BrowserDriver, SessionManager};
+    use crate::browser::{BrowserBackend, BrowserDriver, SessionManager};
     use crate::cli::{BrowserCommands, BrowserMode, Cli, Commands};
-    use crate::config::Config;
+    use crate::config::{Config, ProfileConfig};
     use tempfile::tempdir;
 
     fn test_cli(profile: Option<&str>, command: BrowserCommands) -> Cli {
@@ -6344,10 +6365,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_browser_driver_forces_cdp_backend_for_reusable_external_sessions() {
+        let dir = tempdir().unwrap();
+        let mut config = Config::default();
+        config.browser.backend = BrowserBackend::Camofox;
+
+        let session_manager =
+            SessionManager::with_sessions_dir(config.clone(), dir.path().to_path_buf());
+        session_manager
+            .save_external_session_full(
+                "adhoc-test-profile",
+                9222,
+                "wss://agent.example.com/automation",
+                None,
+                Some(std::collections::HashMap::from([(
+                    "authorization".to_string(),
+                    "Bearer test".to_string(),
+                )])),
+            )
+            .unwrap();
+
+        let mut cli = test_cli(Some("adhoc-test-profile"), BrowserCommands::Status);
+        cli.browser_mode = Some(BrowserMode::Isolated);
+
+        let driver =
+            super::create_browser_driver_with_sessions_dir(&cli, &config, dir.path().to_path_buf())
+                .await
+                .expect("reusable external session should still create a CDP driver");
+
+        match driver {
+            BrowserDriver::Cdp(_) => {}
+            #[cfg(feature = "camoufox")]
+            _ => panic!("Expected reusable external session to force the CDP backend"),
+        }
+    }
+
+    #[tokio::test]
     async fn should_use_driver_new_page_for_saved_remote_session_without_reachability_probe() {
         let dir = tempdir().unwrap();
         let config = Config::default();
-        let sm = SessionManager::with_sessions_dir(config, dir.path().to_path_buf());
+        let sm = SessionManager::with_sessions_dir(config.clone(), dir.path().to_path_buf());
 
         sm.save_external_session_full(
             "team",
@@ -6361,14 +6418,41 @@ mod tests {
         )
         .unwrap();
 
-        assert!(should_use_driver_new_page(&sm, "team").await);
+        assert!(should_use_driver_new_page(&sm, &config, "team").await);
+    }
+
+    #[tokio::test]
+    async fn should_not_use_driver_new_page_for_unreachable_remote_session_when_profile_is_configured(
+    ) {
+        let dir = tempdir().unwrap();
+        let mut config = Config::default();
+        config.profiles.insert(
+            "team".to_string(),
+            ProfileConfig {
+                backend: Some(BrowserBackend::Cdp),
+                ..ProfileConfig::default()
+            },
+        );
+        let sm = SessionManager::with_sessions_dir(config.clone(), dir.path().to_path_buf());
+
+        sm.save_external_session_full("team", 9222, "ws://127.0.0.1:9/automation", None, None)
+            .unwrap();
+
+        assert!(!should_use_driver_new_page(&sm, &config, "team").await);
     }
 
     #[tokio::test]
     async fn should_use_driver_new_page_for_reachable_remote_session_without_headers() {
         let dir = tempdir().unwrap();
-        let config = Config::default();
-        let sm = SessionManager::with_sessions_dir(config, dir.path().to_path_buf());
+        let mut config = Config::default();
+        config.profiles.insert(
+            "team".to_string(),
+            ProfileConfig {
+                backend: Some(BrowserBackend::Cdp),
+                ..ProfileConfig::default()
+            },
+        );
+        let sm = SessionManager::with_sessions_dir(config.clone(), dir.path().to_path_buf());
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -6381,7 +6465,7 @@ mod tests {
         sm.save_external_session_full("team", 9222, &ws_url, None, None)
             .unwrap();
 
-        assert!(should_use_driver_new_page(&sm, "team").await);
+        assert!(should_use_driver_new_page(&sm, &config, "team").await);
 
         server.await.unwrap();
     }
