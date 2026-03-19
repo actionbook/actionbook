@@ -1,6 +1,6 @@
 ---
-title: "Browser Modes"
-description: "Control browsers with Actionbook CLI — isolated or via your own Chrome"
+title: "Browser Automation"
+description: "Control browsers with Actionbook CLI — modes, commands, multi-session, and security"
 ---
 
 The `actionbook browser` command lets AI agents automate any Chromium-based browser. Two modes are available depending on the use case:
@@ -124,6 +124,7 @@ actionbook browser goto "https://example.com/login"
 actionbook browser back
 actionbook browser forward
 actionbook browser reload
+actionbook browser wait-nav              # wait for navigation to complete
 ```
 
 ### Page Interaction
@@ -131,39 +132,220 @@ actionbook browser reload
 ```bash
 actionbook browser click "button[type='submit']"
 actionbook browser fill "#username" "demo"
+actionbook browser type "hello" "#search"    # append text (does not clear)
 actionbook browser select "#country" "US"
 actionbook browser hover ".menu-item"
 actionbook browser focus "#search-input"
 actionbook browser press "Enter"
+actionbook browser hotkey "Control+A"        # keyboard shortcuts
+actionbook browser scroll down 500           # scroll by pixels
 actionbook browser wait "#username" --timeout 10000
+actionbook browser wait-idle                 # wait for network idle
+actionbook browser wait-fn "document.readyState === 'complete'"
 ```
+
+<Tip>
+  Use `--ref` with `click`, `type`, or `fill` to target elements by snapshot ref (e.g., `--ref e5`) instead of CSS selectors.
+  Add `--human` to `click` or `type` for human-like mouse movement and typing delays.
+</Tip>
 
 ### Debug & Export
 
 ```bash
 actionbook browser screenshot output.png --full-page
+actionbook browser pdf report.pdf
 actionbook browser eval "document.title"
-actionbook browser snapshot
+actionbook browser snapshot                  # accessibility tree
+actionbook browser snapshot --interactive    # only interactive elements
+actionbook browser snapshot --diff           # show changes since last snapshot
 actionbook browser html
 actionbook browser text
+actionbook browser text --mode readability   # smart content extraction
+actionbook browser console --level error     # capture console logs
+actionbook browser info "#submit"            # element bounding box & attributes
+actionbook browser viewport                  # get viewport dimensions
+actionbook browser inspect 100 200           # inspect element at coordinates
 ```
 
-### Cookie Operations
+### Cookie & Storage Operations
 
 ```bash
+# Cookies
 actionbook browser cookies list
 actionbook browser cookies get session_id
 actionbook browser cookies set demo_cookie hello
 actionbook browser cookies delete demo_cookie
 actionbook browser cookies clear --domain example.com --yes
+
+# Local/Session Storage
+actionbook browser storage list
+actionbook browser storage get myKey
+actionbook browser storage set myKey "myValue"
+actionbook browser storage remove myKey
+actionbook browser storage clear
+```
+
+### File Upload
+
+```bash
+actionbook browser upload photo.jpg                     # auto-detect file input
+actionbook browser upload doc.pdf -s "input[type=file]" # specific selector
+actionbook browser upload a.png b.png                   # multiple files
+```
+
+### Fetch (One-Shot)
+
+Fetch page content in a single command — opens a temporary browser, extracts content, then closes:
+
+```bash
+actionbook browser fetch "https://example.com"                # text output
+actionbook browser fetch "https://example.com" --format html  # full HTML
+actionbook browser fetch "https://example.com" --lite          # HTTP-first, browser fallback
+actionbook browser fetch "https://example.com" --max-tokens 4000  # truncate for LLM context
+```
+
+### Batch Actions
+
+Execute multiple actions from a JSON file for complex workflows:
+
+```bash
+actionbook browser batch --file actions.json --delay 100
+```
+
+### Advanced Features
+
+```bash
+# IFrame context switching
+actionbook browser switch-frame "iframe#editor"   # switch into iframe
+actionbook browser switch-frame parent             # back to parent
+actionbook browser switch-frame default            # back to main frame
+
+# Device emulation
+actionbook browser emulate iphone-14
+actionbook browser emulate pixel-7
+actionbook browser emulate "1920x1080"             # custom resolution
+
+# Connection & Remote Browsers
+actionbook browser connect 9222                    # connect by port
+actionbook browser connect "ws://host:9222/..."    # connect by WebSocket URL
+actionbook browser connect "wss://..." -H "authorization:Bearer token"
+
+# Fingerprint rotation (stealth)
+actionbook browser fingerprint rotate
+actionbook browser fingerprint rotate --os windows --screen 1920x1080
+
+# Browser status
+actionbook browser status                          # show detection & connection info
 ```
 
 ### Tab Management
 
 ```bash
-actionbook browser pages
-actionbook browser switch tab:123456
+actionbook browser tab list          # list all tabs
+actionbook browser tab active        # show current tab
+actionbook browser tab new           # open a new blank tab
+actionbook browser tab switch <id>   # switch to tab by ID
+actionbook browser tab close <id>    # close a tab by ID
 ```
+
+<Tip>
+  For running **parallel tasks** across multiple tabs, use [Multi-Session](#multi-session-parallel-tabs) with the `-S` flag instead of manual tab switching.
+</Tip>
+
+## Multi-Session (Parallel Tabs)
+
+<Note>
+  Available since v0.11.0. Requires isolated mode (default).
+</Note>
+
+Multi-session lets you run **multiple independent tabs in a single browser instance**. Each named session is bound to its own tab — commands sent to one session never affect another.
+
+### Basic Usage
+
+Use the `-S` (or `--session`) flag to name a session:
+
+```bash
+# Open three sites in separate sessions
+actionbook browser open "https://arxiv.org" -S research
+actionbook browser open "https://x.com" -S social
+actionbook browser open "https://amazon.com" -S shopping
+
+# Each session operates independently
+actionbook browser snapshot -S research    # only sees arxiv.org
+actionbook browser snapshot -S social      # only sees x.com
+actionbook browser click "#search" -S shopping  # only affects amazon.com
+```
+
+Without `-S`, all commands share a single `default` session.
+
+### Session Management
+
+```bash
+# List all active sessions
+actionbook browser session list
+
+# Show which session is currently active
+actionbook browser session active
+
+# Destroy a session (closes its tab)
+actionbook browser session destroy research
+```
+
+### Common Mistakes
+
+<Warning>
+  **Don't create multiple profiles or ports for parallel tabs.** Use `-S` instead.
+</Warning>
+
+<AccordionGroup>
+  <Accordion title="❌ Creating separate profiles with different ports">
+    ```bash
+    # WRONG — wasteful, launches 3 Chrome instances
+    actionbook profile create work --cdp-port 9301
+    actionbook profile create work --cdp-port 9302
+    actionbook profile create work --cdp-port 9303
+    ```
+
+    ```bash
+    # ✅ CORRECT — one browser, three sessions
+    actionbook browser open "https://arxiv.org" -S research
+    actionbook browser open "https://x.com" -S social
+    actionbook browser open "https://amazon.com" -S shopping
+    ```
+  </Accordion>
+
+  <Accordion title="❌ Using --browser-mode isolated per site">
+    ```bash
+    # WRONG — each command launches a new isolated Chrome
+    actionbook browser open "https://arxiv.org" -P work --browser-mode isolated
+    actionbook browser open "https://x.com" -P work --browser-mode isolated
+    actionbook browser open "https://amazon.com" -P work --browser-mode isolated
+    ```
+
+    ```bash
+    # ✅ CORRECT — one browser, named sessions for isolation
+    actionbook browser open "https://arxiv.org" -P work -S research
+    actionbook browser open "https://x.com" -P work -S social
+    actionbook browser open "https://amazon.com" -P work -S shopping
+    ```
+  </Accordion>
+
+  <Accordion title="❌ Running snapshot without session distinction">
+    ```bash
+    # WRONG — all three snapshots see the same (last opened) tab
+    actionbook browser snapshot -P work
+    actionbook browser snapshot -P work
+    actionbook browser snapshot -P work
+    ```
+
+    ```bash
+    # ✅ CORRECT — each snapshot targets a specific session
+    actionbook browser snapshot -P work -S research
+    actionbook browser snapshot -P work -S social
+    actionbook browser snapshot -P work -S shopping
+    ```
+  </Accordion>
+</AccordionGroup>
 
 ## Recommended Workflow
 
@@ -184,21 +366,12 @@ actionbook browser click "button[type='submit']"
 
 ## Shutdown
 
-### Isolated Mode
-
 ```bash
-actionbook browser close
+actionbook browser close     # close the browser
+actionbook browser restart   # restart with same profile/session
 ```
 
-### Extension Mode
-
-Normal cleanup is the same as isolated mode:
-
-```bash
-actionbook browser close
-```
-
-If you manually started `actionbook extension serve` for debugging, stop it separately with `actionbook extension stop`.
+In extension mode, if you manually started `actionbook extension serve` for debugging, stop it separately with `actionbook extension stop`.
 
 ## Extension Security
 
