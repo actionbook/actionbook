@@ -710,23 +710,23 @@ impl SessionManager {
         {
             for shared_state in self.find_shareable_session_states(&profile_name) {
                 if self.is_session_alive(&shared_state).await {
-                    // Clone the shared session's CDP connection but without active_page_id
-                    // so the daemon will create a new tab for this session.
+                    // Clone the shared session's CDP connection.  Inherit
+                    // active_page_id so that commands before `browser open`
+                    // target the same tab as the parent (not an arbitrary
+                    // first page from get_active_page_info's fallback).
+                    // The daemon will still create a dedicated tab via
+                    // lazy_attach_session when it first routes a command
+                    // for this session.
                     let forked_state = SessionState {
                         profile_name: profile_name.to_string(),
-                        cdp_port: shared_state.cdp_port,
-                        pid: shared_state.pid,
-                        cdp_url: shared_state.cdp_url.clone(),
-                        active_page_id: None, // daemon will create a new tab
-                        custom_app_path: shared_state.custom_app_path.clone(),
                         current_frame_id: None,
-                        ws_headers: shared_state.ws_headers.clone(),
+                        ..shared_state
                     };
                     self.save_session_state(&forked_state)?;
                     tracing::info!(
                         "Named session '{}' forked from shared session (sharing browser at {})",
                         self.active_session.as_deref().unwrap_or("?"),
-                        shared_state.cdp_url
+                        forked_state.cdp_url
                     );
                     return self.connect_to_session(&forked_state).await;
                 }
@@ -4997,6 +4997,14 @@ mod tests {
             .save_external_session_full("remote", 9222, &remote_ws, None, Some(headers.clone()))
             .unwrap();
 
+        // Set a known active_page_id on the parent session so we can verify
+        // that the forked session inherits it (not resets to None).
+        {
+            let mut parent = default_sm.load_session_state("remote").unwrap();
+            parent.active_page_id = Some("parent-tab-42".to_string());
+            default_sm.save_session_state(&parent).unwrap();
+        }
+
         let mut named_sm = test_session_manager(dir.path());
         named_sm.set_active_session("work");
 
@@ -5007,7 +5015,12 @@ mod tests {
         let forked_state = named_sm.load_session_state("remote").unwrap();
         assert_eq!(forked_state.cdp_url, remote_ws);
         assert_eq!(forked_state.ws_headers, Some(headers));
-        assert!(forked_state.active_page_id.is_none());
+        // P1-1: forked session must inherit parent's active_page_id, not reset to None
+        assert_eq!(
+            forked_state.active_page_id.as_deref(),
+            Some("parent-tab-42"),
+            "Forked session should inherit parent's active_page_id"
+        );
 
         server.abort();
     }
