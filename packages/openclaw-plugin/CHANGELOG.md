@@ -1,5 +1,11 @@
 # @actionbookdev/openclaw-plugin
 
+## 0.1.3
+
+### Patch Changes
+
+- [#228](https://github.com/actionbook/actionbook/pull/228) [`b825041`](https://github.com/actionbook/actionbook/commit/b82504129da9a00f8a44d750665a68307502f788) Thanks [@Senke0x](https://github.com/Senke0x)! - Remove unconditional system prompt injection via before_prompt_build hook. Agent guidance is now provided exclusively through the bundled SKILL.md, which OpenClaw activates on demand based on user intent.
+
 ## 0.1.2
 
 ### Patch Changes

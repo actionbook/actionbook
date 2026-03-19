@@ -1,5 +1,11 @@
 # @actionbookdev/cli
 
+## 0.10.1
+
+### Patch Changes
+
+- Fix `browser open` for remote CDP sessions with handshake headers, including the 30s create-target timeout and `--stealth` handling for newly opened tabs.
+
 ## 0.10.0
 
 ### Minor Changes

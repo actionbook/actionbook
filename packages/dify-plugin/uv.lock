@@ -4,7 +4,7 @@ requires-python = ">=3.12"
 
 [[package]]
 name = "actionbook-dify-plugin"
-version = "0.1.1"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "dify-plugin" },
