@@ -201,6 +201,11 @@ impl SessionManager {
         self.daemon_enabled = enabled;
     }
 
+    /// Whether daemon routing is enabled for this session manager.
+    pub fn is_daemon_mode(&self) -> bool {
+        self.daemon_enabled
+    }
+
     /// Set the active session name for multi-session support.
     /// When set, session state is stored as `{profile}@{session}.json`.
     ///
@@ -426,6 +431,37 @@ impl SessionManager {
     }
 
     async fn ensure_session_state_for_cdp(&self, profile_name: &str) -> Result<SessionState> {
+        // In daemon mode the daemon owns the WS connection — skip liveness
+        // probes that would open a competing handshake on single-connection
+        // endpoints (e.g. AgentCore WSS). Just trust the saved state.
+        if self.daemon_enabled {
+            if let Some(state) = self.load_session_state(profile_name) {
+                return Ok(state);
+            }
+            // Named session without its own file — fork from a shareable parent
+            // (same logic as the non-daemon path below, but without liveness probes).
+            if self
+                .active_session
+                .as_deref()
+                .is_some_and(|s| s != "default")
+            {
+                if let Some(shared_state) = self
+                    .find_shareable_session_states(profile_name)
+                    .into_iter()
+                    .next()
+                {
+                    let forked = SessionState {
+                        profile_name: profile_name.to_string(),
+                        current_frame_id: None,
+                        ..shared_state
+                    };
+                    self.save_session_state(&forked)?;
+                    return Ok(forked);
+                }
+            }
+            return Err(ActionbookError::BrowserNotRunning);
+        }
+
         if let Some(mut state) = self.load_session_state(profile_name) {
             if self.is_session_alive(&state).await {
                 self.refresh_local_session_ws_url_if_needed(&mut state)
@@ -1183,6 +1219,16 @@ impl SessionManager {
         let profile_name = self.resolve_profile_name(profile_name);
         let state = self.ensure_session_state_for_cdp(&profile_name).await?;
 
+        // In daemon mode, route Target.getTargets through the daemon to avoid
+        // opening a second WS connection that would 429 on single-connection
+        // endpoints.
+        if self.daemon_enabled {
+            let result = self
+                .send_browser_command(Some(&profile_name), "Target.getTargets", serde_json::json!({}))
+                .await?;
+            return Self::parse_target_infos_to_pages(&result);
+        }
+
         if state.uses_local_http_endpoints() {
             let url = format!("http://127.0.0.1:{}/json/list", state.cdp_port);
             let client = reqwest::Client::builder()
@@ -1213,6 +1259,43 @@ impl SessionManager {
 
         self.get_pages_via_ws_targets(&state.cdp_url, state.ws_headers.as_ref())
             .await
+    }
+
+    /// Parse Target.getTargets result into PageInfo list.
+    fn parse_target_infos_to_pages(result: &serde_json::Value) -> Result<Vec<PageInfo>> {
+        let pages = result
+            .get("targetInfos")
+            .and_then(|t| t.as_array())
+            .map(|targets| {
+                targets
+                    .iter()
+                    .filter(|t| t.get("type").and_then(|v| v.as_str()) == Some("page"))
+                    .filter_map(|target| {
+                        let id = target.get("targetId").and_then(|v| v.as_str())?.to_string();
+                        let title = target
+                            .get("title")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let url = target
+                            .get("url")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("about:blank")
+                            .to_string();
+                        Some(PageInfo {
+                            id,
+                            title,
+                            url,
+                            page_type: "page".to_string(),
+                            // In daemon mode commands route through the daemon socket,
+                            // so direct page-level WS URLs are not needed.
+                            web_socket_debugger_url: None,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        Ok(pages)
     }
 
     async fn get_pages_via_ws_targets(

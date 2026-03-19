@@ -366,6 +366,62 @@ default_profile = "{}"
                                     })
                                 }
                             }
+                            "Page.navigate" => {
+                                let url = request
+                                    .get("params")
+                                    .and_then(|p| p.get("url"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("about:blank")
+                                    .to_string();
+                                // Update the active page URL in the pages list
+                                if let Some(page) = pages.first_mut() {
+                                    page["url"] = serde_json::json!(url);
+                                    page["title"] = serde_json::json!("Navigated Page");
+                                }
+                                serde_json::json!({
+                                    "id": request.get("id").cloned().unwrap_or_else(|| serde_json::json!(1)),
+                                    "result": {
+                                        "frameId": "frame-1",
+                                        "loaderId": "loader-1"
+                                    }
+                                })
+                            }
+                            "Accessibility.getFullAXTree" => serde_json::json!({
+                                "id": request.get("id").cloned().unwrap_or_else(|| serde_json::json!(1)),
+                                "result": {
+                                    "nodes": [
+                                        {
+                                            "nodeId": "1",
+                                            "ignored": false,
+                                            "role": { "type": "role", "value": "RootWebArea" },
+                                            "name": { "type": "computedString", "value": "Test Page" },
+                                            "childIds": ["2"],
+                                            "properties": []
+                                        },
+                                        {
+                                            "nodeId": "2",
+                                            "ignored": false,
+                                            "role": { "type": "role", "value": "heading" },
+                                            "name": { "type": "computedString", "value": "Hello World" },
+                                            "childIds": [],
+                                            "properties": [
+                                                { "name": "level", "value": { "type": "integer", "value": 1 } }
+                                            ]
+                                        }
+                                    ]
+                                }
+                            }),
+                            "Page.getNavigationHistory" => serde_json::json!({
+                                "id": request.get("id").cloned().unwrap_or_else(|| serde_json::json!(1)),
+                                "result": {
+                                    "currentIndex": 0,
+                                    "entries": [{
+                                        "id": 0,
+                                        "url": pages.first().map(|p| p["url"].as_str().unwrap_or("about:blank")).unwrap_or("about:blank"),
+                                        "title": "Test Page"
+                                    }]
+                                }
+                            }),
                             "Page.addScriptToEvaluateOnNewDocument" => serde_json::json!({
                                 "id": request.get("id").cloned().unwrap_or_else(|| serde_json::json!(2)),
                                 "result": {
@@ -394,11 +450,12 @@ default_profile = "{}"
                                     }
                                 })
                             }
+                            // Return empty success for unhandled methods (e.g. Target.setAutoAttach,
+                            // Target.setDiscoverTargets) that the CLI sends but tests don't need
+                            // to assert on.
                             _ => serde_json::json!({
                                 "id": request.get("id").cloned().unwrap_or_else(|| serde_json::json!(1)),
-                                "error": {
-                                    "message": format!("unsupported method: {method}")
-                                }
+                                "result": {}
                             }),
                         };
 
@@ -1153,6 +1210,367 @@ default_profile = "{}"
                     .and_then(|value| value.as_str())
                     .is_some_and(|expression| expression.contains("navigator, 'webdriver'"))
         }));
+    }
+
+    // ── B. Remote WSS: connect → goto → snapshot / connect → open → snapshot ──
+
+    /// Helper: run connect → goto → snapshot against a mock CDP server.
+    /// Returns (connect_ok, goto_ok, snapshot_ok, snapshot_stdout).
+    fn run_connect_goto_snapshot(
+        home: &str,
+        config_home: &str,
+        data_home: &str,
+        ws_url: &str,
+        profile: Option<&str>,
+    ) -> (bool, bool, bool, String) {
+        let mut connect_args: Vec<&str> =
+            vec!["--no-daemon", "--json", "--browser-mode", "isolated"];
+        if let Some(p) = profile {
+            connect_args.push("--profile");
+            connect_args.push(p);
+        }
+        connect_args.extend_from_slice(&["browser", "connect", ws_url]);
+
+        let connect = actionbook()
+            .env("HOME", home)
+            .env("XDG_CONFIG_HOME", config_home)
+            .env("XDG_DATA_HOME", data_home)
+            .args(&connect_args)
+            .timeout(Duration::from_secs(10))
+            .output()
+            .unwrap();
+        let connect_ok = connect.status.success();
+
+        let mut goto_args: Vec<&str> = vec!["--no-daemon", "--browser-mode", "isolated"];
+        if let Some(p) = profile {
+            goto_args.push("--profile");
+            goto_args.push(p);
+        }
+        goto_args.extend_from_slice(&["browser", "goto", "https://example.com"]);
+
+        let goto = actionbook()
+            .env("HOME", home)
+            .env("XDG_CONFIG_HOME", config_home)
+            .env("XDG_DATA_HOME", data_home)
+            .args(&goto_args)
+            .timeout(Duration::from_secs(10))
+            .output()
+            .unwrap();
+        let goto_ok = goto.status.success();
+
+        let mut snap_args: Vec<&str> = vec!["--no-daemon", "--browser-mode", "isolated"];
+        if let Some(p) = profile {
+            snap_args.push("--profile");
+            snap_args.push(p);
+        }
+        snap_args.extend_from_slice(&["browser", "snapshot"]);
+
+        let snapshot = actionbook()
+            .env("HOME", home)
+            .env("XDG_CONFIG_HOME", config_home)
+            .env("XDG_DATA_HOME", data_home)
+            .args(&snap_args)
+            .timeout(Duration::from_secs(10))
+            .output()
+            .unwrap();
+        let snap_ok = snapshot.status.success();
+        let snap_stdout = String::from_utf8_lossy(&snapshot.stdout).to_string();
+
+        (connect_ok, goto_ok, snap_ok, snap_stdout)
+    }
+
+    /// Helper: run connect → open → snapshot against a mock CDP server.
+    fn run_connect_open_snapshot(
+        home: &str,
+        config_home: &str,
+        data_home: &str,
+        ws_url: &str,
+        profile: Option<&str>,
+    ) -> (bool, bool, bool, String) {
+        let mut connect_args: Vec<&str> =
+            vec!["--no-daemon", "--json", "--browser-mode", "isolated"];
+        if let Some(p) = profile {
+            connect_args.push("--profile");
+            connect_args.push(p);
+        }
+        connect_args.extend_from_slice(&["browser", "connect", ws_url]);
+
+        let connect = actionbook()
+            .env("HOME", home)
+            .env("XDG_CONFIG_HOME", config_home)
+            .env("XDG_DATA_HOME", data_home)
+            .args(&connect_args)
+            .timeout(Duration::from_secs(10))
+            .output()
+            .unwrap();
+        let connect_ok = connect.status.success();
+
+        let mut open_args: Vec<&str> = vec!["--no-daemon", "--browser-mode", "isolated"];
+        if let Some(p) = profile {
+            open_args.push("--profile");
+            open_args.push(p);
+        }
+        open_args.extend_from_slice(&["browser", "open", "https://example.com"]);
+
+        let open = actionbook()
+            .env("HOME", home)
+            .env("XDG_CONFIG_HOME", config_home)
+            .env("XDG_DATA_HOME", data_home)
+            .args(&open_args)
+            .timeout(Duration::from_secs(10))
+            .output()
+            .unwrap();
+        let open_ok = open.status.success();
+
+        let mut snap_args: Vec<&str> = vec!["--no-daemon", "--browser-mode", "isolated"];
+        if let Some(p) = profile {
+            snap_args.push("--profile");
+            snap_args.push(p);
+        }
+        snap_args.extend_from_slice(&["browser", "snapshot"]);
+
+        let snapshot = actionbook()
+            .env("HOME", home)
+            .env("XDG_CONFIG_HOME", config_home)
+            .env("XDG_DATA_HOME", data_home)
+            .args(&snap_args)
+            .timeout(Duration::from_secs(10))
+            .output()
+            .unwrap();
+        let snap_ok = snapshot.status.success();
+        let snap_stdout = String::from_utf8_lossy(&snapshot.stdout).to_string();
+
+        (connect_ok, open_ok, snap_ok, snap_stdout)
+    }
+
+    // B.1 --no-daemon, default profile: connect → goto → snapshot
+
+    #[test]
+    #[serial]
+    fn remote_no_daemon_default_profile_connect_goto_snapshot() {
+        let (_tmp, home, config_home, data_home) = setup_config("team");
+        let (port, _requests, server) = spawn_remote_cdp_server();
+        let ws_url = format!("ws://127.0.0.1:{port}/automation");
+
+        let (connect_ok, goto_ok, snap_ok, snap_stdout) =
+            run_connect_goto_snapshot(&home, &config_home, &data_home, &ws_url, None);
+
+        assert!(connect_ok, "connect should succeed");
+        assert!(goto_ok, "goto should succeed");
+        assert!(snap_ok, "snapshot should succeed");
+        assert!(
+            !snap_stdout.trim().is_empty(),
+            "snapshot output should not be empty"
+        );
+
+        server.join().unwrap();
+    }
+
+    // B.2 --no-daemon, default profile: connect → open → snapshot
+
+    #[test]
+    #[serial]
+    fn remote_no_daemon_default_profile_connect_open_snapshot() {
+        let (_tmp, home, config_home, data_home) = setup_config("team");
+        let (port, _requests, server) = spawn_remote_cdp_server();
+        let ws_url = format!("ws://127.0.0.1:{port}/automation");
+
+        let (connect_ok, open_ok, snap_ok, snap_stdout) =
+            run_connect_open_snapshot(&home, &config_home, &data_home, &ws_url, None);
+
+        assert!(connect_ok, "connect should succeed");
+        assert!(open_ok, "open should succeed");
+        assert!(snap_ok, "snapshot should succeed");
+        assert!(
+            !snap_stdout.trim().is_empty(),
+            "snapshot output should not be empty"
+        );
+
+        server.join().unwrap();
+    }
+
+    // B.3 --no-daemon, custom profile: connect → goto → snapshot
+
+    #[test]
+    #[serial]
+    fn remote_no_daemon_custom_profile_connect_goto_snapshot() {
+        let (_tmp, home, config_home, data_home) = setup_config("team");
+        let (port, _requests, server) = spawn_remote_cdp_server();
+        let ws_url = format!("ws://127.0.0.1:{port}/automation");
+
+        let (connect_ok, goto_ok, snap_ok, snap_stdout) = run_connect_goto_snapshot(
+            &home,
+            &config_home,
+            &data_home,
+            &ws_url,
+            Some("custom-remote"),
+        );
+
+        assert!(connect_ok, "connect should succeed for custom profile");
+        assert!(goto_ok, "goto should succeed for custom profile");
+        assert!(snap_ok, "snapshot should succeed for custom profile");
+        assert!(
+            !snap_stdout.trim().is_empty(),
+            "snapshot output should not be empty"
+        );
+
+        server.join().unwrap();
+    }
+
+    // B.4 --no-daemon, custom profile: connect → open → snapshot
+
+    #[test]
+    #[serial]
+    fn remote_no_daemon_custom_profile_connect_open_snapshot() {
+        let (_tmp, home, config_home, data_home) = setup_config("team");
+        let (port, _requests, server) = spawn_remote_cdp_server();
+        let ws_url = format!("ws://127.0.0.1:{port}/automation");
+
+        let (connect_ok, open_ok, snap_ok, snap_stdout) = run_connect_open_snapshot(
+            &home,
+            &config_home,
+            &data_home,
+            &ws_url,
+            Some("custom-remote"),
+        );
+
+        assert!(connect_ok, "connect should succeed for custom profile");
+        assert!(open_ok, "open should succeed for custom profile");
+        assert!(snap_ok, "snapshot should succeed for custom profile");
+        assert!(
+            !snap_stdout.trim().is_empty(),
+            "snapshot output should not be empty"
+        );
+
+        server.join().unwrap();
+    }
+
+    // ── C. Concurrency: 3 independent sessions ────────────────────────
+
+    #[test]
+    #[serial]
+    fn concurrent_three_sessions_connect_open_snapshot() {
+        let profiles = ["concurrent-a", "concurrent-b", "concurrent-c"];
+
+        // Spin up 3 independent mock CDP servers
+        let servers: Vec<_> = profiles
+            .iter()
+            .map(|_| spawn_remote_cdp_server())
+            .collect();
+
+        // Shared isolated environment
+        let (_tmp, home, config_home, data_home) = setup_config("team");
+
+        // Connect all 3 profiles sequentially (writes session files)
+        for (i, profile) in profiles.iter().enumerate() {
+            let ws_url = format!("ws://127.0.0.1:{}/automation", servers[i].0);
+            let connect = actionbook()
+                .env("HOME", &home)
+                .env("XDG_CONFIG_HOME", &config_home)
+                .env("XDG_DATA_HOME", &data_home)
+                .args([
+                    "--no-daemon",
+                    "--json",
+                    "--browser-mode",
+                    "isolated",
+                    "--profile",
+                    profile,
+                    "browser",
+                    "connect",
+                    &ws_url,
+                ])
+                .timeout(Duration::from_secs(10))
+                .output()
+                .unwrap();
+            assert!(
+                connect.status.success(),
+                "connect failed for {}: {}",
+                profile,
+                String::from_utf8_lossy(&connect.stderr)
+            );
+        }
+
+        // Run open + snapshot concurrently for all 3 profiles
+        let handles: Vec<_> = profiles
+            .iter()
+            .enumerate()
+            .map(|(i, profile)| {
+                let home = home.clone();
+                let config_home = config_home.clone();
+                let data_home = data_home.clone();
+                let profile = profile.to_string();
+                let _port = servers[i].0; // keep server alive
+
+                std::thread::spawn(move || {
+                    let open = actionbook()
+                        .env("HOME", &home)
+                        .env("XDG_CONFIG_HOME", &config_home)
+                        .env("XDG_DATA_HOME", &data_home)
+                        .args([
+                            "--no-daemon",
+                            "--browser-mode",
+                            "isolated",
+                            "--profile",
+                            &profile,
+                            "browser",
+                            "open",
+                            "https://example.com",
+                        ])
+                        .timeout(Duration::from_secs(10))
+                        .output()
+                        .unwrap();
+                    assert!(
+                        open.status.success(),
+                        "[{}] open failed: {}",
+                        profile,
+                        String::from_utf8_lossy(&open.stderr)
+                    );
+
+                    let snapshot = actionbook()
+                        .env("HOME", &home)
+                        .env("XDG_CONFIG_HOME", &config_home)
+                        .env("XDG_DATA_HOME", &data_home)
+                        .args([
+                            "--no-daemon",
+                            "--browser-mode",
+                            "isolated",
+                            "--profile",
+                            &profile,
+                            "browser",
+                            "snapshot",
+                        ])
+                        .timeout(Duration::from_secs(10))
+                        .output()
+                        .unwrap();
+                    assert!(
+                        snapshot.status.success(),
+                        "[{}] snapshot failed: {}",
+                        profile,
+                        String::from_utf8_lossy(&snapshot.stderr)
+                    );
+                    let stdout = String::from_utf8_lossy(&snapshot.stdout).to_string();
+                    assert!(
+                        !stdout.trim().is_empty(),
+                        "[{}] snapshot output should not be empty",
+                        profile
+                    );
+
+                    profile
+                })
+            })
+            .collect();
+
+        // Collect results — all 3 threads must succeed
+        let mut completed = Vec::new();
+        for handle in handles {
+            completed.push(handle.join().expect("thread panicked"));
+        }
+        assert_eq!(completed.len(), 3);
+
+        // Clean up servers
+        for (_, _, server) in servers {
+            server.join().unwrap();
+        }
     }
 
     // ── Cross-cutting flags ─────────────────────────────────────────

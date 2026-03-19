@@ -254,10 +254,15 @@ async fn should_use_driver_new_page(
         return false;
     }
 
-    // Preserve the previous liveness safeguard for any profile that still has
-    // a local/browser-config fallback, including the implicit default profile
-    // returned by Config::get_profile(). This avoids regressing stale remote
-    // session files into BrowserNotRunning for default/local profiles.
+    // In daemon mode the daemon holds the WS connection; a reachability
+    // probe would open a second handshake that fails on single-connection
+    // endpoints (e.g. AgentCore WSS).  Trust the saved session state.
+    if session_manager.is_daemon_mode() {
+        return true;
+    }
+
+    // Non-daemon fallback: probe configured profiles to avoid regressing
+    // stale remote session files into BrowserNotRunning.
     if config.get_profile(profile_name).is_ok() {
         return session_manager.is_session_reachable(profile_name).await;
     }
@@ -1158,8 +1163,10 @@ pub(crate) async fn open(cli: &Cli, config: &Config, url: &str, new_window: bool
         should_use_driver_new_page(&session_manager, config, profile_name).await;
 
     let title = if use_driver_new_page {
-        let mut driver = create_browser_driver(cli, config).await?;
-        let page_info = match driver.new_page(Some(&normalized_url), false).await {
+        let page_info = match session_manager
+            .new_page(profile_arg, Some(&normalized_url), new_window)
+            .await
+        {
             Ok(info) => info,
             Err(e) => {
                 // For ad-hoc profiles with a dead remote session, log a

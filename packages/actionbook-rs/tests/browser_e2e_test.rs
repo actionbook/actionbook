@@ -320,7 +320,7 @@ fn t14_fill_username() {
         return;
     }
     let out = headless(
-        &["browser", "fill", "--wait", "5000", "#username", "tomsmith"],
+        &["browser", "fill", "--wait", "5000", "tomsmith", "#username"],
         30,
     );
     assert_success(&out, "fill username");
@@ -359,8 +359,8 @@ fn t16_click_submit() {
             "fill",
             "--wait",
             "5000",
-            "#password",
             "SuperSecretPassword!",
+            "#password",
         ],
         30,
     );
@@ -779,7 +779,7 @@ fn t38_type_text() {
         ],
         30,
     );
-    headless(&["browser", "fill", "--wait", "5000", "#username", ""], 30);
+    headless(&["browser", "fill", "--wait", "5000", "", "#username"], 30);
 
     let out = headless(
         &[
@@ -787,8 +787,8 @@ fn t38_type_text() {
             "type",
             "--wait",
             "5000",
-            "#username",
             "appended-text",
+            "#username",
         ],
         30,
     );
