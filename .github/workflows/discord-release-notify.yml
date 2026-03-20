@@ -1,0 +1,103 @@
+name: Discord Release Notification
+
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+jobs:
+  notify-discord:
+    name: Notify Discord
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine release type metadata
+        id: meta
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          if [[ "$TAG" == actionbook-cli-v* ]]; then
+            echo "color=5763719" >> "$GITHUB_OUTPUT"   # green
+            echo "type=CLI" >> "$GITHUB_OUTPUT"
+            echo "install=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" == actionbook-extension-v* ]]; then
+            echo "color=3447003" >> "$GITHUB_OUTPUT"   # blue
+            echo "type=Extension" >> "$GITHUB_OUTPUT"
+            echo "install=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" == actionbook-dify-plugin-v* ]]; then
+            echo "color=10181046" >> "$GITHUB_OUTPUT"  # purple
+            echo "type=Dify Plugin" >> "$GITHUB_OUTPUT"
+            echo "install=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "color=9807270" >> "$GITHUB_OUTPUT"   # grey
+            echo "type=Release" >> "$GITHUB_OUTPUT"
+            echo "install=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Clean release body and send to Discord
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+          RELEASE_NAME: ${{ github.event.release.name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+          EMBED_COLOR: ${{ steps.meta.outputs.color }}
+          RELEASE_TYPE: ${{ steps.meta.outputs.type }}
+          APPEND_INSTALL: ${{ steps.meta.outputs.install }}
+        run: |
+          # Remove PR attribution links and Full Changelog line
+          CLEANED=$(echo "$RELEASE_BODY" | \
+            sed 's/ by @[^ ]* in https:\/\/github\.com\/[^ ]*//g' | \
+            sed 's/ in https:\/\/github\.com\/[^ ]*//g' | \
+            sed '/^\*\*Full Changelog\*\*/d' | \
+            sed '/^$/N;/^\n$/d')
+
+          # Append install instructions for CLI releases
+          if [ "$APPEND_INSTALL" = "true" ]; then
+            INSTALL_SECTION=$(cat <<'INSTALL_EOF'
+
+          ## Install Now
+
+          **macOS / Linux**
+          ```
+          curl -fsSL https://actionbook.dev/install.sh | bash
+          ```
+          **Windows**
+          ```
+          irm https://actionbook.dev/install.ps1 | iex
+          ```
+          **npm**
+          ```
+          npm install -g @actionbookdev/cli
+          ```
+          INSTALL_EOF
+          )
+            CLEANED="${CLEANED}${INSTALL_SECTION}"
+          fi
+
+          # Truncate if exceeds Discord embed limit (4096 chars)
+          if [ ${#CLEANED} -gt 4080 ]; then
+            CLEANED="${CLEANED:0:4080}"$'\n\n'"[... Read more](${RELEASE_URL})"
+          fi
+
+          TITLE="New Release: ${RELEASE_NAME} 🎉"
+
+          PAYLOAD=$(jq -n \
+            --arg title "$TITLE" \
+            --arg url "$RELEASE_URL" \
+            --arg desc "$CLEANED" \
+            --argjson color "$EMBED_COLOR" \
+            --arg footer "${RELEASE_TYPE} Changelog" \
+            '{
+              "username": "Actionbook Release",
+              "embeds": [{
+                "title": $title,
+                "url": $url,
+                "description": $desc,
+                "color": $color,
+                "footer": { "text": $footer },
+                "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
+              }]
+            }')
+
+          curl -sf -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"

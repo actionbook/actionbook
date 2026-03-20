@@ -114,6 +114,7 @@ jobs:
         run: pnpm build:release
 
       - name: Publish packages
+        id: publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -125,6 +126,7 @@ jobs:
             "@actionbookdev/openclaw-plugin:packages/openclaw-plugin"
           )
 
+          PUBLISHED_LIST=""
           for entry in "${PACKAGES[@]}"; do
             PKG_NAME="${entry%%:*}"
             PKG_DIR="${entry##*:}"
@@ -135,10 +137,44 @@ jobs:
             if [ "$LOCAL_VER" != "$NPM_VER" ]; then
               echo "Publishing ${PKG_NAME}@${LOCAL_VER} (npm has ${NPM_VER})..."
               (cd "${PKG_DIR}" && pnpm publish --access public --provenance --no-git-checks)
+              PUBLISHED_LIST="${PUBLISHED_LIST}- **${PKG_NAME}** \`${LOCAL_VER}\`\n"
             else
               echo "Skipping ${PKG_NAME}@${LOCAL_VER} (already published)"
             fi
           done
+
+          echo "published_list<<PUBLISHED_EOF" >> "$GITHUB_OUTPUT"
+          echo -e "$PUBLISHED_LIST" >> "$GITHUB_OUTPUT"
+          echo "PUBLISHED_EOF" >> "$GITHUB_OUTPUT"
+          if [ -n "$PUBLISHED_LIST" ]; then
+            echo "has_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Notify Discord of npm publishes
+        if: steps.publish.outputs.has_published == 'true'
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PUBLISHED_LIST: ${{ steps.publish.outputs.published_list }}
+        run: |
+          DESCRIPTION="The following packages have been published to npm:\n\n${PUBLISHED_LIST}"
+          PAYLOAD=$(jq -n \
+            --arg desc "$DESCRIPTION" \
+            '{
+              "username": "Actionbook Release",
+              "embeds": [{
+                "title": "New Release: npm Packages Published 🎉",
+                "url": "https://www.npmjs.com/org/actionbookdev",
+                "description": $desc,
+                "color": 15105570,
+                "footer": { "text": "npm Publish" },
+                "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
+              }]
+            }')
+          curl -sf -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
 
   # --------------------------------------------------------------------------
   # Job 3: Build CLI binaries (cross-platform Rust compilation)
