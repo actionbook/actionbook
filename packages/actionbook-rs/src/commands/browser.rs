@@ -316,7 +316,7 @@ fn should_verify_connect_via_daemon(cli: &Cli, cdp_url: &str, has_custom_ws_head
 
     #[cfg(not(unix))]
     {
-        let _ = (cli, cdp_url);
+        let _ = (cli, cdp_url, has_custom_ws_headers);
         false
     }
 }
@@ -6639,6 +6639,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn daemon_connect_verification_uses_daemon_for_remote_ws() {
         let mut cli = test_cli(Some("team"), BrowserCommands::Status);
         cli.no_daemon = false;

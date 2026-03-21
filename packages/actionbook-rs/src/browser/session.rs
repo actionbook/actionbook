@@ -327,7 +327,7 @@ impl SessionManager {
         }
     }
 
-    /// Restore raw session JSON for the current profile/session slot.
+    /// Save raw session JSON for the current profile/session slot.
     pub fn save_session_json(&self, profile_name: &str, value: &serde_json::Value) -> Result<()> {
         fs::create_dir_all(&self.sessions_dir)?;
         let path = self.session_file(profile_name);
