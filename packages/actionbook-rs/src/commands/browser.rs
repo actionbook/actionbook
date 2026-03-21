@@ -322,8 +322,14 @@ fn should_verify_connect_via_daemon(cli: &Cli, cdp_url: &str, has_custom_ws_head
 }
 
 #[cfg(unix)]
-async fn verify_daemon_browser_connection(profile_name: &str) -> Result<()> {
-    let client = crate::daemon::client::DaemonClient::new(profile_name.to_string());
+async fn verify_daemon_browser_connection(
+    profile_name: &str,
+    session_name: Option<&str>,
+) -> Result<()> {
+    let client = crate::daemon::client::DaemonClient::with_session(
+        profile_name.to_string(),
+        session_name.map(|s| s.to_string()),
+    );
     client
         .send_cdp("Browser.getVersion", serde_json::json!({}))
         .await
@@ -5481,7 +5487,7 @@ pub(crate) async fn connect(
                 match crate::daemon::lifecycle::ensure_daemon(profile_name).await {
                     Ok(_) => {
                         if verify_via_daemon {
-                            if let Err(e) = verify_daemon_browser_connection(profile_name).await {
+                            if let Err(e) = verify_daemon_browser_connection(profile_name, cli.session.as_deref()).await {
                                 let _ = crate::daemon::lifecycle::stop_daemon(profile_name).await;
                                 if let Some(previous) = previous_session_state.as_ref() {
                                     session_manager.save_session_json(profile_name, previous)?;
