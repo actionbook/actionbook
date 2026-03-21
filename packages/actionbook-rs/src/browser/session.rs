@@ -1172,10 +1172,16 @@ impl SessionManager {
         let profile_name = self.resolve_profile_name(profile_name);
 
         if let Some(state) = self.load_session_state(&profile_name) {
-            // For remote sessions with auth headers, use Browser.close via CDP
-            if state.ws_headers.as_ref().is_some_and(|h| !h.is_empty()) {
+            // Remote sessions (wss:// or non-loopback): use Browser.close via
+            // send_browser_command which routes through tokio-tungstenite (TLS-capable).
+            // This covers both header-authenticated and headerless remote endpoints.
+            if !state.uses_local_http_endpoints() {
                 let close_result = self
-                    .send_cdp_command(Some(&profile_name), "Browser.close", serde_json::json!({}))
+                    .send_browser_command(
+                        Some(&profile_name),
+                        "Browser.close",
+                        serde_json::json!({}),
+                    )
                     .await;
                 match close_result {
                     Ok(_) => {
@@ -1193,24 +1199,13 @@ impl SessionManager {
                 return Ok(());
             }
 
-            // Local/no-headers path: use chromiumoxide
+            // Local path: use chromiumoxide
             let connected = self.connect_to_session(&state).await;
             match connected {
                 Ok((mut browser, mut handler)) => {
                     tokio::spawn(async move { while handler.next().await.is_some() {} });
                     let _ = browser.close().await;
                     self.remove_session_state(&profile_name)?;
-                }
-                Err(e) if !state.uses_local_http_endpoints() => {
-                    // Remote session without headers: connection failed, don't
-                    // delete session — browser may still be running remotely
-                    tracing::warn!(
-                        "Cannot connect to remote browser for close, keeping session state"
-                    );
-                    return Err(ActionbookError::CdpConnectionFailed(format!(
-                        "Failed to close remote browser: {}",
-                        e
-                    )));
                 }
                 Err(_) => {
                     // Local session that's unreachable — safe to clean up
