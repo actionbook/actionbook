@@ -1,5 +1,11 @@
 # @actionbookdev/cli
 
+## 0.11.4
+
+### Patch Changes
+
+- [`6b81fee`](https://github.com/actionbook/actionbook/commit/6b81feee78762daee0f2ec62b833119ca6ca8b85) Thanks [@mcfn](https://github.com/mcfn)! - Fix browser close failing with "TLS support not compiled in" on headerless wss:// CDP endpoints (e.g. Hyperbrowser)
+
 ## 0.11.3
 
 ### Patch Changes
