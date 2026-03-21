@@ -1453,10 +1453,7 @@ default_profile = "{}"
         let profiles = ["concurrent-a", "concurrent-b", "concurrent-c"];
 
         // Spin up 3 independent mock CDP servers
-        let servers: Vec<_> = profiles
-            .iter()
-            .map(|_| spawn_remote_cdp_server())
-            .collect();
+        let servers: Vec<_> = profiles.iter().map(|_| spawn_remote_cdp_server()).collect();
 
         // Shared isolated environment
         let (_tmp, home, config_home, data_home) = setup_config("team");

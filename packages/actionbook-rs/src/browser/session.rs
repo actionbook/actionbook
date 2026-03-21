@@ -327,6 +327,20 @@ impl SessionManager {
         }
     }
 
+    /// Restore raw session JSON for the current profile/session slot.
+    pub fn save_session_json(&self, profile_name: &str, value: &serde_json::Value) -> Result<()> {
+        fs::create_dir_all(&self.sessions_dir)?;
+        let path = self.session_file(profile_name);
+        let content = serde_json::to_string_pretty(value)?;
+        fs::write(path, content)?;
+        Ok(())
+    }
+
+    /// Remove saved session state for the current profile/session slot.
+    pub fn clear_saved_session_state(&self, profile_name: &str) -> Result<()> {
+        self.remove_session_state(profile_name)
+    }
+
     fn load_session_state_from_path(path: &Path) -> Option<SessionState> {
         if path.exists() {
             let content = fs::read_to_string(path).ok()?;
@@ -1232,7 +1246,11 @@ impl SessionManager {
         // endpoints.
         if self.is_daemon_mode() {
             let result = self
-                .send_browser_command(Some(&profile_name), "Target.getTargets", serde_json::json!({}))
+                .send_browser_command(
+                    Some(&profile_name),
+                    "Target.getTargets",
+                    serde_json::json!({}),
+                )
                 .await?;
             return Self::parse_target_infos_to_pages(&result);
         }

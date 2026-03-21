@@ -278,6 +278,64 @@ async fn should_use_driver_new_page(
     true
 }
 
+fn is_remote_ws_cdp_endpoint(cdp_url: &str) -> bool {
+    if !cdp_url.starts_with("ws://") && !cdp_url.starts_with("wss://") {
+        return false;
+    }
+
+    let authority = cdp_url
+        .split("://")
+        .nth(1)
+        .and_then(|s| s.split('/').next());
+    let Some(authority) = authority else {
+        return false;
+    };
+
+    let host = authority.rsplit('@').next().unwrap_or(authority);
+    let host = if host.starts_with('[') {
+        host.split(']')
+            .next()
+            .unwrap_or(host)
+            .trim_start_matches('[')
+    } else {
+        host.split(':').next().unwrap_or(host)
+    };
+
+    let is_loopback = matches!(host, "127.0.0.1" | "localhost" | "::1");
+    !(is_loopback && cdp_url.contains("/devtools/browser/"))
+}
+
+fn should_verify_connect_via_daemon(cli: &Cli, cdp_url: &str, has_custom_ws_headers: bool) -> bool {
+    #[cfg(unix)]
+    {
+        !cli.no_daemon
+            && !cli.extension
+            && !has_custom_ws_headers
+            && is_remote_ws_cdp_endpoint(cdp_url)
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = (cli, cdp_url);
+        false
+    }
+}
+
+#[cfg(unix)]
+async fn verify_daemon_browser_connection(profile_name: &str) -> Result<()> {
+    let client = crate::daemon::client::DaemonClient::new(profile_name.to_string());
+    client
+        .send_cdp("Browser.getVersion", serde_json::json!({}))
+        .await
+        .map(|_| ())
+        .map_err(|e| {
+            ActionbookError::CdpConnectionFailed(format!(
+                "Daemon failed to verify remote browser connection: {}",
+                e
+            ))
+        })
+}
+
 /// Apply resource blocking based on CLI flags (--block-images, --block-media)
 async fn apply_resource_blocking(cli: &Cli, driver: &mut BrowserDriver) {
     let level = if cli.block_media {
@@ -5377,12 +5435,28 @@ pub(crate) async fn connect(
         Some(map)
     };
 
-    // Probe the endpoint *before* saving so we don't pollute the existing
-    // session config with an unreachable endpoint or bad auth.
     let session_manager = create_session_manager(cli, config);
-    let probe_ok = session_manager
-        .is_websocket_reachable(&cdp_url, ws_headers.as_ref())
-        .await;
+    let verify_via_daemon = should_verify_connect_via_daemon(
+        cli,
+        &cdp_url,
+        ws_headers.as_ref().is_some_and(|h| !h.is_empty()),
+    );
+    let mut probe_ok = if verify_via_daemon {
+        true
+    } else {
+        // Probe the endpoint *before* saving so we don't pollute the existing
+        // session config with an unreachable endpoint or bad auth.
+        session_manager
+            .is_websocket_reachable(&cdp_url, ws_headers.as_ref())
+            .await
+    };
+    let mut connect_error = None;
+
+    let previous_session_state = if probe_ok {
+        session_manager.load_session_json(profile_name)
+    } else {
+        None
+    };
 
     if probe_ok {
         // Only persist once the endpoint is verified reachable.
@@ -5404,8 +5478,33 @@ pub(crate) async fn connect(
                 tracing::debug!("Stopped stale daemon for profile '{}'", profile_name);
             }
             if !cli.no_daemon && !cli.extension {
-                if let Err(e) = crate::daemon::lifecycle::ensure_daemon(profile_name).await {
-                    tracing::warn!("Failed to start daemon for '{}': {}", profile_name, e);
+                match crate::daemon::lifecycle::ensure_daemon(profile_name).await {
+                    Ok(_) => {
+                        if verify_via_daemon {
+                            if let Err(e) = verify_daemon_browser_connection(profile_name).await {
+                                let _ = crate::daemon::lifecycle::stop_daemon(profile_name).await;
+                                if let Some(previous) = previous_session_state.as_ref() {
+                                    session_manager.save_session_json(profile_name, previous)?;
+                                } else {
+                                    session_manager.clear_saved_session_state(profile_name)?;
+                                }
+                                connect_error = Some(e.to_string());
+                                probe_ok = false;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to start daemon for '{}': {}", profile_name, e);
+                        if verify_via_daemon {
+                            if let Some(previous) = previous_session_state.as_ref() {
+                                session_manager.save_session_json(profile_name, previous)?;
+                            } else {
+                                session_manager.clear_saved_session_state(profile_name)?;
+                            }
+                            connect_error = Some(e.to_string());
+                            probe_ok = false;
+                        }
+                    }
                 }
             }
         }
@@ -5438,10 +5537,9 @@ pub(crate) async fn connect(
     if probe_ok {
         Ok(())
     } else {
-        Err(ActionbookError::CdpConnectionFailed(format!(
-            "Endpoint {} is not reachable",
-            cdp_url
-        )))
+        Err(ActionbookError::CdpConnectionFailed(
+            connect_error.unwrap_or_else(|| format!("Endpoint {} is not reachable", cdp_url)),
+        ))
     }
 }
 
@@ -6532,5 +6630,73 @@ mod tests {
         assert!(should_use_driver_new_page(&sm, &config, "team").await);
 
         server.await.unwrap();
+    }
+
+    #[test]
+    fn daemon_connect_verification_uses_daemon_for_remote_ws() {
+        let mut cli = test_cli(Some("team"), BrowserCommands::Status);
+        cli.no_daemon = false;
+        cli.extension = false;
+
+        assert!(super::should_verify_connect_via_daemon(
+            &cli,
+            "wss://connect.hyperbrowser.ai/?token=test",
+            false
+        ));
+        assert!(super::should_verify_connect_via_daemon(
+            &cli,
+            "wss://agent.example.com/automation",
+            false
+        ));
+    }
+
+    #[test]
+    fn daemon_connect_verification_skips_local_loopback_ws() {
+        let mut cli = test_cli(Some("team"), BrowserCommands::Status);
+        cli.no_daemon = false;
+        cli.extension = false;
+
+        assert!(!super::should_verify_connect_via_daemon(
+            &cli,
+            "ws://127.0.0.1:9222/devtools/browser/abc",
+            false
+        ));
+        assert!(!super::should_verify_connect_via_daemon(
+            &cli,
+            "ws://localhost:9222/devtools/browser/abc",
+            false
+        ));
+    }
+
+    #[test]
+    fn daemon_connect_verification_skips_remote_ws_with_custom_headers() {
+        let mut cli = test_cli(Some("team"), BrowserCommands::Status);
+        cli.no_daemon = false;
+        cli.extension = false;
+
+        assert!(!super::should_verify_connect_via_daemon(
+            &cli,
+            "wss://bedrock-agentcore.us-east-2.amazonaws.com/browser-streams/session",
+            true
+        ));
+    }
+
+    #[test]
+    fn daemon_connect_verification_disabled_when_no_daemon_or_extension() {
+        let mut cli = test_cli(Some("team"), BrowserCommands::Status);
+        cli.no_daemon = true;
+        assert!(!super::should_verify_connect_via_daemon(
+            &cli,
+            "wss://connect.hyperbrowser.ai/?token=test",
+            false
+        ));
+
+        cli.no_daemon = false;
+        cli.extension = true;
+        assert!(!super::should_verify_connect_via_daemon(
+            &cli,
+            "wss://connect.hyperbrowser.ai/?token=test",
+            false
+        ));
     }
 }
