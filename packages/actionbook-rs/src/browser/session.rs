@@ -5726,6 +5726,9 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
 
+        let received_method = std::sync::Arc::new(tokio::sync::Mutex::new(String::new()));
+        let captured = received_method.clone();
+
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
             let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
@@ -5733,10 +5736,9 @@ mod tests {
                 let msg = msg.unwrap();
                 if let tokio_tungstenite::tungstenite::Message::Text(text) = msg {
                     let req: serde_json::Value = serde_json::from_str(text.as_str()).unwrap();
-                    assert_eq!(
-                        req.get("method").and_then(|m| m.as_str()),
-                        Some("Browser.close")
-                    );
+                    if let Some(m) = req.get("method").and_then(|m| m.as_str()) {
+                        *captured.lock().await = m.to_string();
+                    }
                     let resp = serde_json::json!({
                         "id": req.get("id").and_then(|v| v.as_i64()).unwrap_or(1),
                         "result": {}
@@ -5762,6 +5764,7 @@ mod tests {
         assert!(sm.load_session_state("remote-hdr").is_some());
         sm.close_session(Some("remote-hdr")).await.unwrap();
         assert!(sm.load_session_state("remote-hdr").is_none());
+        assert_eq!(*received_method.lock().await, "Browser.close");
 
         server.abort();
     }
