@@ -470,6 +470,7 @@ jobs:
       - name: Create CLI GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          token: ${{ secrets.RELEASE_PAT }}
           tag_name: actionbook-cli-v${{ steps.version.outputs.version }}
           name: Actionbook CLI v${{ steps.version.outputs.version }}
           files: |
@@ -604,6 +605,7 @@ jobs:
       - name: Create Extension GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          token: ${{ secrets.RELEASE_PAT }}
           tag_name: actionbook-extension-v${{ steps.version.outputs.version }}
           name: Actionbook Extension v${{ steps.version.outputs.version }}
           files: |
@@ -713,6 +715,7 @@ jobs:
       - name: Create Dify Plugin GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          token: ${{ secrets.RELEASE_PAT }}
           tag_name: actionbook-dify-plugin-v${{ steps.version.outputs.version }}
           name: Actionbook Dify Plugin v${{ steps.version.outputs.version }}
           files: |

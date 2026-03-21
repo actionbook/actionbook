@@ -1186,10 +1186,16 @@ impl SessionManager {
         let profile_name = self.resolve_profile_name(profile_name);
 
         if let Some(state) = self.load_session_state(&profile_name) {
-            // For remote sessions with auth headers, use Browser.close via CDP
-            if state.ws_headers.as_ref().is_some_and(|h| !h.is_empty()) {
+            // Remote sessions (wss:// or non-loopback): use Browser.close via
+            // send_browser_command which routes through tokio-tungstenite (TLS-capable).
+            // This covers both header-authenticated and headerless remote endpoints.
+            if !state.uses_local_http_endpoints() {
                 let close_result = self
-                    .send_cdp_command(Some(&profile_name), "Browser.close", serde_json::json!({}))
+                    .send_browser_command(
+                        Some(&profile_name),
+                        "Browser.close",
+                        serde_json::json!({}),
+                    )
                     .await;
                 match close_result {
                     Ok(_) => {
@@ -1207,24 +1213,13 @@ impl SessionManager {
                 return Ok(());
             }
 
-            // Local/no-headers path: use chromiumoxide
+            // Local path: use chromiumoxide
             let connected = self.connect_to_session(&state).await;
             match connected {
                 Ok((mut browser, mut handler)) => {
                     tokio::spawn(async move { while handler.next().await.is_some() {} });
                     let _ = browser.close().await;
                     self.remove_session_state(&profile_name)?;
-                }
-                Err(e) if !state.uses_local_http_endpoints() => {
-                    // Remote session without headers: connection failed, don't
-                    // delete session — browser may still be running remotely
-                    tracing::warn!(
-                        "Cannot connect to remote browser for close, keeping session state"
-                    );
-                    return Err(ActionbookError::CdpConnectionFailed(format!(
-                        "Failed to close remote browser: {}",
-                        e
-                    )));
                 }
                 Err(_) => {
                     // Local session that's unreachable — safe to clean up
@@ -5700,6 +5695,138 @@ mod tests {
             arxiv_state.cdp_url,
             "ws://127.0.0.1:9402/devtools/browser/bbb"
         );
+    }
+
+    // ── close_session tests ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn close_session_remote_headerless_removes_state() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+            while let Some(msg) = ws.next().await {
+                let msg = msg.unwrap();
+                if let tokio_tungstenite::tungstenite::Message::Text(text) = msg {
+                    let req: serde_json::Value = serde_json::from_str(text.as_str()).unwrap();
+                    let resp = serde_json::json!({
+                        "id": req.get("id").and_then(|v| v.as_i64()).unwrap_or(1),
+                        "result": {}
+                    });
+                    ws.send(tokio_tungstenite::tungstenite::Message::Text(
+                        resp.to_string().into(),
+                    ))
+                    .await
+                    .unwrap();
+                    break;
+                }
+            }
+        });
+
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+        // Non-loopback-style path → uses_local_http_endpoints() returns false
+        let remote_ws = format!("ws://127.0.0.1:{}/automation", port);
+        sm.save_external_session("remote-hl", port, &remote_ws)
+            .unwrap();
+
+        assert!(sm.load_session_state("remote-hl").is_some());
+        sm.close_session(Some("remote-hl")).await.unwrap();
+        assert!(sm.load_session_state("remote-hl").is_none());
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn close_session_remote_with_headers_removes_state() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let received_method = std::sync::Arc::new(tokio::sync::Mutex::new(String::new()));
+        let captured = received_method.clone();
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+            while let Some(msg) = ws.next().await {
+                let msg = msg.unwrap();
+                if let tokio_tungstenite::tungstenite::Message::Text(text) = msg {
+                    let req: serde_json::Value = serde_json::from_str(text.as_str()).unwrap();
+                    if let Some(m) = req.get("method").and_then(|m| m.as_str()) {
+                        *captured.lock().await = m.to_string();
+                    }
+                    let resp = serde_json::json!({
+                        "id": req.get("id").and_then(|v| v.as_i64()).unwrap_or(1),
+                        "result": {}
+                    });
+                    ws.send(tokio_tungstenite::tungstenite::Message::Text(
+                        resp.to_string().into(),
+                    ))
+                    .await
+                    .unwrap();
+                    break;
+                }
+            }
+        });
+
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+        let remote_ws = format!("ws://127.0.0.1:{}/automation", port);
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("Authorization".to_string(), "Bearer test-token".to_string());
+        sm.save_external_session_full("remote-hdr", port, &remote_ws, None, Some(headers))
+            .unwrap();
+
+        assert!(sm.load_session_state("remote-hdr").is_some());
+        sm.close_session(Some("remote-hdr")).await.unwrap();
+        assert!(sm.load_session_state("remote-hdr").is_none());
+        assert_eq!(*received_method.lock().await, "Browser.close");
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn close_session_remote_failure_keeps_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+        // Port 19999 is not listening — connection will fail
+        sm.save_external_session("remote-fail", 19999, "ws://127.0.0.1:19999/automation")
+            .unwrap();
+
+        assert!(sm.load_session_state("remote-fail").is_some());
+        let result = sm.close_session(Some("remote-fail")).await;
+        assert!(result.is_err());
+        // Session state must be preserved when close fails
+        assert!(sm.load_session_state("remote-fail").is_some());
+    }
+
+    #[tokio::test]
+    async fn close_session_local_unreachable_cleans_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+        // Local-style URL (loopback + /devtools/browser/) on unreachable port
+        sm.save_external_session(
+            "local-gone",
+            19998,
+            "ws://127.0.0.1:19998/devtools/browser/abc",
+        )
+        .unwrap();
+
+        assert!(sm.load_session_state("local-gone").is_some());
+        sm.close_session(Some("local-gone")).await.unwrap();
+        // Local unreachable session → safe to clean up
+        assert!(sm.load_session_state("local-gone").is_none());
+    }
+
+    #[tokio::test]
+    async fn close_session_no_session_is_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        let sm = test_session_manager(dir.path());
+
+        let result = sm.close_session(Some("nonexistent")).await;
+        assert!(result.is_ok());
     }
 }
 
