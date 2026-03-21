@@ -1,6 +1,6 @@
 {
   "name": "@actionbookdev/cli-linux-arm64-gnu",
-  "version": "0.11.4",
+  "version": "0.11.5",
   "description": "Actionbook CLI native binary for Linux ARM64 (glibc)",
   "os": [
     "linux"

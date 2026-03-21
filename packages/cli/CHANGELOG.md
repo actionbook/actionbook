@@ -1,5 +1,13 @@
 # @actionbookdev/cli
 
+## 0.11.5
+
+### Patch Changes
+
+- [#244](https://github.com/actionbook/actionbook/pull/244) [`007aebe`](https://github.com/actionbook/actionbook/commit/007aebea578d0c3045ff1e0ece1411343c088800) Thanks [@mcfn](https://github.com/mcfn)! - Fix browser close failing with "TLS support not compiled in" on headerless wss:// CDP endpoints (e.g. Hyperbrowser)
+
+- [#247](https://github.com/actionbook/actionbook/pull/247) [`3979ade`](https://github.com/actionbook/actionbook/commit/3979adee4a343f5670184e841607d243523f06e0) Thanks [@mcfn](https://github.com/mcfn)! - Fix daemon connect verification for remote WSS endpoints (e.g. Hyperbrowser) by routing verification through daemon instead of direct preflight probe
+
 ## 0.11.4
 
 ### Patch Changes
