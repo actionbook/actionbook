@@ -191,6 +191,27 @@ impl BrowserDriver {
         }
     }
 
+    /// Drag from one element to another
+    pub async fn drag(
+        &mut self,
+        from_selector: &str,
+        to_selector: &str,
+        human: bool,
+    ) -> Result<()> {
+        match self {
+            Self::Cdp(mgr) => {
+                mgr.drag_on_page(None, from_selector, to_selector, human)
+                    .await
+            }
+            #[cfg(feature = "camoufox")]
+            Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
+                Err(crate::error::ActionbookError::FeatureNotSupported(
+                    "drag is not yet supported for Camoufox backend".to_string(),
+                ))
+            }
+        }
+    }
+
     /// Fill (clear + type) text into an element
     pub async fn fill(&mut self, selector: &str, text: &str) -> Result<()> {
         match self {

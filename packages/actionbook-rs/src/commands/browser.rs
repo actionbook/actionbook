@@ -860,6 +860,9 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
             )
             .await
         }
+        BrowserCommands::Drag { from, to, human } => {
+            drag(cli, &config, from, to, *human).await
+        }
         BrowserCommands::Type {
             selector,
             text,
@@ -1864,6 +1867,29 @@ pub(crate) async fn click(
             ""
         };
         println!("{} Clicked: {}{}", "✓".green(), selector, backend_label);
+    }
+
+    Ok(())
+}
+
+pub(crate) async fn drag(
+    cli: &Cli,
+    config: &Config,
+    from: &str,
+    to: &str,
+    human: bool,
+) -> Result<()> {
+    let mut driver = create_browser_driver(cli, config).await?;
+    apply_resource_blocking(cli, &mut driver).await;
+    driver.drag(from, to, human).await?;
+
+    if cli.json {
+        println!(
+            "{}",
+            serde_json::json!({"success": true, "from": from, "to": to})
+        );
+    } else {
+        println!("{} Dragged: {} → {}", "✓".green(), from, to);
     }
 
     Ok(())

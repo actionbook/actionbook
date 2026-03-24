@@ -386,6 +386,17 @@ pub enum BrowserCommands {
         human: bool,
     },
 
+    /// Drag from one element to another
+    Drag {
+        /// CSS selector for the drag source element
+        from: String,
+        /// CSS selector for the drag target element
+        to: String,
+        /// Use human-like bezier curve mouse movement
+        #[arg(long)]
+        human: bool,
+    },
+
     /// Type text into an element (appends to existing)
     Type {
         /// Text to type (required)
@@ -775,6 +786,17 @@ pub enum AppCommands {
         /// Snapshot ref (e.g., e0, e5) from last `app snapshot`
         #[arg(long, name = "ref")]
         ref_id: Option<String>,
+        /// Use human-like bezier curve mouse movement
+        #[arg(long)]
+        human: bool,
+    },
+
+    /// Drag from one element to another
+    Drag {
+        /// CSS selector for the drag source element
+        from: String,
+        /// CSS selector for the drag target element
+        to: String,
         /// Use human-like bezier curve mouse movement
         #[arg(long)]
         human: bool,

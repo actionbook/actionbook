@@ -2406,6 +2406,73 @@ impl SessionManager {
         Ok(())
     }
 
+    /// Drag from one element to another on the active page
+    pub async fn drag_on_page(
+        &self,
+        profile_name: Option<&str>,
+        from_selector: &str,
+        to_selector: &str,
+        human: bool,
+    ) -> Result<()> {
+        // Resolve source element center
+        let (x1, y1) = self.get_element_center(profile_name, from_selector).await?;
+        // Resolve target element center
+        let (x2, y2) = self.get_element_center(profile_name, to_selector).await?;
+
+        // Move to source
+        self.send_cdp_command(
+            profile_name,
+            "Input.dispatchMouseEvent",
+            serde_json::json!({"type": "mouseMoved", "x": x1, "y": y1}),
+        )
+        .await?;
+
+        // Press at source
+        self.send_cdp_command(
+            profile_name,
+            "Input.dispatchMouseEvent",
+            serde_json::json!({"type": "mousePressed", "x": x1, "y": y1, "button": "left", "clickCount": 1}),
+        )
+        .await?;
+
+        tokio::time::sleep(std::time::Duration::from_millis(
+            crate::browser::human_input::click_hold_ms(),
+        ))
+        .await;
+
+        // Move to target (with button held)
+        if human {
+            let path =
+                crate::browser::human_input::bezier_mouse_path(x1, y1, x2, y2);
+            for (px, py) in &path {
+                self.send_cdp_command(
+                    profile_name,
+                    "Input.dispatchMouseEvent",
+                    serde_json::json!({"type": "mouseMoved", "x": px, "y": py, "button": "left", "buttons": 1}),
+                )
+                .await?;
+                tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+            }
+        } else {
+            self.send_cdp_command(
+                profile_name,
+                "Input.dispatchMouseEvent",
+                serde_json::json!({"type": "mouseMoved", "x": x2, "y": y2, "button": "left", "buttons": 1}),
+            )
+            .await?;
+        }
+
+        // Release at target
+        self.send_cdp_command(
+            profile_name,
+            "Input.dispatchMouseEvent",
+            serde_json::json!({"type": "mouseReleased", "x": x2, "y": y2, "button": "left", "clickCount": 1}),
+        )
+        .await?;
+
+        Ok(())
+    }
+
     /// Type text into an element on the active page
     pub async fn type_on_page(
         &self,
