@@ -18,6 +18,17 @@ so your agent operates any website instantly without guessing.
 
 <br />
 
+## Table of Contents
+
+- [Why Actionbook?](#why-actionbook)
+- [Featured Skill](#featured-skill-active-research)
+- [Quick Start](#quick-start)
+- [Example Use Cases](#example-use-cases)
+- [Integration Options](#integration-options)
+- [Follow the Build](#follow-the-build)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Why Actionbook?
 
 ### ❌ Without Actionbook
