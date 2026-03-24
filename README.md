@@ -6,10 +6,7 @@
 
 ![GitHub last commit](https://img.shields.io/github/last-commit/actionbook/actionbook) [![NPM Downloads](https://img.shields.io/npm/d18m/%40actionbookdev%2Fcli)](https://www.npmjs.com/package/@actionbookdev/cli) [![npm version](https://img.shields.io/npm/v/%40actionbookdev%2Fcli)](https://www.npmjs.com/package/@actionbookdev/cli) [![skills](https://img.shields.io/badge/skills-ready-blue)](https://skills.sh/actionbook/actionbook/actionbook)
 
-
-
-
-**Browser Action Engine for AI Agents**
+**The Highest Accuracy Browser Automation Engine for AI Agents**
 <br />
 Actionbook provides up-to-date action manuals and DOM structure,
 <br />
@@ -20,16 +17,6 @@ so your agent operates any website instantly without guessing.
 </div>
 
 <br />
-
-## Table of Contents
-
-- [Why Actionbook?](#why-actionbook)
-- [Quick Start](#quick-start)
-- [Installation](#installation)
-- [Examples](#examples)
-- [Available Tools](#available-tools)
-- [Documentation](#documentation)
-- [Contributing](#contributing)
 
 ## Why Actionbook?
 
@@ -49,49 +36,37 @@ Actionbook places up-to-date action manuals with the relevant DOM selectors dire
 - **10x Faster:** Agents access pre-computed "Action manuals" to know exactly what to do without exploring.
 - **100x Token Savings:** Instead of whole HTML page, agents receive only related DOM elements in concise, semantic JSON definitions.
 - **Resilient Automation:** Action manuals are maintained and versioned. If a site changes, the manual is updated, not your agent.
-- **Universal Compatibility:** Works with any LLM (OpenAI, Anthropic, Gemini) and any AI operator framework.
+- **Universal Compatibility:** Works with any agent stack, including Claude Code, Codex, OpenClaw, and browser automation frameworks.
 
 See how Actionbook enables an agent to complete an Airbnb search task 10x faster.
 
 https://github.com/user-attachments/assets/9f896fe7-296a-44b3-8592-931a099612de
 
+## Featured Skill: `active-research`
+
+For X/Twitter research workflows, the most representative Actionbook skill is [`active-research`](./skills/active-research/SKILL.md).
+
+It combines verified selectors, real browser automation, and structured report generation to research a live topic end to end.
+
+### Demo: Analyze an X/Twitter Timeline
+
+You can use Claude Code with Actionbook to operate the browser on X/Twitter, collect timeline activity and engagement signals, and turn the result into a structured summary.
+
+https://github.com/user-attachments/assets/4705364e-02bc-48b2-956c-c806df746ad1
+
+Example prompt:
+
+```text
+Use active-research to analyze today's X timeline activity around a topic and summarize the main themes.
+```
+
+By starting from Actionbook's verified selectors and action manuals instead of guessing the DOM, the agent can complete this workflow more accurately and reliably.
+
 ## Quick Start
 
 Get started with Actionbook in under 2 minutes:
 
-**Step 1: Install the CLI**
-
-macOS / Linux
-```bash
-curl -fsSL https://actionbook.dev/install.sh | bash
-```
-
-Windows (PowerShell)
-```
-irm https://actionbook.dev/install.ps1 | iex
-```
-
-The Rust-based CLI uses your existing system browser (Chrome, Brave, Edge, Arc, Chromium), so no extra browser install step is required.
-
-**Step 2: Use with any AI Agent**
-
-When working with any AI coding assistant (Claude Code, Cursor, etc.), add this to your prompt:
-
-```
-Use Actionbook to understand and operate the web page.
-```
-
-The agent will automatically use the CLI to fetch action manuals and execute browser operations.
-
-**Step 3 (Optional): Add the Skill**
-
-For enhanced agent integration, add the Actionbook skill:
-
-```bash
-npx skills add actionbook/actionbook
-```
-
-## Installation
+### 1. Install the CLI
 
 ### macOS / Linux
 
@@ -105,49 +80,55 @@ curl -fsSL https://actionbook.dev/install.sh | bash
 irm https://actionbook.dev/install.ps1 | iex
 ```
 
-### npm
+### 2. Add one or more skills to your agent
 
 ```bash
-npm install -g @actionbookdev/cli
+npx skills add actionbook/actionbook
 ```
 
-### Setup
+Skill support list:
 
-```bash
-actionbook setup
-```
+- `actionbook`: the core browser-operation workflow. Best for browsing posts on X/Twitter and Reddit, collecting post and comment data, filling email flows and complex forms, and handling general page operations with less selector guesswork.
+- `active-research`: a deep research workflow for multi-source browsing, structured collection, and long-form report generation.
+- `extract`: a data extraction workflow that uses Actionbook selectors first, then generates a reusable Playwright script and structured output such as JSON or CSV.
 
-For more install options (Homebrew, from source) and upgrade instructions, see the [Installation Guide](https://actionbook.dev/docs/guides/installation).
+## Example Use Cases
 
-The CLI is all you need to get started. For advanced use cases, Actionbook also offers an [MCP Server](https://actionbook.dev/docs/guides/mcp-server) and [JavaScript SDK](https://actionbook.dev/docs/guides/sdk-integration).
+Actionbook playgrounds in this repo:
+
+- [`arxiv-viewer`](./playground/arxiv-viewer): search, read, and analyze arXiv papers with a hybrid API + browser workflow
+- [`lib-rs-scraper`](./playground/lib-rs-scraper): scrape lib.rs using Actionbook-verified selectors
+- [`rust-learner`](./playground/rust-learner): query Rust language features and crate updates with browser-assisted workflows
+- [`actionbook-scraper`](./playground/actionbook-scraper): generate reliable web scrapers with verified selectors and automatic validation
+- [`article-exporter`](./playground/article-exporter): export web articles into clean structured content for downstream processing and publishing workflows
+- [`deep-research`](./playground/deep-research): multi-source browsing, analysis, and report generation with Actionbook
+
+More examples:
+
+- [Examples Documentation](https://actionbook.dev/docs/examples)
+
+## Integration Options
+
+Use Actionbook in the way that fits your agent stack:
+
+- **[CLI](https://actionbook.dev/docs/api-reference/cli)** for direct local usage.
+- **[Skills](https://actionbook.dev/docs/guides/skills)** for better agent behavior and lower hallucination risk.
+- **[OpenClaw Plugin](https://actionbook.dev/docs/openclaw)** for OpenClaw-based agent workflows with Actionbook.
+- **[Dify Plugin](https://actionbook.dev/docs/guides/dify-plugin)** for using Actionbook selectors and browser automation inside Dify workflows.
+- **[MCP Server](https://actionbook.dev/docs/guides/mcp-server)** for Cursor, Claude Code, VS Code, and similar clients.
+- **[JavaScript SDK](https://actionbook.dev/docs/guides/sdk-integration)** for custom integrations.
 
 
-## Examples
-
-Explore real-world examples in the [Examples Documentation](https://actionbook.dev/docs/examples).
-
-
-## Available Tools
-
-Actionbook provides tools for searching and retrieving action manuals. See the [CLI Reference](https://actionbook.dev/docs/api-reference/cli) for the full command list. If you're using the MCP integration, see the [MCP Tools Reference](https://actionbook.dev/docs/api-reference/mcp-tools).
-
-
-## Documentation
-
-For comprehensive guides, API references, and tutorials, visit our documentation site:
-
-**[actionbook.dev/docs](https://actionbook.dev/docs)**
-
-## Stay tuned
+## Follow the Build
 
 We move fast. Star Actionbook on Github to support and get latest information.
 
-![Star Actionbook](https://github.com/user-attachments/assets/2d6571cb-4e12-438b-b7bf-9a4b68ef2be3)
+[![Star Actionbook](https://github.com/user-attachments/assets/2d6571cb-4e12-438b-b7bf-9a4b68ef2be3)](https://github.com/actionbook/actionbook)
 
 Join the community:
 
-- [Chat with us on Discord](https://actionbook.dev/discord) - Get help, share your agents, and discuss ideas
-- [Follow @ActionbookHQ on X](https://x.com/ActionbookHQ) - Product updates and announcements
+- [Chat with us on Discord](https://actionbook.dev/discord) - For help, feedback, workflow discussion, and sharing what you build with Actionbook
+- [Follow @ActionbookHQ on X](https://x.com/ActionbookHQ) - For product updates, releases, and announcements
 
 ## Contributing
 
