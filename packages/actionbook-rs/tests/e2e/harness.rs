@@ -21,9 +21,6 @@ pub struct IsolatedEnv {
     pub data_home: String,
 }
 
-// SAFETY: all fields are immutable after init; TempDir is Send+Sync.
-unsafe impl Sync for IsolatedEnv {}
-
 static ENV: OnceLock<IsolatedEnv> = OnceLock::new();
 
 /// Returns a shared isolated environment (created once per test binary run).
