@@ -1,0 +1,44 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main, "release/**"]
+  pull_request:
+    branches: [main, "release/**"]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/actionbook-rs/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('packages/actionbook-rs/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Build actionbook binary
+        working-directory: packages/actionbook-rs
+        run: cargo build --release
+
+      - name: Run E2E tests
+        working-directory: packages/actionbook-rs
+        env:
+          RUN_E2E_TESTS: "true"
+        run: cargo test --test e2e -- --test-threads=1 --nocapture
