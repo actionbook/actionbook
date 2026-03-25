@@ -109,6 +109,41 @@ pub enum BackendOp {
         value: String,
         domain: String,
         path: String,
+        secure: Option<bool>,
+        http_only: Option<bool>,
+        same_site: Option<String>,
+        expires: Option<f64>,
+    },
+
+    /// Delete cookies matching criteria (`Network.deleteCookies`).
+    DeleteCookies {
+        target_id: String,
+        name: String,
+        /// Optional domain filter.
+        domain: Option<String>,
+        /// Optional path filter.
+        path: Option<String>,
+    },
+
+    /// Get the DOM node at a specific page coordinate (`DOM.getNodeForLocation`).
+    GetNodeForLocation {
+        target_id: String,
+        x: i64,
+        y: i64,
+    },
+
+    // ---- DOM manipulation ----
+    /// Focus a DOM node (`DOM.focus`).
+    DomFocus {
+        target_id: String,
+        node_id: i64,
+    },
+
+    /// Set files on a file input element (`DOM.setFileInputFiles`).
+    SetFileInputFiles {
+        target_id: String,
+        node_id: i64,
+        files: Vec<String>,
     },
 
     // ---- Target management ----
@@ -146,6 +181,10 @@ impl BackendOp {
             | BackendOp::GetAccessibilityTree { target_id }
             | BackendOp::GetCookies { target_id }
             | BackendOp::SetCookie { target_id, .. }
+            | BackendOp::DeleteCookies { target_id, .. }
+            | BackendOp::GetNodeForLocation { target_id, .. }
+            | BackendOp::DomFocus { target_id, .. }
+            | BackendOp::SetFileInputFiles { target_id, .. }
             | BackendOp::CloseTarget { target_id } => Some(target_id),
             BackendOp::GetTargets | BackendOp::CreateTarget { .. } => None,
         }
@@ -168,6 +207,10 @@ impl BackendOp {
                 | BackendOp::GetAccessibilityTree { .. }
                 | BackendOp::GetCookies { .. }
                 | BackendOp::SetCookie { .. }
+                | BackendOp::DeleteCookies { .. }
+                | BackendOp::GetNodeForLocation { .. }
+                | BackendOp::DomFocus { .. }
+                | BackendOp::SetFileInputFiles { .. }
         )
     }
 }

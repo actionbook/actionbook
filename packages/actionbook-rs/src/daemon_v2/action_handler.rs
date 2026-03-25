@@ -14,7 +14,7 @@ use super::action::Action;
 use super::action_result::ActionResult;
 use super::backend::BackendSession;
 use super::backend_op::BackendOp;
-use super::types::{SessionId, TabId, WindowId};
+use super::types::{QueryMode, SameSite, SessionId, StorageKind, TabId, WindowId};
 use crate::error::ActionbookError;
 
 // ---------------------------------------------------------------------------
@@ -177,6 +177,188 @@ pub async fn handle_action(
         Action::Close { .. } | Action::CloseSession { .. } => {
             // Handled at the session actor level, not here.
             ActionResult::ok(json!({"closed": true}))
+        }
+
+        // -- Observation commands (tab-level) --
+        Action::Pdf { tab, path, .. } => {
+            handle_pdf(session_id, backend, regs, tab, &path).await
+        }
+        Action::Title { tab, .. } => handle_title(session_id, backend, regs, tab).await,
+        Action::Url { tab, .. } => handle_url(session_id, backend, regs, tab).await,
+        Action::Value {
+            tab, selector, ..
+        } => handle_value(session_id, backend, regs, tab, &selector).await,
+        Action::Attr {
+            tab,
+            selector,
+            name,
+            ..
+        } => handle_attr(session_id, backend, regs, tab, &selector, &name).await,
+        Action::Attrs {
+            tab, selector, ..
+        } => handle_attrs(session_id, backend, regs, tab, &selector).await,
+        Action::Describe {
+            tab, selector, ..
+        } => handle_describe(session_id, backend, regs, tab, &selector).await,
+        Action::State {
+            tab, selector, ..
+        } => handle_state(session_id, backend, regs, tab, &selector).await,
+        Action::Box_ {
+            tab, selector, ..
+        } => handle_box(session_id, backend, regs, tab, &selector).await,
+        Action::Styles {
+            tab, selector, ..
+        } => handle_styles(session_id, backend, regs, tab, &selector).await,
+        Action::Viewport { tab, .. } => {
+            handle_viewport(session_id, backend, regs, tab).await
+        }
+        Action::Query {
+            tab,
+            selector,
+            mode,
+            ..
+        } => handle_query(session_id, backend, regs, tab, &selector, mode).await,
+        Action::InspectPoint { tab, x, y, .. } => {
+            handle_inspect_point(session_id, backend, regs, tab, x, y).await
+        }
+        Action::LogsConsole { tab, .. } => {
+            handle_logs_console(session_id, backend, regs, tab).await
+        }
+        Action::LogsErrors { tab, .. } => {
+            handle_logs_errors(session_id, backend, regs, tab).await
+        }
+
+        // -- Data commands (session-level cookies) --
+        Action::CookiesList { .. } => {
+            handle_cookies_list(session_id, backend, regs).await
+        }
+        Action::CookiesGet { name, .. } => {
+            handle_cookies_get(session_id, backend, regs, &name).await
+        }
+        Action::CookiesSet {
+            name,
+            value,
+            domain,
+            path,
+            secure,
+            http_only,
+            same_site,
+            expires,
+            ..
+        } => {
+            handle_cookies_set(
+                session_id, backend, regs, &name, &value,
+                domain.as_deref(), path.as_deref(),
+                secure, http_only, same_site, expires,
+            )
+            .await
+        }
+        Action::CookiesDelete { name, .. } => {
+            handle_cookies_delete(session_id, backend, regs, &name).await
+        }
+        Action::CookiesClear { .. } => {
+            handle_cookies_clear(session_id, backend, regs).await
+        }
+
+        // -- Data commands (tab-level storage) --
+        Action::StorageList { tab, kind, .. } => {
+            handle_storage_list(session_id, backend, regs, tab, kind).await
+        }
+        Action::StorageGet {
+            tab, kind, key, ..
+        } => handle_storage_get(session_id, backend, regs, tab, kind, &key).await,
+        Action::StorageSet {
+            tab,
+            kind,
+            key,
+            value,
+            ..
+        } => handle_storage_set(session_id, backend, regs, tab, kind, &key, &value).await,
+        Action::StorageDelete {
+            tab, kind, key, ..
+        } => handle_storage_delete(session_id, backend, regs, tab, kind, &key).await,
+        Action::StorageClear { tab, kind, .. } => {
+            handle_storage_clear(session_id, backend, regs, tab, kind).await
+        }
+
+        // -- Interaction commands --
+        Action::Select {
+            tab,
+            selector,
+            value,
+            by_text,
+            ..
+        } => handle_select(session_id, backend, regs, tab, &selector, &value, by_text).await,
+        Action::Hover {
+            tab, selector, ..
+        } => handle_hover(session_id, backend, regs, tab, &selector).await,
+        Action::Focus {
+            tab, selector, ..
+        } => handle_focus(session_id, backend, regs, tab, &selector).await,
+        Action::Press {
+            tab, key_or_chord, ..
+        } => handle_press(session_id, backend, regs, tab, &key_or_chord).await,
+        Action::Drag {
+            tab,
+            from_selector,
+            to_selector,
+            ..
+        } => handle_drag(session_id, backend, regs, tab, &from_selector, &to_selector).await,
+        Action::Upload {
+            tab,
+            selector,
+            files,
+            ..
+        } => handle_upload(session_id, backend, regs, tab, &selector, &files).await,
+        Action::Scroll {
+            tab,
+            direction,
+            amount,
+            selector,
+            ..
+        } => {
+            handle_scroll(
+                session_id,
+                backend,
+                regs,
+                tab,
+                &direction,
+                amount,
+                selector.as_deref(),
+            )
+            .await
+        }
+        Action::MouseMove { tab, x, y, .. } => {
+            handle_mouse_move(session_id, backend, regs, tab, x, y).await
+        }
+        Action::CursorPosition { tab, .. } => {
+            handle_cursor_position(session_id, backend, regs, tab).await
+        }
+
+        // -- Waiting commands --
+        Action::WaitNavigation { tab, timeout_ms, .. } => {
+            handle_wait_navigation(session_id, backend, regs, tab, timeout_ms).await
+        }
+        Action::WaitNetworkIdle {
+            tab,
+            timeout_ms,
+            idle_time_ms,
+            ..
+        } => {
+            handle_wait_network_idle(session_id, backend, regs, tab, timeout_ms, idle_time_ms)
+                .await
+        }
+        Action::WaitCondition {
+            tab,
+            expression,
+            timeout_ms,
+            ..
+        } => handle_wait_condition(session_id, backend, regs, tab, &expression, timeout_ms).await,
+
+        // -- Session management --
+        Action::RestartSession { .. } => {
+            // RestartSession is handled at the session actor level (like Close).
+            ActionResult::ok(json!({"restarting": true}))
         }
 
         // -- Global commands (should not reach the action handler) --
@@ -716,6 +898,558 @@ return el ? el.innerText : null;
 }
 
 // ---------------------------------------------------------------------------
+// Observation handlers (tab-level)
+// ---------------------------------------------------------------------------
+
+async fn handle_pdf(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    path: &str,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+
+    let op = BackendOp::PrintToPdf {
+        target_id: target_id.to_string(),
+    };
+
+    match backend.exec(op).await {
+        Ok(result) => {
+            let data = result
+                .value
+                .get("data")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if data.is_empty() {
+                return ActionResult::fatal(
+                    "pdf_empty",
+                    "Page.printToPDF returned no data",
+                    "check if the page is loaded",
+                );
+            }
+
+            use base64::Engine;
+            let bytes = match base64::engine::general_purpose::STANDARD.decode(data) {
+                Ok(b) => b,
+                Err(e) => {
+                    return ActionResult::fatal(
+                        "pdf_decode_error",
+                        format!("failed to decode PDF data: {e}"),
+                        "this is a bug",
+                    )
+                }
+            };
+
+            match std::fs::write(path, &bytes) {
+                Ok(_) => ActionResult::ok(json!({"pdf": path, "bytes": bytes.len()})),
+                Err(e) => ActionResult::fatal(
+                    "pdf_write_error",
+                    format!("failed to write PDF to {path}: {e}"),
+                    "check the output path and permissions",
+                ),
+            }
+        }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_title(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: "document.title".to_string(),
+        return_by_value: true,
+    };
+
+    match backend.exec(op).await {
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            ActionResult::ok(json!({"title": val}))
+        }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_url(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: "window.location.href".to_string(),
+        return_by_value: true,
+    };
+
+    match backend.exec(op).await {
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            ActionResult::ok(json!({"url": val}))
+        }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_value(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    selector: &str,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+
+    let selector_json = match serde_json::to_string(selector) {
+        Ok(s) => s,
+        Err(e) => return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax"),
+    };
+
+    let js = format!(
+        r#"(function() {{
+{FIND_ELEMENT_JS}
+const el = __findElement({selector_json});
+if (!el) return null;
+return el.value;
+}})()"#
+    );
+
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
+
+    match backend.exec(op).await {
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            if val.is_null() { element_not_found(selector) }
+            else { ActionResult::ok(json!({"value": val, "selector": selector})) }
+        }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_attr(
+    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
+    tab: TabId, selector: &str, attr_name: &str,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+    let selector_json = match serde_json::to_string(selector) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax") };
+    let attr_json = match serde_json::to_string(attr_name) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_attr_name", e.to_string(), "check attribute name") };
+
+    let js = format!(r#"(function() {{
+{FIND_ELEMENT_JS}
+const el = __findElement({selector_json});
+if (!el) return {{ __notfound: true }};
+return el.getAttribute({attr_json});
+}})()"#);
+
+    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    match backend.exec(op).await {
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            if val.get("__notfound").is_some() { element_not_found(selector) }
+            else { ActionResult::ok(json!({"attr": attr_name, "value": val, "selector": selector})) }
+        }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_attrs(
+    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
+    tab: TabId, selector: &str,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+    let selector_json = match serde_json::to_string(selector) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax") };
+
+    let js = format!(r#"(function() {{
+{FIND_ELEMENT_JS}
+const el = __findElement({selector_json});
+if (!el) return null;
+const attrs = {{}};
+for (const a of el.attributes) {{ attrs[a.name] = a.value; }}
+return attrs;
+}})()"#);
+
+    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    match backend.exec(op).await {
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            if val.is_null() { element_not_found(selector) }
+            else { ActionResult::ok(json!({"attributes": val, "selector": selector})) }
+        }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_describe(
+    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
+    tab: TabId, selector: &str,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+    let selector_json = match serde_json::to_string(selector) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax") };
+
+    let js = format!(r#"(function() {{
+{FIND_ELEMENT_JS}
+const el = __findElement({selector_json});
+if (!el) return null;
+const rect = el.getBoundingClientRect();
+return {{ tag: el.tagName.toLowerCase(), role: el.getAttribute('role') || '', text: (el.innerText || '').substring(0, 200), id: el.id || '', className: el.className || '', ariaLabel: el.getAttribute('aria-label') || '', href: el.href || '', type: el.type || '', name: el.name || '', value: el.value || '', placeholder: el.placeholder || '', x: rect.left, y: rect.top, width: rect.width, height: rect.height }};
+}})()"#);
+
+    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    match backend.exec(op).await {
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            if val.is_null() { element_not_found(selector) }
+            else { ActionResult::ok(json!({"description": val, "selector": selector})) }
+        }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_state(
+    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
+    tab: TabId, selector: &str,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+    let selector_json = match serde_json::to_string(selector) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax") };
+
+    let js = format!(r#"(function() {{
+{FIND_ELEMENT_JS}
+const el = __findElement({selector_json});
+if (!el) return null;
+const rect = el.getBoundingClientRect();
+const style = window.getComputedStyle(el);
+return {{ visible: rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none', enabled: !el.disabled, checked: !!el.checked, selected: !!el.selected, focused: document.activeElement === el, required: !!el.required, readOnly: !!el.readOnly }};
+}})()"#);
+
+    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    match backend.exec(op).await {
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            if val.is_null() { element_not_found(selector) }
+            else { ActionResult::ok(json!({"state": val, "selector": selector})) }
+        }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_box(
+    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
+    tab: TabId, selector: &str,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+    let selector_json = match serde_json::to_string(selector) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax") };
+
+    let js = format!(r#"(function() {{
+{FIND_ELEMENT_JS}
+const el = __findElement({selector_json});
+if (!el) return null;
+const rect = el.getBoundingClientRect();
+return {{ x: rect.left, y: rect.top, width: rect.width, height: rect.height, right: rect.right, bottom: rect.bottom }};
+}})()"#);
+
+    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    match backend.exec(op).await {
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            if val.is_null() { element_not_found(selector) }
+            else { ActionResult::ok(json!({"box": val, "selector": selector})) }
+        }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_styles(
+    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
+    tab: TabId, selector: &str,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+    let selector_json = match serde_json::to_string(selector) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax") };
+
+    let js = format!(r#"(function() {{
+{FIND_ELEMENT_JS}
+const el = __findElement({selector_json});
+if (!el) return null;
+const cs = window.getComputedStyle(el);
+const props = ['display','visibility','opacity','color','backgroundColor','fontSize','fontWeight','fontFamily','margin','padding','border','position','zIndex','overflow','cursor','width','height'];
+const result = {{}};
+for (const p of props) {{ result[p] = cs.getPropertyValue(p.replace(/([A-Z])/g, '-$1').toLowerCase()); }}
+return result;
+}})()"#);
+
+    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    match backend.exec(op).await {
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            if val.is_null() { element_not_found(selector) }
+            else { ActionResult::ok(json!({"styles": val, "selector": selector})) }
+        }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_viewport(
+    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, tab: TabId,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: "JSON.stringify({width: window.innerWidth, height: window.innerHeight, scrollX: window.scrollX, scrollY: window.scrollY, scrollWidth: document.documentElement.scrollWidth, scrollHeight: document.documentElement.scrollHeight})".to_string(),
+        return_by_value: true,
+    };
+
+    match backend.exec(op).await {
+        Ok(result) => {
+            let raw = extract_eval_value(&result.value);
+            let val = if let Some(s) = raw.as_str() { serde_json::from_str(s).unwrap_or(raw) } else { raw };
+            ActionResult::ok(json!({"viewport": val}))
+        }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_query(
+    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
+    tab: TabId, selector: &str, mode: QueryMode,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+    let selector_json = match serde_json::to_string(selector) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax") };
+
+    let js = match mode {
+        QueryMode::Css => format!(r#"(function() {{ const els = document.querySelectorAll({selector_json}); return Array.from(els).slice(0, 100).map((el, i) => {{ const rect = el.getBoundingClientRect(); return {{ index: i, tag: el.tagName.toLowerCase(), id: el.id || '', text: (el.innerText || '').substring(0, 80), x: rect.left, y: rect.top, width: rect.width, height: rect.height }}; }}); }})()"#),
+        QueryMode::Xpath => format!(r#"(function() {{ const result = document.evaluate({selector_json}, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null); const items = []; for (let i = 0; i < Math.min(result.snapshotLength, 100); i++) {{ const el = result.snapshotItem(i); if (el.nodeType === 1) {{ const rect = el.getBoundingClientRect(); items.push({{ index: i, tag: el.tagName.toLowerCase(), id: el.id || '', text: (el.innerText || '').substring(0, 80), x: rect.left, y: rect.top, width: rect.width, height: rect.height }}); }} }} return items; }})()"#),
+        QueryMode::Text => format!(r#"(function() {{ const text = {selector_json}; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null); const results = []; while (walker.nextNode()) {{ if (walker.currentNode.textContent.includes(text) && results.length < 100) {{ const el = walker.currentNode.parentElement; if (el) {{ const rect = el.getBoundingClientRect(); results.push({{ index: results.length, tag: el.tagName.toLowerCase(), id: el.id || '', text: (el.innerText || '').substring(0, 80), x: rect.left, y: rect.top, width: rect.width, height: rect.height }}); }} }} }} return results; }})()"#),
+    };
+
+    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    match backend.exec(op).await {
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            ActionResult::ok(json!({"results": val, "selector": selector, "mode": mode.to_string()}))
+        }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_inspect_point(
+    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
+    tab: TabId, x: f64, y: f64,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+
+    let js = format!(r#"(function() {{ const el = document.elementFromPoint({x}, {y}); if (!el) return null; const rect = el.getBoundingClientRect(); return {{ tag: el.tagName.toLowerCase(), id: el.id || '', className: el.className || '', text: (el.innerText || '').substring(0, 200), role: el.getAttribute('role') || '', ariaLabel: el.getAttribute('aria-label') || '', href: el.href || '', x: rect.left, y: rect.top, width: rect.width, height: rect.height }}; }})()"#);
+
+    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    match backend.exec(op).await {
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            ActionResult::ok(json!({"element": val, "x": x, "y": y}))
+        }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_logs_console(
+    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, tab: TabId,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+
+    let js = r#"(function() { if (!window.__ab_console_logs) { window.__ab_console_logs = []; const orig = { log: console.log, warn: console.warn, info: console.info, debug: console.debug, error: console.error }; for (const [level, fn] of Object.entries(orig)) { console[level] = function(...args) { window.__ab_console_logs.push({ level, message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '), timestamp: Date.now() }); fn.apply(console, args); }; } } const logs = window.__ab_console_logs.slice(-200); window.__ab_console_logs = []; return logs; })()"#;
+
+    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js.to_string(), return_by_value: true };
+    match backend.exec(op).await {
+        Ok(result) => { let val = extract_eval_value(&result.value); ActionResult::ok(json!({"logs": val})) }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_logs_errors(
+    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, tab: TabId,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+
+    let js = r#"(function() { if (!window.__ab_error_logs) { window.__ab_error_logs = []; const origError = console.error; console.error = function(...args) { window.__ab_error_logs.push({ message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '), timestamp: Date.now() }); origError.apply(console, args); }; window.addEventListener('error', function(e) { window.__ab_error_logs.push({ message: e.message, source: e.filename, line: e.lineno, col: e.colno, timestamp: Date.now() }); }); window.addEventListener('unhandledrejection', function(e) { window.__ab_error_logs.push({ message: 'Unhandled rejection: ' + String(e.reason), timestamp: Date.now() }); }); } const errors = window.__ab_error_logs.slice(-200); window.__ab_error_logs = []; return errors; })()"#;
+
+    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js.to_string(), return_by_value: true };
+    match backend.exec(op).await {
+        Ok(result) => { let val = extract_eval_value(&result.value); ActionResult::ok(json!({"errors": val})) }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Data handlers — Cookies (session-level, use first tab as proxy target)
+// ---------------------------------------------------------------------------
+
+fn resolve_any_tab<'a>(session_id: SessionId, regs: &'a Registries) -> Result<&'a str, ActionResult> {
+    regs.tabs.values().next().map(|t| t.target_id.as_str()).ok_or_else(|| {
+        ActionResult::fatal("no_tabs", format!("session {session_id} has no open tabs for cookie operations"), format!("open a tab first with `actionbook browser open -s {session_id} <url>`"))
+    })
+}
+
+async fn handle_cookies_list(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries) -> ActionResult {
+    let target_id = match resolve_any_tab(session_id, regs) { Ok(t) => t, Err(r) => return r };
+    let op = BackendOp::GetCookies { target_id: target_id.to_string() };
+    match backend.exec(op).await {
+        Ok(result) => { let cookies = result.value.get("cookies").cloned().unwrap_or(json!([])); ActionResult::ok(json!({"cookies": cookies})) }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_cookies_get(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, name: &str) -> ActionResult {
+    let target_id = match resolve_any_tab(session_id, regs) { Ok(t) => t, Err(r) => return r };
+    let op = BackendOp::GetCookies { target_id: target_id.to_string() };
+    match backend.exec(op).await {
+        Ok(result) => {
+            let cookies = result.value.get("cookies").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let found: Vec<_> = cookies.into_iter().filter(|c| c.get("name").and_then(|n| n.as_str()) == Some(name)).collect();
+            if found.is_empty() { ActionResult::ok(json!({"cookie": null, "name": name})) }
+            else { ActionResult::ok(json!({"cookie": found[0], "name": name})) }
+        }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn handle_cookies_set(
+    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
+    name: &str, value: &str, domain: Option<&str>, path: Option<&str>,
+    secure: Option<bool>, http_only: Option<bool>, same_site: Option<SameSite>, expires: Option<f64>,
+) -> ActionResult {
+    let target_id = match resolve_any_tab(session_id, regs) { Ok(t) => t, Err(r) => return r };
+    let op = BackendOp::SetCookie {
+        target_id: target_id.to_string(), name: name.to_string(), value: value.to_string(),
+        domain: domain.unwrap_or("").to_string(), path: path.unwrap_or("/").to_string(),
+        secure, http_only, same_site: same_site.map(|s| s.to_string()), expires,
+    };
+    match backend.exec(op).await {
+        Ok(_) => ActionResult::ok(json!({"set_cookie": name})),
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_cookies_delete(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, name: &str) -> ActionResult {
+    let target_id = match resolve_any_tab(session_id, regs) { Ok(t) => t, Err(r) => return r };
+    let op = BackendOp::DeleteCookies { target_id: target_id.to_string(), name: name.to_string(), domain: None, path: None };
+    match backend.exec(op).await {
+        Ok(_) => ActionResult::ok(json!({"deleted_cookie": name})),
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_cookies_clear(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries) -> ActionResult {
+    let target_id = match resolve_any_tab(session_id, regs) { Ok(t) => t, Err(r) => return r };
+    let get_op = BackendOp::GetCookies { target_id: target_id.to_string() };
+    let cookies = match backend.exec(get_op).await {
+        Ok(result) => result.value.get("cookies").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+        Err(e) => return cdp_error_to_result(e),
+    };
+    let mut deleted = 0;
+    for cookie in &cookies {
+        let cname = cookie.get("name").and_then(|n| n.as_str()).unwrap_or("");
+        let cdomain = cookie.get("domain").and_then(|d| d.as_str());
+        let cpath = cookie.get("path").and_then(|p| p.as_str());
+        let op = BackendOp::DeleteCookies { target_id: target_id.to_string(), name: cname.to_string(), domain: cdomain.map(|s| s.to_string()), path: cpath.map(|s| s.to_string()) };
+        if let Err(e) = backend.exec(op).await { return cdp_error_to_result(e); }
+        deleted += 1;
+    }
+    ActionResult::ok(json!({"cleared_cookies": deleted}))
+}
+
+// ---------------------------------------------------------------------------
+// Data handlers — Storage (tab-level)
+// ---------------------------------------------------------------------------
+
+fn storage_js_name(kind: StorageKind) -> &'static str {
+    match kind { StorageKind::Local => "localStorage", StorageKind::Session => "sessionStorage" }
+}
+
+async fn handle_storage_list(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, tab: TabId, kind: StorageKind) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+    let store = storage_js_name(kind);
+    let js = format!(r#"(function() {{ const keys = []; for (let i = 0; i < {store}.length; i++) {{ keys.push({store}.key(i)); }} return keys; }})()"#);
+    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    match backend.exec(op).await {
+        Ok(result) => { let val = extract_eval_value(&result.value); ActionResult::ok(json!({"keys": val, "kind": kind.to_string()})) }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_storage_get(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, tab: TabId, kind: StorageKind, key: &str) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+    let store = storage_js_name(kind);
+    let key_json = match serde_json::to_string(key) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_key", e.to_string(), "check key") };
+    let js = format!("{store}.getItem({key_json})");
+    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    match backend.exec(op).await {
+        Ok(result) => { let val = extract_eval_value(&result.value); ActionResult::ok(json!({"key": key, "value": val, "kind": kind.to_string()})) }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_storage_set(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, tab: TabId, kind: StorageKind, key: &str, value: &str) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+    let store = storage_js_name(kind);
+    let key_json = match serde_json::to_string(key) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_key", e.to_string(), "check key") };
+    let value_json = match serde_json::to_string(value) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_value", e.to_string(), "check value") };
+    let js = format!("{store}.setItem({key_json}, {value_json})");
+    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    match backend.exec(op).await {
+        Ok(_) => ActionResult::ok(json!({"set": key, "kind": kind.to_string()})),
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_storage_delete(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, tab: TabId, kind: StorageKind, key: &str) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+    let store = storage_js_name(kind);
+    let key_json = match serde_json::to_string(key) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_key", e.to_string(), "check key") };
+    let js = format!("{store}.removeItem({key_json})");
+    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    match backend.exec(op).await {
+        Ok(_) => ActionResult::ok(json!({"deleted": key, "kind": kind.to_string()})),
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_storage_clear(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, tab: TabId, kind: StorageKind) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+    let store = storage_js_name(kind);
+    let js = format!("{store}.clear()");
+    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    match backend.exec(op).await {
+        Ok(_) => ActionResult::ok(json!({"cleared": kind.to_string()})),
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Session-level handlers
 // ---------------------------------------------------------------------------
 
@@ -874,8 +1608,752 @@ async fn handle_close_tab(
 }
 
 // ---------------------------------------------------------------------------
+// Interaction handlers
+// ---------------------------------------------------------------------------
+
+async fn handle_select(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    selector: &str,
+    value: &str,
+    by_text: bool,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+
+    let selector_json = match serde_json::to_string(selector) {
+        Ok(s) => s,
+        Err(e) => {
+            return ActionResult::fatal(
+                "invalid_selector",
+                e.to_string(),
+                "check selector syntax",
+            )
+        }
+    };
+    let value_json = match serde_json::to_string(value) {
+        Ok(s) => s,
+        Err(e) => return ActionResult::fatal("invalid_value", e.to_string(), "check value"),
+    };
+
+    let js = if by_text {
+        format!(
+            r#"(function() {{
+{FIND_ELEMENT_JS}
+const el = __findElement({selector_json});
+if (!el || el.tagName !== 'SELECT') return null;
+const text = {value_json};
+for (const opt of el.options) {{
+    if (opt.text.trim() === text || opt.textContent.trim() === text) {{
+        el.value = opt.value;
+        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+        return opt.value;
+    }}
+}}
+return null;
+}})()"#
+        )
+    } else {
+        format!(
+            r#"(function() {{
+{FIND_ELEMENT_JS}
+const el = __findElement({selector_json});
+if (!el || el.tagName !== 'SELECT') return null;
+el.value = {value_json};
+el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+return el.value;
+}})()"#
+        )
+    };
+
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
+
+    match backend.exec(op).await {
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            if val.is_null() {
+                element_not_found(selector)
+            } else {
+                ActionResult::ok(json!({"selected": value, "selector": selector}))
+            }
+        }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_hover(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    selector: &str,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+
+    let (x, y) = match resolve_element_center(backend, target_id, selector).await {
+        Ok(coords) => coords,
+        Err(r) => return r,
+    };
+
+    let op = BackendOp::DispatchMouseEvent {
+        target_id: target_id.to_string(),
+        event_type: "mouseMoved".to_string(),
+        x,
+        y,
+        button: "none".to_string(),
+        click_count: 0,
+    };
+
+    match backend.exec(op).await {
+        Ok(_) => ActionResult::ok(json!({"hovered": selector, "x": x, "y": y})),
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_focus(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    selector: &str,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+
+    match focus_element(backend, target_id, selector).await {
+        Ok(()) => ActionResult::ok(json!({"focused": selector})),
+        Err(r) => r,
+    }
+}
+
+async fn handle_press(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    key_or_chord: &str,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+
+    // Parse chord: "Control+A" -> ["Control", "A"]
+    let parts: Vec<&str> = key_or_chord.split('+').collect();
+
+    let get_modifier_info = |key: &str| -> Option<(&str, i32)> {
+        match key.to_lowercase().as_str() {
+            "control" | "ctrl" => Some(("Control", 2)),
+            "shift" => Some(("Shift", 8)),
+            "alt" => Some(("Alt", 1)),
+            "meta" | "command" | "cmd" => Some(("Meta", 4)),
+            _ => None,
+        }
+    };
+
+    // Press modifier keys down
+    for part in &parts[..parts.len().saturating_sub(1)] {
+        if let Some((key_value, _)) = get_modifier_info(part) {
+            let op = BackendOp::DispatchKeyEvent {
+                target_id: target_id.to_string(),
+                event_type: "keyDown".to_string(),
+                key: key_value.to_string(),
+                text: String::new(),
+            };
+            if let Err(e) = backend.exec(op).await {
+                return cdp_error_to_result(e);
+            }
+        }
+    }
+
+    // Press and release the main key
+    let main_key = parts.last().unwrap_or(&key_or_chord);
+    let (key_value, text) = map_key_name(main_key);
+
+    let down = BackendOp::DispatchKeyEvent {
+        target_id: target_id.to_string(),
+        event_type: "keyDown".to_string(),
+        key: key_value.to_string(),
+        text: text.to_string(),
+    };
+    if let Err(e) = backend.exec(down).await {
+        return cdp_error_to_result(e);
+    }
+
+    let up = BackendOp::DispatchKeyEvent {
+        target_id: target_id.to_string(),
+        event_type: "keyUp".to_string(),
+        key: key_value.to_string(),
+        text: String::new(),
+    };
+    if let Err(e) = backend.exec(up).await {
+        return cdp_error_to_result(e);
+    }
+
+    // Release modifier keys (reverse order)
+    for part in parts[..parts.len().saturating_sub(1)].iter().rev() {
+        if let Some((key_value, _)) = get_modifier_info(part) {
+            let op = BackendOp::DispatchKeyEvent {
+                target_id: target_id.to_string(),
+                event_type: "keyUp".to_string(),
+                key: key_value.to_string(),
+                text: String::new(),
+            };
+            if let Err(e) = backend.exec(op).await {
+                return cdp_error_to_result(e);
+            }
+        }
+    }
+
+    ActionResult::ok(json!({"pressed": key_or_chord}))
+}
+
+async fn handle_drag(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    from_selector: &str,
+    to_selector: &str,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+
+    let (from_x, from_y) = match resolve_element_center(backend, target_id, from_selector).await {
+        Ok(coords) => coords,
+        Err(r) => return r,
+    };
+
+    let (to_x, to_y) = match resolve_element_center(backend, target_id, to_selector).await {
+        Ok(coords) => coords,
+        Err(r) => return r,
+    };
+
+    // Move to source, press, move to target, release
+    for (event_type, x, y, button, cc) in [
+        ("mouseMoved", from_x, from_y, "left", 0),
+        ("mousePressed", from_x, from_y, "left", 1),
+        ("mouseMoved", to_x, to_y, "left", 0),
+        ("mouseReleased", to_x, to_y, "left", 1),
+    ] {
+        let op = BackendOp::DispatchMouseEvent {
+            target_id: target_id.to_string(),
+            event_type: event_type.to_string(),
+            x,
+            y,
+            button: button.to_string(),
+            click_count: cc,
+        };
+        if let Err(e) = backend.exec(op).await {
+            return cdp_error_to_result(e);
+        }
+    }
+
+    ActionResult::ok(json!({
+        "dragged": {"from": from_selector, "to": to_selector},
+        "from": {"x": from_x, "y": from_y},
+        "to": {"x": to_x, "y": to_y},
+    }))
+}
+
+async fn handle_upload(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    selector: &str,
+    files: &[String],
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+
+    // Get document root
+    let doc_op = BackendOp::GetDocument {
+        target_id: target_id.to_string(),
+    };
+    let doc_result = match backend.exec(doc_op).await {
+        Ok(r) => r,
+        Err(e) => return cdp_error_to_result(e),
+    };
+    let root_node_id = doc_result
+        .value
+        .get("root")
+        .and_then(|r| r.get("nodeId"))
+        .and_then(|n| n.as_i64())
+        .unwrap_or(1);
+
+    // Query selector to get the file input node
+    let qs_op = BackendOp::QuerySelector {
+        target_id: target_id.to_string(),
+        node_id: root_node_id,
+        selector: selector.to_string(),
+    };
+    let qs_result = match backend.exec(qs_op).await {
+        Ok(r) => r,
+        Err(e) => return cdp_error_to_result(e),
+    };
+    let node_id = qs_result
+        .value
+        .get("nodeId")
+        .and_then(|n| n.as_i64())
+        .unwrap_or(0);
+    if node_id == 0 {
+        return element_not_found(selector);
+    }
+
+    // Set files on the input
+    let upload_op = BackendOp::SetFileInputFiles {
+        target_id: target_id.to_string(),
+        node_id,
+        files: files.to_vec(),
+    };
+
+    match backend.exec(upload_op).await {
+        Ok(_) => ActionResult::ok(json!({"uploaded": files.len(), "selector": selector})),
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_scroll(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    direction: &str,
+    amount: Option<i32>,
+    selector: Option<&str>,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+
+    let px = amount.unwrap_or(300);
+    let (dx, dy) = match direction.to_lowercase().as_str() {
+        "up" => (0, -px),
+        "down" => (0, px),
+        "left" => (-px, 0),
+        "right" => (px, 0),
+        _ => {
+            return ActionResult::fatal(
+                "invalid_direction",
+                format!("unknown scroll direction '{direction}'"),
+                "use: up, down, left, right",
+            )
+        }
+    };
+
+    let js = match selector {
+        Some(sel) => {
+            let sel_json = match serde_json::to_string(sel) {
+                Ok(s) => s,
+                Err(e) => {
+                    return ActionResult::fatal(
+                        "invalid_selector",
+                        e.to_string(),
+                        "check selector syntax",
+                    )
+                }
+            };
+            format!(
+                r#"(function() {{
+{FIND_ELEMENT_JS}
+const el = __findElement({sel_json});
+if (!el) return false;
+el.scrollBy({dx}, {dy});
+return true;
+}})()"#
+            )
+        }
+        None => format!("(function() {{ window.scrollBy({dx}, {dy}); return true; }})()"),
+    };
+
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
+
+    match backend.exec(op).await {
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            if val.as_bool() == Some(true) {
+                ActionResult::ok(json!({"scrolled": direction, "amount": px}))
+            } else if selector.is_some() {
+                element_not_found(selector.unwrap())
+            } else {
+                ActionResult::ok(json!({"scrolled": direction, "amount": px}))
+            }
+        }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_mouse_move(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    x: f64,
+    y: f64,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+
+    let op = BackendOp::DispatchMouseEvent {
+        target_id: target_id.to_string(),
+        event_type: "mouseMoved".to_string(),
+        x,
+        y,
+        button: "none".to_string(),
+        click_count: 0,
+    };
+
+    match backend.exec(op).await {
+        Ok(_) => ActionResult::ok(json!({"moved": {"x": x, "y": y}})),
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn handle_cursor_position(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+
+    // There is no direct CDP method to get cursor position, so we use JS.
+    let js = r#"(function() {
+        let x = 0, y = 0;
+        document.addEventListener('mousemove', function handler(e) {
+            x = e.clientX; y = e.clientY;
+            document.removeEventListener('mousemove', handler);
+        }, { once: true });
+        return { x: window.__abCursorX || 0, y: window.__abCursorY || 0 };
+    })()"#;
+
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js.to_string(),
+        return_by_value: true,
+    };
+
+    match backend.exec(op).await {
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            ActionResult::ok(json!({"cursor": val}))
+        }
+        Err(e) => cdp_error_to_result(e),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Waiting handlers
+// ---------------------------------------------------------------------------
+
+async fn handle_wait_navigation(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    timeout_ms: Option<u64>,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+
+    let timeout = std::time::Duration::from_millis(timeout_ms.unwrap_or(30_000));
+    let poll_interval = std::time::Duration::from_millis(200);
+    let deadline = tokio::time::Instant::now() + timeout;
+
+    // Get the current URL first
+    let get_url_js = "window.location.href".to_string();
+    let initial_url = {
+        let op = BackendOp::Evaluate {
+            target_id: target_id.to_string(),
+            expression: get_url_js.clone(),
+            return_by_value: true,
+        };
+        match backend.exec(op).await {
+            Ok(result) => {
+                let val = extract_eval_value(&result.value);
+                val.as_str().unwrap_or("").to_string()
+            }
+            Err(e) => return cdp_error_to_result(e),
+        }
+    };
+
+    // Poll until URL changes or document.readyState is complete
+    loop {
+        let check_js = format!(
+            r#"(function() {{
+                const url = window.location.href;
+                const ready = document.readyState;
+                return {{ url: url, ready: ready }};
+            }})()"#
+        );
+        let op = BackendOp::Evaluate {
+            target_id: target_id.to_string(),
+            expression: check_js,
+            return_by_value: true,
+        };
+
+        match backend.exec(op).await {
+            Ok(result) => {
+                let val = extract_eval_value(&result.value);
+                let current_url = val.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                let ready = val.get("ready").and_then(|v| v.as_str()).unwrap_or("");
+                if current_url != initial_url || ready == "complete" {
+                    return ActionResult::ok(json!({
+                        "navigated": true,
+                        "url": current_url,
+                        "readyState": ready,
+                    }));
+                }
+            }
+            Err(e) => return cdp_error_to_result(e),
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            return ActionResult::retryable(
+                "navigation_timeout",
+                format!("navigation did not complete within {}ms", timeout.as_millis()),
+            );
+        }
+
+        tokio::time::sleep(poll_interval).await;
+    }
+}
+
+async fn handle_wait_network_idle(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    timeout_ms: Option<u64>,
+    idle_time_ms: Option<u64>,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+
+    let timeout = std::time::Duration::from_millis(timeout_ms.unwrap_or(30_000));
+    let idle_time = idle_time_ms.unwrap_or(500);
+    let poll_interval = std::time::Duration::from_millis(200);
+    let deadline = tokio::time::Instant::now() + timeout;
+
+    // Use JS Performance API to detect ongoing requests
+    let check_js = format!(
+        r#"(function() {{
+            const entries = performance.getEntriesByType('resource');
+            const now = performance.now();
+            const recent = entries.filter(e => now - e.responseEnd < {idle_time});
+            return {{ pending: recent.length, now: now }};
+        }})()"#
+    );
+
+    loop {
+        let op = BackendOp::Evaluate {
+            target_id: target_id.to_string(),
+            expression: check_js.clone(),
+            return_by_value: true,
+        };
+
+        match backend.exec(op).await {
+            Ok(result) => {
+                let val = extract_eval_value(&result.value);
+                let pending = val.get("pending").and_then(|v| v.as_i64()).unwrap_or(1);
+                if pending == 0 {
+                    return ActionResult::ok(json!({"network_idle": true}));
+                }
+            }
+            Err(e) => return cdp_error_to_result(e),
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            return ActionResult::retryable(
+                "network_idle_timeout",
+                format!(
+                    "network did not become idle within {}ms",
+                    timeout.as_millis()
+                ),
+            );
+        }
+
+        tokio::time::sleep(poll_interval).await;
+    }
+}
+
+async fn handle_wait_condition(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    expression: &str,
+    timeout_ms: Option<u64>,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+
+    let timeout = std::time::Duration::from_millis(timeout_ms.unwrap_or(30_000));
+    let poll_interval = std::time::Duration::from_millis(200);
+    let deadline = tokio::time::Instant::now() + timeout;
+
+    loop {
+        let op = BackendOp::Evaluate {
+            target_id: target_id.to_string(),
+            expression: expression.to_string(),
+            return_by_value: true,
+        };
+
+        match backend.exec(op).await {
+            Ok(result) => {
+                let val = extract_eval_value(&result.value);
+                // Check for truthiness
+                let truthy = match &val {
+                    serde_json::Value::Bool(b) => *b,
+                    serde_json::Value::Number(n) => n.as_f64().unwrap_or(0.0) != 0.0,
+                    serde_json::Value::String(s) => !s.is_empty(),
+                    serde_json::Value::Null => false,
+                    _ => true, // objects and arrays are truthy
+                };
+                if truthy {
+                    return ActionResult::ok(json!({"condition_met": true, "value": val}));
+                }
+            }
+            Err(e) => return cdp_error_to_result(e),
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            return ActionResult::retryable(
+                "condition_timeout",
+                format!(
+                    "condition '{}' not met within {}ms",
+                    expression,
+                    timeout.as_millis()
+                ),
+            );
+        }
+
+        tokio::time::sleep(poll_interval).await;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Resolve an element's center coordinates using JS.
+async fn resolve_element_center(
+    backend: &mut dyn BackendSession,
+    target_id: &str,
+    selector: &str,
+) -> Result<(f64, f64), ActionResult> {
+    let selector_json = serde_json::to_string(selector).map_err(|e| {
+        ActionResult::fatal(
+            "invalid_selector",
+            e.to_string(),
+            "check selector syntax",
+        )
+    })?;
+
+    let js = format!(
+        r#"(function() {{
+{FIND_ELEMENT_JS}
+const el = __findElement({selector_json});
+if (!el) return null;
+el.scrollIntoView({{ behavior: 'instant', block: 'center', inline: 'center' }});
+const rect = el.getBoundingClientRect();
+return {{ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }};
+}})()"#
+    );
+
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
+
+    let coords = match backend.exec(op).await {
+        Ok(r) => extract_eval_value(&r.value),
+        Err(e) => return Err(cdp_error_to_result(e)),
+    };
+
+    if coords.is_null() {
+        return Err(element_not_found(selector));
+    }
+
+    let x = coords
+        .get("x")
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| {
+            ActionResult::fatal(
+                "invalid_coordinates",
+                "element returned no x coordinate",
+                "check selector",
+            )
+        })?;
+    let y = coords
+        .get("y")
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| {
+            ActionResult::fatal(
+                "invalid_coordinates",
+                "element returned no y coordinate",
+                "check selector",
+            )
+        })?;
+
+    Ok((x, y))
+}
+
+/// Map common key names to CDP key values and text.
+fn map_key_name(key: &str) -> (&str, &str) {
+    match key.to_lowercase().as_str() {
+        "enter" | "return" => ("Enter", "\r"),
+        "tab" => ("Tab", "\t"),
+        "escape" | "esc" => ("Escape", ""),
+        "backspace" => ("Backspace", ""),
+        "delete" => ("Delete", ""),
+        "arrowup" | "up" => ("ArrowUp", ""),
+        "arrowdown" | "down" => ("ArrowDown", ""),
+        "arrowleft" | "left" => ("ArrowLeft", ""),
+        "arrowright" | "right" => ("ArrowRight", ""),
+        "home" => ("Home", ""),
+        "end" => ("End", ""),
+        "pageup" => ("PageUp", ""),
+        "pagedown" => ("PageDown", ""),
+        "space" => (" ", " "),
+        _ => (key, key),
+    }
+}
 
 /// Look up a tab's CDP target_id, or return a Fatal ActionResult.
 fn resolve_tab<'a>(

@@ -12,7 +12,7 @@ use clap::{Parser, Subcommand};
 use super::action::Action;
 use super::client::{self, DaemonClient};
 use super::formatter;
-use super::types::{Mode, SessionId, TabId};
+use super::types::{Mode, QueryMode, SameSite, SessionId, StorageKind, TabId};
 
 /// Actionbook CLI v2 — browser automation via daemon
 #[derive(Parser, Debug)]
@@ -200,6 +200,515 @@ enum BrowserCmd {
         #[arg(short = 't', long)]
         tab: TabId,
     },
+
+    // =======================================================================
+    // Observation commands — require -s and -t
+    // =======================================================================
+    /// Print page to PDF
+    Pdf {
+        /// Output file path
+        path: PathBuf,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Get the page title
+    Title {
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Get the current page URL
+    Url {
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Get the value of an input element
+    Value {
+        /// CSS selector
+        selector: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Get a specific attribute of an element
+    Attr {
+        /// CSS selector
+        selector: String,
+        /// Attribute name
+        #[arg(long)]
+        name: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Get all attributes of an element
+    Attrs {
+        /// CSS selector
+        selector: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Get a description of an element (tag, role, text, etc.)
+    Describe {
+        /// CSS selector
+        selector: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Get the interactive state of an element
+    State {
+        /// CSS selector
+        selector: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Get the bounding box of an element
+    #[command(name = "box")]
+    Box_ {
+        /// CSS selector
+        selector: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Get computed styles of an element
+    Styles {
+        /// CSS selector
+        selector: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Get the viewport dimensions
+    Viewport {
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Query elements matching a selector
+    Query {
+        /// Selector string
+        selector: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+        /// Query mode: css, xpath, or text
+        #[arg(short = 'm', long, value_enum, default_value = "css")]
+        mode: CliQueryMode,
+    },
+
+    /// Inspect the element at a point on the page
+    InspectPoint {
+        /// X coordinate
+        x: f64,
+        /// Y coordinate
+        y: f64,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Get console log messages
+    LogsConsole {
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Get error log messages
+    LogsErrors {
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    // =======================================================================
+    // Data commands — Cookies (require -s)
+    // =======================================================================
+    /// List all cookies
+    CookiesList {
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+    },
+
+    /// Get a specific cookie by name
+    CookiesGet {
+        /// Cookie name
+        name: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+    },
+
+    /// Set a cookie
+    CookiesSet {
+        /// Cookie name
+        name: String,
+        /// Cookie value
+        value: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Cookie domain
+        #[arg(long)]
+        domain: Option<String>,
+        /// Cookie path
+        #[arg(long)]
+        path: Option<String>,
+        /// Secure flag
+        #[arg(long)]
+        secure: bool,
+        /// HttpOnly flag
+        #[arg(long)]
+        http_only: bool,
+        /// SameSite attribute
+        #[arg(long, value_enum)]
+        same_site: Option<CliSameSite>,
+        /// Expiration timestamp (seconds since epoch)
+        #[arg(long)]
+        expires: Option<f64>,
+    },
+
+    /// Delete a cookie by name
+    CookiesDelete {
+        /// Cookie name
+        name: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+    },
+
+    /// Clear all cookies
+    CookiesClear {
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+    },
+
+    // =======================================================================
+    // Data commands — Storage (require -s and -t)
+    // =======================================================================
+    /// List all keys in web storage
+    StorageList {
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+        /// Storage kind: local or session
+        #[arg(short = 'k', long, value_enum)]
+        kind: CliStorageKind,
+    },
+
+    /// Get a value from web storage
+    StorageGet {
+        /// Storage key
+        key: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+        /// Storage kind: local or session
+        #[arg(short = 'k', long, value_enum)]
+        kind: CliStorageKind,
+    },
+
+    /// Set a value in web storage
+    StorageSet {
+        /// Storage key
+        key: String,
+        /// Storage value
+        value: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+        /// Storage kind: local or session
+        #[arg(short = 'k', long, value_enum)]
+        kind: CliStorageKind,
+    },
+
+    /// Delete a key from web storage
+    StorageDelete {
+        /// Storage key
+        key: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+        /// Storage kind: local or session
+        #[arg(short = 'k', long, value_enum)]
+        kind: CliStorageKind,
+    },
+
+    /// Clear all web storage of a given kind
+    StorageClear {
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+        /// Storage kind: local or session
+        #[arg(short = 'k', long, value_enum)]
+        kind: CliStorageKind,
+    },
+
+    // =======================================================================
+    // Interaction commands — require -s and -t
+    // =======================================================================
+    /// Select a value from a dropdown element
+    Select {
+        /// Value to select
+        value: String,
+        /// CSS selector of the <select> element
+        #[arg(long)]
+        selector: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+        /// Match by visible text instead of value attribute
+        #[arg(long)]
+        by_text: bool,
+    },
+
+    /// Hover over an element
+    Hover {
+        /// CSS selector
+        selector: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Focus an element
+    Focus {
+        /// CSS selector
+        selector: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Press a keyboard key or chord (e.g. "Enter", "Control+A")
+    Press {
+        /// Key or chord (e.g. "Enter", "Control+A", "Shift+Tab")
+        key: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Drag an element to another element
+    Drag {
+        /// Selector of the element to drag
+        #[arg(long)]
+        from: String,
+        /// Selector of the drop target
+        #[arg(long)]
+        to: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Upload files to a file input element
+    Upload {
+        /// Absolute file paths to upload
+        files: Vec<String>,
+        /// CSS selector of the file input element
+        #[arg(long)]
+        selector: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Scroll the page or an element
+    Scroll {
+        /// Direction: up, down, left, right
+        direction: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+        /// Amount in pixels (default: 300)
+        #[arg(long)]
+        amount: Option<i32>,
+        /// Optional CSS selector to scroll within
+        #[arg(long)]
+        selector: Option<String>,
+    },
+
+    /// Move the mouse to absolute coordinates
+    MouseMove {
+        /// X coordinate
+        x: f64,
+        /// Y coordinate
+        y: f64,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Get the current cursor position
+    CursorPosition {
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    // =======================================================================
+    // Waiting commands — require -s and -t
+    // =======================================================================
+    /// Wait for a navigation to complete
+    WaitNavigation {
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+        /// Timeout in milliseconds (default: 30000)
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
+
+    /// Wait for network to become idle
+    WaitNetworkIdle {
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+        /// Timeout in milliseconds (default: 30000)
+        #[arg(long)]
+        timeout: Option<u64>,
+        /// Idle time in milliseconds (default: 500)
+        #[arg(long)]
+        idle_time: Option<u64>,
+    },
+
+    /// Wait for a JS expression to become truthy
+    WaitCondition {
+        /// JavaScript expression that should return a truthy value
+        expression: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+        /// Timeout in milliseconds (default: 30000)
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
+
+    // =======================================================================
+    // Session management
+    // =======================================================================
+    /// Restart a session (close + re-start with same profile/mode)
+    Restart {
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+    },
 }
 
 /// CLI-facing mode enum (maps to protocol [`Mode`]).
@@ -216,6 +725,58 @@ impl From<CliMode> for Mode {
             CliMode::Local => Mode::Local,
             CliMode::Extension => Mode::Extension,
             CliMode::Cloud => Mode::Cloud,
+        }
+    }
+}
+
+/// CLI-facing query mode enum.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum CliQueryMode {
+    Css,
+    Xpath,
+    Text,
+}
+
+impl From<CliQueryMode> for QueryMode {
+    fn from(m: CliQueryMode) -> QueryMode {
+        match m {
+            CliQueryMode::Css => QueryMode::Css,
+            CliQueryMode::Xpath => QueryMode::Xpath,
+            CliQueryMode::Text => QueryMode::Text,
+        }
+    }
+}
+
+/// CLI-facing storage kind enum.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum CliStorageKind {
+    Local,
+    Session,
+}
+
+impl From<CliStorageKind> for StorageKind {
+    fn from(k: CliStorageKind) -> StorageKind {
+        match k {
+            CliStorageKind::Local => StorageKind::Local,
+            CliStorageKind::Session => StorageKind::Session,
+        }
+    }
+}
+
+/// CLI-facing SameSite enum.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum CliSameSite {
+    Strict,
+    Lax,
+    None,
+}
+
+impl From<CliSameSite> for SameSite {
+    fn from(s: CliSameSite) -> SameSite {
+        match s {
+            CliSameSite::Strict => SameSite::Strict,
+            CliSameSite::Lax => SameSite::Lax,
+            CliSameSite::None => SameSite::None,
         }
     }
 }
@@ -340,6 +901,175 @@ fn build_action(cmd: BrowserCmd) -> Result<Action, String> {
             tab,
             expression: code,
         },
+
+        // Observation
+        BrowserCmd::Pdf { path, session, tab } => Action::Pdf {
+            session, tab, path: path.to_string_lossy().to_string(),
+        },
+        BrowserCmd::Title { session, tab } => Action::Title { session, tab },
+        BrowserCmd::Url { session, tab } => Action::Url { session, tab },
+        BrowserCmd::Value { selector, session, tab } => Action::Value { session, tab, selector },
+        BrowserCmd::Attr { selector, name, session, tab } => Action::Attr { session, tab, selector, name },
+        BrowserCmd::Attrs { selector, session, tab } => Action::Attrs { session, tab, selector },
+        BrowserCmd::Describe { selector, session, tab } => Action::Describe { session, tab, selector },
+        BrowserCmd::State { selector, session, tab } => Action::State { session, tab, selector },
+        BrowserCmd::Box_ { selector, session, tab } => Action::Box_ { session, tab, selector },
+        BrowserCmd::Styles { selector, session, tab } => Action::Styles { session, tab, selector },
+        BrowserCmd::Viewport { session, tab } => Action::Viewport { session, tab },
+        BrowserCmd::Query { selector, session, tab, mode } => Action::Query {
+            session, tab, selector, mode: mode.into(),
+        },
+        BrowserCmd::InspectPoint { x, y, session, tab } => Action::InspectPoint { session, tab, x, y },
+        BrowserCmd::LogsConsole { session, tab } => Action::LogsConsole { session, tab },
+        BrowserCmd::LogsErrors { session, tab } => Action::LogsErrors { session, tab },
+
+        // Cookies
+        BrowserCmd::CookiesList { session } => Action::CookiesList { session },
+        BrowserCmd::CookiesGet { name, session } => Action::CookiesGet { session, name },
+        BrowserCmd::CookiesSet { name, value, session, domain, path, secure, http_only, same_site, expires } => Action::CookiesSet {
+            session, name, value, domain, path,
+            secure: if secure { Some(true) } else { None },
+            http_only: if http_only { Some(true) } else { None },
+            same_site: same_site.map(|s| s.into()),
+            expires,
+        },
+        BrowserCmd::CookiesDelete { name, session } => Action::CookiesDelete { session, name },
+        BrowserCmd::CookiesClear { session } => Action::CookiesClear { session },
+
+        // Storage
+        BrowserCmd::StorageList { session, tab, kind } => Action::StorageList { session, tab, kind: kind.into() },
+        BrowserCmd::StorageGet { key, session, tab, kind } => Action::StorageGet { session, tab, kind: kind.into(), key },
+        BrowserCmd::StorageSet { key, value, session, tab, kind } => Action::StorageSet { session, tab, kind: kind.into(), key, value },
+        BrowserCmd::StorageDelete { key, session, tab, kind } => Action::StorageDelete { session, tab, kind: kind.into(), key },
+        BrowserCmd::StorageClear { session, tab, kind } => Action::StorageClear { session, tab, kind: kind.into() },
+
+        // Interaction
+        BrowserCmd::Select {
+            value,
+            selector,
+            session,
+            tab,
+            by_text,
+        } => Action::Select {
+            session,
+            tab,
+            selector,
+            value,
+            by_text,
+        },
+        BrowserCmd::Hover {
+            selector,
+            session,
+            tab,
+        } => Action::Hover {
+            session,
+            tab,
+            selector,
+        },
+        BrowserCmd::Focus {
+            selector,
+            session,
+            tab,
+        } => Action::Focus {
+            session,
+            tab,
+            selector,
+        },
+        BrowserCmd::Press {
+            key,
+            session,
+            tab,
+        } => Action::Press {
+            session,
+            tab,
+            key_or_chord: key,
+        },
+        BrowserCmd::Drag {
+            from,
+            to,
+            session,
+            tab,
+        } => Action::Drag {
+            session,
+            tab,
+            from_selector: from,
+            to_selector: to,
+        },
+        BrowserCmd::Upload {
+            files,
+            selector,
+            session,
+            tab,
+        } => Action::Upload {
+            session,
+            tab,
+            selector,
+            files,
+        },
+        BrowserCmd::Scroll {
+            direction,
+            session,
+            tab,
+            amount,
+            selector,
+        } => Action::Scroll {
+            session,
+            tab,
+            direction,
+            amount,
+            selector,
+        },
+        BrowserCmd::MouseMove {
+            x,
+            y,
+            session,
+            tab,
+        } => Action::MouseMove {
+            session,
+            tab,
+            x,
+            y,
+        },
+        BrowserCmd::CursorPosition { session, tab } => Action::CursorPosition {
+            session,
+            tab,
+        },
+
+        // Waiting
+        BrowserCmd::WaitNavigation {
+            session,
+            tab,
+            timeout,
+        } => Action::WaitNavigation {
+            session,
+            tab,
+            timeout_ms: timeout,
+        },
+        BrowserCmd::WaitNetworkIdle {
+            session,
+            tab,
+            timeout,
+            idle_time,
+        } => Action::WaitNetworkIdle {
+            session,
+            tab,
+            timeout_ms: timeout,
+            idle_time_ms: idle_time,
+        },
+        BrowserCmd::WaitCondition {
+            expression,
+            session,
+            tab,
+            timeout,
+        } => Action::WaitCondition {
+            session,
+            tab,
+            expression,
+            timeout_ms: timeout,
+        },
+
+        // Session management
+        BrowserCmd::Restart { session } => Action::RestartSession { session },
     })
 }
 

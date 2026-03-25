@@ -11,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::types::{Mode, SessionId, TabId, WindowId};
+use super::types::{Mode, QueryMode, SameSite, SessionId, StorageKind, TabId, WindowId};
 
 /// A typed command sent from CLI (or MCP/AI SDK client) to the daemon.
 ///
@@ -212,6 +212,327 @@ pub enum Action {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         selector: Option<String>,
     },
+
+    // =======================================================================
+    // Observation actions — Tab-level (require session + tab)
+    // =======================================================================
+    /// Print the page to PDF and save to a file.
+    Pdf {
+        session: SessionId,
+        tab: TabId,
+        /// Output file path for the PDF.
+        path: String,
+    },
+
+    /// Get the page title.
+    Title {
+        session: SessionId,
+        tab: TabId,
+    },
+
+    /// Get the current page URL.
+    Url {
+        session: SessionId,
+        tab: TabId,
+    },
+
+    /// Get the value of an input element.
+    Value {
+        session: SessionId,
+        tab: TabId,
+        selector: String,
+    },
+
+    /// Get a specific attribute of an element.
+    Attr {
+        session: SessionId,
+        tab: TabId,
+        selector: String,
+        /// Attribute name to retrieve.
+        name: String,
+    },
+
+    /// Get all attributes of an element.
+    Attrs {
+        session: SessionId,
+        tab: TabId,
+        selector: String,
+    },
+
+    /// Get a human-readable description of an element (tag, role, text, etc.).
+    Describe {
+        session: SessionId,
+        tab: TabId,
+        selector: String,
+    },
+
+    /// Get the interactive state of an element (visible, enabled, checked, etc.).
+    State {
+        session: SessionId,
+        tab: TabId,
+        selector: String,
+    },
+
+    /// Get the bounding box of an element.
+    #[serde(rename = "Box")]
+    Box_ {
+        session: SessionId,
+        tab: TabId,
+        selector: String,
+    },
+
+    /// Get computed styles of an element.
+    Styles {
+        session: SessionId,
+        tab: TabId,
+        selector: String,
+    },
+
+    /// Get the viewport dimensions.
+    Viewport {
+        session: SessionId,
+        tab: TabId,
+    },
+
+    /// Query elements matching a selector (css, xpath, or text).
+    Query {
+        session: SessionId,
+        tab: TabId,
+        selector: String,
+        /// Query mode: css, xpath, or text.
+        #[serde(default = "default_query_mode")]
+        mode: QueryMode,
+    },
+
+    /// Inspect the element at a specific point on the page.
+    InspectPoint {
+        session: SessionId,
+        tab: TabId,
+        x: f64,
+        y: f64,
+    },
+
+    /// Get console log messages.
+    LogsConsole {
+        session: SessionId,
+        tab: TabId,
+    },
+
+    /// Get error log messages.
+    LogsErrors {
+        session: SessionId,
+        tab: TabId,
+    },
+
+    // =======================================================================
+    // Data actions — Session-level (require session)
+    // =======================================================================
+    /// List all cookies for the session.
+    CookiesList {
+        session: SessionId,
+    },
+
+    /// Get a specific cookie by name.
+    CookiesGet {
+        session: SessionId,
+        name: String,
+    },
+
+    /// Set a cookie.
+    CookiesSet {
+        session: SessionId,
+        name: String,
+        value: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        domain: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        secure: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        http_only: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        same_site: Option<SameSite>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expires: Option<f64>,
+    },
+
+    /// Delete a cookie by name.
+    CookiesDelete {
+        session: SessionId,
+        name: String,
+    },
+
+    /// Clear all cookies for the session.
+    CookiesClear {
+        session: SessionId,
+    },
+
+    /// List all keys in web storage.
+    StorageList {
+        session: SessionId,
+        tab: TabId,
+        kind: StorageKind,
+    },
+
+    /// Get a value from web storage.
+    StorageGet {
+        session: SessionId,
+        tab: TabId,
+        kind: StorageKind,
+        key: String,
+    },
+
+    /// Set a value in web storage.
+    StorageSet {
+        session: SessionId,
+        tab: TabId,
+        kind: StorageKind,
+        key: String,
+        value: String,
+    },
+
+    /// Delete a key from web storage.
+    StorageDelete {
+        session: SessionId,
+        tab: TabId,
+        kind: StorageKind,
+        key: String,
+    },
+
+    /// Clear all web storage of the specified kind.
+    StorageClear {
+        session: SessionId,
+        tab: TabId,
+        kind: StorageKind,
+    },
+
+    // =======================================================================
+    // Interaction actions — Tab-level (require session + tab)
+    // =======================================================================
+    /// Select a value from a dropdown (`<select>`) element.
+    Select {
+        session: SessionId,
+        tab: TabId,
+        selector: String,
+        /// Value to select.
+        value: String,
+        /// If true, match by visible text instead of value attribute.
+        #[serde(default)]
+        by_text: bool,
+    },
+
+    /// Hover over an element.
+    Hover {
+        session: SessionId,
+        tab: TabId,
+        selector: String,
+    },
+
+    /// Focus an element.
+    Focus {
+        session: SessionId,
+        tab: TabId,
+        selector: String,
+    },
+
+    /// Press a keyboard key or chord (e.g. "Enter", "Control+A").
+    Press {
+        session: SessionId,
+        tab: TabId,
+        /// Key or chord string (e.g. "Enter", "Control+A", "Shift+Tab").
+        key_or_chord: String,
+    },
+
+    /// Drag an element to another element.
+    Drag {
+        session: SessionId,
+        tab: TabId,
+        /// Selector of the element to drag from.
+        from_selector: String,
+        /// Selector of the element to drop onto.
+        to_selector: String,
+    },
+
+    /// Upload files to a file input element.
+    Upload {
+        session: SessionId,
+        tab: TabId,
+        selector: String,
+        /// Absolute file paths to upload.
+        files: Vec<String>,
+    },
+
+    /// Scroll the page or an element.
+    Scroll {
+        session: SessionId,
+        tab: TabId,
+        /// Direction: "up", "down", "left", "right".
+        direction: String,
+        /// Amount to scroll in pixels (default: 300).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        amount: Option<i32>,
+        /// Optional selector to scroll within (defaults to page).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
+    },
+
+    /// Move the mouse to absolute coordinates.
+    MouseMove {
+        session: SessionId,
+        tab: TabId,
+        x: f64,
+        y: f64,
+    },
+
+    /// Get the current cursor position.
+    CursorPosition {
+        session: SessionId,
+        tab: TabId,
+    },
+
+    // =======================================================================
+    // Waiting actions — Tab-level (require session + tab)
+    // =======================================================================
+    /// Wait for a navigation to complete.
+    WaitNavigation {
+        session: SessionId,
+        tab: TabId,
+        /// Timeout in milliseconds (default: 30000).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<u64>,
+    },
+
+    /// Wait for network to become idle.
+    WaitNetworkIdle {
+        session: SessionId,
+        tab: TabId,
+        /// Timeout in milliseconds (default: 30000).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<u64>,
+        /// Milliseconds of idle time to consider "idle" (default: 500).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        idle_time_ms: Option<u64>,
+    },
+
+    /// Wait for a JS expression to evaluate to truthy.
+    WaitCondition {
+        session: SessionId,
+        tab: TabId,
+        /// JavaScript expression that should return a truthy value.
+        expression: String,
+        /// Timeout in milliseconds (default: 30000).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<u64>,
+    },
+
+    // =======================================================================
+    // Session management
+    // =======================================================================
+    /// Close and re-start a session with the same profile/mode.
+    RestartSession {
+        session: SessionId,
+    },
 }
 
 impl Action {
@@ -246,13 +567,67 @@ impl Action {
             | Action::Eval { session, .. }
             | Action::WaitElement { session, .. }
             | Action::Html { session, .. }
-            | Action::Text { session, .. } => Some(*session),
+            | Action::Text { session, .. }
+
+            // Observation (tab-level)
+            | Action::Pdf { session, .. }
+            | Action::Title { session, .. }
+            | Action::Url { session, .. }
+            | Action::Value { session, .. }
+            | Action::Attr { session, .. }
+            | Action::Attrs { session, .. }
+            | Action::Describe { session, .. }
+            | Action::State { session, .. }
+            | Action::Box_ { session, .. }
+            | Action::Styles { session, .. }
+            | Action::Viewport { session, .. }
+            | Action::Query { session, .. }
+            | Action::InspectPoint { session, .. }
+            | Action::LogsConsole { session, .. }
+            | Action::LogsErrors { session, .. }
+
+            // Data (session-level)
+            | Action::CookiesList { session, .. }
+            | Action::CookiesGet { session, .. }
+            | Action::CookiesSet { session, .. }
+            | Action::CookiesDelete { session, .. }
+            | Action::CookiesClear { session, .. }
+
+            // Data (tab-level storage)
+            | Action::StorageList { session, .. }
+            | Action::StorageGet { session, .. }
+            | Action::StorageSet { session, .. }
+            | Action::StorageDelete { session, .. }
+            | Action::StorageClear { session, .. }
+
+            // Interaction (tab-level)
+            | Action::Select { session, .. }
+            | Action::Hover { session, .. }
+            | Action::Focus { session, .. }
+            | Action::Press { session, .. }
+            | Action::Drag { session, .. }
+            | Action::Upload { session, .. }
+            | Action::Scroll { session, .. }
+            | Action::MouseMove { session, .. }
+            | Action::CursorPosition { session, .. }
+
+            // Waiting (tab-level)
+            | Action::WaitNavigation { session, .. }
+            | Action::WaitNetworkIdle { session, .. }
+            | Action::WaitCondition { session, .. }
+
+            // Session management
+            | Action::RestartSession { session, .. } => Some(*session),
         }
     }
 }
 
 fn default_mode() -> Mode {
     Mode::Local
+}
+
+fn default_query_mode() -> QueryMode {
+    QueryMode::Css
 }
 
 // ---------------------------------------------------------------------------
