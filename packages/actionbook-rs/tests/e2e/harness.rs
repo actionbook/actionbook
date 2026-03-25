@@ -13,10 +13,14 @@ use std::time::Duration;
 
 // ── Isolated environment ────────────────────────────────────────────
 
-/// Isolated HOME / XDG environment so tests never touch real config.
+/// Isolated XDG environment so tests never touch real config.
+///
+/// NOTE: We only override XDG_CONFIG_HOME and XDG_DATA_HOME, NOT HOME.
+/// On macOS, Chrome derives its profile directory from HOME — overriding
+/// HOME causes Chrome to fail to bind its CDP port.  Actionbook reads its
+/// own config via XDG paths, so this is sufficient for isolation.
 pub struct IsolatedEnv {
     _tmp: tempfile::TempDir,
-    pub home: String,
     pub config_home: String,
     pub data_home: String,
 }
@@ -27,27 +31,13 @@ static ENV: OnceLock<IsolatedEnv> = OnceLock::new();
 pub fn shared_env() -> &'static IsolatedEnv {
     ENV.get_or_init(|| {
         let tmp = tempfile::tempdir().expect("create temp dir");
-        let home = tmp.path().join("home");
         let config_home = tmp.path().join("config");
         let data_home = tmp.path().join("data");
 
-        fs::create_dir_all(&home).unwrap();
         fs::create_dir_all(&config_home).unwrap();
         fs::create_dir_all(&data_home).unwrap();
 
-        // On macOS, suppress Keychain permission dialogs.
-        if cfg!(target_os = "macos") {
-            let config_dir = home.join("Library/Application Support/actionbook");
-            fs::create_dir_all(&config_dir).unwrap();
-            fs::write(
-                config_dir.join("config.toml"),
-                "[profiles.actionbook]\ncdp_port = 9222\nextra_args = [\"--use-mock-keychain\"]\n",
-            )
-            .unwrap();
-        }
-
         IsolatedEnv {
-            home: home.to_string_lossy().to_string(),
             config_home: config_home.to_string_lossy().to_string(),
             data_home: data_home.to_string_lossy().to_string(),
             _tmp: tmp,
@@ -67,31 +57,33 @@ pub fn skip() -> bool {
 
 // ── CLI runners ─────────────────────────────────────────────────────
 
-/// Run `actionbook --headless <args>` with the isolated environment.
+/// Run `actionbook --headless --no-daemon <args>` with the isolated environment.
+///
+/// Uses `--no-daemon` to avoid daemon process inheriting a different env.
 pub fn headless(args: &[&str], timeout_secs: u64) -> Output {
     let env = shared_env();
     Command::cargo_bin("actionbook")
         .expect("binary exists")
-        .env("HOME", &env.home)
         .env("XDG_CONFIG_HOME", &env.config_home)
         .env("XDG_DATA_HOME", &env.data_home)
         .arg("--headless")
+        .arg("--no-daemon")
         .args(args)
         .timeout(Duration::from_secs(timeout_secs))
         .output()
         .expect("failed to execute command")
 }
 
-/// Run `actionbook --json --headless <args>` with the isolated environment.
+/// Run `actionbook --json --headless --no-daemon <args>` with the isolated environment.
 pub fn headless_json(args: &[&str], timeout_secs: u64) -> Output {
     let env = shared_env();
     Command::cargo_bin("actionbook")
         .expect("binary exists")
-        .env("HOME", &env.home)
         .env("XDG_CONFIG_HOME", &env.config_home)
         .env("XDG_DATA_HOME", &env.data_home)
         .arg("--json")
         .arg("--headless")
+        .arg("--no-daemon")
         .args(args)
         .timeout(Duration::from_secs(timeout_secs))
         .output()
