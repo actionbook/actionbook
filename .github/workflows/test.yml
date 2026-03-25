@@ -1,4 +1,4 @@
-name: E2E Tests
+name: Tests
 
 on:
   push:
@@ -6,8 +6,75 @@ on:
   pull_request:
     branches: [main, "release/**"]
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  e2e:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/actionbook-rs/target
+          key: ${{ runner.os }}-cargo-ut-${{ hashFiles('packages/actionbook-rs/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-ut-
+
+      - name: Install cargo2junit
+        run: cargo install cargo2junit
+
+      - name: Run unit tests (lib)
+        working-directory: packages/actionbook-rs
+        run: |
+          cargo test --lib -- -Z unstable-options --format json 2>&1 | cargo2junit > unit-test-results.xml
+          # Also run with normal output for logs
+          cargo test --lib 2>&1 | tee unit-test-output.txt
+
+      - name: Run CLI integration tests
+        working-directory: packages/actionbook-rs
+        run: |
+          cargo test --test cli_test -- -Z unstable-options --format json 2>&1 | cargo2junit > cli-test-results.xml
+          cargo test --test cli_test 2>&1 | tee cli-test-output.txt
+
+      - name: Run CDP parsing tests
+        working-directory: packages/actionbook-rs
+        run: |
+          cargo test --test cdp_message_parsing -- -Z unstable-options --format json 2>&1 | cargo2junit > cdp-test-results.xml
+          cargo test --test cdp_message_parsing 2>&1 | tee cdp-test-output.txt
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results
+          path: |
+            packages/actionbook-rs/unit-test-results.xml
+            packages/actionbook-rs/cli-test-results.xml
+            packages/actionbook-rs/cdp-test-results.xml
+            packages/actionbook-rs/*-test-output.txt
+
+      - name: Publish test report
+        uses: mikepenz/action-junit-report@v4
+        if: always()
+        with:
+          report_paths: packages/actionbook-rs/*-test-results.xml
+          check_name: Unit Test Report
+          include_passed: true
+
+  e2e-tests:
+    name: E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -24,21 +91,79 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             packages/actionbook-rs/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('packages/actionbook-rs/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('packages/actionbook-rs/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-cargo-e2e-
 
       - name: Install Chrome
         uses: browser-actions/setup-chrome@v1
         with:
           chrome-version: stable
 
-      - name: Build actionbook binary
-        working-directory: packages/actionbook-rs
-        run: cargo build --release
+      - name: Install cargo2junit
+        run: cargo install cargo2junit
 
       - name: Run E2E tests
         working-directory: packages/actionbook-rs
         env:
           RUN_E2E_TESTS: "true"
-        run: cargo test --test e2e -- --test-threads=1 --nocapture
+        run: |
+          cargo test --test e2e -- --test-threads=1 --nocapture -Z unstable-options --format json 2>&1 | cargo2junit > e2e-test-results.xml
+          # Re-run with human-readable output for logs
+          RUN_E2E_TESTS=true cargo test --test e2e -- --test-threads=1 --nocapture 2>&1 | tee e2e-test-output.txt
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-test-results
+          path: |
+            packages/actionbook-rs/e2e-test-results.xml
+            packages/actionbook-rs/e2e-test-output.txt
+
+      - name: Publish test report
+        uses: mikepenz/action-junit-report@v4
+        if: always()
+        with:
+          report_paths: packages/actionbook-rs/e2e-test-results.xml
+          check_name: E2E Test Report
+          include_passed: true
+
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [unit-tests, e2e-tests]
+    if: always()
+
+    steps:
+      - name: Download all test results
+        uses: actions/download-artifact@v4
+        with:
+          path: test-results
+
+      - name: Summary
+        run: |
+          echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "| Suite | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.unit-tests.result }}" = "success" ]; then
+            echo "| Unit Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Unit Tests | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.e2e-tests.result }}" = "success" ]; then
+            echo "| E2E Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| E2E Tests | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See individual job reports for details." >> $GITHUB_STEP_SUMMARY
+
+      - name: Check results
+        if: needs.unit-tests.result == 'failure' || needs.e2e-tests.result == 'failure'
+        run: exit 1
