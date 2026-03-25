@@ -10,4 +10,5 @@ mod api;
 pub mod commands;
 #[cfg(unix)]
 pub mod daemon;
+pub mod daemon_v2;
 mod update_notifier;

@@ -32,6 +32,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signa
 chromiumoxide = { version = "0.8", features = ["tokio-runtime"], default-features = false }
 futures = "0.3"
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+tokio-stream = "0.1"
+tokio-util = "0.7"
 
 # HTTP client (for API calls)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
