@@ -4,13 +4,17 @@
 //! The CLI is stateless: it parses args, constructs an [`Action`], sends it
 //! to the daemon via [`DaemonClient`], and formats the [`ActionResult`].
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand};
+use tokio::net::UnixStream;
+use tracing::{debug, info};
 
 use super::action::Action;
 use super::client::{self, DaemonClient};
+use super::daemon_main::DaemonConfig;
 use super::formatter;
 use super::types::{Mode, QueryMode, SameSite, SessionId, StorageKind, TabId};
 
@@ -1074,11 +1078,77 @@ fn build_action(cmd: BrowserCmd) -> Result<Action, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Daemon auto-start
+// ---------------------------------------------------------------------------
+
+/// Maximum time to wait for the daemon to become ready after forking.
+const DAEMON_READY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Interval between socket connectivity probes.
+const DAEMON_PROBE_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Check whether the daemon socket is connectable.
+async fn socket_is_ready(path: &Path) -> bool {
+    UnixStream::connect(path).await.is_ok()
+}
+
+/// Ensure the daemon is running. If the socket is not connectable, fork a
+/// daemon child process and wait until the socket becomes available (up to
+/// [`DAEMON_READY_TIMEOUT`]).
+pub async fn ensure_daemon_running(socket_path: &Path) -> Result<(), String> {
+    if socket_is_ready(socket_path).await {
+        debug!("daemon already running at {}", socket_path.display());
+        return Ok(());
+    }
+
+    info!("daemon not running, auto-starting...");
+
+    // Re-exec ourselves with `daemon serve-v2` which runs run_daemon() in foreground.
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("cannot determine own executable: {e}"))?;
+
+    let child = std::process::Command::new(&exe)
+        .args(["daemon", "serve-v2"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("failed to spawn daemon: {e}"))?;
+
+    info!("daemon child spawned (pid {})", child.id());
+
+    // Wait for the socket to become connectable.
+    let deadline = tokio::time::Instant::now() + DAEMON_READY_TIMEOUT;
+    loop {
+        if socket_is_ready(socket_path).await {
+            info!("daemon ready at {}", socket_path.display());
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(format!(
+                "daemon did not become ready within {}s at {}",
+                DAEMON_READY_TIMEOUT.as_secs(),
+                socket_path.display()
+            ));
+        }
+        tokio::time::sleep(DAEMON_PROBE_INTERVAL).await;
+    }
+}
+
+/// Run the daemon in the foreground (for `actionbook daemon serve-v2`).
+pub async fn run_daemon_foreground() -> Result<(), String> {
+    let config = DaemonConfig::default();
+    super::daemon_main::run_daemon(config)
+        .await
+        .map_err(|e| format!("daemon exited with error: {e}"))
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
 impl CliV2 {
-    /// Run the CLI: parse -> build Action -> send to daemon -> format output.
+    /// Run the CLI: ensure daemon -> parse -> build Action -> send -> format output.
     pub async fn run(self) -> ! {
         let socket_path = self.socket.unwrap_or_else(client::default_socket_path);
 
@@ -1090,6 +1160,12 @@ impl CliV2 {
                 process::exit(1);
             }
         };
+
+        // Auto-start daemon if not running.
+        if let Err(e) = ensure_daemon_running(&socket_path).await {
+            eprintln!("error: {e}");
+            process::exit(1);
+        }
 
         let mut client = match DaemonClient::connect(&socket_path).await {
             Ok(c) => c,

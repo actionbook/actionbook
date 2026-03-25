@@ -4422,6 +4422,7 @@ async fn fetch_via_browser(
         camofox_port: cli.camofox_port,
         no_daemon: true, // fetch uses its own temporary session
         auto_connect: false,
+        v1: false,
         command: crate::cli::Commands::Browser {
             command: BrowserCommands::Status,
         },
@@ -6207,6 +6208,7 @@ mod tests {
             camofox_port: None,
             no_daemon: true,
             auto_connect: false,
+            v1: false,
             command: Commands::Browser { command },
         }
     }

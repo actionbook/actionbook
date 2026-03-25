@@ -513,6 +513,7 @@ mod tests {
             camofox_port: None,
             no_daemon: true,
             auto_connect: false,
+            v1: false,
             command: crate::cli::Commands::Config {
                 command: crate::cli::ConfigCommands::Show,
             },

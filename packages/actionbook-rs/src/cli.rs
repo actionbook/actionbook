@@ -204,6 +204,10 @@ pub struct Cli {
     )]
     pub auto_connect: bool,
 
+    /// Force v0.x code path for browser commands (escape hatch during v2 transition)
+    #[arg(long = "v1", global = true, hide = true)]
+    pub v1: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -1201,6 +1205,10 @@ pub enum DaemonCommands {
         #[arg(long)]
         profile: Option<String>,
     },
+
+    /// Start the v2 daemon in the foreground (used by auto-start and for debugging)
+    #[command(name = "serve-v2")]
+    ServeV2,
 
     /// Check daemon status for the current profile
     Status,

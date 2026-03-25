@@ -6,6 +6,11 @@ use crate::config::Config;
 use crate::error::Result;
 
 pub async fn run(cli: &Cli, command: &DaemonCommands) -> Result<()> {
+    // serve-v2 is handled separately — it uses the daemon_v2 module directly.
+    if matches!(command, DaemonCommands::ServeV2) {
+        return run_serve_v2().await;
+    }
+
     #[cfg(not(unix))]
     {
         let _ = (cli, command);
@@ -18,6 +23,12 @@ pub async fn run(cli: &Cli, command: &DaemonCommands) -> Result<()> {
     {
         run_unix(cli, command).await
     }
+}
+
+async fn run_serve_v2() -> Result<()> {
+    crate::daemon_v2::cli_v2::run_daemon_foreground()
+        .await
+        .map_err(|e| crate::error::ActionbookError::DaemonError(e))
 }
 
 #[cfg(unix)]
@@ -108,5 +119,6 @@ async fn run_unix(cli: &Cli, command: &DaemonCommands) -> Result<()> {
             }
             Ok(())
         }
+        DaemonCommands::ServeV2 => unreachable!("handled before run_unix"),
     }
 }
