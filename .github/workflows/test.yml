@@ -35,27 +35,10 @@ jobs:
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
 
-      - name: Run unit tests (lib)
+      - name: Run all unit & integration tests
         working-directory: packages/actionbook-rs
         run: |
-          cargo nextest run --lib --profile ci 2>&1 | tee unit-test-output.txt
-
-      - name: Run CLI integration tests
-        working-directory: packages/actionbook-rs
-        run: |
-          cargo nextest run --test cli_test --profile ci 2>&1 | tee cli-test-output.txt
-
-      - name: Run CDP parsing tests
-        working-directory: packages/actionbook-rs
-        run: |
-          cargo nextest run --test cdp_message_parsing --profile ci 2>&1 | tee cdp-test-output.txt
-
-      - name: Generate JUnit report
-        if: always()
-        working-directory: packages/actionbook-rs
-        run: |
-          cargo nextest run --lib --test cli_test --test cdp_message_parsing --profile ci 2>&1 || true
-          # nextest writes JUnit XML to target/nextest/ci/junit.xml
+          cargo nextest run --lib --test cli_test --test cdp_message_parsing --profile ci 2>&1 | tee unit-test-output.txt
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -64,7 +47,7 @@ jobs:
           name: unit-test-results
           path: |
             packages/actionbook-rs/target/nextest/ci/junit.xml
-            packages/actionbook-rs/*-test-output.txt
+            packages/actionbook-rs/unit-test-output.txt
 
       - name: Publish test report
         uses: mikepenz/action-junit-report@v4
