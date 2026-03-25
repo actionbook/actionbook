@@ -1,5 +1,5 @@
 ---
-title: 'GEO API'
+title: 'Evaluate API'
 description: 'Profile and evaluate API reference'
 ---
 
@@ -11,7 +11,7 @@ https://api.actionbook.dev
 
 ## Authentication
 
-All GEO endpoints require an Actionbook API key in the `x-api-key` header. You can create one from the [Actionbook dashboard](https://actionbook.dev/dashboard).
+All endpoints on this page require an Actionbook API key in the `x-api-key` header. You can create one from the [Actionbook dashboard](https://actionbook.dev/dashboard).
 
 ```bash
 curl -H "x-api-key: $API_KEY" "$BASE_URL/api/profiles"
@@ -61,7 +61,7 @@ curl -sS "$BASE_URL/api/profiles/$PROFILE_ID/finish" \
   -H "x-api-key: $API_KEY"
 ```
 
-Submit a GEO query:
+Submit a query:
 
 ```bash
 curl -N "$BASE_URL/api/evaluate" \
@@ -90,7 +90,7 @@ curl -sS "$BASE_URL/api/profiles/$PROFILE_ID" \
 
 ## `POST /api/profiles`
 
-Creates a GEO profile and returns a remote browser login URL.
+Creates a profile and returns a remote browser login URL.
 
 ### Headers
 
@@ -127,7 +127,7 @@ Creates a GEO profile and returns a remote browser login URL.
 
 ## `GET /api/profiles`
 
-Returns all GEO profiles owned by the current API key user.
+Returns all profiles owned by the current API key user.
 
 ### Success response
 
@@ -160,7 +160,7 @@ Returns all GEO profiles owned by the current API key user.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `profile_id` | `string` | GEO profile ID |
+| `profile_id` | `string` | Profile ID |
 | `provider` | `string` | Currently document `chatgpt` |
 | `created_time` | `string` | ISO 8601 |
 | `last_update_time` | `string` | ISO 8601 |
@@ -204,7 +204,7 @@ Returns a standard success envelope.
 
 ## `DELETE /api/profiles/{profileId}`
 
-Deletes the profile and related GEO task records.
+Deletes the profile and related evaluate task records.
 
 ### Success response
 
@@ -215,11 +215,11 @@ Returns a standard success envelope.
 - The API attempts to stop the active session first
 - The API attempts to delete the underlying HyperBrowser profile
 - Remote stop/delete failures are ignored so local cleanup can still finish
-- Related GEO tasks and chunks are deleted before the profile record
+- Related evaluate tasks and chunks are deleted before the profile record
 
 ## `POST /api/evaluate`
 
-Creates a GEO task and returns an SSE stream.
+Creates an evaluate task and returns an SSE stream.
 
 ### Request body
 
