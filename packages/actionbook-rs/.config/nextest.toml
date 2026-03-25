@@ -1,0 +1,7 @@
+[profile.ci]
+# Fail fast on CI
+fail-fast = true
+
+[profile.ci.junit]
+# Output JUnit XML for CI test reporting
+path = "junit.xml"

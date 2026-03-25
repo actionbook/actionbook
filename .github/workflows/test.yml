@@ -32,27 +32,30 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-ut-
 
-      - name: Install cargo2junit
-        run: cargo install cargo2junit
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
 
       - name: Run unit tests (lib)
         working-directory: packages/actionbook-rs
         run: |
-          cargo test --lib -- -Z unstable-options --format json 2>&1 | cargo2junit > unit-test-results.xml
-          # Re-run with human-readable output for logs
-          cargo test --lib 2>&1 | tee unit-test-output.txt
+          cargo nextest run --lib --profile ci 2>&1 | tee unit-test-output.txt
 
       - name: Run CLI integration tests
         working-directory: packages/actionbook-rs
         run: |
-          cargo test --test cli_test -- -Z unstable-options --format json 2>&1 | cargo2junit > cli-test-results.xml
-          cargo test --test cli_test 2>&1 | tee cli-test-output.txt
+          cargo nextest run --test cli_test --profile ci 2>&1 | tee cli-test-output.txt
 
       - name: Run CDP parsing tests
         working-directory: packages/actionbook-rs
         run: |
-          cargo test --test cdp_message_parsing -- -Z unstable-options --format json 2>&1 | cargo2junit > cdp-test-results.xml
-          cargo test --test cdp_message_parsing 2>&1 | tee cdp-test-output.txt
+          cargo nextest run --test cdp_message_parsing --profile ci 2>&1 | tee cdp-test-output.txt
+
+      - name: Generate JUnit report
+        if: always()
+        working-directory: packages/actionbook-rs
+        run: |
+          cargo nextest run --lib --test cli_test --test cdp_message_parsing --profile ci 2>&1 || true
+          # nextest writes JUnit XML to target/nextest/ci/junit.xml
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -60,16 +63,14 @@ jobs:
         with:
           name: unit-test-results
           path: |
-            packages/actionbook-rs/unit-test-results.xml
-            packages/actionbook-rs/cli-test-results.xml
-            packages/actionbook-rs/cdp-test-results.xml
+            packages/actionbook-rs/target/nextest/ci/junit.xml
             packages/actionbook-rs/*-test-output.txt
 
       - name: Publish test report
         uses: mikepenz/action-junit-report@v4
         if: always()
         with:
-          report_paths: packages/actionbook-rs/*-test-results.xml
+          report_paths: packages/actionbook-rs/target/nextest/ci/junit.xml
           check_name: Unit Test Report
           include_passed: true
 
@@ -100,17 +101,15 @@ jobs:
         with:
           chrome-version: stable
 
-      - name: Install cargo2junit
-        run: cargo install cargo2junit
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
 
       - name: Run E2E tests
         working-directory: packages/actionbook-rs
         env:
           RUN_E2E_TESTS: "true"
         run: |
-          cargo test --test e2e -- --test-threads=1 --nocapture -Z unstable-options --format json 2>&1 | cargo2junit > e2e-test-results.xml
-          # Re-run with human-readable output for logs
-          RUN_E2E_TESTS=true cargo test --test e2e -- --test-threads=1 --nocapture 2>&1 | tee e2e-test-output.txt
+          cargo nextest run --test e2e --test-threads=1 --profile ci 2>&1 | tee e2e-test-output.txt
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -118,14 +117,14 @@ jobs:
         with:
           name: e2e-test-results
           path: |
-            packages/actionbook-rs/e2e-test-results.xml
+            packages/actionbook-rs/target/nextest/ci/junit.xml
             packages/actionbook-rs/e2e-test-output.txt
 
       - name: Publish test report
         uses: mikepenz/action-junit-report@v4
         if: always()
         with:
-          report_paths: packages/actionbook-rs/e2e-test-results.xml
+          report_paths: packages/actionbook-rs/target/nextest/ci/junit.xml
           check_name: E2E Test Report
           include_passed: true
 
