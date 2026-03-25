@@ -254,6 +254,96 @@ impl BackendSession for MockBackend {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Mock backend factory — wraps MockBackend for router-driven StartSession tests
+// ---------------------------------------------------------------------------
+
+use actionbook::daemon_v2::backend::{
+    AttachSpec, BackendKind, BrowserBackendFactory, Capabilities, StartSpec,
+};
+use std::collections::HashMap;
+
+/// A configurable mock backend factory for testing StartSession flows.
+///
+/// Implements `BrowserBackendFactory` and returns `MockBackend` sessions from
+/// both `start()` and `attach()`. The `kind` determines the `BackendKind`
+/// reported by the factory.
+struct MockBackendFactory {
+    backend_kind: BackendKind,
+}
+
+impl MockBackendFactory {
+    fn new(kind: BackendKind) -> Self {
+        Self {
+            backend_kind: kind,
+        }
+    }
+}
+
+#[async_trait]
+impl BrowserBackendFactory for MockBackendFactory {
+    fn kind(&self) -> BackendKind {
+        self.backend_kind
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        Capabilities {
+            can_launch: self.backend_kind == BackendKind::Local,
+            can_attach: true,
+            can_resume: self.backend_kind == BackendKind::Local,
+            supports_headless: self.backend_kind == BackendKind::Local,
+        }
+    }
+
+    async fn start(&self, _spec: StartSpec) -> actionbook::error::Result<Box<dyn BackendSession>> {
+        Ok(Box::new(MockBackend::new()))
+    }
+
+    async fn attach(
+        &self,
+        _spec: AttachSpec,
+    ) -> actionbook::error::Result<Box<dyn BackendSession>> {
+        Ok(Box::new(MockBackend::new()))
+    }
+
+    async fn resume(
+        &self,
+        _cp: Checkpoint,
+    ) -> actionbook::error::Result<Box<dyn BackendSession>> {
+        Ok(Box::new(MockBackend::new()))
+    }
+}
+
+/// Start a test daemon with backend factories registered for the given modes.
+async fn start_test_daemon_with_factories(
+    factories: HashMap<Mode, Arc<dyn BrowserBackendFactory>>,
+) -> TestDaemon {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let socket_path = dir.path().join(format!("test-daemon-{}.sock", std::process::id()));
+    let pid_path = dir.path().join("test.pid");
+
+    let registry = Arc::new(Mutex::new(SessionRegistry::new()));
+    let router = Arc::new(Router::with_factories(Arc::clone(&registry), factories));
+    let shutdown = Arc::new(AtomicBool::new(false));
+
+    let server = DaemonServer::new(socket_path.clone(), pid_path, Arc::clone(&router));
+    let shutdown_clone = Arc::clone(&shutdown);
+    let handle = tokio::spawn(async move {
+        let _ = server.run(shutdown_clone).await;
+    });
+
+    // Wait for the server to bind.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    TestDaemon {
+        socket_path,
+        shutdown,
+        _handle: handle,
+        registry,
+        _dir: dir,
+    }
+}
+
 // ===========================================================================
 // Tests: daemon + mock backend (no Chrome required)
 // ===========================================================================
@@ -426,6 +516,198 @@ async fn e2e_multi_tab_new_and_close() {
     .await;
     let tabs = data["tabs"].as_array().expect("tabs array");
     assert_eq!(tabs.len(), 1, "should have 1 tab after CloseTab");
+}
+
+// ===========================================================================
+// Tests: Phase 2 — Extension/Cloud backend integration (mock, no real browser)
+// ===========================================================================
+
+#[tokio::test]
+async fn e2e_start_extension_session_mock() {
+    let mut factories: HashMap<Mode, Arc<dyn BrowserBackendFactory>> = HashMap::new();
+    factories.insert(
+        Mode::Extension,
+        Arc::new(MockBackendFactory::new(BackendKind::Extension)),
+    );
+
+    let daemon = start_test_daemon_with_factories(factories).await;
+
+    // Start an extension session
+    let data = send_ok(
+        &daemon,
+        Action::StartSession {
+            mode: Mode::Extension,
+            profile: None,
+            headless: false,
+            open_url: None,
+            cdp_endpoint: None,
+        },
+    )
+    .await;
+
+    let session_id = data["session_id"].as_str().expect("session_id");
+    assert_eq!(session_id, "s0");
+
+    // Verify the session appears in list-sessions with Extension mode
+    let data = send_ok(&daemon, Action::ListSessions).await;
+    let sessions = data["sessions"].as_array().expect("sessions array");
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0]["id"], "s0");
+    assert_eq!(sessions[0]["mode"], "extension");
+}
+
+#[tokio::test]
+async fn e2e_start_cloud_session_mock() {
+    let mut factories: HashMap<Mode, Arc<dyn BrowserBackendFactory>> = HashMap::new();
+    factories.insert(
+        Mode::Cloud,
+        Arc::new(MockBackendFactory::new(BackendKind::Cloud)),
+    );
+
+    let daemon = start_test_daemon_with_factories(factories).await;
+
+    // Start a cloud session with a CDP endpoint
+    let data = send_ok(
+        &daemon,
+        Action::StartSession {
+            mode: Mode::Cloud,
+            profile: None,
+            headless: false,
+            open_url: None,
+            cdp_endpoint: Some("wss://mock-cloud.example.com/browser".into()),
+        },
+    )
+    .await;
+
+    let session_id = data["session_id"].as_str().expect("session_id");
+    assert_eq!(session_id, "s0");
+
+    // Verify the session appears in list-sessions with Cloud mode
+    let data = send_ok(&daemon, Action::ListSessions).await;
+    let sessions = data["sessions"].as_array().expect("sessions array");
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0]["id"], "s0");
+    assert_eq!(sessions[0]["mode"], "cloud");
+}
+
+#[tokio::test]
+async fn e2e_multi_mode_sessions() {
+    let mut factories: HashMap<Mode, Arc<dyn BrowserBackendFactory>> = HashMap::new();
+    factories.insert(
+        Mode::Local,
+        Arc::new(MockBackendFactory::new(BackendKind::Local)),
+    );
+    factories.insert(
+        Mode::Cloud,
+        Arc::new(MockBackendFactory::new(BackendKind::Cloud)),
+    );
+
+    let daemon = start_test_daemon_with_factories(factories).await;
+
+    // Start a local session
+    let data = send_ok(
+        &daemon,
+        Action::StartSession {
+            mode: Mode::Local,
+            profile: Some("local-profile".into()),
+            headless: true,
+            open_url: None,
+            cdp_endpoint: None,
+        },
+    )
+    .await;
+    assert_eq!(data["session_id"].as_str().unwrap(), "s0");
+
+    // Start a cloud session simultaneously
+    let data = send_ok(
+        &daemon,
+        Action::StartSession {
+            mode: Mode::Cloud,
+            profile: Some("cloud-profile".into()),
+            headless: false,
+            open_url: None,
+            cdp_endpoint: Some("wss://mock.example.com/browser".into()),
+        },
+    )
+    .await;
+    assert_eq!(data["session_id"].as_str().unwrap(), "s1");
+
+    // Verify both appear in list-sessions with correct modes
+    let data = send_ok(&daemon, Action::ListSessions).await;
+    let sessions = data["sessions"].as_array().expect("sessions array");
+    assert_eq!(sessions.len(), 2);
+
+    assert_eq!(sessions[0]["id"], "s0");
+    assert_eq!(sessions[0]["mode"], "local");
+    assert_eq!(sessions[0]["profile"], "local-profile");
+
+    assert_eq!(sessions[1]["id"], "s1");
+    assert_eq!(sessions[1]["mode"], "cloud");
+    assert_eq!(sessions[1]["profile"], "cloud-profile");
+}
+
+#[tokio::test]
+async fn e2e_cloud_requires_endpoint() {
+    let mut factories: HashMap<Mode, Arc<dyn BrowserBackendFactory>> = HashMap::new();
+    factories.insert(
+        Mode::Cloud,
+        Arc::new(MockBackendFactory::new(BackendKind::Cloud)),
+    );
+
+    let daemon = start_test_daemon_with_factories(factories).await;
+
+    // Start cloud session WITHOUT cdp_endpoint -> should fail
+    send_fatal(
+        &daemon,
+        Action::StartSession {
+            mode: Mode::Cloud,
+            profile: None,
+            headless: false,
+            open_url: None,
+            cdp_endpoint: None,
+        },
+        "missing_cdp_endpoint",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn e2e_extension_single_session_constraint() {
+    let mut factories: HashMap<Mode, Arc<dyn BrowserBackendFactory>> = HashMap::new();
+    factories.insert(
+        Mode::Extension,
+        Arc::new(MockBackendFactory::new(BackendKind::Extension)),
+    );
+
+    let daemon = start_test_daemon_with_factories(factories).await;
+
+    // Start first extension session -> should succeed
+    let data = send_ok(
+        &daemon,
+        Action::StartSession {
+            mode: Mode::Extension,
+            profile: None,
+            headless: false,
+            open_url: None,
+            cdp_endpoint: None,
+        },
+    )
+    .await;
+    assert_eq!(data["session_id"].as_str().unwrap(), "s0");
+
+    // Start second extension session -> should fail with extension_session_exists
+    send_fatal(
+        &daemon,
+        Action::StartSession {
+            mode: Mode::Extension,
+            profile: None,
+            headless: false,
+            open_url: None,
+            cdp_endpoint: None,
+        },
+        "extension_session_exists",
+    )
+    .await;
 }
 
 // ===========================================================================

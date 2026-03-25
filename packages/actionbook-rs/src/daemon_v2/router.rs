@@ -5,6 +5,7 @@
 //! (global commands) or forwards them to the appropriate session actor via a
 //! channel + oneshot pattern.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -13,7 +14,7 @@ use tracing::info;
 
 use super::action::Action;
 use super::action_result::ActionResult;
-use super::backend::{BrowserBackendFactory, StartSpec, TargetInfo};
+use super::backend::{AttachSpec, BrowserBackendFactory, StartSpec, TargetInfo};
 use super::registry::{SessionHandle, SessionRegistry, SessionState};
 use super::session_actor::{ActionRequest, SessionActor};
 use super::types::{Mode, SessionId};
@@ -25,30 +26,44 @@ use super::types::{Mode, SessionId};
 /// The request router — classifies Actions and dispatches them.
 pub struct Router {
     pub registry: Arc<Mutex<SessionRegistry>>,
-    /// Backend factory for creating new sessions.
-    factory: Option<Arc<dyn BrowserBackendFactory>>,
+    /// Backend factories keyed by Mode.
+    factories: HashMap<Mode, Arc<dyn BrowserBackendFactory>>,
     /// Path for persisting daemon state (None = no persistence).
     pub state_path: Option<PathBuf>,
 }
 
 impl Router {
-    /// Create a new router with the given registry.
+    /// Create a new router with the given registry (no factories — StartSession will fail).
     pub fn new(registry: Arc<Mutex<SessionRegistry>>) -> Self {
         Router {
             registry,
-            factory: None,
+            factories: HashMap::new(),
             state_path: None,
         }
     }
 
-    /// Create a new router with a backend factory for StartSession support.
+    /// Create a new router with a single backend factory (backwards compat).
     pub fn with_factory(
         registry: Arc<Mutex<SessionRegistry>>,
         factory: Arc<dyn BrowserBackendFactory>,
     ) -> Self {
+        let mut factories = HashMap::new();
+        factories.insert(Mode::Local, factory);
         Router {
             registry,
-            factory: Some(factory),
+            factories,
+            state_path: None,
+        }
+    }
+
+    /// Create a new router with multiple backend factories keyed by mode.
+    pub fn with_factories(
+        registry: Arc<Mutex<SessionRegistry>>,
+        factories: HashMap<Mode, Arc<dyn BrowserBackendFactory>>,
+    ) -> Self {
+        Router {
+            registry,
+            factories,
             state_path: None,
         }
     }
@@ -63,10 +78,16 @@ impl Router {
                 profile,
                 headless,
                 open_url,
-                ..
+                cdp_endpoint,
             } => {
-                self.handle_start_session(*mode, profile.clone(), *headless, open_url.clone())
-                    .await
+                self.handle_start_session(
+                    *mode,
+                    profile.clone(),
+                    *headless,
+                    open_url.clone(),
+                    cdp_endpoint.clone(),
+                )
+                .await
             }
 
             // --- Close commands: forward to actor, then remove from registry ---
@@ -125,14 +146,15 @@ impl Router {
         profile: Option<String>,
         headless: bool,
         open_url: Option<String>,
+        cdp_endpoint: Option<String>,
     ) -> ActionResult {
-        let factory = match &self.factory {
+        let factory = match self.factories.get(&mode) {
             Some(f) => Arc::clone(f),
             None => {
                 return ActionResult::fatal(
                     "no_backend_factory",
-                    "no backend factory configured",
-                    "this is an internal error — please report it",
+                    &format!("no backend factory configured for mode '{mode}'"),
+                    "available modes depend on daemon configuration",
                 );
             }
         };
@@ -156,21 +178,82 @@ impl Router {
             }
         }
 
-        let spec = StartSpec {
-            profile: profile_name.clone(),
-            headless,
-            open_url,
-            extra_args: vec![],
-        };
-
-        let backend = match factory.start(spec).await {
-            Ok(b) => b,
-            Err(e) => {
+        // Extension mode: 1 extension = 1 session (v1.0 product constraint).
+        if mode == Mode::Extension {
+            let registry = self.registry.lock().await;
+            let existing = registry.list_sessions();
+            if existing
+                .iter()
+                .any(|s| s.mode == Mode::Extension && s.state != SessionState::Closed)
+            {
                 return ActionResult::fatal(
-                    "backend_start_failed",
-                    &format!("failed to start browser: {e}"),
-                    "check that Chrome/Chromium is installed and accessible",
+                    "extension_session_exists",
+                    "an extension session already exists (limit: 1)",
+                    "close the existing extension session first",
                 );
+            }
+        }
+
+        // Cloud mode requires a CDP endpoint.
+        if mode == Mode::Cloud && cdp_endpoint.is_none() {
+            return ActionResult::fatal(
+                "missing_cdp_endpoint",
+                "cloud mode requires a CDP endpoint",
+                "pass --cdp-endpoint wss://... when using --mode cloud",
+            );
+        }
+
+        // Create backend session based on mode.
+        let backend = match mode {
+            Mode::Local => {
+                let spec = StartSpec {
+                    profile: profile_name.clone(),
+                    headless,
+                    open_url,
+                    extra_args: vec![],
+                };
+                match factory.start(spec).await {
+                    Ok(b) => b,
+                    Err(e) => {
+                        return ActionResult::fatal(
+                            "backend_start_failed",
+                            &format!("failed to start browser: {e}"),
+                            "check that Chrome/Chromium is installed and accessible",
+                        );
+                    }
+                }
+            }
+            Mode::Extension => {
+                let spec = AttachSpec {
+                    ws_url: String::new(), // Extension factory ignores ws_url; it binds its own port.
+                    headers: None,
+                };
+                match factory.attach(spec).await {
+                    Ok(b) => b,
+                    Err(e) => {
+                        return ActionResult::fatal(
+                            "backend_attach_failed",
+                            &format!("failed to connect to extension: {e}"),
+                            "ensure the Actionbook browser extension is installed and active",
+                        );
+                    }
+                }
+            }
+            Mode::Cloud => {
+                let spec = AttachSpec {
+                    ws_url: cdp_endpoint.unwrap(), // validated above
+                    headers: None, // TODO: support auth headers via CLI/action
+                };
+                match factory.attach(spec).await {
+                    Ok(b) => b,
+                    Err(e) => {
+                        return ActionResult::fatal(
+                            "backend_attach_failed",
+                            &format!("failed to connect to cloud browser: {e}"),
+                            "check that the WSS endpoint is reachable and auth is correct",
+                        );
+                    }
+                }
             }
         };
 
@@ -201,7 +284,7 @@ impl Router {
         };
         registry.register(session_id, handle);
 
-        info!("started session {session_id} with {} tab(s)", tab_ids.len());
+        info!("started session {session_id} ({mode}) with {} tab(s)", tab_ids.len());
 
         // Save state after session creation.
         self.trigger_save(&registry);
@@ -486,6 +569,176 @@ mod tests {
                 assert_eq!(code, "session_dead");
             }
             _ => panic!("expected Fatal"),
+        }
+    }
+
+    // -- Mock factory for testing mode-based dispatch --
+
+    use crate::daemon_v2::backend::{
+        AttachSpec, BackendKind, BrowserBackendFactory, Capabilities, StartSpec,
+    };
+
+    /// A mock factory that records which mode it represents and always
+    /// returns a MockBackend from start() and attach().
+    struct MockFactory {
+        mode: Mode,
+    }
+
+    impl MockFactory {
+        fn new(mode: Mode) -> Self {
+            Self { mode }
+        }
+    }
+
+    #[async_trait]
+    impl BrowserBackendFactory for MockFactory {
+        fn kind(&self) -> BackendKind {
+            match self.mode {
+                Mode::Local => BackendKind::Local,
+                Mode::Extension => BackendKind::Extension,
+                Mode::Cloud => BackendKind::Cloud,
+            }
+        }
+
+        fn capabilities(&self) -> Capabilities {
+            Capabilities {
+                can_launch: self.mode == Mode::Local,
+                can_attach: true,
+                can_resume: self.mode != Mode::Extension,
+                supports_headless: self.mode != Mode::Extension,
+            }
+        }
+
+        async fn start(&self, _spec: StartSpec) -> crate::error::Result<Box<dyn BackendSession>> {
+            Ok(Box::new(MockBackend))
+        }
+
+        async fn attach(
+            &self,
+            _spec: AttachSpec,
+        ) -> crate::error::Result<Box<dyn BackendSession>> {
+            Ok(Box::new(MockBackend))
+        }
+
+        async fn resume(
+            &self,
+            _cp: Checkpoint,
+        ) -> crate::error::Result<Box<dyn BackendSession>> {
+            Ok(Box::new(MockBackend))
+        }
+    }
+
+    fn make_multi_factory_router() -> Router {
+        let registry = Arc::new(Mutex::new(SessionRegistry::new()));
+        let mut factories: HashMap<Mode, Arc<dyn BrowserBackendFactory>> = HashMap::new();
+        factories.insert(Mode::Local, Arc::new(MockFactory::new(Mode::Local)));
+        factories.insert(Mode::Extension, Arc::new(MockFactory::new(Mode::Extension)));
+        factories.insert(Mode::Cloud, Arc::new(MockFactory::new(Mode::Cloud)));
+        Router::with_factories(registry, factories)
+    }
+
+    #[tokio::test]
+    async fn start_session_local_uses_local_factory() {
+        let router = make_multi_factory_router();
+        let result = router
+            .route(Action::StartSession {
+                mode: Mode::Local,
+                profile: None,
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+            })
+            .await;
+        assert!(result.is_ok(), "expected Ok, got: {result:?}");
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["session_id"], "s0");
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn start_session_extension_uses_extension_factory() {
+        let router = make_multi_factory_router();
+        let result = router
+            .route(Action::StartSession {
+                mode: Mode::Extension,
+                profile: None,
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+            })
+            .await;
+        assert!(result.is_ok(), "expected Ok, got: {result:?}");
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["session_id"], "s0");
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn start_session_cloud_uses_cloud_factory() {
+        let router = make_multi_factory_router();
+        let result = router
+            .route(Action::StartSession {
+                mode: Mode::Cloud,
+                profile: None,
+                headless: false,
+                open_url: None,
+                cdp_endpoint: Some("wss://cloud.example.com/browser".into()),
+            })
+            .await;
+        assert!(result.is_ok(), "expected Ok, got: {result:?}");
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["session_id"], "s0");
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn start_session_cloud_without_endpoint_returns_fatal() {
+        let router = make_multi_factory_router();
+        let result = router
+            .route(Action::StartSession {
+                mode: Mode::Cloud,
+                profile: None,
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+            })
+            .await;
+        match result {
+            ActionResult::Fatal { code, .. } => {
+                assert_eq!(code, "missing_cdp_endpoint");
+            }
+            _ => panic!("expected Fatal, got: {result:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn start_session_missing_factory_returns_fatal() {
+        // Router with no factories registered.
+        let registry = Arc::new(Mutex::new(SessionRegistry::new()));
+        let router = Router::new(registry);
+        let result = router
+            .route(Action::StartSession {
+                mode: Mode::Local,
+                profile: None,
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+            })
+            .await;
+        match result {
+            ActionResult::Fatal { code, .. } => {
+                assert_eq!(code, "no_backend_factory");
+            }
+            _ => panic!("expected Fatal, got: {result:?}"),
         }
     }
 }

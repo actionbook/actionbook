@@ -9,9 +9,14 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
+use std::collections::HashMap;
+
+use super::backend::cloud::CloudBackendFactory;
+use super::backend::extension::ExtensionBackendFactory;
 use super::backend::local::LocalBackendFactory;
 use super::backend::BrowserBackendFactory;
 use super::persistence;
+use super::types::Mode;
 use super::recovery;
 use super::registry::SessionRegistry;
 use super::router::Router;
@@ -77,8 +82,11 @@ pub async fn run_daemon(config: DaemonConfig) -> std::io::Result<()> {
     // For now, we start fresh with an empty registry.
 
     let registry = Arc::new(Mutex::new(SessionRegistry::new()));
-    let factory: Arc<dyn BrowserBackendFactory> = Arc::new(LocalBackendFactory);
-    let mut router = Router::with_factory(registry, factory);
+    let mut factories: HashMap<Mode, Arc<dyn BrowserBackendFactory>> = HashMap::new();
+    factories.insert(Mode::Local, Arc::new(LocalBackendFactory));
+    factories.insert(Mode::Extension, Arc::new(ExtensionBackendFactory));
+    factories.insert(Mode::Cloud, Arc::new(CloudBackendFactory));
+    let mut router = Router::with_factories(registry, factories);
     router.state_path = Some(config.state_path.clone());
     let router = Arc::new(router);
     let shutdown = Arc::new(AtomicBool::new(false));

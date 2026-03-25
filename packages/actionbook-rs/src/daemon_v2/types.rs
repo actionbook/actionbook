@@ -97,7 +97,7 @@ impl FromStr for WindowId {
 // ---------------------------------------------------------------------------
 
 /// Browser connection mode, determining which [`BrowserBackend`] to use.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
     /// Launch and control a local Chrome process via CDP over `ws://127.0.0.1`.

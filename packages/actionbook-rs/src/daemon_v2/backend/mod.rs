@@ -6,11 +6,11 @@
 //! The daemon's session actor interacts exclusively through these traits;
 //! concrete implementations live in submodules:
 //! - [`local`] — Launch and control a local Chrome process via CDP over `ws://`
-//!
-//! Future:
-//! - `extension` — Connect to user's Chrome via extension bridge
-//! - `cloud` — Connect to remote browser via `wss://`
+//! - [`extension`] — Connect to user's Chrome via extension bridge WS
+//! - [`cloud`] — Connect to remote browser via `wss://`
 
+pub mod cloud;
+pub mod extension;
 pub mod local;
 pub mod types;
 

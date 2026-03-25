@@ -55,6 +55,9 @@ enum BrowserCmd {
         /// URL to open after session start
         #[arg(long)]
         open_url: Option<String>,
+        /// CDP WebSocket endpoint for cloud mode (e.g. wss://cloud.example.com/browser)
+        #[arg(long)]
+        cdp_endpoint: Option<String>,
     },
 
     /// List all active sessions
@@ -221,21 +224,32 @@ impl From<CliMode> for Mode {
 // Action construction — pure mapping, no logic
 // ---------------------------------------------------------------------------
 
-fn build_action(cmd: BrowserCmd) -> Action {
-    match cmd {
+fn build_action(cmd: BrowserCmd) -> Result<Action, String> {
+    Ok(match cmd {
         // Global
         BrowserCmd::Start {
             mode,
             profile,
             headless,
             open_url,
-        } => Action::StartSession {
-            mode: mode.into(),
-            profile,
-            headless,
-            open_url,
-            cdp_endpoint: None,
-        },
+            cdp_endpoint,
+        } => {
+            let mode: Mode = mode.into();
+            // Cloud mode requires --cdp-endpoint.
+            if mode == Mode::Cloud && cdp_endpoint.is_none() {
+                return Err(
+                    "cloud mode requires --cdp-endpoint wss://... to specify the remote browser"
+                        .into(),
+                );
+            }
+            Action::StartSession {
+                mode,
+                profile,
+                headless,
+                open_url,
+                cdp_endpoint,
+            }
+        }
         BrowserCmd::ListSessions => Action::ListSessions,
 
         // Session
@@ -326,7 +340,7 @@ fn build_action(cmd: BrowserCmd) -> Action {
             tab,
             expression: code,
         },
-    }
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -339,7 +353,13 @@ impl CliV2 {
         let socket_path = self.socket.unwrap_or_else(client::default_socket_path);
 
         let TopLevel::Browser { cmd } = self.command;
-        let action = build_action(cmd);
+        let action = match build_action(cmd) {
+            Ok(a) => a,
+            Err(e) => {
+                eprintln!("error: {e}");
+                process::exit(1);
+            }
+        };
 
         let mut client = match DaemonClient::connect(&socket_path).await {
             Ok(c) => c,
@@ -378,13 +398,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn build_start_action() {
+    fn build_start_action_local() {
         let action = build_action(BrowserCmd::Start {
             mode: CliMode::Local,
             profile: Some("test".into()),
             headless: true,
             open_url: Some("https://example.com".into()),
-        });
+            cdp_endpoint: None,
+        })
+        .unwrap();
         match action {
             Action::StartSession {
                 mode,
@@ -403,8 +425,65 @@ mod tests {
     }
 
     #[test]
+    fn build_start_action_cloud_with_endpoint() {
+        let action = build_action(BrowserCmd::Start {
+            mode: CliMode::Cloud,
+            profile: None,
+            headless: false,
+            open_url: None,
+            cdp_endpoint: Some("wss://cloud.example.com/browser".into()),
+        })
+        .unwrap();
+        match action {
+            Action::StartSession {
+                mode,
+                cdp_endpoint,
+                ..
+            } => {
+                assert_eq!(mode, Mode::Cloud);
+                assert_eq!(
+                    cdp_endpoint.as_deref(),
+                    Some("wss://cloud.example.com/browser")
+                );
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn build_start_action_cloud_without_endpoint_errors() {
+        let result = build_action(BrowserCmd::Start {
+            mode: CliMode::Cloud,
+            profile: None,
+            headless: false,
+            open_url: None,
+            cdp_endpoint: None,
+        });
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("--cdp-endpoint"));
+    }
+
+    #[test]
+    fn build_start_action_extension() {
+        let action = build_action(BrowserCmd::Start {
+            mode: CliMode::Extension,
+            profile: None,
+            headless: false,
+            open_url: None,
+            cdp_endpoint: None,
+        })
+        .unwrap();
+        match action {
+            Action::StartSession { mode, .. } => {
+                assert_eq!(mode, Mode::Extension);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
     fn build_list_sessions() {
-        let action = build_action(BrowserCmd::ListSessions);
+        let action = build_action(BrowserCmd::ListSessions).unwrap();
         assert!(matches!(action, Action::ListSessions));
     }
 
@@ -414,7 +493,8 @@ mod tests {
             url: "https://example.com".into(),
             session: SessionId(0),
             tab: TabId(1),
-        });
+        })
+        .unwrap();
         match action {
             Action::Goto {
                 session, tab, url, ..
@@ -434,7 +514,8 @@ mod tests {
             tab: TabId(0),
             interactive: true,
             compact: false,
-        });
+        })
+        .unwrap();
         match action {
             Action::Snapshot {
                 interactive,
@@ -452,7 +533,8 @@ mod tests {
     fn build_close_session() {
         let action = build_action(BrowserCmd::Close {
             session: SessionId(3),
-        });
+        })
+        .unwrap();
         match action {
             Action::CloseSession { session } => assert_eq!(session, SessionId(3)),
             _ => panic!("wrong variant"),
@@ -465,7 +547,8 @@ mod tests {
             selector: "#btn".into(),
             session: SessionId(0),
             tab: TabId(0),
-        });
+        })
+        .unwrap();
         match action {
             Action::Click {
                 selector,
@@ -487,7 +570,8 @@ mod tests {
             code: "document.title".into(),
             session: SessionId(1),
             tab: TabId(2),
-        });
+        })
+        .unwrap();
         match action {
             Action::Eval { expression, .. } => assert_eq!(expression, "document.title"),
             _ => panic!("wrong variant"),
