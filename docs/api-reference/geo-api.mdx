@@ -1,0 +1,296 @@
+---
+title: 'GEO API'
+description: 'Profile and evaluate API reference'
+---
+
+## Base URL
+
+```bash
+https://api.actionbook.dev
+```
+
+## Authentication
+
+All GEO endpoints require an Actionbook API key in the `x-api-key` header. You can create one from the [Actionbook dashboard](https://actionbook.dev/dashboard).
+
+```bash
+curl -H "x-api-key: $API_KEY" "$BASE_URL/api/profiles"
+```
+
+## Quick flow
+
+Set variables:
+
+```bash
+export BASE_URL="https://api.actionbook.dev"
+export API_KEY="your_api_key"
+```
+
+Create a profile:
+
+```bash
+curl -sS "$BASE_URL/api/profiles" \
+  -X POST \
+  -H "x-api-key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+Example live response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "profile_id": "gp_41f856e9997d4d5c",
+    "profile_login_url": "https://app.hyperbrowser.ai/live?token=<redacted>&liveDomain=https://connect-us-east-1.hyperbrowser.ai"
+  },
+  "code": 0,
+  "error": "",
+  "message": ""
+}
+```
+
+Finish login and persist the profile:
+
+```bash
+export PROFILE_ID="gp_41f856e9997d4d5c"
+
+curl -sS "$BASE_URL/api/profiles/$PROFILE_ID/finish" \
+  -X POST \
+  -H "x-api-key: $API_KEY"
+```
+
+Submit a GEO query:
+
+```bash
+curl -N "$BASE_URL/api/evaluate" \
+  -X POST \
+  -H "x-api-key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"input\":\"What is the best CRM software for small businesses?\",\"profile_id\":\"$PROFILE_ID\"}"
+```
+
+List profiles:
+
+```bash
+curl -sS "$BASE_URL/api/profiles" \
+  -H "x-api-key: $API_KEY"
+```
+
+Delete a profile:
+
+```bash
+curl -sS "$BASE_URL/api/profiles/$PROFILE_ID" \
+  -X DELETE \
+  -H "x-api-key: $API_KEY"
+```
+
+## API Reference
+
+## `POST /api/profiles`
+
+Creates a GEO profile and returns a remote browser login URL.
+
+### Headers
+
+| Name | Required | Value |
+| --- | --- | --- |
+| `x-api-key` | Yes | Actionbook API key |
+| `Content-Type` | No | `application/json` when sending a body |
+
+### Request body
+
+```json
+{}
+```
+
+### Success response
+
+```json
+{
+  "success": true,
+  "data": {
+    "profile_id": "gp_41f856e9997d4d5c",
+    "profile_login_url": "https://app.hyperbrowser.ai/live?token=<redacted>&liveDomain=https://connect-us-east-1.hyperbrowser.ai"
+  },
+  "code": 0,
+  "error": "",
+  "message": ""
+}
+```
+
+### Notes
+
+- `profile_id` values use the `gp_` prefix
+- `profile_login_url` is a HyperBrowser live session URL
+
+## `GET /api/profiles`
+
+Returns all GEO profiles owned by the current API key user.
+
+### Success response
+
+```json
+{
+  "success": true,
+  "data": {
+    "profiles": [
+      {
+        "profile_id": "gp_41f856e9997d4d5c",
+        "provider": "chatgpt",
+        "created_time": "2026-03-25T03:50:25.736Z",
+        "last_update_time": "2026-03-25T03:52:13.640Z"
+      },
+      {
+        "profile_id": "gp_2079c71faf974f94",
+        "provider": "chatgpt",
+        "created_time": "2026-03-24T17:55:01.874Z",
+        "last_update_time": "2026-03-24T17:57:35.867Z"
+      }
+    ]
+  },
+  "code": 0,
+  "error": "",
+  "message": ""
+}
+```
+
+### Profile fields
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `profile_id` | `string` | GEO profile ID |
+| `provider` | `string` | Currently document `chatgpt` |
+| `created_time` | `string` | ISO 8601 |
+| `last_update_time` | `string` | ISO 8601 |
+
+## `PUT /api/profiles/{profileId}`
+
+Re-opens a login session for an existing profile.
+
+### Success response
+
+
+```json
+{
+  "success": true,
+  "data": {
+    "profile_id": "gp_41f856e9997d4d5c",
+    "profile_login_url": "https://app.hyperbrowser.ai/live?token=<redacted>&liveDomain=https://connect-us-east-1.hyperbrowser.ai"
+  },
+  "code": 0,
+  "error": "",
+  "message": ""
+}
+```
+
+### Notes
+
+- You still need to log in and call `POST /api/profiles/{profileId}/finish`
+
+## `POST /api/profiles/{profileId}/finish`
+
+Stops the active session for a profile.
+
+### Success response
+
+Returns a standard success envelope.
+
+### Important behavior
+
+- If `hb_session_id` is missing, the endpoint still succeeds
+- If stopping the remote session fails, the endpoint returns `500`
+
+## `DELETE /api/profiles/{profileId}`
+
+Deletes the profile and related GEO task records.
+
+### Success response
+
+Returns a standard success envelope.
+
+### Important behavior
+
+- The API attempts to stop the active session first
+- The API attempts to delete the underlying HyperBrowser profile
+- Remote stop/delete failures are ignored so local cleanup can still finish
+- Related GEO tasks and chunks are deleted before the profile record
+
+## `POST /api/evaluate`
+
+Creates a GEO task and returns an SSE stream.
+
+### Request body
+
+```json
+{
+  "input": "What is the best CRM software for small businesses?",
+  "profile_id": "gp_41f856e9997d4d5c",
+  "chat_id": "chat_abc",
+  "provider": "chatgpt"
+}
+```
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `input` | `string` | Yes | Must be non-empty |
+| `profile_id` | `string` | Yes | Must belong to the current user |
+| `chat_id` | `string \| null` | No | Continue an existing conversation |
+| `provider` | `string` | No | Defaults to `chatgpt` |
+
+### Success response
+
+Status: `200`
+
+Headers:
+
+```http
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+```
+
+Events:
+
+```text
+event: start
+data: {"task_id":"gt_1234567890abcdef","chat_id":null,"profile_id":"gp_41f856e9997d4d5c"}
+
+event: chunk
+data: {"content":"Based on my research, "}
+
+event: complete
+data: {"chat_id":"chat_abc","output":{"content":"final answer","created_at":"2026-03-20T07:45:00.000Z","completed_at":"2026-03-20T07:45:32.000Z"}}
+```
+
+Terminal errors arrive as:
+
+```text
+event: error
+data: {"error":"Task execution failed"}
+```
+
+### Pre-stream validation errors
+
+Before the stream starts, errors return raw JSON:
+
+```json
+{
+  "error": "Profile not found"
+}
+```
+
+Other possible messages:
+
+- `input is required`
+- `profile_id is required`
+- `Invalid JSON body`
+- `User ID not found`
+
+### Notes
+
+- The API sends `start` immediately after task creation
+- The stream polls task state every second
+- The stream times out after about 5 minutes
+- If the task record disappears during polling, the stream emits `Task not found`
