@@ -9,6 +9,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
+use super::backend::local::LocalBackendFactory;
+use super::backend::BrowserBackendFactory;
 use super::persistence;
 use super::recovery;
 use super::registry::SessionRegistry;
@@ -75,11 +77,35 @@ pub async fn run_daemon(config: DaemonConfig) -> std::io::Result<()> {
     // For now, we start fresh with an empty registry.
 
     let registry = Arc::new(Mutex::new(SessionRegistry::new()));
-    let router = Arc::new(Router::new(registry));
+    let factory: Arc<dyn BrowserBackendFactory> = Arc::new(LocalBackendFactory);
+    let mut router = Router::with_factory(registry, factory);
+    router.state_path = Some(config.state_path.clone());
+    let router = Arc::new(router);
     let shutdown = Arc::new(AtomicBool::new(false));
 
-    let server = DaemonServer::new(config.socket_path, config.pid_path, router);
+    // Spawn periodic state save task (every 30s).
+    let periodic_router = Arc::clone(&router);
+    let periodic_shutdown = Arc::clone(&shutdown);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            if periodic_shutdown.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+            let registry = periodic_router.registry.lock().await;
+            periodic_router.trigger_save(&registry);
+        }
+    });
+
+    let server = DaemonServer::new(config.socket_path, config.pid_path, Arc::clone(&router));
     server.run(shutdown).await?;
+
+    // Save state on shutdown.
+    {
+        let registry = router.registry.lock().await;
+        router.trigger_save(&registry);
+    }
 
     info!("daemon stopped");
     Ok(())

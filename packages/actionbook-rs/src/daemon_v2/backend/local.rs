@@ -3,6 +3,7 @@
 //! Uses the existing [`BrowserLauncher`] for process management and
 //! `tokio-tungstenite` for WebSocket communication.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
@@ -78,6 +79,7 @@ impl BrowserBackendFactory for LocalBackendFactory {
             cmd_id: Arc::new(AtomicI64::new(1)),
             event_rx: Some(event_rx),
             cancel,
+            attached_targets: HashMap::new(),
         };
 
         // Navigate to the initial URL if specified
@@ -111,6 +113,7 @@ impl BrowserBackendFactory for LocalBackendFactory {
             cmd_id: Arc::new(AtomicI64::new(1)),
             event_rx: Some(event_rx),
             cancel,
+            attached_targets: HashMap::new(),
         };
 
         Ok(Box::new(session))
@@ -129,6 +132,7 @@ impl BrowserBackendFactory for LocalBackendFactory {
             cmd_id: Arc::new(AtomicI64::new(1)),
             event_rx: Some(event_rx),
             cancel,
+            attached_targets: HashMap::new(),
         };
 
         Ok(Box::new(session))
@@ -157,6 +161,8 @@ pub struct LocalBackendSession {
     event_rx: Option<mpsc::UnboundedReceiver<BackendEvent>>,
     /// Token to cancel the background health-probe task on shutdown.
     cancel: CancellationToken,
+    /// Mapping from CDP target_id to flattened sessionId (for page-scoped commands).
+    attached_targets: HashMap<String, String>,
 }
 
 #[async_trait]
@@ -170,14 +176,33 @@ impl BackendSession for LocalBackendSession {
     }
 
     async fn exec(&mut self, op: BackendOp) -> Result<OpResult> {
+        let target_id = op.target_id();
+        let is_page_scoped = op.is_page_scoped();
+
+        // For page-scoped commands, ensure the target is attached and get the sessionId.
+        let session_id = if is_page_scoped {
+            if let Some(tid) = target_id {
+                Some(self.ensure_attached(tid).await?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let (method, params) = op_to_cdp(&op);
         let id = self.cmd_id.fetch_add(1, Ordering::Relaxed);
 
-        let cmd = serde_json::json!({
+        let mut cmd = serde_json::json!({
             "id": id,
             "method": method,
             "params": params,
         });
+
+        // Include sessionId for page-scoped commands routed via flattened session.
+        if let Some(sid) = session_id {
+            cmd["sessionId"] = serde_json::Value::String(sid);
+        }
 
         self.ws
             .send(Message::Text(cmd.to_string().into()))
@@ -299,6 +324,55 @@ impl BackendSession for LocalBackendSession {
 }
 
 impl LocalBackendSession {
+    /// Ensure a target is attached via `Target.attachToTarget` with flattened session mode.
+    /// Returns the cached CDP sessionId for the target.
+    async fn ensure_attached(&mut self, target_id: &str) -> Result<String> {
+        if let Some(sid) = self.attached_targets.get(target_id) {
+            return Ok(sid.clone());
+        }
+
+        let id = self.cmd_id.fetch_add(1, Ordering::Relaxed);
+        let cmd = serde_json::json!({
+            "id": id,
+            "method": "Target.attachToTarget",
+            "params": {
+                "targetId": target_id,
+                "flatten": true,
+            },
+        });
+
+        self.ws
+            .send(Message::Text(cmd.to_string().into()))
+            .await
+            .map_err(|e| {
+                ActionbookError::CdpConnectionFailed(format!("WS send failed: {e}"))
+            })?;
+
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            self.read_response(id),
+        )
+        .await
+        .map_err(|_| {
+            ActionbookError::CdpConnectionFailed("Target.attachToTarget timeout".into())
+        })??;
+
+        let session_id = result
+            .value
+            .get("sessionId")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                ActionbookError::CdpError(
+                    "Target.attachToTarget response missing sessionId".into(),
+                )
+            })?
+            .to_string();
+
+        self.attached_targets
+            .insert(target_id.to_string(), session_id.clone());
+        Ok(session_id)
+    }
+
     /// Read WS messages until we get a response matching `expected_id`.
     async fn read_response(&mut self, expected_id: i64) -> Result<OpResult> {
         let mut parse_failures = 0u8;

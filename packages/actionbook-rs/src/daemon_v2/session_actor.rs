@@ -16,7 +16,7 @@ use super::action::Action;
 use super::action_handler::{self, Registries, TabEntry, WindowEntry};
 use super::action_result::ActionResult;
 use super::backend::BackendSession;
-use super::backend::TargetInfo;
+use super::backend::{ShutdownPolicy, TargetInfo};
 use super::registry::SessionState;
 use super::types::{SessionId, TabId};
 
@@ -132,7 +132,14 @@ impl SessionActor {
             let result = match req.action {
                 Action::Close { .. } | Action::CloseSession { .. } => {
                     self.state = SessionState::Closed;
-                    ActionResult::ok(serde_json::json!({"closed": self.session_id.to_string()}))
+                    // Shut down the backend (browser process / WS connection).
+                    let _ = self.backend.shutdown(ShutdownPolicy::Graceful).await;
+                    let result = ActionResult::ok(
+                        serde_json::json!({"closed": self.session_id.to_string()}),
+                    );
+                    // Send response before breaking so the caller gets the result.
+                    let _ = req.response_tx.send(result);
+                    break;
                 }
                 Action::SessionStatus { .. } => {
                     ActionResult::ok(serde_json::json!({
@@ -161,7 +168,7 @@ impl SessionActor {
             // Send response; ignore error if caller dropped the receiver.
             let _ = req.response_tx.send(result);
         }
-        // Channel closed -- session is being torn down.
+        // Channel closed or session explicitly closed — actor exits.
         self.state = SessionState::Closed;
     }
 

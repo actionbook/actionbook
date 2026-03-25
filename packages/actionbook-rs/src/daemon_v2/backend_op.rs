@@ -130,6 +130,48 @@ pub enum BackendOp {
     },
 }
 
+impl BackendOp {
+    /// Extract the target_id from this operation, if it has one.
+    pub fn target_id(&self) -> Option<&str> {
+        match self {
+            BackendOp::Navigate { target_id, .. }
+            | BackendOp::Evaluate { target_id, .. }
+            | BackendOp::GetDocument { target_id }
+            | BackendOp::QuerySelector { target_id, .. }
+            | BackendOp::GetBoxModel { target_id, .. }
+            | BackendOp::DispatchMouseEvent { target_id, .. }
+            | BackendOp::DispatchKeyEvent { target_id, .. }
+            | BackendOp::CaptureScreenshot { target_id, .. }
+            | BackendOp::PrintToPdf { target_id }
+            | BackendOp::GetAccessibilityTree { target_id }
+            | BackendOp::GetCookies { target_id }
+            | BackendOp::SetCookie { target_id, .. }
+            | BackendOp::CloseTarget { target_id } => Some(target_id),
+            BackendOp::GetTargets | BackendOp::CreateTarget { .. } => None,
+        }
+    }
+
+    /// Whether this operation targets a specific page and needs a flattened
+    /// CDP session (sessionId) to route correctly over a browser-level WS.
+    pub fn is_page_scoped(&self) -> bool {
+        matches!(
+            self,
+            BackendOp::Navigate { .. }
+                | BackendOp::Evaluate { .. }
+                | BackendOp::GetDocument { .. }
+                | BackendOp::QuerySelector { .. }
+                | BackendOp::GetBoxModel { .. }
+                | BackendOp::DispatchMouseEvent { .. }
+                | BackendOp::DispatchKeyEvent { .. }
+                | BackendOp::CaptureScreenshot { .. }
+                | BackendOp::PrintToPdf { .. }
+                | BackendOp::GetAccessibilityTree { .. }
+                | BackendOp::GetCookies { .. }
+                | BackendOp::SetCookie { .. }
+        )
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -214,5 +256,44 @@ mod tests {
             }
             _ => panic!("wrong variant"),
         }
+    }
+
+    #[test]
+    fn target_id_returns_some_for_page_ops() {
+        let op = BackendOp::Navigate {
+            target_id: "T1".into(),
+            url: "https://example.com".into(),
+        };
+        assert_eq!(op.target_id(), Some("T1"));
+    }
+
+    #[test]
+    fn target_id_returns_none_for_browser_ops() {
+        assert!(BackendOp::GetTargets.target_id().is_none());
+        let op = BackendOp::CreateTarget {
+            url: "about:blank".into(),
+            window_id: None,
+            new_window: false,
+        };
+        assert!(op.target_id().is_none());
+    }
+
+    #[test]
+    fn is_page_scoped_true_for_page_commands() {
+        let op = BackendOp::Evaluate {
+            target_id: "T1".into(),
+            expression: "1+1".into(),
+            return_by_value: true,
+        };
+        assert!(op.is_page_scoped());
+    }
+
+    #[test]
+    fn is_page_scoped_false_for_target_management() {
+        assert!(!BackendOp::GetTargets.is_page_scoped());
+        let op = BackendOp::CloseTarget {
+            target_id: "T1".into(),
+        };
+        assert!(!op.is_page_scoped());
     }
 }

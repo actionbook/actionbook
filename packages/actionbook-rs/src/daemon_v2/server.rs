@@ -158,20 +158,43 @@ impl DaemonServer {
 // Connection handler
 // ---------------------------------------------------------------------------
 
+/// Per-connection idle timeout: drop connections idle for more than 5 minutes.
+const CONNECTION_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Timeout for reading the initial 4-byte length prefix (slow-loris protection).
+const READ_LENGTH_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Handle a client connection: read requests in a loop, route, write responses.
 ///
-/// The loop continues until the client closes the connection (EOF on read)
-/// or an I/O error occurs, allowing a single connection to serve multiple
-/// sequential requests without reconnecting.
+/// The loop continues until the client closes the connection (EOF on read),
+/// the idle timeout fires, or an I/O error occurs.
 async fn handle_connection(mut stream: UnixStream, router: &Router) -> std::io::Result<()> {
+    // Wrap the entire request loop in a per-connection idle timeout.
+    match tokio::time::timeout(CONNECTION_IDLE_TIMEOUT, handle_request_loop(&mut stream, router))
+        .await
+    {
+        Ok(result) => result,
+        Err(_) => {
+            debug!("connection idle timeout ({CONNECTION_IDLE_TIMEOUT:?}), closing");
+            Ok(())
+        }
+    }
+}
+
+/// Inner request loop, separated for timeout wrapping.
+async fn handle_request_loop(stream: &mut UnixStream, router: &Router) -> std::io::Result<()> {
     let mut len_buf = [0u8; 4];
 
     loop {
-        // Read length-prefix (4 bytes LE). EOF here means client disconnected.
-        match stream.read_exact(&mut len_buf).await {
-            Ok(_) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
-            Err(e) => return Err(e),
+        // Read length-prefix (4 bytes LE) with a timeout to prevent slow-loris.
+        match tokio::time::timeout(READ_LENGTH_TIMEOUT, stream.read_exact(&mut len_buf)).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
+            Ok(Err(e)) => return Err(e),
+            Err(_) => {
+                debug!("read timeout on length prefix ({READ_LENGTH_TIMEOUT:?}), closing");
+                return Ok(());
+            }
         }
         let payload_len = u32::from_le_bytes(len_buf);
 

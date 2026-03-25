@@ -5,15 +5,18 @@
 //! (global commands) or forwards them to the appropriate session actor via a
 //! channel + oneshot pattern.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::sync::{oneshot, Mutex};
+use tracing::info;
 
 use super::action::Action;
 use super::action_result::ActionResult;
-use super::registry::SessionRegistry;
-use super::session_actor::ActionRequest;
-use super::types::SessionId;
+use super::backend::{BrowserBackendFactory, StartSpec, TargetInfo};
+use super::registry::{SessionHandle, SessionRegistry, SessionState};
+use super::session_actor::{ActionRequest, SessionActor};
+use super::types::{Mode, SessionId};
 
 // ---------------------------------------------------------------------------
 // Router
@@ -22,12 +25,32 @@ use super::types::SessionId;
 /// The request router — classifies Actions and dispatches them.
 pub struct Router {
     pub registry: Arc<Mutex<SessionRegistry>>,
+    /// Backend factory for creating new sessions.
+    factory: Option<Arc<dyn BrowserBackendFactory>>,
+    /// Path for persisting daemon state (None = no persistence).
+    pub state_path: Option<PathBuf>,
 }
 
 impl Router {
     /// Create a new router with the given registry.
     pub fn new(registry: Arc<Mutex<SessionRegistry>>) -> Self {
-        Router { registry }
+        Router {
+            registry,
+            factory: None,
+            state_path: None,
+        }
+    }
+
+    /// Create a new router with a backend factory for StartSession support.
+    pub fn with_factory(
+        registry: Arc<Mutex<SessionRegistry>>,
+        factory: Arc<dyn BrowserBackendFactory>,
+    ) -> Self {
+        Router {
+            registry,
+            factory: Some(factory),
+            state_path: None,
+        }
     }
 
     /// Route an action to the appropriate handler and return the result.
@@ -35,16 +58,27 @@ impl Router {
         match &action {
             // --- Global commands handled directly ---
             Action::ListSessions => self.handle_list_sessions().await,
-            Action::StartSession { .. } => {
-                // StartSession is handled by the caller (daemon_main / server)
-                // because it requires spawning a session actor, which needs
-                // access to the backend factory. The router returns a placeholder
-                // so the server layer can intercept.
-                ActionResult::fatal(
-                    "not_implemented",
-                    "StartSession must be handled by the server layer",
-                    "this is an internal error — please report it",
-                )
+            Action::StartSession {
+                mode,
+                profile,
+                headless,
+                open_url,
+                ..
+            } => {
+                self.handle_start_session(*mode, profile.clone(), *headless, open_url.clone())
+                    .await
+            }
+
+            // --- Close commands: forward to actor, then remove from registry ---
+            Action::Close { session } | Action::CloseSession { session } => {
+                let session_id = *session;
+                let result = self.forward_to_session(session_id, action).await;
+                if result.is_ok() {
+                    let mut registry = self.registry.lock().await;
+                    registry.remove(session_id);
+                    self.trigger_save(&registry);
+                }
+                result
             }
 
             // --- Session/Tab commands: forward to session actor ---
@@ -82,6 +116,143 @@ impl Router {
             })
             .collect();
         ActionResult::ok(serde_json::json!({ "sessions": sessions }))
+    }
+
+    /// Handle `StartSession` — create a backend, spawn actor, register in registry.
+    async fn handle_start_session(
+        &self,
+        mode: Mode,
+        profile: Option<String>,
+        headless: bool,
+        open_url: Option<String>,
+    ) -> ActionResult {
+        let factory = match &self.factory {
+            Some(f) => Arc::clone(f),
+            None => {
+                return ActionResult::fatal(
+                    "no_backend_factory",
+                    "no backend factory configured",
+                    "this is an internal error — please report it",
+                );
+            }
+        };
+
+        // For Local mode, enforce 1-profile-1-session constraint.
+        let profile_name = profile.unwrap_or_else(|| "default".into());
+        if mode == Mode::Local {
+            let registry = self.registry.lock().await;
+            let existing = registry.list_sessions();
+            if existing
+                .iter()
+                .any(|s| s.profile == profile_name && s.state != SessionState::Closed)
+            {
+                return ActionResult::fatal(
+                    "session_exists",
+                    &format!(
+                        "a session with profile '{profile_name}' already exists"
+                    ),
+                    "close the existing session first, or use a different profile",
+                );
+            }
+        }
+
+        let spec = StartSpec {
+            profile: profile_name.clone(),
+            headless,
+            open_url,
+            extra_args: vec![],
+        };
+
+        let backend = match factory.start(spec).await {
+            Ok(b) => b,
+            Err(e) => {
+                return ActionResult::fatal(
+                    "backend_start_failed",
+                    &format!("failed to start browser: {e}"),
+                    "check that Chrome/Chromium is installed and accessible",
+                );
+            }
+        };
+
+        // Discover initial tabs.
+        let targets: Vec<TargetInfo> = match backend.list_targets().await {
+            Ok(t) => t,
+            Err(_) => vec![],
+        };
+
+        let tab_ids: Vec<String> = targets
+            .iter()
+            .filter(|t| t.target_type == "page")
+            .map(|t| t.target_id.clone())
+            .collect();
+
+        let mut registry = self.registry.lock().await;
+        let session_id = registry.next_session_id();
+
+        let (tx, _join_handle) = SessionActor::spawn(session_id, backend, targets);
+
+        let handle = SessionHandle {
+            tx,
+            profile: profile_name,
+            mode,
+            state: SessionState::Ready,
+            tab_count: tab_ids.len(),
+            created_at: std::time::Instant::now(),
+        };
+        registry.register(session_id, handle);
+
+        info!("started session {session_id} with {} tab(s)", tab_ids.len());
+
+        // Save state after session creation.
+        self.trigger_save(&registry);
+
+        ActionResult::ok(serde_json::json!({
+            "session_id": session_id.to_string(),
+            "tab_ids": tab_ids,
+        }))
+    }
+
+    /// Trigger a state save (best-effort, errors are logged).
+    pub fn trigger_save(&self, registry: &SessionRegistry) {
+        let Some(ref state_path) = self.state_path else {
+            return;
+        };
+        let state = self.build_state_snapshot(registry);
+        if let Err(e) = super::persistence::save_state(state_path, &state) {
+            tracing::warn!("failed to save daemon state: {e}");
+        }
+    }
+
+    /// Build a serializable snapshot of the current registry state.
+    fn build_state_snapshot(
+        &self,
+        registry: &SessionRegistry,
+    ) -> super::persistence::DaemonStateFile {
+        use super::persistence::*;
+        let summaries = registry.list_sessions();
+        let sessions: Vec<PersistedSession> = summaries
+            .iter()
+            .map(|s| PersistedSession {
+                uuid: {
+                    use rand::Rng;
+                    let mut rng = rand::thread_rng();
+                    format!("{:016x}{:016x}", rng.gen::<u64>(), rng.gen::<u64>())
+                },
+                id: s.id,
+                mode: s.mode,
+                profile: s.profile.clone(),
+                tabs: vec![], // Tab details require actor query — omitted for now.
+                checkpoint: BackendCheckpoint::Local(LocalCheckpoint {
+                    pid: 0,
+                    ws_url: String::new(),
+                    user_data_dir: String::new(),
+                }),
+            })
+            .collect();
+        DaemonStateFile {
+            version: DaemonStateFile::CURRENT_VERSION,
+            sessions,
+        }
     }
 
     /// Forward an action to the session actor via its channel.
