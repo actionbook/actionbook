@@ -709,49 +709,9 @@ enum BrowserCmd {
     // =======================================================================
     // Waiting commands — require -s and -t
     // =======================================================================
-    /// Wait for a navigation to complete
-    WaitNavigation {
-        /// Session ID (e.g. s0)
-        #[arg(short = 's', long)]
-        session: SessionId,
-        /// Tab ID (e.g. t0)
-        #[arg(short = 't', long)]
-        tab: TabId,
-        /// Timeout in milliseconds (default: 30000)
-        #[arg(long)]
-        timeout: Option<u64>,
-    },
-
-    /// Wait for network to become idle
-    WaitNetworkIdle {
-        /// Session ID (e.g. s0)
-        #[arg(short = 's', long)]
-        session: SessionId,
-        /// Tab ID (e.g. t0)
-        #[arg(short = 't', long)]
-        tab: TabId,
-        /// Timeout in milliseconds (default: 30000)
-        #[arg(long)]
-        timeout: Option<u64>,
-        /// Idle time in milliseconds (default: 500)
-        #[arg(long)]
-        idle_time: Option<u64>,
-    },
-
-    /// Wait for a JS expression to become truthy
-    WaitCondition {
-        /// JavaScript expression that should return a truthy value
-        expression: String,
-        /// Session ID (e.g. s0)
-        #[arg(short = 's', long)]
-        session: SessionId,
-        /// Tab ID (e.g. t0)
-        #[arg(short = 't', long)]
-        tab: TabId,
-        /// Timeout in milliseconds (default: 30000)
-        #[arg(long)]
-        timeout: Option<u64>,
-    },
+    /// Wait for an element, navigation, network idle, or condition
+    #[command(subcommand)]
+    Wait(WaitCmd),
 
     // =======================================================================
     // Session management
@@ -939,6 +899,58 @@ impl From<CliSameSite> for SameSite {
             CliSameSite::None => SameSite::None,
         }
     }
+}
+
+/// Wait subcommands: element, navigation, network-idle, condition.
+#[derive(Subcommand, Debug)]
+enum WaitCmd {
+    /// Wait for an element to appear in the DOM
+    Element {
+        /// CSS selector
+        selector: String,
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+        /// Timeout in milliseconds (default: 30000)
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
+    /// Wait for a navigation to complete
+    Navigation {
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+        /// Timeout in milliseconds (default: 30000)
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
+    /// Wait for network to become idle
+    NetworkIdle {
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+        /// Timeout in milliseconds (default: 30000)
+        #[arg(long)]
+        timeout: Option<u64>,
+        /// Idle time in milliseconds (default: 500)
+        #[arg(long)]
+        idle_time: Option<u64>,
+    },
+    /// Wait for a JS expression to become truthy
+    Condition {
+        /// JavaScript expression that should return a truthy value
+        expression: String,
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+        /// Timeout in milliseconds (default: 30000)
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -1380,36 +1392,19 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
         BrowserCmd::CursorPosition { session, tab } => Action::CursorPosition { session, tab },
 
         // Waiting
-        BrowserCmd::WaitNavigation {
-            session,
-            tab,
-            timeout,
-        } => Action::WaitNavigation {
-            session,
-            tab,
-            timeout_ms: timeout,
-        },
-        BrowserCmd::WaitNetworkIdle {
-            session,
-            tab,
-            timeout,
-            idle_time,
-        } => Action::WaitNetworkIdle {
-            session,
-            tab,
-            timeout_ms: timeout,
-            idle_time_ms: idle_time,
-        },
-        BrowserCmd::WaitCondition {
-            expression,
-            session,
-            tab,
-            timeout,
-        } => Action::WaitCondition {
-            session,
-            tab,
-            expression,
-            timeout_ms: timeout,
+        BrowserCmd::Wait(wait_cmd) => match wait_cmd {
+            WaitCmd::Element { selector, session, tab, timeout } => Action::WaitElement {
+                session, tab, selector, timeout_ms: timeout,
+            },
+            WaitCmd::Navigation { session, tab, timeout } => Action::WaitNavigation {
+                session, tab, timeout_ms: timeout,
+            },
+            WaitCmd::NetworkIdle { session, tab, timeout, idle_time } => Action::WaitNetworkIdle {
+                session, tab, timeout_ms: timeout, idle_time_ms: idle_time,
+            },
+            WaitCmd::Condition { expression, session, tab, timeout } => Action::WaitCondition {
+                session, tab, expression, timeout_ms: timeout,
+            },
         },
 
         // Session management

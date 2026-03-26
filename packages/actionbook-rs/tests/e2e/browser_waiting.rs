@@ -3,13 +3,14 @@
 //! Covers: `wait element`, `wait navigation`, `wait network-idle`, `wait condition`.
 //! All tests use S1T1 (single session, single tab).
 
-use crate::harness::{assert_failure, assert_success, headless, skip, stdout_str};
+use crate::harness::{assert_failure, assert_success, ensure_no_sessions, headless, skip, stdout_str};
 
 #[test]
 fn wait_element_exists() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start headless browser session with example.com
     let out = headless(
@@ -69,6 +70,7 @@ fn wait_element_timeout() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start headless browser session
     let out = headless(
@@ -128,6 +130,7 @@ fn wait_nav_after_click() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start headless browser session
     let out = headless(
@@ -245,6 +248,7 @@ fn wait_network_idle() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start headless browser session
     let out = headless(
@@ -303,6 +307,7 @@ fn wait_condition_true() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start headless browser session
     let out = headless(
