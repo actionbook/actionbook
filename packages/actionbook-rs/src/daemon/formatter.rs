@@ -192,7 +192,7 @@ fn normalize_lifecycle_json(
     let ok = result.is_ok();
     let context = lifecycle_context(action, result);
     let data = match result {
-        ActionResult::Ok { data } => data.clone(),
+        ActionResult::Ok { data } => normalize_lifecycle_data(action, data),
         _ => Value::Null,
     };
     let error = match result {
@@ -213,6 +213,56 @@ fn normalize_lifecycle_json(
             "truncated": false
         }
     }))
+}
+
+fn normalize_lifecycle_data(action: &Action, data: &Value) -> Value {
+    match action {
+        Action::ListSessions => {
+            let sessions = data
+                .get("sessions")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|session| {
+                    let mut normalized = serde_json::Map::new();
+                    normalized.insert(
+                        "session_id".into(),
+                        Value::String(
+                            first_str(&session, &["session_id", "id"])
+                                .unwrap_or("unknown")
+                                .to_string(),
+                        ),
+                    );
+                    normalized.insert(
+                        "status".into(),
+                        Value::String(
+                            display_lifecycle_status(
+                                first_str(&session, &["status", "state"]).unwrap_or("unknown"),
+                            )
+                            .to_string(),
+                        ),
+                    );
+                    normalized.insert(
+                        "tabs_count".into(),
+                        Value::from(first_u64(&session, &["tabs_count", "tab_count"]).unwrap_or(0)),
+                    );
+                    for extra in ["mode", "headless", "profile", "uptime_secs"] {
+                        if let Some(value) = session.get(extra) {
+                            normalized.insert(extra.into(), value.clone());
+                        }
+                    }
+                    Value::Object(normalized)
+                })
+                .collect::<Vec<_>>();
+
+            serde_json::json!({
+                "total_sessions": sessions.len(),
+                "sessions": sessions
+            })
+        }
+        _ => data.clone(),
+    }
 }
 
 fn format_lifecycle_text(action: &Action, result: &ActionResult) -> Option<String> {
@@ -351,18 +401,9 @@ fn format_list_sessions_text(data: &Value) -> String {
         if sessions.len() == 1 { "" } else { "s" }
     );
     for session in sessions {
-        let session_id = session
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        let status = session
-            .get("state")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        let tabs = session
-            .get("tab_count")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
+        let session_id = first_str(&session, &["session_id", "id"]).unwrap_or("unknown");
+        let status = first_str(&session, &["status", "state"]).unwrap_or("unknown");
+        let tabs = first_u64(&session, &["tabs_count", "tab_count"]).unwrap_or(0);
         out.push_str(&format!(
             "\n[{}]\nstatus: {}\ntabs: {}",
             session_id,
@@ -374,19 +415,23 @@ fn format_list_sessions_text(data: &Value) -> String {
 }
 
 fn format_session_status_text(session_id: &str, data: &Value) -> String {
-    let status = data
-        .get("state")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown");
-    let tabs = data.get("tab_count").and_then(|v| v.as_u64()).unwrap_or(0);
-    let windows = data
-        .get("window_count")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
+    let status = first_str(data, &["status", "state"]).unwrap_or("unknown");
+    let tabs = first_u64(data, &["tabs_count", "tab_count"]).unwrap_or(0);
+    let windows = first_u64(data, &["windows_count", "window_count"]).unwrap_or(0);
     format!(
         "[{session_id}]\nstatus: {}\ntabs: {tabs}\nwindows: {windows}",
         display_lifecycle_status(status)
     )
+}
+
+fn first_str<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|key| value.get(key).and_then(|v| v.as_str()))
+}
+
+fn first_u64(value: &Value, keys: &[&str]) -> Option<u64> {
+    keys.iter()
+        .find_map(|key| value.get(key).and_then(|v| v.as_u64()))
 }
 
 fn display_lifecycle_status(status: &str) -> &str {
@@ -541,6 +586,42 @@ mod tests {
         assert!(out.contains("status: running"));
         assert!(out.contains("tabs: 2"));
         assert!(out.contains("windows: 1"));
+    }
+
+    #[test]
+    fn lifecycle_json_envelope_normalizes_list_sessions_fields() {
+        let action = Action::ListSessions;
+        let result = ActionResult::ok(json!({
+            "sessions": [
+                {
+                    "id": "s0",
+                    "mode": "local",
+                    "state": "ready",
+                    "tab_count": 2
+                }
+            ]
+        }));
+        let out = format_cli_result_json(&action, &result, 7);
+        let decoded: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(decoded["data"]["total_sessions"], 1);
+        assert_eq!(decoded["data"]["sessions"][0]["session_id"], "s0");
+        assert_eq!(decoded["data"]["sessions"][0]["status"], "running");
+        assert_eq!(decoded["data"]["sessions"][0]["tabs_count"], 2);
+        assert_eq!(decoded["data"]["sessions"][0]["mode"], "local");
+    }
+
+    #[test]
+    fn lifecycle_text_accepts_normalized_session_keys() {
+        let action = Action::ListSessions;
+        let result = ActionResult::ok(json!({
+            "sessions": [
+                {"session_id": "local-1", "status": "running", "tabs_count": 3}
+            ]
+        }));
+        let out = format_cli_result(&action, &result);
+        assert!(out.contains("[local-1]"));
+        assert!(out.contains("status: running"));
+        assert!(out.contains("tabs: 3"));
     }
 
     #[test]
