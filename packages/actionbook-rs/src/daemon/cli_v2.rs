@@ -26,6 +26,14 @@ pub struct CliV2 {
     #[arg(long, global = true, env = "ACTIONBOOK_SOCKET")]
     socket: Option<PathBuf>,
 
+    /// Output in JSON format
+    #[arg(long, global = true)]
+    pub json: bool,
+
+    /// Profile name
+    #[arg(short = 'P', long, global = true, env = "ACTIONBOOK_PROFILE")]
+    pub profile: Option<String>,
+
     #[command(subcommand)]
     command: TopLevel,
 }
