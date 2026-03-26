@@ -166,7 +166,7 @@ pub fn ensure_no_sessions() {
 /// invoked for any bare innerHTML assignment, so once registered all
 /// subsequent `el.innerHTML = str` calls go through it transparently.
 const ENSURE_DEFAULT_POLICY_JS: &str =
-    "if(window.trustedTypes&&trustedTypes.createPolicy&&!trustedTypes.defaultPolicy){trustedTypes.createPolicy('default',{createHTML:function(s){return s}})}";
+    "try{if(window.trustedTypes&&trustedTypes.createPolicy&&!trustedTypes.defaultPolicy){trustedTypes.createPolicy('default',{createHTML:function(s){return s}})}}catch(e){}";
 
 /// Generate JS that sets `document.body.innerHTML`, compatible with
 /// Chrome 146+ Trusted Types enforcement.
