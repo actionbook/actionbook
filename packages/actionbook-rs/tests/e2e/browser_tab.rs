@@ -3,7 +3,7 @@
 //! Covers opening, switching, closing, and listing tabs across sessions.
 //! Uses daemon v2 CLI format with --session and --tab addressing.
 
-use crate::harness::{assert_success, headless, skip, stdout_str};
+use crate::harness::{assert_success, ensure_no_sessions, headless, skip, stdout_str};
 
 /// S1T2: start → open second URL → list-tabs → shows 2 tabs → close
 #[test]
@@ -11,6 +11,7 @@ fn tab_open_creates_new_tab() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start session with first tab
     let out = headless(
@@ -52,6 +53,7 @@ fn tab_open_navigates_to_url() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start session opening example.com
     let out = headless(
@@ -100,6 +102,7 @@ fn tab_switch_changes_active() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start session with example.com
     let out = headless(
@@ -173,6 +176,7 @@ fn tab_close_removes_tab() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start session
     let out = headless(
@@ -223,6 +227,7 @@ fn tab_close_preserves_other() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start session
     let out = headless(
@@ -279,6 +284,7 @@ fn tab_pages_lists_all() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start session with example.com
     let out = headless(
@@ -325,6 +331,7 @@ fn tab_open_sequential_ids() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start session with first tab (t0)
     let out = headless(

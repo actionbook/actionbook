@@ -385,7 +385,7 @@ pub async fn handle_action(
 async fn handle_goto(
     session_id: SessionId,
     backend: &mut dyn BackendSession,
-    regs: &Registries,
+    regs: &mut Registries,
     tab: TabId,
     url: &str,
 ) -> ActionResult {
@@ -400,7 +400,13 @@ async fn handle_goto(
     };
 
     match backend.exec(op).await {
-        Ok(_) => ActionResult::ok(json!({"navigated": url})),
+        Ok(_) => {
+            // Update the tab registry with the new URL
+            if let Some(entry) = regs.tabs.get_mut(&tab) {
+                entry.url = url.to_string();
+            }
+            ActionResult::ok(json!({"navigated": url}))
+        }
         Err(e) => cdp_error_to_result(e),
     }
 }

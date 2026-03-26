@@ -17,7 +17,7 @@ use super::action_result::ActionResult;
 use super::backend::{AttachSpec, BrowserBackendFactory, StartSpec, TargetInfo};
 use super::registry::{SessionHandle, SessionRegistry, SessionState};
 use super::session_actor::{ActionRequest, SessionActor};
-use super::types::{Mode, SessionId};
+use super::types::{Mode, SessionId, TabId};
 
 // ---------------------------------------------------------------------------
 // Router
@@ -225,6 +225,10 @@ impl Router {
             id
         }; // lock released — backend start can proceed without holding it.
 
+        // Save open_url before it's moved into StartSpec, so we can update
+        // the tab registry after session creation.
+        let open_url_for_registry = open_url.clone();
+
         // Create backend session based on mode.
         let backend = match mode {
             Mode::Local => {
@@ -324,6 +328,19 @@ impl Router {
 
         // Save state after session creation.
         self.trigger_save(&registry);
+        drop(registry); // release lock before sending Goto
+
+        // If open_url was specified, send a Goto to update the tab registry URL.
+        // The backend already navigated during start, but the tab registry
+        // recorded the pre-navigation URL from target discovery.
+        if let Some(ref url) = open_url_for_registry {
+            let goto = Action::Goto {
+                session: session_id,
+                tab: TabId(0),
+                url: url.clone(),
+            };
+            let _ = self.forward_to_session(session_id, goto).await;
+        }
 
         ActionResult::ok(serde_json::json!({
             "session_id": session_id.to_string(),

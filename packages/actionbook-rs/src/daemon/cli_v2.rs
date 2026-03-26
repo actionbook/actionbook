@@ -118,6 +118,16 @@ enum BrowserCmd {
         session: SessionId,
     },
 
+    /// Close a specific tab
+    CloseTab {
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
     // =======================================================================
     // Tab-level commands — require -s and -t
     // =======================================================================
@@ -887,6 +897,7 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             window: None,
         },
         BrowserCmd::Close { session } => Action::CloseSession { session },
+        BrowserCmd::CloseTab { session, tab } => Action::CloseTab { session, tab },
 
         // Tab
         BrowserCmd::Goto { url, session, tab } => Action::Goto { session, tab, url },
