@@ -3,6 +3,7 @@ use tokio::net::UnixStream;
 
 use crate::cli::{Cli, DaemonCommands};
 use crate::daemon::client::default_socket_path;
+use crate::daemon::server::default_pid_path;
 use crate::error::Result;
 
 pub async fn run(cli: &Cli, command: &DaemonCommands) -> Result<()> {
@@ -41,8 +42,19 @@ pub async fn run(cli: &Cli, command: &DaemonCommands) -> Result<()> {
             let socket = default_socket_path();
             let alive = UnixStream::connect(&socket).await.is_ok();
             if alive {
-                // Remove the socket file to signal shutdown.
+                // Send SIGTERM to the daemon process via PID file, then clean up.
+                let pid_path = default_pid_path();
+                if let Ok(pid_str) = std::fs::read_to_string(&pid_path) {
+                    if let Ok(pid) = pid_str.trim().parse::<i32>() {
+                        // SAFETY: sending SIGTERM to a known PID
+                        unsafe { libc::kill(pid, libc::SIGTERM); }
+                        // Brief wait for graceful shutdown
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    }
+                }
+                // Clean up socket and PID files as fallback
                 let _ = std::fs::remove_file(&socket);
+                let _ = std::fs::remove_file(&pid_path);
                 if cli.json {
                     println!(
                         "{}",

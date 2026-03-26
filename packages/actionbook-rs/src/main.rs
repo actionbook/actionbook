@@ -3,6 +3,7 @@ mod browser;
 mod cli;
 mod commands;
 mod config;
+#[cfg(unix)]
 mod daemon;
 mod error;
 mod update_notifier;
@@ -39,12 +40,18 @@ async fn main() -> Result<()> {
         .with(filter)
         .init();
 
-    // Route browser commands through the daemon.
+    // Route browser commands through the daemon (Unix only).
     // If args contain "browser", always use the daemon CLI — never fall through
     // to the legacy CLI (which no longer has a browser subcommand).
+    #[cfg(unix)]
     {
         use clap::Parser as _;
-        let has_browser_arg = args.iter().any(|a| a == "browser" || a == "b");
+        // Only check the first positional arg (subcommand position), not all argv.
+        // This avoids misrouting when "browser" or "b" appears as a search query value.
+        let has_browser_arg = args
+            .get(1)
+            .map(|a| a.as_str() == "browser" || a.as_str() == "b")
+            .unwrap_or(false);
         match daemon::cli_v2::CliV2::try_parse() {
             Ok(cli_v2) => {
                 cli_v2.run().await;

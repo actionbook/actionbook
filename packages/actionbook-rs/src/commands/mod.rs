@@ -1,5 +1,6 @@
 pub mod act;
 pub mod config;
+#[cfg(unix)]
 pub mod daemon;
 pub mod extension;
 pub mod get;
