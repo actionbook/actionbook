@@ -1193,7 +1193,7 @@ fn normalize_observation_data(action: &Action, data: &Value) -> Value {
             // Pass through
             data.clone()
         }
-        Action::LogsConsole { .. } => {
+        Action::LogsConsole { clear, .. } => {
             let items = data
                 .as_array()
                 .cloned()
@@ -1201,10 +1201,10 @@ fn normalize_observation_data(action: &Action, data: &Value) -> Value {
                 .unwrap_or_else(|| data.get("items").cloned().unwrap_or(Value::Array(vec![])));
             serde_json::json!({
                 "items": items,
-                "cleared": false
+                "cleared": clear
             })
         }
-        Action::LogsErrors { .. } => {
+        Action::LogsErrors { clear, .. } => {
             let items = data
                 .as_array()
                 .cloned()
@@ -1212,7 +1212,7 @@ fn normalize_observation_data(action: &Action, data: &Value) -> Value {
                 .unwrap_or_else(|| data.get("items").cloned().unwrap_or(Value::Array(vec![])));
             serde_json::json!({
                 "items": items,
-                "cleared": false
+                "cleared": clear
             })
         }
         _ => data.clone(),
@@ -2465,6 +2465,25 @@ mod tests {
         assert!(d["data"]["items"].is_array());
         assert_eq!(d["data"]["items"].as_array().unwrap().len(), 2);
         assert_eq!(d["data"]["cleared"], false);
+    }
+
+    #[test]
+    fn observation_json_logs_console_cleared_true_when_flag_set() {
+        let action = Action::LogsConsole {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            level: None,
+            tail: None,
+            since: None,
+            clear: true,
+        };
+        let result = ActionResult::ok(json!([]));
+        let out = format_cli_result_json(&action, &result, 1);
+        let d: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(
+            d["data"]["cleared"], true,
+            "cleared must reflect --clear flag"
+        );
     }
 
     #[test]
