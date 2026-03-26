@@ -11,12 +11,18 @@ use crate::harness::{assert_success, headless, headless_json, skip, stdout_str};
 /// metadata (tab_id, url, etc.) so that two snapshots can be compared by
 /// content alone. Falls back to the raw string if parsing fails.
 fn extract_snapshot_content(raw: &str) -> String {
-    // Try to parse as JSON and pull out the "data" or "content" field.
+    // Try to parse as JSON and pull out data.content (the actual snapshot body).
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) {
-        if let Some(data) = v.get("data").or_else(|| v.get("content")) {
+        // PRD: snapshot data is { format, content, nodes, stats }
+        if let Some(content) = v.pointer("/data/content") {
+            return content.to_string();
+        }
+        // Fallback: try data itself
+        if let Some(data) = v.get("data") {
             return data.to_string();
         }
     }
+    // Not JSON — return raw text (text mode output)
     raw.to_string()
 }
 

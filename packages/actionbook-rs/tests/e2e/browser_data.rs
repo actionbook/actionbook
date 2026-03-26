@@ -241,10 +241,22 @@ fn storage_local_list_delete_clear() {
 
     // Clear local storage
     let out = headless(
-        &["browser", "local-storage", "clear", "-s", "s0", "-t", "t0"],
+        &["browser", "local-storage", "clear", "extra", "-s", "s0", "-t", "t0"],
         10,
     );
     assert_success(&out, "local-storage clear");
+
+    // Verify clear worked — list should not contain "extra"
+    let out = headless(
+        &["browser", "local-storage", "list", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "local-storage list after clear");
+    assert!(
+        !stdout_str(&out).contains("extra"),
+        "local-storage list after clear should not contain 'extra', got: {}",
+        stdout_str(&out)
+    );
 
     // Close session
     let out = headless(&["browser", "close", "-s", "s0"], 30);
@@ -350,10 +362,22 @@ fn storage_session_list_delete_clear() {
 
     // Clear session storage
     let out = headless(
-        &["browser", "session-storage", "clear", "-s", "s0", "-t", "t0"],
+        &["browser", "session-storage", "clear", "extra", "-s", "s0", "-t", "t0"],
         10,
     );
     assert_success(&out, "session-storage clear");
+
+    // Verify clear worked
+    let out = headless(
+        &["browser", "session-storage", "list", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "session-storage list after clear");
+    assert!(
+        !stdout_str(&out).contains("extra"),
+        "session-storage list after clear should not contain 'extra', got: {}",
+        stdout_str(&out)
+    );
 
     // Close session
     let out = headless(&["browser", "close", "-s", "s0"], 30);
@@ -396,20 +420,18 @@ fn storage_s1t2_isolation() {
     );
     assert_success(&out, "local-storage set on t0");
 
-    // Get local-storage on t1 — same origin so may or may not be shared
-    // depending on implementation. Verify the command ran and produced output.
+    // Get local-storage on t1 — both tabs are same origin (example.com),
+    // so localStorage is shared. The value set on t0 should be visible on t1.
     let out = headless(
         &["browser", "local-storage", "get", "crosskey", "-s", "s0", "-t", "t1"],
         10,
     );
     assert_success(&out, "local-storage get on t1");
     let t1_output = stdout_str(&out);
-    // Same-origin tabs share localStorage, so we expect the value to be visible
-    // on t1. If not shared, the output would not contain the value.
-    // Either way, assert that we got a non-empty response.
     assert!(
-        !t1_output.trim().is_empty(),
-        "local-storage get on t1 should produce output, got empty"
+        t1_output.contains("crossval"),
+        "same-origin tabs should share localStorage — t1 should see 'crossval', got: {}",
+        t1_output
     );
 
     // Close session
