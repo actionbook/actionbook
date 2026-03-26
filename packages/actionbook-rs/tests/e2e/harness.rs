@@ -159,20 +159,11 @@ pub fn ensure_no_sessions() {
 
 // ── Trusted HTML helpers ────────────────────────────────────────────
 
-/// JS snippet that registers a `default` TrustedTypes policy (idempotent).
-///
-/// Chrome 146+ enforces Trusted Types and only allows creating a policy
-/// named `'default'`.  A default policy is special: it is automatically
-/// invoked for any bare innerHTML assignment, so once registered all
-/// subsequent `el.innerHTML = str` calls go through it transparently.
-const ENSURE_DEFAULT_POLICY_JS: &str =
-    "try{if(window.trustedTypes&&trustedTypes.createPolicy&&!trustedTypes.defaultPolicy){trustedTypes.createPolicy('default',{createHTML:function(s){return s}})}}catch(e){}";
-
-/// Generate JS that sets `document.body.innerHTML`, compatible with
+/// Generate JS that sets `document.body` content, compatible with
 /// Chrome 146+ Trusted Types enforcement.
 ///
-/// Registers a `default` TrustedTypes policy (if needed) so that the
-/// plain innerHTML assignment is accepted by the browser.
+/// Uses `<template>` element whose `innerHTML` is exempt from
+/// TrustedTypes — no policy creation needed.
 #[allow(dead_code)]
 pub fn set_body_html_js(html: &str) -> String {
     let escaped = html
@@ -181,13 +172,16 @@ pub fn set_body_html_js(html: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r");
     format!(
-        "(function(){{ {ENSURE_DEFAULT_POLICY_JS}; document.body.innerHTML='{}'; }})()",
+        "(function(){{ document.body.textContent=''; var t=document.createElement('template'); t.innerHTML='{}'; document.body.append(t.content); }})()",
         escaped
     )
 }
 
-/// Generate JS that appends to `document.body.innerHTML`, compatible
+/// Generate JS that appends HTML to `document.body`, compatible
 /// with Chrome 146+ Trusted Types enforcement.
+///
+/// Uses `<template>` element whose `innerHTML` is exempt from
+/// TrustedTypes — no policy creation needed.
 #[allow(dead_code)]
 pub fn append_body_html_js(html: &str) -> String {
     let escaped = html
@@ -196,7 +190,7 @@ pub fn append_body_html_js(html: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r");
     format!(
-        "(function(){{ {ENSURE_DEFAULT_POLICY_JS}; var el=document.createElement('div'); el.innerHTML='{}'; while(el.firstChild){{ document.body.appendChild(el.firstChild); }} }})()",
+        "(function(){{ var t=document.createElement('template'); t.innerHTML='{}'; document.body.append(t.content); }})()",
         escaped
     )
 }
