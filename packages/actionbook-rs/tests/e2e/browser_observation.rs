@@ -1140,6 +1140,24 @@ fn obs_query_nth() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load before querying DOM
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     let out = headless(
         &[
             "browser", "query", "nth", "1", "div", "-s", "s0", "-t", "t0",
@@ -1199,6 +1217,9 @@ fn obs_console_logs() {
     );
     assert_success(&out, "eval console.log");
 
+    // Brief delay to let the browser process the console message
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
     // Retrieve console logs
     let out = headless(&["browser", "logs-console", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "logs console");
@@ -1252,6 +1273,9 @@ fn obs_error_logs() {
         10,
     );
     assert_success(&out, "eval console.error");
+
+    // Brief delay to let the browser process the console message
+    std::thread::sleep(std::time::Duration::from_millis(500));
 
     // Retrieve error logs
     let out = headless(&["browser", "logs-errors", "-s", "s0", "-t", "t0"], 10);
