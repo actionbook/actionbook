@@ -1,7 +1,7 @@
 //! Core newtypes and enums for the v2 daemon protocol.
 //!
 //! Provides [`SessionId`], [`TabId`], [`WindowId`] newtypes with short-format
-//! Display impls (s0, t0, w0), and the [`Mode`] enum for backend selection.
+//! Display impls, and the [`Mode`] enum for backend selection.
 
 use std::fmt;
 use std::str::FromStr;
@@ -12,16 +12,59 @@ use serde::{Deserialize, Serialize};
 // SessionId
 // ---------------------------------------------------------------------------
 
-/// Daemon-assigned short alias for a session (s0, s1, ...).
+/// Semantic session identifier (e.g. "local-1", "research-google").
 ///
-/// Monotonically increasing within a daemon instance. Used in wire protocol
-/// for addressing; internally backed by a UUID for crash recovery.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct SessionId(pub u32);
+/// Validated against `^[a-z][a-z0-9-]{0,63}$` — lowercase alphanumeric
+/// with hyphens, 1–64 characters, starting with a letter.
+/// Auto-generated as "local-1", "local-2", ... when not explicitly set.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SessionId(pub String);
+
+impl SessionId {
+    /// Create a new SessionId after validation.
+    ///
+    /// Must match `^[a-z][a-z0-9-]{0,63}$`.
+    pub fn new(id: impl Into<String>) -> Result<Self, ParseIdError> {
+        let id = id.into();
+        if !Self::is_valid(&id) {
+            return Err(ParseIdError::InvalidSessionId(id));
+        }
+        Ok(SessionId(id))
+    }
+
+    /// Validate a session ID string.
+    fn is_valid(id: &str) -> bool {
+        if id.is_empty() || id.len() > 64 {
+            return false;
+        }
+        let bytes = id.as_bytes();
+        if !bytes[0].is_ascii_lowercase() {
+            return false;
+        }
+        bytes[1..]
+            .iter()
+            .all(|&b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    }
+
+    /// Create a SessionId without validation (for internal use).
+    pub(crate) fn new_unchecked(id: impl Into<String>) -> Self {
+        SessionId(id.into())
+    }
+
+    /// Generate an auto-incremented session ID: local-1, local-2, ...
+    pub fn auto_generate(n: u32) -> Self {
+        SessionId(format!("local-{}", n + 1))
+    }
+
+    /// Returns the string value.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
 
 impl fmt::Display for SessionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "s{}", self.0)
+        write!(f, "{}", self.0)
     }
 }
 
@@ -29,12 +72,7 @@ impl FromStr for SessionId {
     type Err = ParseIdError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let num = s
-            .strip_prefix('s')
-            .ok_or(ParseIdError::MissingPrefix('s'))?
-            .parse::<u32>()
-            .map_err(ParseIdError::InvalidNumber)?;
-        Ok(SessionId(num))
+        SessionId::new(s)
     }
 }
 
@@ -223,13 +261,15 @@ impl fmt::Display for SameSite {
 // ParseIdError
 // ---------------------------------------------------------------------------
 
-/// Error returned when parsing a short ID string (e.g. "s0", "t1", "w2").
+/// Error returned when parsing a short ID string.
 #[derive(Debug, Clone)]
 pub enum ParseIdError {
     /// The string did not start with the expected prefix character.
     MissingPrefix(char),
     /// The numeric suffix could not be parsed.
     InvalidNumber(std::num::ParseIntError),
+    /// The session ID does not match the required format.
+    InvalidSessionId(String),
 }
 
 impl fmt::Display for ParseIdError {
@@ -237,6 +277,10 @@ impl fmt::Display for ParseIdError {
         match self {
             ParseIdError::MissingPrefix(c) => write!(f, "expected prefix '{c}'"),
             ParseIdError::InvalidNumber(e) => write!(f, "invalid number: {e}"),
+            ParseIdError::InvalidSessionId(id) => write!(
+                f,
+                "invalid session id '{id}': must match ^[a-z][a-z0-9-]{{0,63}}$"
+            ),
         }
     }
 }
@@ -253,16 +297,53 @@ mod tests {
 
     #[test]
     fn session_id_display() {
-        assert_eq!(SessionId(0).to_string(), "s0");
-        assert_eq!(SessionId(42).to_string(), "s42");
+        assert_eq!(SessionId::new_unchecked("local-1").to_string(), "local-1");
+        assert_eq!(
+            SessionId::new_unchecked("research-google").to_string(),
+            "research-google"
+        );
     }
 
     #[test]
     fn session_id_parse() {
-        assert_eq!("s0".parse::<SessionId>().unwrap(), SessionId(0));
-        assert_eq!("s99".parse::<SessionId>().unwrap(), SessionId(99));
-        assert!("t0".parse::<SessionId>().is_err());
-        assert!("sABC".parse::<SessionId>().is_err());
+        assert_eq!(
+            "local-1".parse::<SessionId>().unwrap(),
+            SessionId::new_unchecked("local-1")
+        );
+        assert_eq!(
+            "research-google".parse::<SessionId>().unwrap(),
+            SessionId::new_unchecked("research-google")
+        );
+        // Invalid: starts with number
+        assert!("0local".parse::<SessionId>().is_err());
+        // Invalid: uppercase
+        assert!("Local-1".parse::<SessionId>().is_err());
+        // Invalid: empty
+        assert!("".parse::<SessionId>().is_err());
+    }
+
+    #[test]
+    fn session_id_validation() {
+        // Valid
+        assert!(SessionId::new("a").is_ok());
+        assert!(SessionId::new("local-1").is_ok());
+        assert!(SessionId::new("research-google").is_ok());
+        assert!(SessionId::new("my-session-123").is_ok());
+
+        // Invalid
+        assert!(SessionId::new("").is_err());
+        assert!(SessionId::new("1abc").is_err());
+        assert!(SessionId::new("ABC").is_err());
+        assert!(SessionId::new("has_underscore").is_err());
+        assert!(SessionId::new("has space").is_err());
+        assert!(SessionId::new("-starts-with-dash").is_err());
+    }
+
+    #[test]
+    fn session_id_auto_generate() {
+        assert_eq!(SessionId::auto_generate(0).to_string(), "local-1");
+        assert_eq!(SessionId::auto_generate(1).to_string(), "local-2");
+        assert_eq!(SessionId::auto_generate(41).to_string(), "local-42");
     }
 
     #[test]
@@ -279,8 +360,9 @@ mod tests {
 
     #[test]
     fn session_id_serde_round_trip() {
-        let id = SessionId(7);
+        let id = SessionId::new_unchecked("local-1");
         let json = serde_json::to_string(&id).unwrap();
+        assert_eq!(json, "\"local-1\"");
         let decoded: SessionId = serde_json::from_str(&json).unwrap();
         assert_eq!(id, decoded);
     }

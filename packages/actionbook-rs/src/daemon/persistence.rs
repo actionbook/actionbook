@@ -203,7 +203,7 @@ mod tests {
             sessions: vec![
                 PersistedSession {
                     uuid: "550e8400-e29b-41d4-a716-446655440000".into(),
-                    id: SessionId(0),
+                    id: SessionId::new_unchecked("local-1"),
                     mode: Mode::Local,
                     profile: "default".into(),
                     tabs: vec![
@@ -228,7 +228,7 @@ mod tests {
                 },
                 PersistedSession {
                     uuid: "660e8400-e29b-41d4-a716-446655440001".into(),
-                    id: SessionId(1),
+                    id: SessionId::new_unchecked("local-2"),
                     mode: Mode::Cloud,
                     profile: "work".into(),
                     tabs: vec![PersistedTab {
@@ -302,7 +302,7 @@ mod tests {
     fn extension_checkpoint_serde() {
         let session = PersistedSession {
             uuid: "ext-uuid".into(),
-            id: SessionId(2),
+            id: SessionId::new_unchecked("local-3"),
             mode: Mode::Extension,
             profile: "ext".into(),
             tabs: vec![],

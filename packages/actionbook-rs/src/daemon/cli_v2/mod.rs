@@ -77,6 +77,9 @@ enum BrowserCmd {
         /// CDP WebSocket endpoint for cloud mode (e.g. wss://cloud.example.com/browser)
         #[arg(long)]
         cdp_endpoint: Option<String>,
+        /// Explicit session ID (e.g. "research-google"); daemon auto-assigns if omitted
+        #[arg(long)]
+        set_session_id: Option<String>,
     },
 
     /// List all active sessions
@@ -626,6 +629,7 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             headless,
             open_url,
             cdp_endpoint,
+            set_session_id,
         } => {
             let mode: Mode = mode.into();
             // Cloud mode requires --cdp-endpoint.
@@ -642,6 +646,7 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
                 open_url,
                 cdp_endpoint,
                 ws_headers: None,
+                set_session_id,
             }
         }
         BrowserCmd::ListSessions => Action::ListSessions,
@@ -1379,6 +1384,7 @@ mod tests {
             headless: true,
             open_url: Some("https://example.com".into()),
             cdp_endpoint: None,
+            set_session_id: None,
         })
         .unwrap();
         match action {
@@ -1406,6 +1412,7 @@ mod tests {
             headless: false,
             open_url: None,
             cdp_endpoint: Some("wss://cloud.example.com/browser".into()),
+            set_session_id: None,
         })
         .unwrap();
         match action {
@@ -1430,6 +1437,7 @@ mod tests {
             headless: false,
             open_url: None,
             cdp_endpoint: None,
+            set_session_id: None,
         });
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("--cdp-endpoint"));
@@ -1443,6 +1451,7 @@ mod tests {
             headless: false,
             open_url: None,
             cdp_endpoint: None,
+            set_session_id: None,
         })
         .unwrap();
         match action {
@@ -1463,7 +1472,7 @@ mod tests {
     fn build_goto_action() {
         let (action, _) = build_action(BrowserCmd::Goto {
             url: "https://example.com".into(),
-            session: SessionId(0),
+            session: SessionId::new_unchecked("local-1"),
             tab: TabId(1),
         })
         .unwrap();
@@ -1471,7 +1480,7 @@ mod tests {
             Action::Goto {
                 session, tab, url, ..
             } => {
-                assert_eq!(session, SessionId(0));
+                assert_eq!(session, SessionId::new_unchecked("local-1"));
                 assert_eq!(tab, TabId(1));
                 assert_eq!(url, "https://example.com");
             }
@@ -1482,7 +1491,7 @@ mod tests {
     #[test]
     fn build_snapshot_action() {
         let (action, _) = build_action(BrowserCmd::Snapshot {
-            session: SessionId(0),
+            session: SessionId::new_unchecked("local-1"),
             tab: TabId(0),
             interactive: true,
             compact: false,
@@ -1504,11 +1513,13 @@ mod tests {
     #[test]
     fn build_close_session() {
         let (action, _) = build_action(BrowserCmd::Close {
-            session: SessionId(3),
+            session: SessionId::new_unchecked("local-4"),
         })
         .unwrap();
         match action {
-            Action::CloseSession { session } => assert_eq!(session, SessionId(3)),
+            Action::CloseSession { session } => {
+                assert_eq!(session, SessionId::new_unchecked("local-4"))
+            }
             _ => panic!("wrong variant"),
         }
     }
@@ -1517,7 +1528,7 @@ mod tests {
     fn build_click_action() {
         let (action, _) = build_action(BrowserCmd::Click {
             selector: "#btn".into(),
-            session: SessionId(0),
+            session: SessionId::new_unchecked("local-1"),
             tab: TabId(0),
         })
         .unwrap();
@@ -1540,7 +1551,7 @@ mod tests {
     fn build_eval_action() {
         let (action, _) = build_action(BrowserCmd::Eval {
             code: "document.title".into(),
-            session: SessionId(1),
+            session: SessionId::new_unchecked("local-2"),
             tab: TabId(2),
         })
         .unwrap();
@@ -1553,13 +1564,13 @@ mod tests {
     #[test]
     fn build_cookies_list_with_domain() {
         let (action, _) = build_action(BrowserCmd::Cookies(CookiesCmd::List {
-            session: SessionId(2),
+            session: SessionId::new_unchecked("local-3"),
             domain: Some("example.com".into()),
         }))
         .unwrap();
         match action {
             Action::CookiesList { session, domain } => {
-                assert_eq!(session, SessionId(2));
+                assert_eq!(session, SessionId::new_unchecked("local-3"));
                 assert_eq!(domain.as_deref(), Some("example.com"));
             }
             _ => panic!("wrong variant"),
@@ -1569,13 +1580,13 @@ mod tests {
     #[test]
     fn build_cookies_clear_with_domain() {
         let (action, _) = build_action(BrowserCmd::Cookies(CookiesCmd::Clear {
-            session: SessionId(3),
+            session: SessionId::new_unchecked("local-4"),
             domain: Some(".example.com".into()),
         }))
         .unwrap();
         match action {
             Action::CookiesClear { session, domain } => {
-                assert_eq!(session, SessionId(3));
+                assert_eq!(session, SessionId::new_unchecked("local-4"));
                 assert_eq!(domain.as_deref(), Some(".example.com"));
             }
             _ => panic!("wrong variant"),

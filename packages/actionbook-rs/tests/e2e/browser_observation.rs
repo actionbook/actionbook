@@ -62,7 +62,7 @@ fn obs_snapshot_has_content() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -72,7 +72,7 @@ fn obs_snapshot_has_content() {
     );
     assert_success(&out, "wait for page load");
 
-    let out = headless_json(&["browser", "snapshot", "-s", "s0", "-t", "t0"], 30);
+    let out = headless_json(&["browser", "snapshot", "-s", "local-1", "-t", "t0"], 30);
     assert_success(&out, "snapshot");
     let output = stdout_str(&out);
     assert!(
@@ -81,7 +81,7 @@ fn obs_snapshot_has_content() {
         &output[..output.len().min(500)]
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -118,7 +118,7 @@ fn obs_snapshot_interactive() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -134,7 +134,7 @@ fn obs_snapshot_interactive() {
             "snapshot",
             "--interactive",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -149,7 +149,7 @@ fn obs_snapshot_interactive() {
         &output[..output.len().min(500)]
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -187,7 +187,7 @@ fn obs_snapshot_s1t2_different() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -198,18 +198,21 @@ fn obs_snapshot_s1t2_different() {
     assert_success(&out, "wait for page load");
 
     // Open example.org in a new tab (t1)
-    let out = headless(&["browser", "open", "https://example.org", "-s", "s0"], 30);
+    let out = headless(
+        &["browser", "open", "https://example.org", "-s", "local-1"],
+        30,
+    );
     assert_success(&out, "open t1");
 
     // Snapshot t0 — extract only the snapshot content (not the full JSON envelope
     // which may differ by tab_id/url metadata).
-    let out = headless_json(&["browser", "snapshot", "-s", "s0", "-t", "t0"], 30);
+    let out = headless_json(&["browser", "snapshot", "-s", "local-1", "-t", "t0"], 30);
     assert_success(&out, "snapshot t0");
     let raw_t0 = stdout_str(&out);
     let snap_t0 = extract_snapshot_content(&raw_t0);
 
     // Snapshot t1
-    let out = headless_json(&["browser", "snapshot", "-s", "s0", "-t", "t1"], 30);
+    let out = headless_json(&["browser", "snapshot", "-s", "local-1", "-t", "t1"], 30);
     assert_success(&out, "snapshot t1");
     let raw_t1 = stdout_str(&out);
     let snap_t1 = extract_snapshot_content(&raw_t1);
@@ -220,7 +223,7 @@ fn obs_snapshot_s1t2_different() {
         "snapshots of different tabs should differ"
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -257,7 +260,7 @@ fn obs_snapshot_seq_reflects_goto() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -269,7 +272,7 @@ fn obs_snapshot_seq_reflects_goto() {
 
     // Snapshot after landing on example.com — extract only the snapshot
     // content to avoid false-negatives from envelope metadata differences.
-    let out = headless_json(&["browser", "snapshot", "-s", "s0", "-t", "t0"], 30);
+    let out = headless_json(&["browser", "snapshot", "-s", "local-1", "-t", "t0"], 30);
     assert_success(&out, "snapshot A");
     let raw_a = stdout_str(&out);
     let snap_a = extract_snapshot_content(&raw_a);
@@ -281,7 +284,7 @@ fn obs_snapshot_seq_reflects_goto() {
             "goto",
             "https://example.org",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -290,7 +293,7 @@ fn obs_snapshot_seq_reflects_goto() {
     assert_success(&out, "goto B");
 
     // Snapshot again
-    let out = headless_json(&["browser", "snapshot", "-s", "s0", "-t", "t0"], 30);
+    let out = headless_json(&["browser", "snapshot", "-s", "local-1", "-t", "t0"], 30);
     assert_success(&out, "snapshot B");
     let raw_b = stdout_str(&out);
     let snap_b = extract_snapshot_content(&raw_b);
@@ -301,7 +304,7 @@ fn obs_snapshot_seq_reflects_goto() {
         "snapshot should change after goto to a different page"
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -338,7 +341,7 @@ fn obs_screenshot_file() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -357,7 +360,7 @@ fn obs_screenshot_file() {
     drop(tmp);
 
     let out = headless(
-        &["browser", "screenshot", &path, "-s", "s0", "-t", "t0"],
+        &["browser", "screenshot", &path, "-s", "local-1", "-t", "t0"],
         30,
     );
     assert_success(&out, "screenshot");
@@ -372,7 +375,7 @@ fn obs_screenshot_file() {
     // Cleanup screenshot file
     let _ = std::fs::remove_file(&path);
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -409,7 +412,7 @@ fn obs_pdf_produces_file() {
             "eval",
             &set_body_html_js("<h1>PDF Test</h1><p>Content for PDF generation test.</p>"),
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -424,7 +427,7 @@ fn obs_pdf_produces_file() {
     let path = tmp.path().to_string_lossy().to_string();
     drop(tmp);
 
-    let out = headless(&["browser", "pdf", &path, "-s", "s0", "-t", "t0"], 30);
+    let out = headless(&["browser", "pdf", &path, "-s", "local-1", "-t", "t0"], 30);
     assert_success(&out, "pdf");
 
     let metadata = std::fs::metadata(&path);
@@ -433,7 +436,7 @@ fn obs_pdf_produces_file() {
 
     let _ = std::fs::remove_file(&path);
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -470,7 +473,7 @@ fn obs_title() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -480,7 +483,7 @@ fn obs_title() {
     );
     assert_success(&out, "wait for page load");
 
-    let out = headless(&["browser", "title", "-s", "s0", "-t", "t0"], 10);
+    let out = headless(&["browser", "title", "-s", "local-1", "-t", "t0"], 10);
     assert_success(&out, "title");
     let title = stdout_str(&out);
     assert!(
@@ -489,7 +492,7 @@ fn obs_title() {
         title
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -526,7 +529,7 @@ fn obs_url() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -536,7 +539,7 @@ fn obs_url() {
     );
     assert_success(&out, "wait for page load");
 
-    let out = headless(&["browser", "url", "-s", "s0", "-t", "t0"], 10);
+    let out = headless(&["browser", "url", "-s", "local-1", "-t", "t0"], 10);
     assert_success(&out, "url");
     let url = stdout_str(&out);
     assert!(
@@ -545,7 +548,7 @@ fn obs_url() {
         url
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -582,7 +585,7 @@ fn obs_viewport() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -592,7 +595,7 @@ fn obs_viewport() {
     );
     assert_success(&out, "wait for page load");
 
-    let out = headless(&["browser", "viewport", "-s", "s0", "-t", "t0"], 10);
+    let out = headless(&["browser", "viewport", "-s", "local-1", "-t", "t0"], 10);
     assert_success(&out, "viewport");
     let viewport = stdout_str(&out);
     // Viewport output should contain width/height numbers (e.g., "1440x900" or JSON with width/height)
@@ -602,7 +605,7 @@ fn obs_viewport() {
         viewport
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -639,7 +642,7 @@ fn obs_eval_arithmetic() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -649,7 +652,7 @@ fn obs_eval_arithmetic() {
     );
     assert_success(&out, "wait for page load");
 
-    let out = headless(&["browser", "eval", "1+1", "-s", "s0", "-t", "t0"], 10);
+    let out = headless(&["browser", "eval", "1+1", "-s", "local-1", "-t", "t0"], 10);
     assert_success(&out, "eval 1+1");
     assert!(
         stdout_str(&out).contains('2'),
@@ -657,7 +660,7 @@ fn obs_eval_arithmetic() {
         stdout_str(&out)
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -694,7 +697,7 @@ fn obs_eval_dom() {
             "eval",
             "document.title = 'Test Title'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -703,7 +706,15 @@ fn obs_eval_dom() {
     assert_success(&out, "eval set title");
 
     let out = headless(
-        &["browser", "eval", "document.title", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "eval",
+            "document.title",
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "eval document.title");
@@ -713,7 +724,7 @@ fn obs_eval_dom() {
         stdout_str(&out)
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -750,7 +761,7 @@ fn obs_html_element() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -760,7 +771,10 @@ fn obs_html_element() {
     );
     assert_success(&out, "wait for page load");
 
-    let out = headless(&["browser", "html", "body", "-s", "s0", "-t", "t0"], 10);
+    let out = headless(
+        &["browser", "html", "body", "-s", "local-1", "-t", "t0"],
+        10,
+    );
     assert_success(&out, "html body");
     let html = stdout_str(&out);
     assert!(
@@ -769,7 +783,7 @@ fn obs_html_element() {
         &html[..html.len().min(500)]
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -806,7 +820,7 @@ fn obs_text_element() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -816,7 +830,10 @@ fn obs_text_element() {
     );
     assert_success(&out, "wait for page load");
 
-    let out = headless(&["browser", "text", "body", "-s", "s0", "-t", "t0"], 10);
+    let out = headless(
+        &["browser", "text", "body", "-s", "local-1", "-t", "t0"],
+        10,
+    );
     assert_success(&out, "text body");
     let text = stdout_str(&out);
     assert!(
@@ -825,7 +842,7 @@ fn obs_text_element() {
         &text[..text.len().min(500)]
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -863,7 +880,7 @@ fn obs_value_input() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -880,7 +897,7 @@ fn obs_value_input() {
             "eval",
             &append_body_html_js(r#"<input id="test-input" type="text" />"#),
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -896,7 +913,7 @@ fn obs_value_input() {
             "#test-input",
             "hello-world",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -906,7 +923,15 @@ fn obs_value_input() {
 
     // Read value back
     let out = headless(
-        &["browser", "value", "#test-input", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "value",
+            "#test-input",
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "value input");
@@ -916,7 +941,7 @@ fn obs_value_input() {
         stdout_str(&out)
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -953,7 +978,7 @@ fn obs_attr_single() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -965,7 +990,7 @@ fn obs_attr_single() {
 
     // example.com has an <a> element with href
     let out = headless(
-        &["browser", "attr", "a", "href", "-s", "s0", "-t", "t0"],
+        &["browser", "attr", "a", "href", "-s", "local-1", "-t", "t0"],
         10,
     );
     assert_success(&out, "attr a href");
@@ -976,7 +1001,7 @@ fn obs_attr_single() {
         attr
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1013,7 +1038,7 @@ fn obs_attrs_all() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -1030,7 +1055,7 @@ fn obs_attrs_all() {
             "eval",
             &append_body_html_js(r#"<input id="attrs-test" type="text" name="q" />"#),
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -1039,7 +1064,15 @@ fn obs_attrs_all() {
     assert_success(&out, "inject input");
 
     let out = headless(
-        &["browser", "attrs", "#attrs-test", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "attrs",
+            "#attrs-test",
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "attrs input");
@@ -1050,7 +1083,7 @@ fn obs_attrs_all() {
         attrs
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1087,7 +1120,7 @@ fn obs_box_position() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -1097,7 +1130,7 @@ fn obs_box_position() {
     );
     assert_success(&out, "wait for page load");
 
-    let out = headless(&["browser", "box", "body", "-s", "s0", "-t", "t0"], 10);
+    let out = headless(&["browser", "box", "body", "-s", "local-1", "-t", "t0"], 10);
     assert_success(&out, "box body");
     let box_output = stdout_str(&out);
     // Box output should contain position/size info (x, y, width, height)
@@ -1107,7 +1140,7 @@ fn obs_box_position() {
         box_output
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1144,7 +1177,7 @@ fn obs_styles_computed() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -1154,7 +1187,10 @@ fn obs_styles_computed() {
     );
     assert_success(&out, "wait for page load");
 
-    let out = headless(&["browser", "styles", "body", "-s", "s0", "-t", "t0"], 10);
+    let out = headless(
+        &["browser", "styles", "body", "-s", "local-1", "-t", "t0"],
+        10,
+    );
     assert_success(&out, "styles body");
     let styles = stdout_str(&out);
     assert!(
@@ -1163,7 +1199,7 @@ fn obs_styles_computed() {
         &styles[..styles.len().min(500)]
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1200,7 +1236,7 @@ fn obs_describe_element() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -1211,7 +1247,10 @@ fn obs_describe_element() {
     assert_success(&out, "wait for page load");
 
     // example.com has a link; describe it
-    let out = headless(&["browser", "describe", "a", "-s", "s0", "-t", "t0"], 10);
+    let out = headless(
+        &["browser", "describe", "a", "-s", "local-1", "-t", "t0"],
+        10,
+    );
     assert_success(&out, "describe a");
     let desc = stdout_str(&out);
     assert!(
@@ -1220,7 +1259,7 @@ fn obs_describe_element() {
         desc
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1257,7 +1296,7 @@ fn obs_state_element() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -1268,7 +1307,7 @@ fn obs_state_element() {
     assert_success(&out, "wait for page load");
 
     // Use the link element on example.com for state query
-    let out = headless(&["browser", "state", "a", "-s", "s0", "-t", "t0"], 10);
+    let out = headless(&["browser", "state", "a", "-s", "local-1", "-t", "t0"], 10);
     assert_success(&out, "state a");
     let state = stdout_str(&out);
     assert!(
@@ -1277,7 +1316,7 @@ fn obs_state_element() {
         state
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1314,7 +1353,7 @@ fn obs_inspect_point() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -1331,7 +1370,7 @@ fn obs_inspect_point() {
             "100",
             "100",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -1351,7 +1390,7 @@ fn obs_inspect_point() {
         inspect
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1388,7 +1427,7 @@ fn obs_query_one() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -1399,7 +1438,9 @@ fn obs_query_one() {
     assert_success(&out, "wait for page load");
 
     let out = headless(
-        &["browser", "query", "one", "body", "-s", "s0", "-t", "t0"],
+        &[
+            "browser", "query", "one", "body", "-s", "local-1", "-t", "t0",
+        ],
         10,
     );
     assert_success(&out, "query one body");
@@ -1411,7 +1452,7 @@ fn obs_query_one() {
         query
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1448,7 +1489,7 @@ fn obs_query_all() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -1459,7 +1500,9 @@ fn obs_query_all() {
     assert_success(&out, "wait for page load");
 
     let out = headless(
-        &["browser", "query", "all", "div", "-s", "s0", "-t", "t0"],
+        &[
+            "browser", "query", "all", "div", "-s", "local-1", "-t", "t0",
+        ],
         10,
     );
     assert_success(&out, "query all div");
@@ -1471,7 +1514,7 @@ fn obs_query_all() {
         query
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1508,7 +1551,7 @@ fn obs_query_count() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -1519,7 +1562,9 @@ fn obs_query_count() {
     assert_success(&out, "wait for page load");
 
     let out = headless(
-        &["browser", "query", "count", "div", "-s", "s0", "-t", "t0"],
+        &[
+            "browser", "query", "count", "div", "-s", "local-1", "-t", "t0",
+        ],
         10,
     );
     assert_success(&out, "query count div");
@@ -1540,7 +1585,7 @@ fn obs_query_count() {
         count
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1577,7 +1622,7 @@ fn obs_query_nth() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -1589,7 +1634,7 @@ fn obs_query_nth() {
 
     let out = headless(
         &[
-            "browser", "query", "nth", "1", "div", "-s", "s0", "-t", "t0",
+            "browser", "query", "nth", "1", "div", "-s", "local-1", "-t", "t0",
         ],
         10,
     );
@@ -1602,7 +1647,7 @@ fn obs_query_nth() {
         nth_output
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1639,7 +1684,7 @@ fn obs_console_logs() {
             "eval",
             "console.log('actionbook-test-log-marker')",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -1653,7 +1698,10 @@ fn obs_console_logs() {
         if attempt > 0 {
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
-        let out = headless(&["browser", "logs-console", "-s", "s0", "-t", "t0"], 10);
+        let out = headless(
+            &["browser", "logs-console", "-s", "local-1", "-t", "t0"],
+            10,
+        );
         assert_success(&out, "logs console");
         logs = stdout_str(&out);
         if logs.contains("actionbook-test-log-marker") {
@@ -1666,7 +1714,7 @@ fn obs_console_logs() {
         logs
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1703,7 +1751,7 @@ fn obs_error_logs() {
             "eval",
             "console.error('actionbook-test-error-marker')",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -1717,7 +1765,7 @@ fn obs_error_logs() {
         if attempt > 0 {
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
-        let out = headless(&["browser", "logs-errors", "-s", "s0", "-t", "t0"], 10);
+        let out = headless(&["browser", "logs-errors", "-s", "local-1", "-t", "t0"], 10);
         assert_success(&out, "logs errors");
         logs = stdout_str(&out);
         if logs.contains("actionbook-test-error-marker") {
@@ -1730,6 +1778,6 @@ fn obs_error_logs() {
         logs
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }

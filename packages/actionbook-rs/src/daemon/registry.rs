@@ -112,8 +112,8 @@ pub struct SessionSummary {
 
 /// In-memory registry of all active sessions.
 ///
-/// Owned by the daemon's main task. Provides CRUD operations and
-/// monotonically-increasing [`SessionId`] allocation.
+/// Owns all active sessions. Provides CRUD operations and
+/// auto-generated session ID allocation (local-1, local-2, ...).
 pub struct SessionRegistry {
     sessions: HashMap<SessionId, SessionHandle>,
     next_id: u32,
@@ -136,11 +136,16 @@ impl SessionRegistry {
         }
     }
 
-    /// Allocate the next [`SessionId`] without registering a session.
+    /// Allocate the next auto-generated [`SessionId`] (local-1, local-2, ...).
     pub fn next_session_id(&mut self) -> SessionId {
-        let id = SessionId(self.next_id);
+        let id = SessionId::auto_generate(self.next_id);
         self.next_id += 1;
         id
+    }
+
+    /// Check if a session ID already exists in the registry.
+    pub fn contains(&self, id: &SessionId) -> bool {
+        self.sessions.contains_key(id)
     }
 
     /// Register a session handle under a specific ID.
@@ -155,27 +160,27 @@ impl SessionRegistry {
     /// Returns the assigned [`SessionId`].
     pub fn register_session(&mut self, handle: SessionHandle) -> SessionId {
         let id = self.next_session_id();
-        self.sessions.insert(id, handle);
+        self.sessions.insert(id.clone(), handle);
         id
     }
 
     /// Look up a session by ID.
-    pub fn get(&self, id: SessionId) -> Option<&SessionHandle> {
-        self.sessions.get(&id)
+    pub fn get(&self, id: &SessionId) -> Option<&SessionHandle> {
+        self.sessions.get(id)
     }
 
     /// Get a mutable reference to a session handle.
-    pub fn get_mut(&mut self, id: SessionId) -> Option<&mut SessionHandle> {
-        self.sessions.get_mut(&id)
+    pub fn get_mut(&mut self, id: &SessionId) -> Option<&mut SessionHandle> {
+        self.sessions.get_mut(id)
     }
 
     /// Remove a session from the registry, returning it if it existed.
     ///
     /// When the registry becomes empty, `next_id` resets to 0 so the next
-    /// session starts at `s0` again.  This keeps IDs predictable for agents
-    /// and test harnesses that expect deterministic numbering.
-    pub fn remove(&mut self, id: SessionId) -> Option<SessionHandle> {
-        let removed = self.sessions.remove(&id);
+    /// session starts at `local-1` again. This keeps IDs predictable for
+    /// agents and test harnesses that expect deterministic numbering.
+    pub fn remove(&mut self, id: &SessionId) -> Option<SessionHandle> {
+        let removed = self.sessions.remove(id);
         if self.sessions.is_empty() {
             self.next_id = 0;
         }
@@ -188,8 +193,8 @@ impl SessionRegistry {
         let mut summaries: Vec<_> = self
             .sessions
             .iter()
-            .map(|(&id, handle)| SessionSummary {
-                id,
+            .map(|(id, handle)| SessionSummary {
+                id: id.clone(),
                 profile: handle.profile.clone(),
                 mode: handle.mode,
                 state: handle.state,
@@ -198,7 +203,7 @@ impl SessionRegistry {
             })
             .collect();
         // Sort by ID for deterministic output.
-        summaries.sort_by_key(|s| s.id.0);
+        summaries.sort_by(|a, b| a.id.0.cmp(&b.id.0));
         summaries
     }
 
@@ -242,12 +247,16 @@ mod tests {
         (handle, rx)
     }
 
+    fn sid(s: &str) -> SessionId {
+        SessionId::new_unchecked(s)
+    }
+
     #[test]
-    fn next_session_id_is_monotonic() {
+    fn next_session_id_is_sequential() {
         let mut reg = SessionRegistry::new();
-        assert_eq!(reg.next_session_id(), SessionId(0));
-        assert_eq!(reg.next_session_id(), SessionId(1));
-        assert_eq!(reg.next_session_id(), SessionId(2));
+        assert_eq!(reg.next_session_id(), sid("local-1"));
+        assert_eq!(reg.next_session_id(), sid("local-2"));
+        assert_eq!(reg.next_session_id(), sid("local-3"));
     }
 
     #[test]
@@ -255,25 +264,25 @@ mod tests {
         let mut reg = SessionRegistry::new();
         let (handle, _rx) = make_handle("default", Mode::Local);
         let id = reg.register_session(handle);
-        assert_eq!(id, SessionId(0));
-        assert!(reg.get(id).is_some());
-        assert_eq!(reg.get(id).unwrap().profile, "default");
+        assert_eq!(id, sid("local-1"));
+        assert!(reg.get(&id).is_some());
+        assert_eq!(reg.get(&id).unwrap().profile, "default");
     }
 
     #[test]
     fn register_with_explicit_id() {
         let mut reg = SessionRegistry::new();
-        let id = reg.next_session_id();
+        let id = sid("my-session");
         let (handle, _rx) = make_handle("work", Mode::Cloud);
-        reg.register(id, handle);
-        assert!(reg.get(id).is_some());
-        assert_eq!(reg.get(id).unwrap().mode, Mode::Cloud);
+        reg.register(id.clone(), handle);
+        assert!(reg.get(&id).is_some());
+        assert_eq!(reg.get(&id).unwrap().mode, Mode::Cloud);
     }
 
     #[test]
     fn get_nonexistent_returns_none() {
         let reg = SessionRegistry::new();
-        assert!(reg.get(SessionId(99)).is_none());
+        assert!(reg.get(&sid("nonexistent")).is_none());
     }
 
     #[test]
@@ -283,16 +292,16 @@ mod tests {
         let id = reg.register_session(handle);
         assert_eq!(reg.len(), 1);
 
-        let removed = reg.remove(id);
+        let removed = reg.remove(&id);
         assert!(removed.is_some());
         assert_eq!(reg.len(), 0);
-        assert!(reg.get(id).is_none());
+        assert!(reg.get(&id).is_none());
     }
 
     #[test]
     fn remove_nonexistent_returns_none() {
         let mut reg = SessionRegistry::new();
-        assert!(reg.remove(SessionId(0)).is_none());
+        assert!(reg.remove(&sid("nonexistent")).is_none());
     }
 
     #[test]
@@ -303,15 +312,15 @@ mod tests {
         let (h2, _r2) = make_handle("ext", Mode::Extension);
         let (h3, _r3) = make_handle("cloud", Mode::Cloud);
 
-        reg.register_session(h1); // s0
-        reg.register_session(h2); // s1
-        reg.register_session(h3); // s2
+        reg.register_session(h1); // local-1
+        reg.register_session(h2); // local-2
+        reg.register_session(h3); // local-3
 
         let summaries = reg.list_sessions();
         assert_eq!(summaries.len(), 3);
-        assert_eq!(summaries[0].id, SessionId(0));
-        assert_eq!(summaries[1].id, SessionId(1));
-        assert_eq!(summaries[2].id, SessionId(2));
+        assert_eq!(summaries[0].id, sid("local-1"));
+        assert_eq!(summaries[1].id, sid("local-2"));
+        assert_eq!(summaries[2].id, sid("local-3"));
         assert_eq!(summaries[0].profile, "default");
         assert_eq!(summaries[1].mode, Mode::Extension);
     }
@@ -329,18 +338,18 @@ mod tests {
         let (handle, _rx) = make_handle("default", Mode::Local);
         let id = reg.register_session(handle);
 
-        reg.get_mut(id).unwrap().state = SessionState::Executing;
-        assert_eq!(reg.get(id).unwrap().state, SessionState::Executing);
+        reg.get_mut(&id).unwrap().state = SessionState::Executing;
+        assert_eq!(reg.get(&id).unwrap().state, SessionState::Executing);
 
-        reg.get_mut(id).unwrap().tab_count = 5;
-        assert_eq!(reg.get(id).unwrap().tab_count, 5);
+        reg.get_mut(&id).unwrap().tab_count = 5;
+        assert_eq!(reg.get(&id).unwrap().tab_count, 5);
     }
 
     #[test]
     fn with_next_id_starts_from_offset() {
         let mut reg = SessionRegistry::with_next_id(10);
-        assert_eq!(reg.next_session_id(), SessionId(10));
-        assert_eq!(reg.next_session_id(), SessionId(11));
+        assert_eq!(reg.next_session_id(), sid("local-11"));
+        assert_eq!(reg.next_session_id(), sid("local-12"));
     }
 
     #[test]
@@ -369,7 +378,7 @@ mod tests {
     #[test]
     fn session_summary_serde_round_trip() {
         let summary = SessionSummary {
-            id: SessionId(3),
+            id: sid("local-1"),
             profile: "test".into(),
             mode: Mode::Local,
             state: SessionState::Ready,
@@ -378,8 +387,31 @@ mod tests {
         };
         let json = serde_json::to_string(&summary).unwrap();
         let decoded: SessionSummary = serde_json::from_str(&json).unwrap();
-        assert_eq!(decoded.id, SessionId(3));
+        assert_eq!(decoded.id, sid("local-1"));
         assert_eq!(decoded.tab_count, 2);
         assert_eq!(decoded.uptime_secs, 120);
+    }
+
+    #[test]
+    fn contains_check() {
+        let mut reg = SessionRegistry::new();
+        let id = sid("test-session");
+        assert!(!reg.contains(&id));
+        let (handle, _rx) = make_handle("default", Mode::Local);
+        reg.register(id.clone(), handle);
+        assert!(reg.contains(&id));
+    }
+
+    #[test]
+    fn reset_after_empty() {
+        let mut reg = SessionRegistry::new();
+        let (h1, _r1) = make_handle("default", Mode::Local);
+        let id1 = reg.register_session(h1);
+        assert_eq!(id1, sid("local-1"));
+        reg.remove(&id1);
+        // After empty, next_id resets
+        let (h2, _r2) = make_handle("default", Mode::Local);
+        let id2 = reg.register_session(h2);
+        assert_eq!(id2, sid("local-1"));
     }
 }

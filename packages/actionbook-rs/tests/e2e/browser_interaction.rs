@@ -39,7 +39,7 @@ fn int_click_element() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -58,7 +58,7 @@ fn int_click_element() {
                 r#"<button id="btn" onclick="window.__clicked=true">Click me</button>"#,
             ),
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -67,7 +67,10 @@ fn int_click_element() {
     assert_success(&out, "inject button");
 
     // Click the button
-    let out = headless(&["browser", "click", "#btn", "-s", "s0", "-t", "t0"], 30);
+    let out = headless(
+        &["browser", "click", "#btn", "-s", "local-1", "-t", "t0"],
+        30,
+    );
     assert_success(&out, "click button");
 
     // Verify click happened
@@ -77,7 +80,7 @@ fn int_click_element() {
             "eval",
             "window.__clicked === true",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -90,7 +93,7 @@ fn int_click_element() {
         stdout_str(&out)
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -128,7 +131,7 @@ fn int_click_s1t2_isolation() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -139,7 +142,10 @@ fn int_click_s1t2_isolation() {
     assert_success(&out, "wait for page load");
 
     // Open second tab (t1)
-    let out = headless(&["browser", "open", "https://example.com", "-s", "s0"], 30);
+    let out = headless(
+        &["browser", "open", "https://example.com", "-s", "local-1"],
+        30,
+    );
     assert_success(&out, "open t1");
 
     // Inject button on t0
@@ -149,7 +155,7 @@ fn int_click_s1t2_isolation() {
             "eval",
             &set_body_html_js(r#"<button id="btn" onclick="window.__clicked=true">Click</button>"#),
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -164,7 +170,7 @@ fn int_click_s1t2_isolation() {
             "eval",
             "window.__clicked = false",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t1",
         ],
@@ -173,7 +179,10 @@ fn int_click_s1t2_isolation() {
     assert_success(&out, "set marker on t1");
 
     // Click on t0
-    let out = headless(&["browser", "click", "#btn", "-s", "s0", "-t", "t0"], 30);
+    let out = headless(
+        &["browser", "click", "#btn", "-s", "local-1", "-t", "t0"],
+        30,
+    );
     assert_success(&out, "click on t0");
 
     // Verify t1 is unaffected
@@ -183,7 +192,7 @@ fn int_click_s1t2_isolation() {
             "eval",
             "window.__clicked",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t1",
         ],
@@ -196,7 +205,7 @@ fn int_click_s1t2_isolation() {
         stdout_str(&out)
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -233,7 +242,7 @@ fn int_click_seq() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -252,7 +261,7 @@ fn int_click_seq() {
                 r#"<button id="a" onclick="window.__a=true">A</button><button id="b" onclick="window.__b=true">B</button>"#,
             ),
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -261,7 +270,7 @@ fn int_click_seq() {
     assert_success(&out, "inject buttons");
 
     // Click button A
-    let out = headless(&["browser", "click", "#a", "-s", "s0", "-t", "t0"], 30);
+    let out = headless(&["browser", "click", "#a", "-s", "local-1", "-t", "t0"], 30);
     assert_success(&out, "click #a");
 
     // Verify A clicked
@@ -271,7 +280,7 @@ fn int_click_seq() {
             "eval",
             "window.__a === true",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -285,7 +294,7 @@ fn int_click_seq() {
     );
 
     // Click button B
-    let out = headless(&["browser", "click", "#b", "-s", "s0", "-t", "t0"], 30);
+    let out = headless(&["browser", "click", "#b", "-s", "local-1", "-t", "t0"], 30);
     assert_success(&out, "click #b");
 
     // Verify B clicked
@@ -295,7 +304,7 @@ fn int_click_seq() {
             "eval",
             "window.__b === true",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -308,7 +317,7 @@ fn int_click_seq() {
         stdout_str(&out)
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -345,7 +354,7 @@ fn int_fill_input() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -362,7 +371,7 @@ fn int_fill_input() {
             "eval",
             &set_body_html_js(r#"<input id="test" type="text" />"#),
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -372,7 +381,9 @@ fn int_fill_input() {
 
     // Fill the input
     let out = headless(
-        &["browser", "fill", "#test", "hello", "-s", "s0", "-t", "t0"],
+        &[
+            "browser", "fill", "#test", "hello", "-s", "local-1", "-t", "t0",
+        ],
         30,
     );
     assert_success(&out, "fill input");
@@ -384,7 +395,7 @@ fn int_fill_input() {
             "eval",
             "document.querySelector('#test').value",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -397,7 +408,7 @@ fn int_fill_input() {
         stdout_str(&out)
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -428,7 +439,7 @@ fn int_fill_s1t2_isolation() {
     assert_success(&out, "start");
 
     // Open second tab (t1)
-    let out = headless(&["browser", "open", "about:blank", "-s", "s0"], 30);
+    let out = headless(&["browser", "open", "about:blank", "-s", "local-1"], 30);
     assert_success(&out, "open t1");
 
     // Inject input on t0
@@ -438,7 +449,7 @@ fn int_fill_s1t2_isolation() {
             "eval",
             &set_body_html_js(r#"<input id="test" type="text" />"#),
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -453,7 +464,7 @@ fn int_fill_s1t2_isolation() {
             "eval",
             &set_body_html_js(r#"<input id="test" type="text" />"#),
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t1",
         ],
@@ -469,7 +480,7 @@ fn int_fill_s1t2_isolation() {
             "#test",
             "filled-on-t0",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -484,7 +495,7 @@ fn int_fill_s1t2_isolation() {
             "eval",
             "document.querySelector('#test').value",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t1",
         ],
@@ -498,7 +509,7 @@ fn int_fill_s1t2_isolation() {
         val
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -535,7 +546,7 @@ fn int_fill_seq() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -552,7 +563,7 @@ fn int_fill_seq() {
             "eval",
             &set_body_html_js(r#"<input id="a" type="text" /><input id="b" type="text" />"#),
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -562,14 +573,14 @@ fn int_fill_seq() {
 
     // Fill input A
     let out = headless(
-        &["browser", "fill", "#a", "aaa", "-s", "s0", "-t", "t0"],
+        &["browser", "fill", "#a", "aaa", "-s", "local-1", "-t", "t0"],
         30,
     );
     assert_success(&out, "fill #a");
 
     // Fill input B
     let out = headless(
-        &["browser", "fill", "#b", "bbb", "-s", "s0", "-t", "t0"],
+        &["browser", "fill", "#b", "bbb", "-s", "local-1", "-t", "t0"],
         30,
     );
     assert_success(&out, "fill #b");
@@ -581,7 +592,7 @@ fn int_fill_seq() {
             "eval",
             "document.querySelector('#a').value",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -601,7 +612,7 @@ fn int_fill_seq() {
             "eval",
             "document.querySelector('#b').value",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -614,7 +625,7 @@ fn int_fill_seq() {
         stdout_str(&out)
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -651,7 +662,7 @@ fn int_type_text() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -668,7 +679,7 @@ fn int_type_text() {
             "eval",
             &set_body_html_js(r#"<input id="test" type="text" />"#),
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -677,12 +688,17 @@ fn int_type_text() {
     assert_success(&out, "inject input");
 
     // Click input to focus it
-    let out = headless(&["browser", "click", "#test", "-s", "s0", "-t", "t0"], 30);
+    let out = headless(
+        &["browser", "click", "#test", "-s", "local-1", "-t", "t0"],
+        30,
+    );
     assert_success(&out, "click input");
 
     // Type text into the input
     let out = headless(
-        &["browser", "type", "world", "#test", "-s", "s0", "-t", "t0"],
+        &[
+            "browser", "type", "world", "#test", "-s", "local-1", "-t", "t0",
+        ],
         30,
     );
     assert_success(&out, "type world");
@@ -694,7 +710,7 @@ fn int_type_text() {
             "eval",
             "document.querySelector('#test').value",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -707,7 +723,7 @@ fn int_type_text() {
         stdout_str(&out)
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -744,7 +760,7 @@ fn int_select_dropdown() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -763,7 +779,7 @@ fn int_select_dropdown() {
                 r#"<select id="sel"><option value="opt1">One</option><option value="opt2">Two</option><option value="opt3">Three</option></select>"#,
             ),
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -780,7 +796,7 @@ fn int_select_dropdown() {
             "--selector",
             "#sel",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -795,7 +811,7 @@ fn int_select_dropdown() {
             "eval",
             "document.querySelector('#sel').value",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -808,7 +824,7 @@ fn int_select_dropdown() {
         stdout_str(&out)
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -845,7 +861,7 @@ fn int_hover() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -855,10 +871,13 @@ fn int_hover() {
     );
     assert_success(&out, "wait for page load");
 
-    let out = headless(&["browser", "hover", "body", "-s", "s0", "-t", "t0"], 30);
+    let out = headless(
+        &["browser", "hover", "body", "-s", "local-1", "-t", "t0"],
+        30,
+    );
     assert_success(&out, "hover body");
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -895,7 +914,7 @@ fn int_focus() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -912,7 +931,7 @@ fn int_focus() {
             "eval",
             &set_body_html_js(r#"<input id="focus-test" type="text" />"#),
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -922,7 +941,15 @@ fn int_focus() {
 
     // Focus the input
     let out = headless(
-        &["browser", "focus", "#focus-test", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "focus",
+            "#focus-test",
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "focus input");
@@ -934,7 +961,7 @@ fn int_focus() {
             "eval",
             "document.activeElement.tagName",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -947,7 +974,7 @@ fn int_focus() {
         stdout_str(&out)
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -984,7 +1011,7 @@ fn int_press_key() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -994,10 +1021,13 @@ fn int_press_key() {
     );
     assert_success(&out, "wait for page load");
 
-    let out = headless(&["browser", "press", "Enter", "-s", "s0", "-t", "t0"], 30);
+    let out = headless(
+        &["browser", "press", "Enter", "-s", "local-1", "-t", "t0"],
+        30,
+    );
     assert_success(&out, "press Enter");
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1034,7 +1064,7 @@ fn int_drag() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -1045,12 +1075,14 @@ fn int_drag() {
     assert_success(&out, "wait for page load");
 
     let out = headless(
-        &["browser", "drag", "body", "body", "-s", "s0", "-t", "t0"],
+        &[
+            "browser", "drag", "body", "body", "-s", "local-1", "-t", "t0",
+        ],
         30,
     );
     assert_success(&out, "drag body to body");
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1098,7 +1130,7 @@ fn int_upload() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -1115,7 +1147,7 @@ fn int_upload() {
             "eval",
             &set_body_html_js(r#"<input id="file-upload" type="file" />"#),
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -1132,7 +1164,7 @@ fn int_upload() {
             "--selector",
             "#file-upload",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -1140,7 +1172,7 @@ fn int_upload() {
     );
     assert_success(&out, "upload file");
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1177,7 +1209,7 @@ fn int_mouse_move() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -1188,12 +1220,20 @@ fn int_mouse_move() {
     assert_success(&out, "wait for page load");
 
     let out = headless(
-        &["browser", "mouse-move", "200,300", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "mouse-move",
+            "200,300",
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "mouse-move 200,300");
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1230,7 +1270,7 @@ fn int_cursor_position() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -1240,7 +1280,10 @@ fn int_cursor_position() {
     );
     assert_success(&out, "wait for page load");
 
-    let out = headless(&["browser", "cursor-position", "-s", "s0", "-t", "t0"], 10);
+    let out = headless(
+        &["browser", "cursor-position", "-s", "local-1", "-t", "t0"],
+        10,
+    );
     assert_success(&out, "cursor-position");
     let pos = stdout_str(&out);
     // Output should contain coordinate values (numbers)
@@ -1250,7 +1293,7 @@ fn int_cursor_position() {
         pos
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1287,7 +1330,7 @@ fn int_scroll_down() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -1304,7 +1347,7 @@ fn int_scroll_down() {
             "eval",
             "document.body.style.height = '5000px'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -1314,7 +1357,9 @@ fn int_scroll_down() {
 
     // Scroll down
     let out = headless(
-        &["browser", "scroll", "down", "500", "-s", "s0", "-t", "t0"],
+        &[
+            "browser", "scroll", "down", "500", "-s", "local-1", "-t", "t0",
+        ],
         30,
     );
     assert_success(&out, "scroll down");
@@ -1326,7 +1371,7 @@ fn int_scroll_down() {
             "eval",
             "window.scrollY > 0",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -1339,7 +1384,7 @@ fn int_scroll_down() {
         stdout_str(&out)
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1376,7 +1421,7 @@ fn int_scroll_top() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -1393,7 +1438,7 @@ fn int_scroll_top() {
             "eval",
             "document.body.style.height = '5000px'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -1403,7 +1448,9 @@ fn int_scroll_top() {
 
     // Scroll down first
     let out = headless(
-        &["browser", "scroll", "down", "500", "-s", "s0", "-t", "t0"],
+        &[
+            "browser", "scroll", "down", "500", "-s", "local-1", "-t", "t0",
+        ],
         30,
     );
     assert_success(&out, "scroll down");
@@ -1415,7 +1462,7 @@ fn int_scroll_top() {
             "eval",
             "window.scrollY > 0",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -1429,7 +1476,10 @@ fn int_scroll_top() {
     );
 
     // Scroll to top
-    let out = headless(&["browser", "scroll", "top", "-s", "s0", "-t", "t0"], 30);
+    let out = headless(
+        &["browser", "scroll", "top", "-s", "local-1", "-t", "t0"],
+        30,
+    );
     assert_success(&out, "scroll top");
 
     // Verify scrollY == 0
@@ -1439,7 +1489,7 @@ fn int_scroll_top() {
             "eval",
             "window.scrollY === 0",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -1452,7 +1502,7 @@ fn int_scroll_top() {
         stdout_str(&out)
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -1489,7 +1539,7 @@ fn int_scroll_into_view() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -1506,7 +1556,7 @@ fn int_scroll_into_view() {
             "into-view",
             "body",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -1514,6 +1564,6 @@ fn int_scroll_into_view() {
     );
     assert_success(&out, "scroll into-view body");
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }

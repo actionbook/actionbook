@@ -149,7 +149,7 @@ impl SessionActor {
                 })),
                 action => {
                     action_handler::handle_action(
-                        self.session_id,
+                        self.session_id.clone(),
                         self.backend.as_mut(),
                         &mut self.registries,
                         action,
@@ -295,7 +295,7 @@ mod tests {
     fn initial_targets_registered_as_tabs() {
         let backend = Box::new(MockBackend::new(vec![]));
         let targets = sample_targets();
-        let actor = SessionActor::new(SessionId(0), backend, targets);
+        let actor = SessionActor::new(SessionId::new_unchecked("local-1"), backend, targets);
 
         // Only "page" targets should be registered (2 out of 3).
         assert_eq!(actor.tab_count(), 2);
@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn register_and_remove_tab() {
         let backend = Box::new(MockBackend::new(vec![]));
-        let mut actor = SessionActor::new(SessionId(0), backend, vec![]);
+        let mut actor = SessionActor::new(SessionId::new_unchecked("local-1"), backend, vec![]);
 
         let w1 = actor.registries.alloc_window_id();
         actor.registries.windows.insert(
@@ -357,14 +357,14 @@ mod tests {
     #[test]
     fn remove_nonexistent_tab() {
         let backend = Box::new(MockBackend::new(vec![]));
-        let actor = SessionActor::new(SessionId(0), backend, vec![]);
+        let actor = SessionActor::new(SessionId::new_unchecked("local-1"), backend, vec![]);
         assert!(!actor.registries.tabs.contains_key(&TabId(99)));
     }
 
     #[test]
     fn register_window() {
         let backend = Box::new(MockBackend::new(vec![]));
-        let mut actor = SessionActor::new(SessionId(0), backend, vec![]);
+        let mut actor = SessionActor::new(SessionId::new_unchecked("local-1"), backend, vec![]);
 
         // new() already creates a default window (w0), so next window is w1.
         assert_eq!(actor.window_count(), 1);
@@ -393,13 +393,14 @@ mod tests {
     async fn actor_message_passing() {
         let backend = Box::new(MockBackend::new(vec![]));
         let targets = sample_targets();
-        let (tx, _handle) = SessionActor::spawn(SessionId(0), backend, targets);
+        let (tx, _handle) =
+            SessionActor::spawn(SessionId::new_unchecked("local-1"), backend, targets);
 
         // Send ListTabs action.
         let (resp_tx, resp_rx) = oneshot::channel();
         tx.send(ActionRequest {
             action: Action::ListTabs {
-                session: SessionId(0),
+                session: SessionId::new_unchecked("local-1"),
             },
             response_tx: resp_tx,
         })
@@ -427,13 +428,14 @@ mod tests {
             url: "https://old.com".into(),
             attached: false,
         }];
-        let (tx, _handle) = SessionActor::spawn(SessionId(0), backend, targets);
+        let (tx, _handle) =
+            SessionActor::spawn(SessionId::new_unchecked("local-1"), backend, targets);
 
         // Send Goto — mock backend returns Ok(OpResult::null()) so this succeeds.
         let (resp_tx, resp_rx) = oneshot::channel();
         tx.send(ActionRequest {
             action: Action::Goto {
-                session: SessionId(0),
+                session: SessionId::new_unchecked("local-1"),
                 tab: TabId(0),
                 url: "https://new.com".into(),
             },
@@ -449,12 +451,13 @@ mod tests {
     #[tokio::test]
     async fn actor_tab_not_found() {
         let backend = Box::new(MockBackend::new(vec![]));
-        let (tx, _handle) = SessionActor::spawn(SessionId(0), backend, vec![]);
+        let (tx, _handle) =
+            SessionActor::spawn(SessionId::new_unchecked("local-1"), backend, vec![]);
 
         let (resp_tx, resp_rx) = oneshot::channel();
         tx.send(ActionRequest {
             action: Action::Click {
-                session: SessionId(0),
+                session: SessionId::new_unchecked("local-1"),
                 tab: TabId(99),
                 selector: "#submit".into(),
                 button: None,
@@ -476,12 +479,13 @@ mod tests {
     #[tokio::test]
     async fn actor_close_session() {
         let backend = Box::new(MockBackend::new(vec![]));
-        let (tx, _handle) = SessionActor::spawn(SessionId(0), backend, vec![]);
+        let (tx, _handle) =
+            SessionActor::spawn(SessionId::new_unchecked("local-1"), backend, vec![]);
 
         let (resp_tx, resp_rx) = oneshot::channel();
         tx.send(ActionRequest {
             action: Action::Close {
-                session: SessionId(0),
+                session: SessionId::new_unchecked("local-1"),
             },
             response_tx: resp_tx,
         })
@@ -495,7 +499,8 @@ mod tests {
     #[tokio::test]
     async fn actor_new_tab_and_close_tab() {
         let backend = Box::new(MockBackend::new(vec![]));
-        let (tx, _handle) = SessionActor::spawn(SessionId(0), backend, vec![]);
+        let (tx, _handle) =
+            SessionActor::spawn(SessionId::new_unchecked("local-1"), backend, vec![]);
 
         // NewTab — mock returns OpResult::null() which has no targetId,
         // so this will return a fatal error. That's expected with a null mock.
@@ -503,7 +508,7 @@ mod tests {
         let (resp_tx, resp_rx) = oneshot::channel();
         tx.send(ActionRequest {
             action: Action::NewTab {
-                session: SessionId(0),
+                session: SessionId::new_unchecked("local-1"),
                 url: "https://new.com".into(),
                 new_window: false,
                 window: None,
@@ -522,7 +527,7 @@ mod tests {
         let (resp_tx, resp_rx) = oneshot::channel();
         tx.send(ActionRequest {
             action: Action::CloseTab {
-                session: SessionId(0),
+                session: SessionId::new_unchecked("local-1"),
                 tab: TabId(0),
             },
             response_tx: resp_tx,
@@ -540,7 +545,8 @@ mod tests {
     #[tokio::test]
     async fn actor_global_command_returns_error() {
         let backend = Box::new(MockBackend::new(vec![]));
-        let (tx, _handle) = SessionActor::spawn(SessionId(0), backend, vec![]);
+        let (tx, _handle) =
+            SessionActor::spawn(SessionId::new_unchecked("local-1"), backend, vec![]);
 
         let (resp_tx, resp_rx) = oneshot::channel();
         tx.send(ActionRequest {

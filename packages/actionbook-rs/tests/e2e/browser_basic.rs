@@ -33,7 +33,7 @@ fn browser_basic_open_goto_snapshot_close() {
     let sessions_output = stdout_str(&out);
     // Session output should contain s0
     assert!(
-        sessions_output.contains("s0"),
+        sessions_output.contains("local-1"),
         "list-sessions should show s0, got: {}",
         sessions_output
     );
@@ -45,7 +45,7 @@ fn browser_basic_open_goto_snapshot_close() {
             "goto",
             "https://arxiv.org",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -60,7 +60,7 @@ fn browser_basic_open_goto_snapshot_close() {
             "eval",
             "window.location.href",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -74,7 +74,7 @@ fn browser_basic_open_goto_snapshot_close() {
     );
 
     // Step 5: snapshot and verify arxiv content
-    let out = headless_json(&["browser", "snapshot", "-s", "s0", "-t", "t0"], 30);
+    let out = headless_json(&["browser", "snapshot", "-s", "local-1", "-t", "t0"], 30);
     assert_success(&out, "snapshot");
 
     let output = stdout_str(&out);
@@ -85,6 +85,6 @@ fn browser_basic_open_goto_snapshot_close() {
     );
 
     // Step 6: close session
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }

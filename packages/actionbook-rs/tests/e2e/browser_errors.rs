@@ -36,7 +36,7 @@ fn err_click_nonexistent() {
             "goto",
             "https://example.com",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -50,7 +50,7 @@ fn err_click_nonexistent() {
             "click",
             "#does_not_exist_at_all",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -64,7 +64,7 @@ fn err_click_nonexistent() {
         output
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close session");
 }
 
@@ -97,7 +97,7 @@ fn err_goto_invalid_url() {
             "goto",
             "not-a-valid-url-at-all",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -113,7 +113,7 @@ fn err_goto_invalid_url() {
         output
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close session");
 }
 
@@ -146,7 +146,7 @@ fn err_eval_syntax_error() {
             "goto",
             "https://example.com",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -160,7 +160,7 @@ fn err_eval_syntax_error() {
             "eval",
             "{{{{syntax_error",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -176,7 +176,7 @@ fn err_eval_syntax_error() {
         output
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close session");
 }
 
@@ -209,7 +209,7 @@ fn err_screenshot_bad_path() {
             "goto",
             "https://example.com",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -223,7 +223,7 @@ fn err_screenshot_bad_path() {
             "screenshot",
             "/nonexistent_dir_12345/x.png",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -240,7 +240,7 @@ fn err_screenshot_bad_path() {
         output
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close session");
 }
 
@@ -273,7 +273,7 @@ fn err_wait_timeout() {
             "goto",
             "https://example.com",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -288,7 +288,7 @@ fn err_wait_timeout() {
             "element",
             "#absolutely_not_here",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -306,7 +306,7 @@ fn err_wait_timeout() {
         output
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close session");
 }
 
@@ -339,7 +339,7 @@ fn err_fill_nonexistent() {
             "goto",
             "https://example.com",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -354,7 +354,7 @@ fn err_fill_nonexistent() {
             "#does_not_exist_xyz",
             "text",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -368,6 +368,6 @@ fn err_fill_nonexistent() {
         output
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close session");
 }

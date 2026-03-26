@@ -120,7 +120,7 @@ mod tests {
         let req = Request::new(
             1,
             Action::Goto {
-                session: SessionId(0),
+                session: SessionId::new_unchecked("local-1"),
                 tab: TabId(1),
                 url: "https://example.com".into(),
             },
@@ -153,6 +153,7 @@ mod tests {
                 open_url: None,
                 cdp_endpoint: None,
                 ws_headers: None,
+                set_session_id: None,
             },
         );
         let frame = encode_frame(&req).unwrap();
