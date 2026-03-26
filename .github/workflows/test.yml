@@ -21,16 +21,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry & build
-        uses: actions/cache@v4
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            packages/actionbook-rs/target
-          key: ${{ runner.os }}-cargo-ut-${{ hashFiles('packages/actionbook-rs/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-ut-
+          workspaces: packages/actionbook-rs
+          shared-key: unit-tests
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
@@ -94,16 +89,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry & build
-        uses: actions/cache@v4
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            packages/actionbook-rs/target
-          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('packages/actionbook-rs/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-e2e-
+          workspaces: packages/actionbook-rs
+          shared-key: e2e-tests
 
       - name: Install Chrome
         uses: browser-actions/setup-chrome@v1
