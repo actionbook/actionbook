@@ -414,16 +414,16 @@ impl Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::daemon_v2::backend::TargetInfo;
-    use crate::daemon_v2::registry::{SessionHandle, SessionState};
-    use crate::daemon_v2::session_actor::SessionActor;
-    use crate::daemon_v2::types::{Mode, TabId};
+    use crate::daemon::backend::TargetInfo;
+    use crate::daemon::registry::{SessionHandle, SessionState};
+    use crate::daemon::session_actor::SessionActor;
+    use crate::daemon::types::{Mode, TabId};
 
     // -- Mock backend (reusable for router tests) --
-    use crate::daemon_v2::backend::{
+    use crate::daemon::backend::{
         BackendEvent, BackendSession, Checkpoint, Health, OpResult, ShutdownPolicy,
     };
-    use crate::daemon_v2::backend_op::BackendOp;
+    use crate::daemon::backend_op::BackendOp;
     use async_trait::async_trait;
     use futures::stream::{self, BoxStream};
     use std::time::Instant;
@@ -443,7 +443,7 @@ mod tests {
         }
         async fn checkpoint(&self) -> crate::error::Result<Checkpoint> {
             Ok(Checkpoint {
-                kind: crate::daemon_v2::backend::BackendKind::Local,
+                kind: crate::daemon::backend::BackendKind::Local,
                 pid: Some(1),
                 ws_url: "ws://mock".into(),
                 cdp_port: None,
@@ -599,7 +599,7 @@ mod tests {
 
     // -- Mock factory for testing mode-based dispatch --
 
-    use crate::daemon_v2::backend::{
+    use crate::daemon::backend::{
         AttachSpec, BackendKind, BrowserBackendFactory, Capabilities, StartSpec,
     };
 

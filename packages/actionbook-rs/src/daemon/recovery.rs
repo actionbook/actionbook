@@ -176,8 +176,8 @@ pub fn is_chrome_process(_pid: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::daemon_v2::persistence::*;
-    use crate::daemon_v2::types::*;
+    use crate::daemon::persistence::*;
+    use crate::daemon::types::*;
     use std::collections::HashMap;
 
     fn local_session(id: u32, pid: u32) -> PersistedSession {

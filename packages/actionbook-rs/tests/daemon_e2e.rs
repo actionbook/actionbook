@@ -5,7 +5,7 @@
 //!
 //! Tests that require Chrome are marked `#[ignore]` — run them with:
 //! ```sh
-//! cargo test --test daemon_v2_e2e -- --ignored
+//! cargo test --test daemon_e2e -- --ignored
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -16,14 +16,14 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
-use actionbook::daemon_v2::action::Action;
-use actionbook::daemon_v2::action_result::ActionResult;
-use actionbook::daemon_v2::client::DaemonClient;
-use actionbook::daemon_v2::registry::{SessionHandle, SessionState, SessionRegistry};
-use actionbook::daemon_v2::router::Router;
-use actionbook::daemon_v2::server::DaemonServer;
-use actionbook::daemon_v2::session_actor::SessionActor;
-use actionbook::daemon_v2::types::{Mode, SessionId, TabId};
+use actionbook::daemon::action::Action;
+use actionbook::daemon::action_result::ActionResult;
+use actionbook::daemon::client::DaemonClient;
+use actionbook::daemon::registry::{SessionHandle, SessionState, SessionRegistry};
+use actionbook::daemon::router::Router;
+use actionbook::daemon::server::DaemonServer;
+use actionbook::daemon::session_actor::SessionActor;
+use actionbook::daemon::types::{Mode, SessionId, TabId};
 
 // ===========================================================================
 // Test helpers
@@ -83,7 +83,7 @@ async fn start_daemon_with_mock_sessions(profiles: &[&str]) -> (TestDaemon, Vec<
 
 /// Spawn a mock session actor with one tab and return its SessionHandle.
 fn spawn_mock_session(id: SessionId, profile: &str) -> SessionHandle {
-    use actionbook::daemon_v2::backend::TargetInfo;
+    use actionbook::daemon::backend::TargetInfo;
 
     let targets = vec![TargetInfo {
         target_id: format!("mock-target-{}", id),
@@ -165,10 +165,10 @@ impl Drop for TestDaemon {
 // Mock backend for tests that don't need a real browser
 // ---------------------------------------------------------------------------
 
-use actionbook::daemon_v2::backend::{
+use actionbook::daemon::backend::{
     BackendEvent, BackendSession, Checkpoint, Health, OpResult, ShutdownPolicy, TargetInfo,
 };
-use actionbook::daemon_v2::backend_op::BackendOp;
+use actionbook::daemon::backend_op::BackendOp;
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream};
 
@@ -232,7 +232,7 @@ impl BackendSession for MockBackend {
 
     async fn checkpoint(&self) -> actionbook::error::Result<Checkpoint> {
         Ok(Checkpoint {
-            kind: actionbook::daemon_v2::backend::BackendKind::Local,
+            kind: actionbook::daemon::backend::BackendKind::Local,
             pid: Some(1),
             ws_url: "ws://mock".into(),
             cdp_port: None,
@@ -258,7 +258,7 @@ impl BackendSession for MockBackend {
 // Mock backend factory — wraps MockBackend for router-driven StartSession tests
 // ---------------------------------------------------------------------------
 
-use actionbook::daemon_v2::backend::{
+use actionbook::daemon::backend::{
     AttachSpec, BackendKind, BrowserBackendFactory, Capabilities, StartSpec,
 };
 use std::collections::HashMap;
@@ -722,7 +722,7 @@ async fn e2e_extension_single_session_constraint() {
 // ===========================================================================
 
 #[tokio::test]
-#[ignore = "requires Chrome installed -- run with `cargo test --test daemon_v2_e2e -- --ignored`"]
+#[ignore = "requires Chrome installed -- run with `cargo test --test daemon_e2e -- --ignored`"]
 async fn e2e_start_goto_snapshot_close() {
     // TODO: Wire up when StartSession is implemented in the router/daemon_main.
     //
@@ -777,7 +777,7 @@ async fn e2e_start_goto_snapshot_close() {
 }
 
 #[tokio::test]
-#[ignore = "requires Chrome installed -- run with `cargo test --test daemon_v2_e2e -- --ignored`"]
+#[ignore = "requires Chrome installed -- run with `cargo test --test daemon_e2e -- --ignored`"]
 async fn e2e_real_click_and_type() {
     // TODO: Wire up when action handler is implemented.
     //

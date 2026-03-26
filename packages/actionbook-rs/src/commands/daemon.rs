@@ -1,124 +1,76 @@
 use colored::Colorize;
+use tokio::net::UnixStream;
 
 use crate::cli::{Cli, DaemonCommands};
-use crate::commands::browser::effective_profile_name;
-use crate::config::Config;
+use crate::daemon::client::default_socket_path;
 use crate::error::Result;
 
 pub async fn run(cli: &Cli, command: &DaemonCommands) -> Result<()> {
-    // serve-v2 is handled separately — it uses the daemon_v2 module directly.
-    if matches!(command, DaemonCommands::ServeV2) {
-        return run_serve_v2().await;
-    }
-
-    #[cfg(not(unix))]
-    {
-        let _ = (cli, command);
-        return Err(crate::error::ActionbookError::FeatureNotSupported(
-            "Daemon mode is only supported on Unix (macOS/Linux)".to_string(),
-        ));
-    }
-
-    #[cfg(unix)]
-    {
-        run_unix(cli, command).await
-    }
-}
-
-async fn run_serve_v2() -> Result<()> {
-    crate::daemon_v2::cli_v2::run_daemon_foreground()
-        .await
-        .map_err(|e| crate::error::ActionbookError::DaemonError(e))
-}
-
-#[cfg(unix)]
-async fn run_unix(cli: &Cli, command: &DaemonCommands) -> Result<()> {
-    use crate::daemon::{lifecycle, server};
-
-    let config = Config::load()?;
-    let profile = effective_profile_name(cli, &config).to_string();
-
     match command {
-        DaemonCommands::Serve {
-            profile: prof_override,
-        } => {
-            let profile = prof_override
-                .as_deref()
-                .filter(|s| !s.is_empty())
-                .unwrap_or(&profile);
-            // Daemon is profile-scoped; -S/--session is not applicable here.
-            // Session routing is handled internally by the daemon's routing table.
-            if cli.session.is_some() {
-                tracing::warn!(
-                    "The -S/--session flag is ignored by `daemon serve`. \
-                     The daemon manages all sessions for profile '{}'.",
-                    profile
-                );
-            }
-            server::run_with_session(profile, None).await
+        DaemonCommands::Serve { .. } | DaemonCommands::ServeV2 => {
+            run_serve().await
         }
         DaemonCommands::Status => {
-            // Daemon is per-profile, not per-session
-            if cli.session.is_some() {
-                tracing::warn!(
-                    "The -S/--session flag is ignored by `daemon status`. \
-                     The daemon is profile-scoped (profile '{}').",
-                    profile
-                );
-            }
-            let alive = lifecycle::is_daemon_alive(&profile).await;
-            let sock = lifecycle::socket_path(&profile);
-            let pid = lifecycle::pid_path(&profile);
+            let socket = default_socket_path();
+            let alive = UnixStream::connect(&socket).await.is_ok();
             if cli.json {
                 println!(
                     "{}",
                     serde_json::json!({
-                        "profile": profile,
                         "running": alive,
-                        "socket": sock.display().to_string(),
-                        "pid_file": pid.display().to_string(),
+                        "socket": socket.display().to_string(),
                     })
                 );
             } else if alive {
                 println!(
-                    "{} Daemon for profile '{}' is {}",
+                    "{} Daemon is {}",
                     "●".green(),
-                    profile,
                     "running".green()
                 );
-                println!("  Socket: {}", sock.display());
+                println!("  Socket: {}", socket.display());
             } else {
                 println!(
-                    "{} Daemon for profile '{}' is {}",
+                    "{} Daemon is {}",
                     "○".dimmed(),
-                    profile,
                     "not running".dimmed()
                 );
             }
             Ok(())
         }
         DaemonCommands::Stop => {
-            if cli.session.is_some() {
-                tracing::warn!(
-                    "The -S/--session flag is ignored by `daemon stop`. \
-                     The daemon is profile-scoped (profile '{}').",
-                    profile
-                );
-            }
-            lifecycle::stop_daemon(&profile).await?;
-            if cli.json {
+            let socket = default_socket_path();
+            let alive = UnixStream::connect(&socket).await.is_ok();
+            if alive {
+                // Remove the socket file to signal shutdown.
+                let _ = std::fs::remove_file(&socket);
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "stopped": true,
+                        })
+                    );
+                } else {
+                    println!("Daemon stopped");
+                }
+            } else if cli.json {
                 println!(
                     "{}",
                     serde_json::json!({
-                        "profile": profile,
-                        "stopped": true,
+                        "stopped": false,
+                        "message": "daemon was not running",
                     })
                 );
             } else {
-                println!("Daemon for profile '{}' stopped", profile);
+                println!("Daemon is not running");
             }
             Ok(())
         }
-        DaemonCommands::ServeV2 => unreachable!("handled before run_unix"),
     }
+}
+
+async fn run_serve() -> Result<()> {
+    crate::daemon::cli_v2::run_daemon_foreground()
+        .await
+        .map_err(crate::error::ActionbookError::DaemonError)
 }

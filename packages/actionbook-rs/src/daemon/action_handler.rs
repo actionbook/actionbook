@@ -2527,7 +2527,7 @@ function __findElement(selector) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::daemon_v2::backend::{
+    use crate::daemon::backend::{
         BackendEvent, BackendKind, Checkpoint, Health, OpResult, ShutdownPolicy, TargetInfo,
     };
     use async_trait::async_trait;

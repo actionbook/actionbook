@@ -112,8 +112,8 @@ pub fn validate_frame_length(len: u32) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::daemon_v2::action_result::ActionResult;
-    use crate::daemon_v2::types::{Mode, SessionId, TabId};
+    use crate::daemon::action_result::ActionResult;
+    use crate::daemon::types::{Mode, SessionId, TabId};
 
     #[test]
     fn request_round_trip() {

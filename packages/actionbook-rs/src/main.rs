@@ -3,10 +3,7 @@ mod browser;
 mod cli;
 mod commands;
 mod config;
-#[cfg(unix)]
 mod daemon;
-#[allow(dead_code)]
-mod daemon_v2;
 mod error;
 mod update_notifier;
 
@@ -42,15 +39,12 @@ async fn main() -> Result<()> {
         .with(filter)
         .init();
 
-    // Route browser commands through daemon_v2 (new default).
-    // Try the v2 parser first; if args match the v2 schema, use daemon_v2 path.
-    // The v2 parser only recognises `browser` subcommands, so non-browser
+    // Route browser commands through the daemon.
+    // The daemon CLI parser only recognises `browser` subcommands, so non-browser
     // commands (search, get, config, etc.) will fail parsing and fall through.
-    // Use --v1 flag to force the old v0.x path as an escape hatch.
-    let has_v1_flag = args.iter().any(|a| a == "--v1");
-    if !has_v1_flag {
+    {
         use clap::Parser as _;
-        if let Ok(cli_v2) = daemon_v2::cli_v2::CliV2::try_parse() {
+        if let Ok(cli_v2) = daemon::cli_v2::CliV2::try_parse() {
             cli_v2.run().await; // -> ! (exits process)
         }
     }

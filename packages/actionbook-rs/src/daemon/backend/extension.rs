@@ -28,7 +28,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use super::types::*;
 use super::{BackendSession, BrowserBackendFactory};
-use crate::daemon_v2::backend_op::BackendOp;
+use crate::daemon::backend_op::BackendOp;
 use crate::error::{ActionbookError, Result};
 
 /// Timeout waiting for the extension to connect via WS after attach.

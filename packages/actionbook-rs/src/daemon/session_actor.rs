@@ -195,11 +195,11 @@ impl SessionActor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::daemon_v2::backend::{
+    use crate::daemon::backend::{
         BackendEvent, Checkpoint, Health, OpResult, ShutdownPolicy,
     };
-    use crate::daemon_v2::backend_op::BackendOp;
-    use crate::daemon_v2::types::WindowId;
+    use crate::daemon::backend_op::BackendOp;
+    use crate::daemon::types::WindowId;
     use async_trait::async_trait;
     use futures::stream::{self, BoxStream};
 
@@ -231,7 +231,7 @@ mod tests {
 
         async fn checkpoint(&self) -> crate::error::Result<Checkpoint> {
             Ok(Checkpoint {
-                kind: crate::daemon_v2::backend::BackendKind::Local,
+                kind: crate::daemon::backend::BackendKind::Local,
                 pid: Some(12345),
                 ws_url: "ws://mock".into(),
                 cdp_port: None,

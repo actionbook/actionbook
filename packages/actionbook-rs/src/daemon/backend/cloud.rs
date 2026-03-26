@@ -20,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 use super::types::*;
 use super::{BackendSession, BrowserBackendFactory};
 use crate::browser::cdp_types::CdpResponse;
-use crate::daemon_v2::backend_op::BackendOp;
+use crate::daemon::backend_op::BackendOp;
 use crate::error::{ActionbookError, Result};
 
 /// Type alias for the WebSocket stream used by cloud backend.

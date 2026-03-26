@@ -9,7 +9,6 @@ pub mod camofox_webdriver;
 pub mod cdp_types; // CDP typed message structures (Phase 2a optimization)
 pub mod content;
 mod discovery;
-pub mod extension_backend;
 pub mod extension_bridge;
 pub mod extension_installer;
 pub mod fingerprint_generator; // Statistical fingerprint generation (Phase 2)
@@ -19,8 +18,6 @@ pub mod human_input; // Human-like mouse/typing (F5, borrowed from pinchtab)
 pub mod launcher;
 pub mod native_messaging;
 pub mod readability; // Readability text extraction (F4, borrowed from pinchtab)
-mod router;
-mod session;
 pub mod snapshot; // CDP Accessibility Tree (F1, borrowed from pinchtab)
 pub mod stealth;
 pub mod stealth_enhanced;
@@ -32,9 +29,6 @@ pub use app_discovery::{discover_electron_apps, ElectronAppInfo};
 pub use backend::BrowserBackend;
 #[allow(unused_imports)]
 pub use discovery::{discover_all_browsers, BrowserInfo, BrowserType};
-pub use router::BrowserDriver;
-pub use session::{ResourceBlockLevel, TextExtractionMode};
-pub use session::{SessionManager, SessionStatus, StealthConfig};
 pub use stealth::{build_stealth_profile, stealth_status};
 
 // Re-export stealth page application for external use

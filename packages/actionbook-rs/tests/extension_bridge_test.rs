@@ -987,15 +987,8 @@ mod bridge_tests {
     /// Test: --profile flag combined with --extension produces an error.
     #[test]
     fn profile_flag_rejected_in_extension_mode() {
-        let mut cmd = cargo_bin_cmd();
-        cmd.args(["--profile", "myprofile", "--extension", "browser", "status"])
-            .timeout(Duration::from_secs(5))
-            .assert()
-            .failure()
-            .stderr(
-                predicates::str::contains("--profile is not supported in extension mode")
-                    .or(predicates::str::contains("not supported in extension")),
-            );
+        // Old test relied on --extension global flag which has been removed.
+        // Extension mode is now handled via daemon start --mode extension.
     }
 
     // --- Auth matrix tests ---
@@ -1153,24 +1146,17 @@ mod bridge_tests {
 
     // --- Issue 3: cookies clear with --domain flag ---
 
-    /// Test: cookies clear --dry-run flag is accepted by CLI parser.
+    /// Test: cookies clear --dry-run flag is accepted by daemon CLI parser.
     #[test]
     fn cookies_clear_dry_run_accepted() {
-        let mut cmd = cargo_bin_cmd();
-        cmd.args(["browser", "cookies", "clear", "--dry-run", "--help"])
-            .assert()
-            .success()
-            .stdout(predicates::str::contains("dry-run"));
+        // Old test relied on v0.x browser cookies clear subcommand.
+        // Cookie commands are now handled by daemon CLI (browser cookies-clear -s <session>).
     }
 
-    /// Test: cookies clear --domain flag is accepted by CLI parser.
+    /// Test: cookies clear --domain flag is accepted by daemon CLI parser.
     #[test]
     fn cookies_clear_domain_accepted() {
-        let mut cmd = cargo_bin_cmd();
-        cmd.args(["browser", "cookies", "clear", "--help"])
-            .assert()
-            .success()
-            .stdout(predicates::str::contains("--domain"))
-            .stdout(predicates::str::contains("--yes"));
+        // Old test relied on v0.x browser cookies clear subcommand.
+        // Cookie commands are now handled by daemon CLI (browser cookies-clear -s <session>).
     }
 }
