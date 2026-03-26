@@ -1287,7 +1287,17 @@ impl CliV2 {
                                             )
                                         );
                                     } else {
-                                        eprintln!("error: failed to write screenshot: {e}");
+                                        eprintln!(
+                                            "{}",
+                                            formatter::format_cli_side_error_text(
+                                                &action,
+                                                "ARTIFACT_WRITE_FAILED",
+                                                &format!(
+                                                    "failed to write screenshot to {}: {e}",
+                                                    path.display()
+                                                )
+                                            )
+                                        );
                                     }
                                     process::exit(1);
                                 }
@@ -1320,7 +1330,14 @@ impl CliV2 {
                                         )
                                     );
                                 } else {
-                                    eprintln!("error: failed to decode screenshot data: {e}");
+                                    eprintln!(
+                                        "{}",
+                                        formatter::format_cli_side_error_text(
+                                            &action,
+                                            "INTERNAL_ERROR",
+                                            &format!("failed to decode screenshot data: {e}")
+                                        )
+                                    );
                                 }
                                 process::exit(1);
                             }

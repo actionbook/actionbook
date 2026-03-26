@@ -77,6 +77,18 @@ pub fn format_cli_side_error_json(
     })
 }
 
+/// Format a CLI-side text error using the same prefix and error contract as
+/// daemon-backed failures.
+pub fn format_cli_side_error_text(action: &Action, code: &str, message: &str) -> String {
+    let mut out = String::new();
+    if let Some(prefix) = prefix_for_action(action) {
+        out.push_str(&prefix);
+        out.push('\n');
+    }
+    out.push_str(&format!("error {code}: {message}"));
+    out
+}
+
 /// Format an [`ActionResult`] for `--json` CLI output, applying the
 /// Phase A lifecycle envelope for the first 5 lifecycle commands only.
 pub fn format_cli_result_json(action: &Action, result: &ActionResult, duration_ms: u128) -> String {
@@ -225,7 +237,7 @@ fn command_name(action: &Action) -> &'static str {
         Action::Type { .. } => "browser.type",
         Action::Fill { .. } => "browser.fill",
         Action::Eval { .. } => "browser.eval",
-        Action::WaitElement { .. } => "browser.wait-element",
+        Action::WaitElement { .. } => "browser.wait.element",
         Action::Html { .. } => "browser.html",
         Action::Text { .. } => "browser.text",
         Action::Pdf { .. } => "browser.pdf",
@@ -241,18 +253,18 @@ fn command_name(action: &Action) -> &'static str {
         Action::Viewport { .. } => "browser.viewport",
         Action::Query { .. } => "browser.query",
         Action::InspectPoint { .. } => "browser.inspect-point",
-        Action::LogsConsole { .. } => "browser.logs-console",
-        Action::LogsErrors { .. } => "browser.logs-errors",
-        Action::CookiesList { .. } => "browser.cookies-list",
-        Action::CookiesGet { .. } => "browser.cookies-get",
-        Action::CookiesSet { .. } => "browser.cookies-set",
-        Action::CookiesDelete { .. } => "browser.cookies-delete",
-        Action::CookiesClear { .. } => "browser.cookies-clear",
-        Action::StorageList { .. } => "browser.storage-list",
-        Action::StorageGet { .. } => "browser.storage-get",
-        Action::StorageSet { .. } => "browser.storage-set",
-        Action::StorageDelete { .. } => "browser.storage-delete",
-        Action::StorageClear { .. } => "browser.storage-clear",
+        Action::LogsConsole { .. } => "browser.logs.console",
+        Action::LogsErrors { .. } => "browser.logs.errors",
+        Action::CookiesList { .. } => "browser.cookies.list",
+        Action::CookiesGet { .. } => "browser.cookies.get",
+        Action::CookiesSet { .. } => "browser.cookies.set",
+        Action::CookiesDelete { .. } => "browser.cookies.delete",
+        Action::CookiesClear { .. } => "browser.cookies.clear",
+        Action::StorageList { .. } => "browser.storage.list",
+        Action::StorageGet { .. } => "browser.storage.get",
+        Action::StorageSet { .. } => "browser.storage.set",
+        Action::StorageDelete { .. } => "browser.storage.delete",
+        Action::StorageClear { .. } => "browser.storage.clear",
         Action::Select { .. } => "browser.select",
         Action::Hover { .. } => "browser.hover",
         Action::Focus { .. } => "browser.focus",
@@ -262,9 +274,9 @@ fn command_name(action: &Action) -> &'static str {
         Action::Scroll { .. } => "browser.scroll",
         Action::MouseMove { .. } => "browser.mouse-move",
         Action::CursorPosition { .. } => "browser.cursor-position",
-        Action::WaitNavigation { .. } => "browser.wait-navigation",
-        Action::WaitNetworkIdle { .. } => "browser.wait-network-idle",
-        Action::WaitCondition { .. } => "browser.wait-condition",
+        Action::WaitNavigation { .. } => "browser.wait.navigation",
+        Action::WaitNetworkIdle { .. } => "browser.wait.network-idle",
+        Action::WaitCondition { .. } => "browser.wait.condition",
         Action::RestartSession { .. } => "browser.restart",
     }
 }
@@ -1023,6 +1035,24 @@ mod tests {
     }
 
     #[test]
+    fn cli_side_artifact_errors_use_text_contract() {
+        let action = Action::Screenshot {
+            session: SessionId(0),
+            tab: crate::daemon::types::TabId(0),
+            full_page: false,
+        };
+        let out = format_cli_side_error_text(
+            &action,
+            "ARTIFACT_WRITE_FAILED",
+            "failed to write screenshot to /tmp/out.png: permission denied",
+        );
+        assert_eq!(
+            out,
+            "[s0 t0]\nerror ARTIFACT_WRITE_FAILED: failed to write screenshot to /tmp/out.png: permission denied"
+        );
+    }
+
+    #[test]
     fn normalize_error_code_maps_prd_table() {
         assert_eq!(
             normalize_error_code("session_not_found"),
@@ -1058,5 +1088,49 @@ mod tests {
             "INVALID_ARGUMENT"
         );
         assert_eq!(normalize_error_code("something_else"), "INTERNAL_ERROR");
+    }
+
+    #[test]
+    fn command_names_follow_prd_namespace() {
+        assert_eq!(
+            command_name(&Action::WaitElement {
+                session: SessionId(0),
+                tab: crate::daemon::types::TabId(0),
+                selector: "#ready".into(),
+                timeout_ms: Some(1000),
+            }),
+            "browser.wait.element"
+        );
+        assert_eq!(
+            command_name(&Action::LogsConsole {
+                session: SessionId(0),
+                tab: crate::daemon::types::TabId(0),
+            }),
+            "browser.logs.console"
+        );
+        assert_eq!(
+            command_name(&Action::CookiesList {
+                session: SessionId(0),
+                domain: None,
+            }),
+            "browser.cookies.list"
+        );
+        assert_eq!(
+            command_name(&Action::StorageList {
+                session: SessionId(0),
+                tab: crate::daemon::types::TabId(0),
+                kind: crate::daemon::types::StorageKind::Local,
+            }),
+            "browser.storage.list"
+        );
+        assert_eq!(
+            command_name(&Action::WaitNetworkIdle {
+                session: SessionId(0),
+                tab: crate::daemon::types::TabId(0),
+                idle_time_ms: Some(500),
+                timeout_ms: Some(5000),
+            }),
+            "browser.wait.network-idle"
+        );
     }
 }
