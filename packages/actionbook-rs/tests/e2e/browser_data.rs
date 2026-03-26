@@ -3,9 +3,7 @@
 //! Covers api-reference §13 (Cookies) and §14 (Storage).
 //! Each test is self-contained: start → operate → close.
 
-use crate::harness::{
-    assert_success, headless, headless_json, skip, stdout_str, SessionGuard,
-};
+use crate::harness::{assert_success, headless, headless_json, skip, stdout_str, SessionGuard};
 
 fn parse_json_output(out: &std::process::Output) -> serde_json::Value {
     serde_json::from_str(&stdout_str(out)).expect("valid JSON output")

@@ -5,9 +5,7 @@
 //! Uses daemon v2 CLI format with --session and --tab addressing.
 //! Each test is self-contained: start -> operate -> assert -> close.
 
-use crate::harness::{
-    assert_success, headless, headless_json, skip, stdout_str, SessionGuard,
-};
+use crate::harness::{assert_success, headless, headless_json, skip, stdout_str, SessionGuard};
 
 /// Extract the snapshot content from the JSON output, stripping envelope
 /// metadata (tab_id, url, etc.) so that two snapshots can be compared by

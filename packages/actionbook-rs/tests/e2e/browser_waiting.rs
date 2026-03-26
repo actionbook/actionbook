@@ -3,9 +3,7 @@
 //! Covers: `wait element`, `wait navigation`, `wait network-idle`, `wait condition`.
 //! All tests use S1T1 (single session, single tab).
 
-use crate::harness::{
-    assert_failure, assert_success, headless, skip, stdout_str, SessionGuard,
-};
+use crate::harness::{assert_failure, assert_success, headless, skip, stdout_str, SessionGuard};
 
 #[test]
 fn wait_element_exists() {
