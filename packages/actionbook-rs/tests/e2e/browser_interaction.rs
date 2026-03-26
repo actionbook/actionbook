@@ -573,7 +573,7 @@ fn int_type_text() {
 
     // Type text into the input
     let out = headless(
-        &["browser", "type", "#test", "world", "-s", "s0", "-t", "t0"],
+        &["browser", "type", "world", "#test", "-s", "s0", "-t", "t0"],
         30,
     );
     assert_success(&out, "type world");
@@ -646,7 +646,17 @@ fn int_select_dropdown() {
 
     // Select opt2
     let out = headless(
-        &["browser", "select", "#sel", "opt2", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "select",
+            "opt2",
+            "--selector",
+            "#sel",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "select opt2");
