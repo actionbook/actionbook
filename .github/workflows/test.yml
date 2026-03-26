@@ -228,6 +228,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [unit-tests, e2e-tests]
     if: always()
+    timeout-minutes: 5
     permissions:
       contents: write
 
@@ -240,13 +241,10 @@ jobs:
       - name: Prepare Allure results
         run: |
           mkdir -p allure-results
-          # Copy JUnit XML files with unique names to avoid overwriting
-          if [ -f test-results/unit-test-results/junit.xml ]; then
-            cp test-results/unit-test-results/junit.xml allure-results/unit-tests-junit.xml
-          fi
-          if [ -f test-results/e2e-test-results/junit.xml ]; then
-            cp test-results/e2e-test-results/junit.xml allure-results/e2e-tests-junit.xml
-          fi
+          # Find and copy JUnit XML files (download-artifact preserves upload path structure)
+          find test-results/unit-test-results -name "junit.xml" -exec cp {} allure-results/unit-tests-junit.xml \;
+          find test-results/e2e-test-results -name "junit.xml" -exec cp {} allure-results/e2e-tests-junit.xml \;
+          echo "Allure results:"
           ls -la allure-results/
 
       - name: Load Allure history
