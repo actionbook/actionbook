@@ -282,7 +282,13 @@ impl Router {
                 }
             } else {
                 // No explicit profile — use local-N auto-generation.
-                registry.next_session_id()
+                // Loop to skip IDs already taken (e.g. by --set-session-id local-1).
+                loop {
+                    let candidate = registry.next_session_id();
+                    if !registry.contains(&candidate) {
+                        break candidate;
+                    }
+                }
             };
 
             // Reserve a slot with state=Starting so concurrent requests see it.
@@ -939,6 +945,53 @@ mod tests {
                 assert_eq!(code, "no_backend_factory");
             }
             _ => panic!("expected Fatal, got: {result:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn auto_generate_skips_occupied_ids() {
+        let router = make_multi_factory_router();
+
+        // First: explicitly claim "local-1" via --set-session-id with an explicit profile
+        // to avoid the 1-profile-1-session constraint on the next auto-generate call.
+        let result = router
+            .route(Action::StartSession {
+                mode: Mode::Local,
+                profile: Some("custom".into()),
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+                ws_headers: None,
+                set_session_id: Some("local-1".into()),
+            })
+            .await;
+        assert!(
+            result.is_ok(),
+            "explicit local-1 should succeed: {result:?}"
+        );
+
+        // Second: auto-generate (no explicit profile, no set_session_id).
+        // Should skip "local-1" (already taken) and get "local-2".
+        let result = router
+            .route(Action::StartSession {
+                mode: Mode::Local,
+                profile: None,
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+                ws_headers: None,
+                set_session_id: None,
+            })
+            .await;
+        assert!(result.is_ok(), "auto-generate should succeed: {result:?}");
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(
+                    data["session_id"], "local-2",
+                    "auto-generate should skip occupied local-1 and use local-2"
+                );
+            }
+            _ => panic!("expected Ok"),
         }
     }
 }
