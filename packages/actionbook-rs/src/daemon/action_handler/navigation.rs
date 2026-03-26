@@ -8,7 +8,7 @@ pub(super) async fn handle_goto(
     url: &str,
 ) -> ActionResult {
     let target_id = match resolve_tab(session_id, regs, tab) {
-        Ok(t) => t,
+        Ok(t) => t.to_string(),
         Err(r) => return r,
     };
 
@@ -29,11 +29,21 @@ pub(super) async fn handle_goto(
             if let Some(entry) = regs.tabs.get_mut(&tab) {
                 entry.url = url.to_string();
             }
+
+            // Fetch page title for context
+            let title = fetch_title(backend, &target_id).await;
+            if let Some(ref t) = title {
+                if let Some(entry) = regs.tabs.get_mut(&tab) {
+                    entry.title = t.clone();
+                }
+            }
+
             ActionResult::ok(json!({
                 "kind": "goto",
                 "requested_url": url,
                 "from_url": from_url,
                 "to_url": url,
+                "title": title.unwrap_or_default(),
             }))
         }
         Err(e) => cdp_error_to_result(e),
@@ -48,7 +58,7 @@ pub(super) async fn handle_history(
     direction: &str,
 ) -> ActionResult {
     let target_id = match resolve_tab(session_id, regs, tab) {
-        Ok(t) => t,
+        Ok(t) => t.to_string(),
         Err(r) => return r,
     };
 
@@ -81,10 +91,19 @@ pub(super) async fn handle_history(
                     }
                 }
             }
+            // Fetch page title for context
+            let title = fetch_title(backend, &target_id).await;
+            if let Some(ref t) = title {
+                if let Some(entry) = regs.tabs.get_mut(&tab) {
+                    entry.title = t.clone();
+                }
+            }
+
             ActionResult::ok(json!({
                 "kind": direction,
                 "from_url": from_url,
                 "to_url": to_url,
+                "title": title.unwrap_or_default(),
             }))
         }
         Err(e) => cdp_error_to_result(e),
@@ -98,7 +117,7 @@ pub(super) async fn handle_reload(
     tab: TabId,
 ) -> ActionResult {
     let target_id = match resolve_tab(session_id, regs, tab) {
-        Ok(t) => t,
+        Ok(t) => t.to_string(),
         Err(r) => return r,
     };
 
@@ -131,12 +150,36 @@ pub(super) async fn handle_reload(
                     }
                 }
             }
+            // Fetch page title for context
+            let title = fetch_title(backend, &target_id).await;
+            if let Some(ref t) = title {
+                if let Some(entry) = regs.tabs.get_mut(&tab) {
+                    entry.title = t.clone();
+                }
+            }
+
             ActionResult::ok(json!({
                 "kind": "reload",
                 "from_url": from_url,
                 "to_url": to_url,
+                "title": title.unwrap_or_default(),
             }))
         }
         Err(e) => cdp_error_to_result(e),
     }
+}
+
+/// Fetch `document.title` from the target. Returns `None` on failure.
+async fn fetch_title(backend: &mut dyn BackendSession, target_id: &str) -> Option<String> {
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: "document.title".to_string(),
+        return_by_value: true,
+    };
+    backend
+        .exec(op)
+        .await
+        .ok()
+        .and_then(|v| v.value.as_str().map(String::from))
+        .filter(|s| !s.is_empty())
 }

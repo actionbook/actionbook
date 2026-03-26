@@ -934,7 +934,7 @@ fn format_tab_nav_text(action: &Action, result: &ActionResult) -> Option<String>
                     Action::NewTab { url, .. } => url.as_str(),
                     _ => "",
                 };
-                let mut out = prefixed_header(&session_id, None, None);
+                let mut out = prefixed_header(&session_id, Some(tab_id), Some(url));
                 out.push_str(&format!("\nok {command}\n"));
                 out.push_str(&format!("tab: {tab_id}\nurl: {url}"));
                 out
@@ -1676,7 +1676,10 @@ mod tests {
             "window": "w0"
         }));
         let out = format_cli_result(&action, &result);
-        assert!(out.starts_with("[local-1]"));
+        assert!(
+            out.starts_with("[local-1 t2] https://actionbook.dev"),
+            "new-tab text should start with [session tab] url prefix, got: {out}"
+        );
         assert!(out.contains("ok browser.new-tab"));
         assert!(out.contains("tab: t2"));
         assert!(out.contains("url: https://actionbook.dev"));

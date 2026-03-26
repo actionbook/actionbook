@@ -785,7 +785,10 @@ mod tests {
 
     #[tokio::test]
     async fn goto_sends_navigate_op() {
-        let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(json!({})))]);
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(json!({}))),
+            Ok(OpResult::new(json!("Rust"))),
+        ]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId::new_unchecked("local-1");
 
@@ -802,7 +805,7 @@ mod tests {
         .await;
 
         assert!(result.is_ok());
-        assert_eq!(backend.ops().len(), 1);
+        assert_eq!(backend.ops().len(), 2);
         match &backend.ops()[0] {
             BackendOp::Navigate { target_id, url } => {
                 assert_eq!(target_id, "TARGET_0");

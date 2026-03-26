@@ -6,7 +6,9 @@
 //!
 //! Uses `about:blank` and `data:` URLs to avoid external dependencies.
 
-use crate::harness::{assert_success, headless, headless_json, skip, stdout_str, SessionGuard};
+use crate::harness::{
+    assert_failure, assert_success, headless, headless_json, skip, stdout_str, SessionGuard,
+};
 use serde_json::Value;
 
 // ---------------------------------------------------------------------------
@@ -51,10 +53,7 @@ fn contract_new_tab_json() {
     let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start");
 
-    let out = headless_json(
-        &["browser", "new-tab", "about:blank", "-s", "local-1"],
-        30,
-    );
+    let out = headless_json(&["browser", "new-tab", "about:blank", "-s", "local-1"], 30);
     assert_success(&out, "new-tab json");
 
     let v = parse_envelope(&out);
@@ -72,10 +71,7 @@ fn contract_new_tab_json() {
         v["data"]["tab"]["tab_id"].is_string(),
         "data.tab.tab_id should be a string"
     );
-    assert!(
-        v["data"]["created"] == true,
-        "data.created should be true"
-    );
+    assert!(v["data"]["created"] == true, "data.created should be true");
 
     let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
@@ -95,16 +91,13 @@ fn contract_new_tab_text() {
     let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start");
 
-    let out = headless(
-        &["browser", "new-tab", "about:blank", "-s", "local-1"],
-        30,
-    );
+    let out = headless(&["browser", "new-tab", "about:blank", "-s", "local-1"], 30);
     assert_success(&out, "new-tab text");
 
     let text = stdout_str(&out);
     assert!(
-        text.contains("[local-1]"),
-        "text output should contain [local-1], got: {text}"
+        text.contains("[local-1 t"),
+        "text output should contain [local-1 tN] prefix, got: {text}"
     );
     assert!(
         text.contains("ok browser.new-tab"),
@@ -134,10 +127,7 @@ fn contract_open_alias_works() {
     assert_success(&out, "start");
 
     // Use the "open" alias
-    let out = headless_json(
-        &["browser", "open", "about:blank", "-s", "local-1"],
-        30,
-    );
+    let out = headless_json(&["browser", "open", "about:blank", "-s", "local-1"], 30);
     assert_success(&out, "open alias");
 
     let v = parse_envelope(&out);
@@ -160,18 +150,20 @@ fn contract_list_tabs_json() {
 
     let out = headless(
         &[
-            "browser", "start", "--mode", "local", "--headless",
-            "--open-url", "about:blank",
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "about:blank",
         ],
         30,
     );
     assert_success(&out, "start");
 
     // Open a second tab
-    let out = headless(
-        &["browser", "new-tab", "about:blank", "-s", "local-1"],
-        30,
-    );
+    let out = headless(&["browser", "new-tab", "about:blank", "-s", "local-1"], 30);
     assert_success(&out, "new-tab");
 
     let out = headless_json(&["browser", "list-tabs", "-s", "local-1"], 10);
@@ -206,24 +198,23 @@ fn contract_close_tab_json() {
 
     let out = headless(
         &[
-            "browser", "start", "--mode", "local", "--headless",
-            "--open-url", "about:blank",
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "about:blank",
         ],
         30,
     );
     assert_success(&out, "start");
 
     // Open a second tab so we can close it
-    let out = headless(
-        &["browser", "new-tab", "about:blank", "-s", "local-1"],
-        30,
-    );
+    let out = headless(&["browser", "new-tab", "about:blank", "-s", "local-1"], 30);
     assert_success(&out, "new-tab");
 
-    let out = headless_json(
-        &["browser", "close-tab", "-s", "local-1", "-t", "t1"],
-        30,
-    );
+    let out = headless_json(&["browser", "close-tab", "-s", "local-1", "-t", "t1"], 30);
     assert_success(&out, "close-tab json");
 
     let v = parse_envelope(&out);
@@ -247,8 +238,13 @@ fn contract_goto_json() {
 
     let out = headless(
         &[
-            "browser", "start", "--mode", "local", "--headless",
-            "--open-url", "about:blank",
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "about:blank",
         ],
         30,
     );
@@ -256,9 +252,13 @@ fn contract_goto_json() {
 
     let out = headless_json(
         &[
-            "browser", "goto",
+            "browser",
+            "goto",
             "data:text/html,<h1>hello</h1>",
-            "-s", "local-1", "-t", "t0",
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
         ],
         30,
     );
@@ -296,8 +296,13 @@ fn contract_goto_text() {
 
     let out = headless(
         &[
-            "browser", "start", "--mode", "local", "--headless",
-            "--open-url", "about:blank",
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "about:blank",
         ],
         30,
     );
@@ -305,9 +310,13 @@ fn contract_goto_text() {
 
     let out = headless(
         &[
-            "browser", "goto",
+            "browser",
+            "goto",
             "data:text/html,<h1>hello</h1>",
-            "-s", "local-1", "-t", "t0",
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
         ],
         30,
     );
@@ -340,8 +349,13 @@ fn contract_back_forward_json() {
 
     let out = headless(
         &[
-            "browser", "start", "--mode", "local", "--headless",
-            "--open-url", "about:blank",
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "about:blank",
         ],
         30,
     );
@@ -350,9 +364,13 @@ fn contract_back_forward_json() {
     // Navigate to create history
     let out = headless(
         &[
-            "browser", "goto",
+            "browser",
+            "goto",
             "data:text/html,<h1>page1</h1>",
-            "-s", "local-1", "-t", "t0",
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
         ],
         30,
     );
@@ -360,19 +378,20 @@ fn contract_back_forward_json() {
 
     let out = headless(
         &[
-            "browser", "goto",
+            "browser",
+            "goto",
             "data:text/html,<h1>page2</h1>",
-            "-s", "local-1", "-t", "t0",
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
         ],
         30,
     );
     assert_success(&out, "goto page2");
 
     // Back
-    let out = headless_json(
-        &["browser", "back", "-s", "local-1", "-t", "t0"],
-        30,
-    );
+    let out = headless_json(&["browser", "back", "-s", "local-1", "-t", "t0"], 30);
     assert_success(&out, "back json");
 
     let v = parse_envelope(&out);
@@ -385,10 +404,7 @@ fn contract_back_forward_json() {
     );
 
     // Forward
-    let out = headless_json(
-        &["browser", "forward", "-s", "local-1", "-t", "t0"],
-        30,
-    );
+    let out = headless_json(&["browser", "forward", "-s", "local-1", "-t", "t0"], 30);
     assert_success(&out, "forward json");
 
     let v = parse_envelope(&out);
@@ -413,17 +429,19 @@ fn contract_reload_json() {
 
     let out = headless(
         &[
-            "browser", "start", "--mode", "local", "--headless",
-            "--open-url", "about:blank",
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "about:blank",
         ],
         30,
     );
     assert_success(&out, "start");
 
-    let out = headless_json(
-        &["browser", "reload", "-s", "local-1", "-t", "t0"],
-        30,
-    );
+    let out = headless_json(&["browser", "reload", "-s", "local-1", "-t", "t0"], 30);
     assert_success(&out, "reload json");
 
     let v = parse_envelope(&out);
@@ -452,15 +470,24 @@ fn contract_new_tab_window_flags_conflict() {
     // Using both --new-window and --window should fail (clap conflicts_with)
     let out = headless(
         &[
-            "browser", "new-tab", "about:blank",
-            "-s", "local-1",
-            "--new-window", "--window", "w0",
+            "browser",
+            "new-tab",
+            "about:blank",
+            "-s",
+            "local-1",
+            "--new-window",
+            "--window",
+            "w0",
         ],
         30,
     );
+    assert_failure(&out, "using both --new-window and --window should fail");
+    let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        !out.status.success(),
-        "using both --new-window and --window should fail"
+        stderr.contains("--new-window")
+            || stderr.contains("--window")
+            || stderr.contains("conflict"),
+        "error should mention conflicting flags, got stderr: {stderr}"
     );
 
     let out = headless(&["browser", "close", "-s", "local-1"], 30);
