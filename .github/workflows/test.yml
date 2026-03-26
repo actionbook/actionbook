@@ -164,6 +164,91 @@ jobs:
           check_name: Unit Test Report
           include_passed: true
 
+  ut-coverage:
+    name: UT Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/actionbook-rs
+          shared-key: ut-coverage
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Run coverage
+        working-directory: packages/actionbook-rs
+        run: |
+          mkdir -p target/llvm-cov
+          set -o pipefail
+          cargo llvm-cov nextest --lib --test cli_test --test cdp_message_parsing --profile ci --no-fail-fast 2>&1 | tee target/llvm-cov/coverage-summary.txt
+          cargo llvm-cov report --lcov --output-path target/llvm-cov/lcov.info
+
+      - name: Extract coverage percentage
+        if: always()
+        working-directory: packages/actionbook-rs
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          summary_path = pathlib.Path("target/llvm-cov/coverage-summary.txt")
+          if not summary_path.exists():
+              raise SystemExit("coverage summary not found")
+
+          total_line = next((line for line in summary_path.read_text().splitlines() if line.startswith("TOTAL")), None)
+          if total_line is None:
+              raise SystemExit("TOTAL line not found in coverage summary")
+
+          matches = re.findall(r"(\d+(?:\.\d+)?)%", total_line)
+          if not matches:
+              raise SystemExit("coverage percentage not found in TOTAL line")
+
+          coverage = matches[-1]
+          pathlib.Path("target/llvm-cov/coverage-percent.txt").write_text(f"{coverage}\n")
+          print(f"LINE_COVERAGE={coverage}")
+          PY
+
+      - name: Coverage summary
+        if: always()
+        working-directory: packages/actionbook-rs
+        run: |
+          echo "## UT Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f target/llvm-cov/coverage-percent.txt ]; then
+            COVERAGE=$(cat target/llvm-cov/coverage-percent.txt)
+            echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Line Coverage | ${COVERAGE}% |" >> $GITHUB_STEP_SUMMARY
+            echo "| Artifacts | \`lcov.info\`, \`coverage-summary.txt\` |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Coverage summary not found." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ut-coverage-report
+          path: |
+            packages/actionbook-rs/target/llvm-cov/lcov.info
+            packages/actionbook-rs/target/llvm-cov/coverage-summary.txt
+            packages/actionbook-rs/target/llvm-cov/coverage-percent.txt
+
   unit-tests-macos:
     name: Unit Tests (macOS)
     runs-on: macos-latest
@@ -273,7 +358,7 @@ jobs:
   test-summary:
     name: Test Summary
     runs-on: ubuntu-latest
-    needs: [lint, cargo-deny, security-audit, unused-deps, unit-tests, unit-tests-macos, e2e-tests]
+    needs: [lint, cargo-deny, security-audit, unused-deps, unit-tests, ut-coverage, unit-tests-macos, e2e-tests]
     if: always()
 
     steps:
@@ -322,7 +407,7 @@ jobs:
           echo "| Suite | Status | Tests | Passed | Failed | Time |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|--------|-------|--------|--------|------|" >> $GITHUB_STEP_SUMMARY
 
-          # macOS Unit Tests (push only)
+          # macOS Unit Tests
           if [ "${{ needs.unit-tests-macos.result }}" = "skipped" ]; then
             echo "| Unit Tests (macOS) | ⏭️ Skipped | - | - | - | - |" >> $GITHUB_STEP_SUMMARY
           elif [ "${{ needs.unit-tests-macos.result }}" = "success" ]; then
@@ -367,8 +452,22 @@ jobs:
           fi
           echo "| E2E Tests | $E2E_STATUS | $E2E_TESTS | $E2E_PASSED | $E2E_FAILED | $E2E_TIME |" >> $GITHUB_STEP_SUMMARY
 
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Coverage | Status | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          COVERAGE_STATUS="❌ Failed"
+          if [ "${{ needs.ut-coverage.result }}" = "success" ]; then
+            COVERAGE_STATUS="✅ Passed"
+          fi
+          COVERAGE_VALUE="-"
+          COVERAGE_FILE="test-results/ut-coverage-report/coverage-percent.txt"
+          if [ -f "$COVERAGE_FILE" ]; then
+            COVERAGE_VALUE="$(cat "$COVERAGE_FILE")%"
+          fi
+          echo "| Unit Test Coverage | $COVERAGE_STATUS | $COVERAGE_VALUE |" >> $GITHUB_STEP_SUMMARY
+
       - name: Check results
-        if: needs.lint.result == 'failure' || needs.cargo-deny.result == 'failure' || needs.security-audit.result == 'failure' || needs.unused-deps.result == 'failure' || needs.unit-tests.result == 'failure' || needs.unit-tests-macos.result == 'failure' || needs.e2e-tests.result == 'failure'
+        if: needs.lint.result == 'failure' || needs.cargo-deny.result == 'failure' || needs.security-audit.result == 'failure' || needs.unused-deps.result == 'failure' || needs.unit-tests.result == 'failure' || needs.ut-coverage.result == 'failure' || needs.unit-tests-macos.result == 'failure' || needs.e2e-tests.result == 'failure'
         run: exit 1
 
   allure-report:

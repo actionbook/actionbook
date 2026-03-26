@@ -1235,6 +1235,8 @@ cargo test --test integration_test  # Integration tests only
 ### Test Coverage
 
 - **610+ tests** total (unit + integration + e2e)
+- Generate CLI unit-test coverage locally with `make coverage`
+- CI uploads `ut-coverage-report` with `lcov.info` and `coverage-summary.txt`, and adds the line coverage percentage to the workflow summary
 
 ## License
 
