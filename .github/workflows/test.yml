@@ -229,8 +229,6 @@ jobs:
     needs: [unit-tests, e2e-tests]
     if: always()
     timeout-minutes: 5
-    permissions:
-      contents: write
 
     steps:
       - name: Download all test results
@@ -246,14 +244,6 @@ jobs:
           find test-results/e2e-test-results -name "junit.xml" -exec cp {} allure-results/e2e-tests-junit.xml \;
           echo "Allure results:"
           ls -la allure-results/
-
-      - name: Load Allure history
-        uses: actions/checkout@v4
-        if: always()
-        continue-on-error: true
-        with:
-          ref: gh-pages
-          path: gh-pages
 
       - name: Set up Java
         if: always()
@@ -271,14 +261,7 @@ jobs:
       - name: Build Allure Report
         if: always()
         run: |
-          # Copy previous history if available (deployed under /test-report/)
-          if [ -d gh-pages/test-report/history ]; then
-            cp -r gh-pages/test-report/history allure-results/history
-          fi
           allure generate allure-results -o allure-report --clean
-          # Prepare publish directory with history
-          mkdir -p allure-history
-          cp -r allure-report/* allure-history/
 
       - name: Upload Allure Report
         uses: actions/upload-artifact@v4
@@ -286,21 +269,12 @@ jobs:
         with:
           name: allure-report
           path: allure-report
+          retention-days: 30
 
-      - name: Deploy to GitHub Pages
-        if: always() && github.event_name == 'push'
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: allure-history
-          publish_branch: gh-pages
-          destination_dir: test-report
-
-      - name: Report URL
+      - name: Report summary
         if: always()
         run: |
           echo "## Allure Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📊 **[View Allure Report](https://actionbook.github.io/actionbook/test-report/)** (available after GitHub Pages is enabled)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "💾 Or download the report artifact from this run's Artifacts section" >> $GITHUB_STEP_SUMMARY
+          echo "Download the **allure-report** artifact from this run's Artifacts section." >> $GITHUB_STEP_SUMMARY
+          echo "Unzip and open \`index.html\` to view the interactive test report." >> $GITHUB_STEP_SUMMARY
