@@ -1054,8 +1054,8 @@ fn observation_context(action: &Action, _result: &ActionResult) -> Option<Value>
 fn normalize_observation_data(action: &Action, data: &Value) -> Value {
     match action {
         Action::Snapshot { .. } => {
-            // Handler returns raw CDP value — wrap in { tree: val }
-            serde_json::json!({ "tree": data })
+            // Handler returns raw CDP value — wrap with format discriminator
+            serde_json::json!({ "format": "snapshot", "tree": data })
         }
         Action::Title { .. } => {
             // Handler returns {"title": val}
