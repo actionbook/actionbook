@@ -825,11 +825,12 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
                 selector,
                 session,
                 tab,
+                mode,
             } => Action::Query {
                 session,
                 tab,
                 selector,
-                mode: QueryMode::Css,
+                mode: mode.into(),
                 cardinality: QueryCardinality::One,
                 nth_index: None,
             },
@@ -837,11 +838,12 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
                 selector,
                 session,
                 tab,
+                mode,
             } => Action::Query {
                 session,
                 tab,
                 selector,
-                mode: QueryMode::Css,
+                mode: mode.into(),
                 cardinality: QueryCardinality::All,
                 nth_index: None,
             },
@@ -849,11 +851,12 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
                 selector,
                 session,
                 tab,
+                mode,
             } => Action::Query {
                 session,
                 tab,
                 selector,
-                mode: QueryMode::Css,
+                mode: mode.into(),
                 cardinality: QueryCardinality::Count,
                 nth_index: None,
             },
@@ -862,11 +865,12 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
                 selector,
                 session,
                 tab,
+                mode,
             } => Action::Query {
                 session,
                 tab,
                 selector,
-                mode: QueryMode::Css,
+                mode: mode.into(),
                 cardinality: QueryCardinality::Nth,
                 nth_index: Some(n),
             },
@@ -1051,11 +1055,15 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             let x = parts
                 .first()
                 .and_then(|s| s.trim().parse::<f64>().ok())
-                .unwrap_or(0.0);
+                .ok_or_else(|| {
+                    format!("invalid coordinates '{}': expected format 'x,y'", coords)
+                })?;
             let y = parts
                 .get(1)
                 .and_then(|s| s.trim().parse::<f64>().ok())
-                .unwrap_or(0.0);
+                .ok_or_else(|| {
+                    format!("invalid coordinates '{}': expected format 'x,y'", coords)
+                })?;
             Action::MouseMove { session, tab, x, y }
         }
         BrowserCmd::CursorPosition { session, tab } => Action::CursorPosition { session, tab },
