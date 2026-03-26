@@ -1367,8 +1367,7 @@ fn obs_inspect_point() {
         &[
             "browser",
             "inspect-point",
-            "100",
-            "100",
+            "100,100",
             "-s",
             "local-1",
             "-t",

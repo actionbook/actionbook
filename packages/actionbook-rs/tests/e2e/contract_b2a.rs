@@ -214,9 +214,9 @@ fn contract_b2a_query_modes_json() {
     let _guard = SessionGuard::new();
     let (sid, tid) = start_session();
 
-    // Set up 3 .item divs
+    // Set up 3 .item divs (first one also has id="unique" for `query one` test)
     let setup_js = set_body_html_js(
-        "<div class=\"item\">A</div><div class=\"item\">B</div><div class=\"item\">C</div>",
+        "<div id=\"unique\" class=\"item\">A</div><div class=\"item\">B</div><div class=\"item\">C</div>",
     );
     let _ = headless(&["browser", "eval", &setup_js, "-s", &sid, "-t", &tid], 15);
 
@@ -241,9 +241,9 @@ fn contract_b2a_query_modes_json() {
         all_json["data"]
     );
 
-    // One mode
+    // One mode (use unique selector that matches exactly 1 element)
     let one_out = headless_json(
-        &["browser", "query", "one", ".item", "-s", &sid, "-t", &tid],
+        &["browser", "query", "one", "#unique", "-s", &sid, "-t", &tid],
         15,
     );
     assert_success(&one_out, "query one --json");
