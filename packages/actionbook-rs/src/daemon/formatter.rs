@@ -45,6 +45,8 @@ pub fn format_cli_result(action: &Action, result: &ActionResult) -> String {
     if result.is_ok() {
         if let Some(output) = format_lifecycle_text(action, result) {
             output
+        } else if let Some(output) = format_tab_nav_text(action, result) {
+            output
         } else {
             format_result(result)
         }
@@ -90,10 +92,15 @@ pub fn format_cli_side_error_text(action: &Action, code: &str, message: &str) ->
 }
 
 /// Format an [`ActionResult`] for `--json` CLI output, applying the
-/// Phase A lifecycle envelope for the first 5 lifecycle commands only.
+/// Phase A lifecycle envelope for the first 5 lifecycle commands only,
+/// and Phase B1 tab/navigation envelope for 7 tab/nav commands.
 pub fn format_cli_result_json(action: &Action, result: &ActionResult, duration_ms: u128) -> String {
     if result.is_ok() {
         if let Some(envelope) = normalize_lifecycle_json(action, result, duration_ms) {
+            serde_json::to_string(&envelope).unwrap_or_else(|_| {
+                r#"{"ok":false,"command":"internal.serialization","context":null,"data":null,"error":{"code":"INTERNAL_ERROR","message":"failed to serialize result","retryable":false,"details":{"hint":"retry the command"}},"meta":{"duration_ms":0,"warnings":[],"pagination":null,"truncated":false}}"#.to_string()
+            })
+        } else if let Some(envelope) = normalize_tab_nav_json(action, result, duration_ms) {
             serde_json::to_string(&envelope).unwrap_or_else(|_| {
                 r#"{"ok":false,"command":"internal.serialization","context":null,"data":null,"error":{"code":"INTERNAL_ERROR","message":"failed to serialize result","retryable":false,"details":{"hint":"retry the command"}},"meta":{"duration_ms":0,"warnings":[],"pagination":null,"truncated":false}}"#.to_string()
             })
@@ -733,6 +740,239 @@ fn display_lifecycle_status(status: &str) -> &str {
 }
 
 // ---------------------------------------------------------------------------
+// Phase B1: Tab / Navigation normalization
+// ---------------------------------------------------------------------------
+
+fn tab_nav_command(action: &Action) -> Option<&'static str> {
+    match action {
+        Action::ListTabs { .. } => Some("browser.list-tabs"),
+        Action::NewTab { .. } => Some("browser.new-tab"),
+        Action::CloseTab { .. } => Some("browser.close-tab"),
+        Action::Goto { .. } => Some("browser.goto"),
+        Action::Back { .. } => Some("browser.back"),
+        Action::Forward { .. } => Some("browser.forward"),
+        Action::Reload { .. } => Some("browser.reload"),
+        _ => None,
+    }
+}
+
+fn normalize_tab_nav_json(
+    action: &Action,
+    result: &ActionResult,
+    duration_ms: u128,
+) -> Option<Value> {
+    let command = tab_nav_command(action)?;
+    let ok = result.is_ok();
+    let data = match result {
+        ActionResult::Ok { data } => normalize_tab_nav_data(action, data),
+        _ => Value::Null,
+    };
+    let context = tab_nav_context(action, result);
+    let error = match result {
+        ActionResult::Ok { .. } => Value::Null,
+        _ => normalized_error_value(&normalize_error(result)),
+    };
+
+    Some(serde_json::json!({
+        "ok": ok,
+        "command": command,
+        "context": context.unwrap_or(Value::Null),
+        "data": data,
+        "error": error,
+        "meta": {
+            "duration_ms": duration_ms,
+            "warnings": [],
+            "pagination": null,
+            "truncated": false
+        }
+    }))
+}
+
+fn tab_nav_context(action: &Action, result: &ActionResult) -> Option<Value> {
+    let session_id = action.session_id()?.to_string();
+
+    match action {
+        // Session-level: list-tabs has no tab context
+        Action::ListTabs { .. } => Some(serde_json::json!({
+            "session_id": session_id,
+            "tab_id": null,
+            "url": null,
+            "title": null
+        })),
+        // new-tab: context points to the newly created tab
+        Action::NewTab { .. } => {
+            let data = match result {
+                ActionResult::Ok { data } => data,
+                _ => {
+                    return Some(serde_json::json!({
+                        "session_id": session_id,
+                        "tab_id": null,
+                        "url": null,
+                        "title": null
+                    }))
+                }
+            };
+            let tab_id = data.get("tab").and_then(|v| v.as_str());
+            // The daemon stores the URL in the tab entry; the wire data doesn't carry url/title
+            // directly, but the action itself has the url parameter.
+            let url = match action {
+                Action::NewTab { url, .. } => Some(url.as_str()),
+                _ => None,
+            };
+            Some(serde_json::json!({
+                "session_id": session_id,
+                "tab_id": tab_id,
+                "url": url,
+                "title": null
+            }))
+        }
+        // close-tab: context has the closed tab_id but no url
+        Action::CloseTab { tab, .. } => Some(serde_json::json!({
+            "session_id": session_id,
+            "tab_id": tab.to_string(),
+            "url": null,
+            "title": null
+        })),
+        // Navigation commands: context.url = post-navigation URL
+        Action::Goto { tab, .. }
+        | Action::Back { tab, .. }
+        | Action::Forward { tab, .. }
+        | Action::Reload { tab, .. } => {
+            let (to_url, title) = match result {
+                ActionResult::Ok { data } => {
+                    let url = data
+                        .get("to_url")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    let title = data.get("title").and_then(|v| v.as_str()).map(String::from);
+                    (url, title)
+                }
+                _ => (None, None),
+            };
+            Some(serde_json::json!({
+                "session_id": session_id,
+                "tab_id": tab.to_string(),
+                "url": to_url,
+                "title": title
+            }))
+        }
+        _ => None,
+    }
+}
+
+fn normalize_tab_nav_data(action: &Action, data: &Value) -> Value {
+    match action {
+        Action::ListTabs { .. } => {
+            // Daemon returns { total_tabs, tabs: [{ tab_id, url, title }] }
+            // Already in PRD shape, pass through.
+            data.clone()
+        }
+        Action::NewTab {
+            new_window, url, ..
+        } => {
+            // Daemon returns { tab, target_id, window }
+            let tab_id = data
+                .get("tab")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            serde_json::json!({
+                "tab": {
+                    "tab_id": tab_id,
+                    "url": url,
+                    "title": ""
+                },
+                "created": true,
+                "new_window": new_window
+            })
+        }
+        Action::CloseTab { .. } => {
+            // Daemon returns { closed_tab_id }
+            data.clone()
+        }
+        Action::Goto { .. } => {
+            // Daemon returns { kind, requested_url, from_url, to_url }
+            data.clone()
+        }
+        Action::Back { .. } | Action::Forward { .. } | Action::Reload { .. } => {
+            // Daemon returns { kind, from_url, to_url }
+            data.clone()
+        }
+        _ => data.clone(),
+    }
+}
+
+fn format_tab_nav_text(action: &Action, result: &ActionResult) -> Option<String> {
+    let command = tab_nav_command(action)?;
+    let session_id = action.session_id()?.to_string();
+
+    Some(match result {
+        ActionResult::Ok { data } => match action {
+            Action::ListTabs { .. } => {
+                let tabs = data
+                    .get("tabs")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let total = tabs.len();
+                let mut out = prefixed_header(&session_id, None, None);
+                out.push_str(&format!("\nok {command}\n"));
+                out.push_str(&format!("{total} tab{}", if total == 1 { "" } else { "s" }));
+                for tab in &tabs {
+                    let tab_id = tab.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?");
+                    let url = tab.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                    let title = tab.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                    out.push_str(&format!("\n[{session_id} {tab_id}] {url}"));
+                    if !title.is_empty() {
+                        out.push_str(&format!("\n  title: {title}"));
+                    }
+                }
+                out
+            }
+            Action::NewTab { .. } => {
+                let tab_id = data.get("tab").and_then(|v| v.as_str()).unwrap_or("?");
+                let url = match action {
+                    Action::NewTab { url, .. } => url.as_str(),
+                    _ => "",
+                };
+                let mut out = prefixed_header(&session_id, None, None);
+                out.push_str(&format!("\nok {command}\n"));
+                out.push_str(&format!("tab: {tab_id}\nurl: {url}"));
+                out
+            }
+            Action::CloseTab { tab, .. } => {
+                let mut out = prefixed_header(&session_id, Some(&tab.to_string()), None);
+                out.push_str(&format!("\nok {command}"));
+                out
+            }
+            Action::Goto { tab, .. }
+            | Action::Back { tab, .. }
+            | Action::Forward { tab, .. }
+            | Action::Reload { tab, .. } => {
+                let to_url = data.get("to_url").and_then(|v| v.as_str()).unwrap_or("");
+                let from_url = data.get("from_url").and_then(|v| v.as_str()).unwrap_or("");
+                let mut out = prefixed_header(&session_id, Some(&tab.to_string()), Some(to_url));
+                out.push_str(&format!("\nok {command}"));
+                if from_url != to_url {
+                    out.push_str(&format!("\n{from_url} \u{2192} {to_url}"));
+                }
+                out
+            }
+            _ => return None,
+        },
+        _ => {
+            let err = normalize_error(result);
+            let mut out = String::new();
+            if let Some(prefix) = prefix_for_action(action) {
+                out.push_str(&prefix);
+                out.push('\n');
+            }
+            out.push_str(&format!("error {}: {}", err.code, err.message));
+            out
+        }
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -740,7 +980,7 @@ fn display_lifecycle_status(status: &str) -> &str {
 mod tests {
     use super::*;
     use crate::daemon::action::Action;
-    use crate::daemon::types::{Mode, SessionId};
+    use crate::daemon::types::{Mode, SessionId, TabId};
     use serde_json::json;
 
     #[test]
@@ -1271,5 +1511,424 @@ mod tests {
         );
 
         assert_eq!(prefix_for_action(&Action::ListSessions), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase B1: Tab / Navigation tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn tab_nav_command_returns_correct_names() {
+        assert_eq!(
+            tab_nav_command(&Action::ListTabs {
+                session: SessionId::new_unchecked("s0"),
+            }),
+            Some("browser.list-tabs")
+        );
+        assert_eq!(
+            tab_nav_command(&Action::NewTab {
+                session: SessionId::new_unchecked("s0"),
+                url: "https://actionbook.dev".into(),
+                new_window: false,
+                window: None,
+            }),
+            Some("browser.new-tab")
+        );
+        assert_eq!(
+            tab_nav_command(&Action::CloseTab {
+                session: SessionId::new_unchecked("s0"),
+                tab: TabId(1),
+            }),
+            Some("browser.close-tab")
+        );
+        assert_eq!(
+            tab_nav_command(&Action::Goto {
+                session: SessionId::new_unchecked("s0"),
+                tab: TabId(0),
+                url: "https://actionbook.dev".into(),
+            }),
+            Some("browser.goto")
+        );
+        assert_eq!(
+            tab_nav_command(&Action::Back {
+                session: SessionId::new_unchecked("s0"),
+                tab: TabId(0),
+            }),
+            Some("browser.back")
+        );
+        assert_eq!(
+            tab_nav_command(&Action::Forward {
+                session: SessionId::new_unchecked("s0"),
+                tab: TabId(0),
+            }),
+            Some("browser.forward")
+        );
+        assert_eq!(
+            tab_nav_command(&Action::Reload {
+                session: SessionId::new_unchecked("s0"),
+                tab: TabId(0),
+            }),
+            Some("browser.reload")
+        );
+    }
+
+    #[test]
+    fn tab_nav_json_list_tabs() {
+        let action = Action::ListTabs {
+            session: SessionId::new_unchecked("local-1"),
+        };
+        let result = ActionResult::ok(json!({
+            "total_tabs": 2,
+            "tabs": [
+                {"tab_id": "t0", "url": "https://actionbook.dev", "title": "Home"},
+                {"tab_id": "t1", "url": "https://actionbook.dev/docs", "title": "Docs"}
+            ]
+        }));
+        let out = format_cli_result_json(&action, &result, 5);
+        let d: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(d["ok"], true);
+        assert_eq!(d["command"], "browser.list-tabs");
+        assert_eq!(d["context"]["session_id"], "local-1");
+        assert_eq!(d["context"]["tab_id"], Value::Null);
+        assert_eq!(d["data"]["total_tabs"], 2);
+        assert_eq!(d["data"]["tabs"][0]["tab_id"], "t0");
+        assert_eq!(d["data"]["tabs"][1]["url"], "https://actionbook.dev/docs");
+        assert_eq!(d["meta"]["duration_ms"], 5);
+    }
+
+    #[test]
+    fn tab_nav_text_list_tabs() {
+        let action = Action::ListTabs {
+            session: SessionId::new_unchecked("local-1"),
+        };
+        let result = ActionResult::ok(json!({
+            "total_tabs": 2,
+            "tabs": [
+                {"tab_id": "t0", "url": "https://actionbook.dev", "title": "Home"},
+                {"tab_id": "t1", "url": "https://actionbook.dev/docs", "title": ""}
+            ]
+        }));
+        let out = format_cli_result(&action, &result);
+        assert!(out.starts_with("[local-1]"));
+        assert!(out.contains("ok browser.list-tabs"));
+        assert!(out.contains("2 tabs"));
+        assert!(out.contains("[local-1 t0] https://actionbook.dev"));
+        assert!(out.contains("title: Home"));
+        // Empty title should not show
+        assert!(!out.contains("title: \n"));
+    }
+
+    #[test]
+    fn tab_nav_json_new_tab() {
+        let action = Action::NewTab {
+            session: SessionId::new_unchecked("local-1"),
+            url: "https://actionbook.dev".into(),
+            new_window: false,
+            window: None,
+        };
+        let result = ActionResult::ok(json!({
+            "tab": "t2",
+            "target_id": "ABC123",
+            "window": "w0"
+        }));
+        let out = format_cli_result_json(&action, &result, 10);
+        let d: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(d["ok"], true);
+        assert_eq!(d["command"], "browser.new-tab");
+        assert_eq!(d["context"]["session_id"], "local-1");
+        assert_eq!(d["context"]["tab_id"], "t2");
+        assert_eq!(d["context"]["url"], "https://actionbook.dev");
+        assert_eq!(d["data"]["tab"]["tab_id"], "t2");
+        assert_eq!(d["data"]["tab"]["url"], "https://actionbook.dev");
+        assert_eq!(d["data"]["created"], true);
+        assert_eq!(d["data"]["new_window"], false);
+    }
+
+    #[test]
+    fn tab_nav_json_new_tab_new_window() {
+        let action = Action::NewTab {
+            session: SessionId::new_unchecked("local-1"),
+            url: "about:blank".into(),
+            new_window: true,
+            window: None,
+        };
+        let result = ActionResult::ok(json!({
+            "tab": "t5",
+            "target_id": "XYZ",
+            "window": "w1"
+        }));
+        let out = format_cli_result_json(&action, &result, 3);
+        let d: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(d["data"]["new_window"], true);
+    }
+
+    #[test]
+    fn tab_nav_text_new_tab() {
+        let action = Action::NewTab {
+            session: SessionId::new_unchecked("local-1"),
+            url: "https://actionbook.dev".into(),
+            new_window: false,
+            window: None,
+        };
+        let result = ActionResult::ok(json!({
+            "tab": "t2",
+            "target_id": "ABC",
+            "window": "w0"
+        }));
+        let out = format_cli_result(&action, &result);
+        assert!(out.starts_with("[local-1]"));
+        assert!(out.contains("ok browser.new-tab"));
+        assert!(out.contains("tab: t2"));
+        assert!(out.contains("url: https://actionbook.dev"));
+    }
+
+    #[test]
+    fn tab_nav_json_close_tab() {
+        let action = Action::CloseTab {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(3),
+        };
+        let result = ActionResult::ok(json!({"closed_tab_id": "t3"}));
+        let out = format_cli_result_json(&action, &result, 8);
+        let d: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(d["ok"], true);
+        assert_eq!(d["command"], "browser.close-tab");
+        assert_eq!(d["context"]["session_id"], "local-1");
+        assert_eq!(d["context"]["tab_id"], "t3");
+        assert_eq!(d["data"]["closed_tab_id"], "t3");
+    }
+
+    #[test]
+    fn tab_nav_text_close_tab() {
+        let action = Action::CloseTab {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(3),
+        };
+        let result = ActionResult::ok(json!({"closed_tab_id": "t3"}));
+        let out = format_cli_result(&action, &result);
+        assert!(out.starts_with("[local-1 t3]"));
+        assert!(out.contains("ok browser.close-tab"));
+    }
+
+    #[test]
+    fn tab_nav_json_goto() {
+        let action = Action::Goto {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            url: "https://actionbook.dev/new".into(),
+        };
+        let result = ActionResult::ok(json!({
+            "kind": "goto",
+            "requested_url": "https://actionbook.dev/new",
+            "from_url": "https://actionbook.dev",
+            "to_url": "https://actionbook.dev/new"
+        }));
+        let out = format_cli_result_json(&action, &result, 15);
+        let d: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(d["ok"], true);
+        assert_eq!(d["command"], "browser.goto");
+        assert_eq!(d["context"]["session_id"], "local-1");
+        assert_eq!(d["context"]["tab_id"], "t0");
+        assert_eq!(d["context"]["url"], "https://actionbook.dev/new");
+        assert_eq!(d["data"]["kind"], "goto");
+        assert_eq!(d["data"]["requested_url"], "https://actionbook.dev/new");
+        assert_eq!(d["data"]["from_url"], "https://actionbook.dev");
+        assert_eq!(d["data"]["to_url"], "https://actionbook.dev/new");
+    }
+
+    #[test]
+    fn tab_nav_text_goto() {
+        let action = Action::Goto {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            url: "https://actionbook.dev/new".into(),
+        };
+        let result = ActionResult::ok(json!({
+            "kind": "goto",
+            "requested_url": "https://actionbook.dev/new",
+            "from_url": "https://actionbook.dev",
+            "to_url": "https://actionbook.dev/new"
+        }));
+        let out = format_cli_result(&action, &result);
+        assert!(out.starts_with("[local-1 t0] https://actionbook.dev/new"));
+        assert!(out.contains("ok browser.goto"));
+        assert!(out.contains("https://actionbook.dev \u{2192} https://actionbook.dev/new"));
+    }
+
+    #[test]
+    fn tab_nav_text_goto_same_url_no_arrow() {
+        let action = Action::Goto {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            url: "https://actionbook.dev".into(),
+        };
+        let result = ActionResult::ok(json!({
+            "kind": "goto",
+            "requested_url": "https://actionbook.dev",
+            "from_url": "https://actionbook.dev",
+            "to_url": "https://actionbook.dev"
+        }));
+        let out = format_cli_result(&action, &result);
+        assert!(!out.contains("\u{2192}"));
+    }
+
+    #[test]
+    fn tab_nav_json_back() {
+        let action = Action::Back {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        };
+        let result = ActionResult::ok(json!({
+            "kind": "back",
+            "from_url": "https://actionbook.dev/page2",
+            "to_url": "https://actionbook.dev/page1"
+        }));
+        let out = format_cli_result_json(&action, &result, 6);
+        let d: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(d["ok"], true);
+        assert_eq!(d["command"], "browser.back");
+        assert_eq!(d["context"]["url"], "https://actionbook.dev/page1");
+        assert_eq!(d["data"]["kind"], "back");
+        assert_eq!(d["data"]["from_url"], "https://actionbook.dev/page2");
+        assert_eq!(d["data"]["to_url"], "https://actionbook.dev/page1");
+    }
+
+    #[test]
+    fn tab_nav_text_back() {
+        let action = Action::Back {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        };
+        let result = ActionResult::ok(json!({
+            "kind": "back",
+            "from_url": "https://actionbook.dev/page2",
+            "to_url": "https://actionbook.dev/page1"
+        }));
+        let out = format_cli_result(&action, &result);
+        assert!(out.starts_with("[local-1 t0] https://actionbook.dev/page1"));
+        assert!(out.contains("ok browser.back"));
+        assert!(out.contains("https://actionbook.dev/page2 \u{2192} https://actionbook.dev/page1"));
+    }
+
+    #[test]
+    fn tab_nav_json_forward() {
+        let action = Action::Forward {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(1),
+        };
+        let result = ActionResult::ok(json!({
+            "kind": "forward",
+            "from_url": "https://actionbook.dev/a",
+            "to_url": "https://actionbook.dev/b"
+        }));
+        let out = format_cli_result_json(&action, &result, 4);
+        let d: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(d["command"], "browser.forward");
+        assert_eq!(d["context"]["tab_id"], "t1");
+        assert_eq!(d["context"]["url"], "https://actionbook.dev/b");
+        assert_eq!(d["data"]["kind"], "forward");
+    }
+
+    #[test]
+    fn tab_nav_text_forward() {
+        let action = Action::Forward {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(1),
+        };
+        let result = ActionResult::ok(json!({
+            "kind": "forward",
+            "from_url": "https://actionbook.dev/a",
+            "to_url": "https://actionbook.dev/b"
+        }));
+        let out = format_cli_result(&action, &result);
+        assert!(out.contains("[local-1 t1] https://actionbook.dev/b"));
+        assert!(out.contains("ok browser.forward"));
+    }
+
+    #[test]
+    fn tab_nav_json_reload() {
+        let action = Action::Reload {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        };
+        let result = ActionResult::ok(json!({
+            "kind": "reload",
+            "from_url": "https://actionbook.dev",
+            "to_url": "https://actionbook.dev"
+        }));
+        let out = format_cli_result_json(&action, &result, 20);
+        let d: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(d["ok"], true);
+        assert_eq!(d["command"], "browser.reload");
+        assert_eq!(d["context"]["url"], "https://actionbook.dev");
+        assert_eq!(d["data"]["kind"], "reload");
+        assert_eq!(d["data"]["from_url"], "https://actionbook.dev");
+        assert_eq!(d["data"]["to_url"], "https://actionbook.dev");
+    }
+
+    #[test]
+    fn tab_nav_text_reload_same_url() {
+        let action = Action::Reload {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        };
+        let result = ActionResult::ok(json!({
+            "kind": "reload",
+            "from_url": "https://actionbook.dev",
+            "to_url": "https://actionbook.dev"
+        }));
+        let out = format_cli_result(&action, &result);
+        assert!(out.contains("[local-1 t0] https://actionbook.dev"));
+        assert!(out.contains("ok browser.reload"));
+        // Same URL, no arrow
+        assert!(!out.contains("\u{2192}"));
+    }
+
+    #[test]
+    fn tab_nav_text_reload_redirect() {
+        let action = Action::Reload {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        };
+        let result = ActionResult::ok(json!({
+            "kind": "reload",
+            "from_url": "https://actionbook.dev/old",
+            "to_url": "https://actionbook.dev/new"
+        }));
+        let out = format_cli_result(&action, &result);
+        assert!(out.contains("https://actionbook.dev/old \u{2192} https://actionbook.dev/new"));
+    }
+
+    #[test]
+    fn tab_nav_error_uses_prd_envelope_json() {
+        let action = Action::Goto {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            url: "https://actionbook.dev".into(),
+        };
+        let result = ActionResult::fatal(
+            "navigation_failed",
+            "net::ERR_NAME_NOT_RESOLVED",
+            "check the URL",
+        );
+        let out = format_cli_result_json(&action, &result, 50);
+        let d: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(d["ok"], false);
+        assert_eq!(d["command"], "browser.goto");
+        assert_eq!(d["error"]["code"], "NAVIGATION_FAILED");
+    }
+
+    #[test]
+    fn tab_nav_error_uses_text_contract() {
+        let action = Action::CloseTab {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(5),
+        };
+        let result = ActionResult::fatal("tab_not_found", "tab t5 does not exist", "run list-tabs");
+        let out = format_cli_result(&action, &result);
+        assert_eq!(
+            out,
+            "[local-1 t5]\nerror TAB_NOT_FOUND: tab t5 does not exist"
+        );
     }
 }

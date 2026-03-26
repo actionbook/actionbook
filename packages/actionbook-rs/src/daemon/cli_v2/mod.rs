@@ -18,7 +18,7 @@ use super::action::Action;
 use super::client::{self, DaemonClient};
 use super::daemon_main::DaemonConfig;
 use super::formatter;
-use super::types::{Mode, QueryCardinality, SessionId, StorageKind, TabId};
+use super::types::{Mode, QueryCardinality, SessionId, StorageKind, TabId, WindowId};
 
 use commands::{
     CliMode, CookiesCmd, LocalStorageCmd, QueryCmd, ScrollCmd, SessionStorageCmd, StorageSubCmd,
@@ -110,15 +110,19 @@ enum BrowserCmd {
     },
 
     /// Open a URL in a new tab
-    Open {
+    #[command(name = "new-tab", alias = "open")]
+    NewTab {
         /// URL to open
         url: String,
         /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Open in a new window
-        #[arg(long)]
+        #[arg(long, conflicts_with = "window")]
         new_window: bool,
+        /// Open in a specific existing window
+        #[arg(long, conflicts_with = "new_window")]
+        window: Option<WindowId>,
     },
 
     /// Close a session and its browser
@@ -655,15 +659,16 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
         BrowserCmd::Status { session } => Action::SessionStatus { session },
         BrowserCmd::ListTabs { session } => Action::ListTabs { session },
         BrowserCmd::ListWindows { session } => Action::ListWindows { session },
-        BrowserCmd::Open {
+        BrowserCmd::NewTab {
             url,
             session,
             new_window,
+            window,
         } => Action::NewTab {
             session,
             url,
             new_window,
-            window: None,
+            window,
         },
         BrowserCmd::Close { session } => Action::CloseSession { session },
         BrowserCmd::CloseTab { session, tab } => Action::CloseTab { session, tab },

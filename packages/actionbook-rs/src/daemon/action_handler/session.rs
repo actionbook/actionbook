@@ -42,7 +42,7 @@ pub(super) async fn handle_new_tab(
 ) -> ActionResult {
     let op = BackendOp::CreateTarget {
         url: url.to_string(),
-        window_id: None,
+        window_id: window.map(|w| w.0 as i64),
         new_window,
     };
 
@@ -116,6 +116,7 @@ pub(super) async fn handle_new_tab(
                 "tab": tab_id.to_string(),
                 "target_id": target_id,
                 "window": win_id.to_string(),
+                "url": url,
             }))
         }
         Err(e) => cdp_error_to_result(e),

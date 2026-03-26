@@ -10,6 +10,7 @@
 //!   RUN_E2E_TESTS=true cargo test --test e2e -- --test-threads=1 --nocapture
 
 mod browser_basic;
+mod browser_contract;
 mod browser_data;
 mod browser_errors;
 mod browser_interaction;
