@@ -56,14 +56,66 @@ impl SessionId {
         SessionId(format!("local-{}", n + 1))
     }
 
-    /// Generate a session ID from a profile name.
-    /// First attempt uses the profile name directly; collisions add -2, -3, etc.
+    /// Generate a session ID from a sanitized profile name.
+    ///
+    /// Sanitization: lowercase, replace non-alphanumeric with hyphens,
+    /// collapse consecutive hyphens, strip leading/trailing hyphens,
+    /// truncate to 64 chars. Falls back to `local-N` if result is invalid.
+    ///
+    /// First attempt uses the sanitized name; collisions add -2, -3, etc.
     pub fn from_profile(profile: &str, suffix: u32) -> Self {
-        if suffix == 0 {
-            SessionId(profile.to_string())
+        let sanitized = Self::sanitize_profile(profile);
+        let base = if suffix == 0 {
+            sanitized
         } else {
-            SessionId(format!("{}-{}", profile, suffix + 1))
+            format!("{}-{}", sanitized, suffix + 1)
+        };
+        // Truncate to 64 chars max.
+        let base = if base.len() > 64 {
+            base[..64].trim_end_matches('-').to_string()
+        } else {
+            base
+        };
+        if Self::is_valid(&base) {
+            SessionId(base)
+        } else {
+            // Fallback to local-N if sanitization produces an invalid ID.
+            Self::auto_generate(suffix)
         }
+    }
+
+    /// Sanitize a profile name into a valid session ID base.
+    fn sanitize_profile(profile: &str) -> String {
+        let lowered = profile.to_lowercase();
+        let mapped: String = lowered
+            .chars()
+            .map(|c| {
+                if c.is_ascii_lowercase() || c.is_ascii_digit() {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        // Collapse consecutive hyphens and strip leading/trailing hyphens.
+        let mut result = String::with_capacity(mapped.len());
+        let mut prev_hyphen = true; // treat start as hyphen to strip leading
+        for c in mapped.chars() {
+            if c == '-' {
+                if !prev_hyphen {
+                    result.push('-');
+                }
+                prev_hyphen = true;
+            } else {
+                result.push(c);
+                prev_hyphen = false;
+            }
+        }
+        // Strip trailing hyphen.
+        if result.ends_with('-') {
+            result.pop();
+        }
+        result
     }
 
     /// Returns the string value.
@@ -410,5 +462,57 @@ mod tests {
             "\"extension\""
         );
         assert_eq!(serde_json::to_string(&Mode::Cloud).unwrap(), "\"cloud\"");
+    }
+
+    #[test]
+    fn sanitize_profile_lowercases() {
+        assert_eq!(SessionId::sanitize_profile("MyProfile"), "myprofile");
+    }
+
+    #[test]
+    fn sanitize_profile_replaces_special_chars() {
+        assert_eq!(SessionId::sanitize_profile("my_profile!"), "my-profile");
+        assert_eq!(SessionId::sanitize_profile("hello world"), "hello-world");
+    }
+
+    #[test]
+    fn sanitize_profile_collapses_hyphens() {
+        assert_eq!(SessionId::sanitize_profile("a--b---c"), "a-b-c");
+        assert_eq!(SessionId::sanitize_profile("a _ b"), "a-b");
+    }
+
+    #[test]
+    fn sanitize_profile_strips_leading_trailing_hyphens() {
+        assert_eq!(SessionId::sanitize_profile("-leading"), "leading");
+        assert_eq!(SessionId::sanitize_profile("trailing-"), "trailing");
+        assert_eq!(SessionId::sanitize_profile("--both--"), "both");
+    }
+
+    #[test]
+    fn from_profile_uses_sanitized_name() {
+        // Normal profile
+        assert_eq!(SessionId::from_profile("work", 0).as_str(), "work");
+        assert_eq!(SessionId::from_profile("work", 1).as_str(), "work-2");
+        // Uppercase profile gets lowercased
+        assert_eq!(SessionId::from_profile("MyWork", 0).as_str(), "mywork");
+        // Special chars get sanitized
+        assert_eq!(
+            SessionId::from_profile("My Profile!", 0).as_str(),
+            "my-profile"
+        );
+        assert_eq!(
+            SessionId::from_profile("My Profile!", 1).as_str(),
+            "my-profile-2"
+        );
+    }
+
+    #[test]
+    fn from_profile_falls_back_to_auto_generate() {
+        // Pure numbers → sanitized to digits only, starts with digit → invalid → fallback
+        assert_eq!(SessionId::from_profile("123", 0).as_str(), "local-1");
+        // Empty string → invalid → fallback
+        assert_eq!(SessionId::from_profile("", 0).as_str(), "local-1");
+        // All special chars → empty after sanitization → fallback
+        assert_eq!(SessionId::from_profile("!!!", 0).as_str(), "local-1");
     }
 }

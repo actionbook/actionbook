@@ -218,8 +218,11 @@ impl Router {
             let mut registry = self.registry.lock().await;
             let existing = registry.list_sessions();
 
-            // For Local mode, enforce 1-profile-1-session constraint.
+            // For Local mode without explicit --profile, enforce 1-profile-1-session.
+            // With explicit --profile, allow multiple sessions via collision suffix
+            // (e.g. work, work-2, work-3).
             if mode == Mode::Local
+                && !explicit_profile
                 && existing
                     .iter()
                     .any(|s| s.profile == profile_name && s.state != SessionState::Closed)
