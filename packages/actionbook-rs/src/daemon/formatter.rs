@@ -42,28 +42,245 @@ pub fn format_result_json(result: &ActionResult) -> String {
 /// normalization where requested and falling back to the legacy formatter
 /// for all other commands.
 pub fn format_cli_result(action: &Action, result: &ActionResult) -> String {
-    if let Some(output) = format_lifecycle_text(action, result) {
-        output
+    if result.is_ok() {
+        if let Some(output) = format_lifecycle_text(action, result) {
+            output
+        } else {
+            format_result(result)
+        }
     } else {
-        format_result(result)
+        format_error_text(action, result)
     }
+}
+
+/// Format a CLI-side error into the unified PRD envelope without requiring a
+/// daemon-produced [`ActionResult`].
+pub fn format_cli_side_error_json(
+    action: &Action,
+    code: &str,
+    message: &str,
+    details: Value,
+    duration_ms: u128,
+) -> String {
+    let envelope = error_envelope(
+        action,
+        NormalizedError {
+            code: code.to_string(),
+            message: message.to_string(),
+            retryable: false,
+            details,
+        },
+        duration_ms,
+    );
+    serde_json::to_string(&envelope).unwrap_or_else(|_| {
+        r#"{"ok":false,"command":"internal.serialization","context":null,"data":null,"error":{"code":"INTERNAL_ERROR","message":"failed to serialize result","retryable":false,"details":{"hint":"retry the command"}},"meta":{"duration_ms":0,"warnings":[],"pagination":null,"truncated":false}}"#.to_string()
+    })
 }
 
 /// Format an [`ActionResult`] for `--json` CLI output, applying the
 /// Phase A lifecycle envelope for the first 5 lifecycle commands only.
 pub fn format_cli_result_json(action: &Action, result: &ActionResult, duration_ms: u128) -> String {
-    if let Some(envelope) = normalize_lifecycle_json(action, result, duration_ms) {
+    if result.is_ok() {
+        if let Some(envelope) = normalize_lifecycle_json(action, result, duration_ms) {
+            serde_json::to_string(&envelope).unwrap_or_else(|_| {
+                r#"{"ok":false,"command":"internal.serialization","context":null,"data":null,"error":{"code":"INTERNAL_ERROR","message":"failed to serialize result","retryable":false,"details":{"hint":"retry the command"}},"meta":{"duration_ms":0,"warnings":[],"pagination":null,"truncated":false}}"#.to_string()
+            })
+        } else {
+            format_result_json(result)
+        }
+    } else {
+        let envelope = error_envelope(action, normalize_error(result), duration_ms);
         serde_json::to_string(&envelope).unwrap_or_else(|_| {
             r#"{"ok":false,"command":"internal.serialization","context":null,"data":null,"error":{"code":"INTERNAL_ERROR","message":"failed to serialize result","retryable":false,"details":{"hint":"retry the command"}},"meta":{"duration_ms":0,"warnings":[],"pagination":null,"truncated":false}}"#.to_string()
         })
-    } else {
-        format_result_json(result)
     }
 }
 
 /// Returns true if the result is an error (non-Ok), used for exit code.
 pub fn is_error(result: &ActionResult) -> bool {
     !result.is_ok()
+}
+
+#[derive(Debug, Clone)]
+struct NormalizedError {
+    code: String,
+    message: String,
+    retryable: bool,
+    details: Value,
+}
+
+fn error_envelope(action: &Action, error: NormalizedError, duration_ms: u128) -> Value {
+    serde_json::json!({
+        "ok": false,
+        "command": command_name(action),
+        "context": context_for_action(action).unwrap_or(Value::Null),
+        "data": Value::Null,
+        "error": {
+            "code": error.code,
+            "message": error.message,
+            "retryable": error.retryable,
+            "details": error.details
+        },
+        "meta": {
+            "duration_ms": duration_ms,
+            "warnings": [],
+            "pagination": null,
+            "truncated": false
+        }
+    })
+}
+
+fn format_error_text(action: &Action, result: &ActionResult) -> String {
+    let error = normalize_error(result);
+    let mut out = String::new();
+    if let Some(prefix) = prefix_for_action(action) {
+        out.push_str(&prefix);
+        out.push('\n');
+    }
+    out.push_str(&format!("error {}: {}", error.code, error.message));
+    out
+}
+
+fn prefix_for_action(action: &Action) -> Option<String> {
+    let session_id = action.session_id()?;
+    let tab_id = action_tab_id(action).map(|tab| tab.to_string());
+    Some(prefixed_header(
+        &session_id.to_string(),
+        tab_id.as_deref(),
+        None,
+    ))
+}
+
+fn action_tab_id(action: &Action) -> Option<super::types::TabId> {
+    match action {
+        Action::CloseTab { tab, .. }
+        | Action::Goto { tab, .. }
+        | Action::Back { tab, .. }
+        | Action::Forward { tab, .. }
+        | Action::Reload { tab, .. }
+        | Action::Open { tab, .. }
+        | Action::Snapshot { tab, .. }
+        | Action::Screenshot { tab, .. }
+        | Action::Click { tab, .. }
+        | Action::Type { tab, .. }
+        | Action::Fill { tab, .. }
+        | Action::Eval { tab, .. }
+        | Action::WaitElement { tab, .. }
+        | Action::Html { tab, .. }
+        | Action::Text { tab, .. }
+        | Action::Pdf { tab, .. }
+        | Action::Title { tab, .. }
+        | Action::Url { tab, .. }
+        | Action::Value { tab, .. }
+        | Action::Attr { tab, .. }
+        | Action::Attrs { tab, .. }
+        | Action::Describe { tab, .. }
+        | Action::State { tab, .. }
+        | Action::Box_ { tab, .. }
+        | Action::Styles { tab, .. }
+        | Action::Viewport { tab, .. }
+        | Action::Query { tab, .. }
+        | Action::InspectPoint { tab, .. }
+        | Action::LogsConsole { tab, .. }
+        | Action::LogsErrors { tab, .. }
+        | Action::StorageList { tab, .. }
+        | Action::StorageGet { tab, .. }
+        | Action::StorageSet { tab, .. }
+        | Action::StorageDelete { tab, .. }
+        | Action::StorageClear { tab, .. }
+        | Action::Select { tab, .. }
+        | Action::Hover { tab, .. }
+        | Action::Focus { tab, .. }
+        | Action::Press { tab, .. }
+        | Action::Drag { tab, .. }
+        | Action::Upload { tab, .. }
+        | Action::Scroll { tab, .. }
+        | Action::MouseMove { tab, .. }
+        | Action::CursorPosition { tab, .. }
+        | Action::WaitNavigation { tab, .. }
+        | Action::WaitNetworkIdle { tab, .. }
+        | Action::WaitCondition { tab, .. } => Some(*tab),
+        _ => None,
+    }
+}
+
+fn command_name(action: &Action) -> &'static str {
+    match action {
+        Action::StartSession { .. } => "browser.start",
+        Action::CloseSession { .. } | Action::Close { .. } => "browser.close",
+        Action::ListSessions => "browser.list-sessions",
+        Action::SessionStatus { .. } => "browser.status",
+        Action::ListTabs { .. } => "browser.list-tabs",
+        Action::ListWindows { .. } => "browser.list-windows",
+        Action::NewTab { .. } => "browser.new-tab",
+        Action::CloseTab { .. } => "browser.close-tab",
+        Action::Goto { .. } => "browser.goto",
+        Action::Back { .. } => "browser.back",
+        Action::Forward { .. } => "browser.forward",
+        Action::Reload { .. } => "browser.reload",
+        Action::Open { .. } => "browser.open",
+        Action::Snapshot { .. } => "browser.snapshot",
+        Action::Screenshot { .. } => "browser.screenshot",
+        Action::Click { .. } => "browser.click",
+        Action::Type { .. } => "browser.type",
+        Action::Fill { .. } => "browser.fill",
+        Action::Eval { .. } => "browser.eval",
+        Action::WaitElement { .. } => "browser.wait-element",
+        Action::Html { .. } => "browser.html",
+        Action::Text { .. } => "browser.text",
+        Action::Pdf { .. } => "browser.pdf",
+        Action::Title { .. } => "browser.title",
+        Action::Url { .. } => "browser.url",
+        Action::Value { .. } => "browser.value",
+        Action::Attr { .. } => "browser.attr",
+        Action::Attrs { .. } => "browser.attrs",
+        Action::Describe { .. } => "browser.describe",
+        Action::State { .. } => "browser.state",
+        Action::Box_ { .. } => "browser.box",
+        Action::Styles { .. } => "browser.styles",
+        Action::Viewport { .. } => "browser.viewport",
+        Action::Query { .. } => "browser.query",
+        Action::InspectPoint { .. } => "browser.inspect-point",
+        Action::LogsConsole { .. } => "browser.logs-console",
+        Action::LogsErrors { .. } => "browser.logs-errors",
+        Action::CookiesList { .. } => "browser.cookies-list",
+        Action::CookiesGet { .. } => "browser.cookies-get",
+        Action::CookiesSet { .. } => "browser.cookies-set",
+        Action::CookiesDelete { .. } => "browser.cookies-delete",
+        Action::CookiesClear { .. } => "browser.cookies-clear",
+        Action::StorageList { .. } => "browser.storage-list",
+        Action::StorageGet { .. } => "browser.storage-get",
+        Action::StorageSet { .. } => "browser.storage-set",
+        Action::StorageDelete { .. } => "browser.storage-delete",
+        Action::StorageClear { .. } => "browser.storage-clear",
+        Action::Select { .. } => "browser.select",
+        Action::Hover { .. } => "browser.hover",
+        Action::Focus { .. } => "browser.focus",
+        Action::Press { .. } => "browser.press",
+        Action::Drag { .. } => "browser.drag",
+        Action::Upload { .. } => "browser.upload",
+        Action::Scroll { .. } => "browser.scroll",
+        Action::MouseMove { .. } => "browser.mouse-move",
+        Action::CursorPosition { .. } => "browser.cursor-position",
+        Action::WaitNavigation { .. } => "browser.wait-navigation",
+        Action::WaitNetworkIdle { .. } => "browser.wait-network-idle",
+        Action::WaitCondition { .. } => "browser.wait-condition",
+        Action::RestartSession { .. } => "browser.restart",
+    }
+}
+
+fn context_for_action(action: &Action) -> Option<Value> {
+    match action {
+        Action::ListSessions => None,
+        _ => action.session_id().map(|session_id| {
+            serde_json::json!({
+                "session_id": session_id.to_string(),
+                "tab_id": action_tab_id(action).map(|tab| tab.to_string()),
+                "url": null,
+                "title": null
+            })
+        }),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -197,7 +414,7 @@ fn normalize_lifecycle_json(
     };
     let error = match result {
         ActionResult::Ok { .. } => Value::Null,
-        _ => normalize_error(result),
+        _ => normalized_error_value(&normalize_error(result)),
     };
 
     Some(serde_json::json!({
@@ -300,15 +517,7 @@ fn format_lifecycle_text(action: &Action, result: &ActionResult) -> Option<Strin
         },
         _ => {
             let err = normalize_error(result);
-            let code = err
-                .get("code")
-                .and_then(|v| v.as_str())
-                .unwrap_or("INTERNAL_ERROR");
-            let message = err
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("command failed");
-            format!("error {code}: {message}")
+            format!("error {}: {}", err.code, err.message)
         }
     })
 }
@@ -341,44 +550,108 @@ fn lifecycle_context(action: &Action, result: &ActionResult) -> Option<Value> {
     }
 }
 
-fn normalize_error(result: &ActionResult) -> Value {
+fn normalize_error(result: &ActionResult) -> NormalizedError {
     match result {
         ActionResult::Fatal {
             code,
             message,
             hint,
-        } => serde_json::json!({
-            "code": normalize_error_code(code),
-            "message": message,
-            "retryable": false,
-            "details": { "hint": hint }
-        }),
-        ActionResult::Retryable { reason, hint } => serde_json::json!({
-            "code": normalize_error_code(reason),
-            "message": reason,
-            "retryable": true,
-            "details": { "hint": hint }
-        }),
-        ActionResult::UserAction { action, hint } => serde_json::json!({
-            "code": "USER_ACTION_REQUIRED",
-            "message": action,
-            "retryable": false,
-            "details": { "hint": hint }
-        }),
-        ActionResult::Ok { .. } => Value::Null,
+        } => NormalizedError {
+            code: normalize_error_code(code),
+            message: message.clone(),
+            retryable: false,
+            details: error_details(&[
+                ("hint", Some(Value::String(hint.clone()))),
+                ("raw_code", Some(Value::String(code.clone()))),
+            ]),
+        },
+        ActionResult::Retryable { reason, hint } => {
+            let code = normalize_error_code(reason);
+            NormalizedError {
+                message: default_error_message(&code).to_string(),
+                code,
+                retryable: true,
+                details: error_details(&[
+                    ("hint", Some(Value::String(hint.clone()))),
+                    ("reason", Some(Value::String(reason.clone()))),
+                ]),
+            }
+        }
+        ActionResult::UserAction { action, hint } => NormalizedError {
+            code: "INTERNAL_ERROR".to_string(),
+            message: action.clone(),
+            retryable: false,
+            details: error_details(&[
+                ("hint", Some(Value::String(hint.clone()))),
+                ("action", Some(Value::String(action.clone()))),
+            ]),
+        },
+        ActionResult::Ok { .. } => NormalizedError {
+            code: "INTERNAL_ERROR".to_string(),
+            message: "command failed".to_string(),
+            retryable: false,
+            details: Value::Object(serde_json::Map::new()),
+        },
     }
 }
 
 fn normalize_error_code(code: &str) -> String {
-    let normalized = code
-        .chars()
-        .map(|c| match c {
-            'a'..='z' => c.to_ascii_uppercase(),
-            'A'..='Z' | '0'..='9' => c,
-            _ => '_',
-        })
-        .collect::<String>();
-    normalized.trim_matches('_').to_string()
+    let normalized = code.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "session_not_found" | "session_dead" => "SESSION_NOT_FOUND".to_string(),
+        "tab_not_found" | "no_tabs" => "TAB_NOT_FOUND".to_string(),
+        "element_not_found" => "ELEMENT_NOT_FOUND".to_string(),
+        "eval_error" => "EVAL_FAILED".to_string(),
+        "pdf_write_error" | "pdf_decode_error" | "artifact_write_failed" => {
+            "ARTIFACT_WRITE_FAILED".to_string()
+        }
+        "cdp_timeout" | "backend_disconnected" | "timeout" => "TIMEOUT".to_string(),
+        code if code.starts_with("invalid_")
+            || matches!(
+                code,
+                "missing_cdp_endpoint"
+                    | "session_exists"
+                    | "extension_session_exists"
+                    | "multiple_matches"
+                    | "index_out_of_range"
+            ) =>
+        {
+            "INVALID_ARGUMENT".to_string()
+        }
+        _ => "INTERNAL_ERROR".to_string(),
+    }
+}
+
+fn normalized_error_value(error: &NormalizedError) -> Value {
+    serde_json::json!({
+        "code": error.code,
+        "message": error.message,
+        "retryable": error.retryable,
+        "details": error.details
+    })
+}
+
+fn default_error_message(code: &str) -> &'static str {
+    match code {
+        "SESSION_NOT_FOUND" => "Session not found",
+        "TAB_NOT_FOUND" => "Tab not found",
+        "ELEMENT_NOT_FOUND" => "Element not found",
+        "EVAL_FAILED" => "JavaScript evaluation failed",
+        "ARTIFACT_WRITE_FAILED" => "Failed to write artifact",
+        "INVALID_ARGUMENT" => "Invalid argument",
+        "TIMEOUT" => "Operation timed out",
+        _ => "Internal error",
+    }
+}
+
+fn error_details(fields: &[(&str, Option<Value>)]) -> Value {
+    let mut details = serde_json::Map::new();
+    for (key, value) in fields {
+        if let Some(value) = value {
+            details.insert((*key).to_string(), value.clone());
+        }
+    }
+    Value::Object(details)
 }
 
 fn prefixed_header(session_id: &str, tab_id: Option<&str>, url: Option<&str>) -> String {
@@ -671,6 +944,72 @@ mod tests {
             "run list-sessions",
         );
         let out = format_cli_result(&action, &result);
-        assert_eq!(out, "error SESSION_NOT_FOUND: session s5 does not exist");
+        assert_eq!(out, "[s5]\nerror SESSION_NOT_FOUND: session s5 does not exist");
+    }
+
+    #[test]
+    fn non_lifecycle_json_errors_use_prd_envelope() {
+        let action = Action::Click {
+            session: SessionId(0),
+            tab: crate::daemon::types::TabId(0),
+            selector: "#missing".into(),
+            button: None,
+            count: None,
+        };
+        let result = ActionResult::fatal(
+            "element_not_found",
+            "element '#missing' not found",
+            "check selector",
+        );
+        let out = format_cli_result_json(&action, &result, 12);
+        let decoded: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(decoded["ok"], false);
+        assert_eq!(decoded["command"], "browser.click");
+        assert_eq!(decoded["context"]["session_id"], "s0");
+        assert_eq!(decoded["context"]["tab_id"], "t0");
+        assert_eq!(decoded["data"], Value::Null);
+        assert_eq!(decoded["error"]["code"], "ELEMENT_NOT_FOUND");
+        assert_eq!(decoded["error"]["message"], "element '#missing' not found");
+        assert_eq!(decoded["error"]["details"]["hint"], "check selector");
+    }
+
+    #[test]
+    fn non_lifecycle_retryable_errors_map_to_timeout() {
+        let action = Action::WaitCondition {
+            session: SessionId(0),
+            tab: crate::daemon::types::TabId(0),
+            expression: "window.ready".into(),
+            timeout_ms: Some(5000),
+        };
+        let result = ActionResult::retryable("cdp_timeout", "retry in a moment");
+        let out = format_cli_result_json(&action, &result, 33);
+        let decoded: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(decoded["error"]["code"], "TIMEOUT");
+        assert_eq!(decoded["error"]["message"], "Operation timed out");
+        assert_eq!(decoded["error"]["retryable"], true);
+        assert_eq!(decoded["error"]["details"]["reason"], "cdp_timeout");
+        assert_eq!(decoded["error"]["details"]["hint"], "retry in a moment");
+    }
+
+    #[test]
+    fn cli_side_artifact_errors_use_prd_envelope() {
+        let action = Action::Screenshot {
+            session: SessionId(0),
+            tab: crate::daemon::types::TabId(0),
+            full_page: false,
+        };
+        let out = format_cli_side_error_json(
+            &action,
+            "ARTIFACT_WRITE_FAILED",
+            "failed to write screenshot to /tmp/out.png: permission denied",
+            json!({"path": "/tmp/out.png"}),
+            9,
+        );
+        let decoded: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(decoded["command"], "browser.screenshot");
+        assert_eq!(decoded["context"]["session_id"], "s0");
+        assert_eq!(decoded["context"]["tab_id"], "t0");
+        assert_eq!(decoded["error"]["code"], "ARTIFACT_WRITE_FAILED");
+        assert_eq!(decoded["error"]["details"]["path"], "/tmp/out.png");
     }
 }

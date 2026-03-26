@@ -1270,7 +1270,25 @@ impl CliV2 {
                         match base64::engine::general_purpose::STANDARD.decode(b64) {
                             Ok(bytes) => {
                                 if let Err(e) = std::fs::write(&path, &bytes) {
-                                    eprintln!("error: failed to write screenshot: {e}");
+                                    if self.json {
+                                        println!(
+                                            "{}",
+                                            formatter::format_cli_side_error_json(
+                                                &action,
+                                                "ARTIFACT_WRITE_FAILED",
+                                                &format!(
+                                                    "failed to write screenshot to {}: {e}",
+                                                    path.display()
+                                                ),
+                                                serde_json::json!({
+                                                    "path": path.display().to_string()
+                                                }),
+                                                duration_ms
+                                            )
+                                        );
+                                    } else {
+                                        eprintln!("error: failed to write screenshot: {e}");
+                                    }
                                     process::exit(1);
                                 }
                                 if self.json {
@@ -1288,7 +1306,22 @@ impl CliV2 {
                                 process::exit(0);
                             }
                             Err(e) => {
-                                eprintln!("error: failed to decode screenshot data: {e}");
+                                if self.json {
+                                    println!(
+                                        "{}",
+                                        formatter::format_cli_side_error_json(
+                                            &action,
+                                            "INTERNAL_ERROR",
+                                            &format!("failed to decode screenshot data: {e}"),
+                                            serde_json::json!({
+                                                "reason": "screenshot_decode_failed"
+                                            }),
+                                            duration_ms
+                                        )
+                                    );
+                                } else {
+                                    eprintln!("error: failed to decode screenshot data: {e}");
+                                }
                                 process::exit(1);
                             }
                         }
