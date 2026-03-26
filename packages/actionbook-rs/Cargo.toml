@@ -8,6 +8,9 @@ repository = "https://github.com/anthropics/actionbook"
 keywords = ["browser", "automation", "cdp", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 
+[package.metadata.cargo-machete]
+ignored = ["anyhow", "tower"]
+
 [lib]
 name = "actionbook"
 path = "src/lib.rs"
