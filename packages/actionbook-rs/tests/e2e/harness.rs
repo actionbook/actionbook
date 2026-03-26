@@ -132,7 +132,9 @@ pub fn ensure_no_sessions() {
             Err(_) => return,
         };
         let sessions = parsed
-            .get("sessions")
+            .get("data")
+            .and_then(|data| data.get("sessions"))
+            .or_else(|| parsed.get("sessions"))
             .and_then(|s| s.as_array())
             .cloned()
             .unwrap_or_default();
