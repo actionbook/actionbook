@@ -57,24 +57,22 @@ pub fn skip() -> bool {
 
 // ── CLI runners ─────────────────────────────────────────────────────
 
-/// Run `actionbook --headless --no-daemon <args>` with the isolated environment.
+/// Run `actionbook browser <args>` with the isolated environment.
 ///
-/// Uses `--no-daemon` to avoid daemon process inheriting a different env.
+/// Uses the daemon v2 CLI path. The daemon auto-starts on first command.
 pub fn headless(args: &[&str], timeout_secs: u64) -> Output {
     let env = shared_env();
     Command::cargo_bin("actionbook")
         .expect("binary exists")
         .env("XDG_CONFIG_HOME", &env.config_home)
         .env("XDG_DATA_HOME", &env.data_home)
-        .arg("--headless")
-        .arg("--no-daemon")
         .args(args)
         .timeout(Duration::from_secs(timeout_secs))
         .output()
         .expect("failed to execute command")
 }
 
-/// Run `actionbook --json --headless --no-daemon <args>` with the isolated environment.
+/// Run `actionbook --json browser <args>` with the isolated environment.
 pub fn headless_json(args: &[&str], timeout_secs: u64) -> Output {
     let env = shared_env();
     Command::cargo_bin("actionbook")
@@ -82,8 +80,6 @@ pub fn headless_json(args: &[&str], timeout_secs: u64) -> Output {
         .env("XDG_CONFIG_HOME", &env.config_home)
         .env("XDG_DATA_HOME", &env.data_home)
         .arg("--json")
-        .arg("--headless")
-        .arg("--no-daemon")
         .args(args)
         .timeout(Duration::from_secs(timeout_secs))
         .output()

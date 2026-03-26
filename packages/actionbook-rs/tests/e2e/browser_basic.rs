@@ -1,7 +1,7 @@
-//! Basic browser E2E tests: open → goto arxiv.org → snapshot → close.
+//! Basic browser E2E tests: start → goto arxiv.org → snapshot → close.
 //!
-//! All steps run in a single test function to guarantee execution order,
-//! since Rust does not guarantee test ordering even with `--test-threads=1`.
+//! Uses daemon v2 CLI format with --session and --tab addressing.
+//! All steps run in a single test function to guarantee execution order.
 
 use crate::harness::{assert_success, headless, headless_json, skip, stdout_str};
 
@@ -11,15 +11,33 @@ fn browser_basic_open_goto_snapshot_close() {
         return;
     }
 
-    // Step 1: open browser with arxiv.org
-    let out = headless(&["browser", "open", "https://arxiv.org"], 30);
-    assert_success(&out, "open arxiv.org");
+    // Step 1: start a headless browser session with arxiv.org
+    let out = headless(
+        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://arxiv.org"],
+        30,
+    );
+    assert_success(&out, "start session");
 
-    // Step 2: goto arxiv.org and verify location
-    let out = headless(&["browser", "goto", "https://arxiv.org"], 30);
+    // Step 2: list sessions to get session ID
+    let out = headless(&["browser", "list-sessions"], 10);
+    assert_success(&out, "list-sessions");
+    let sessions_output = stdout_str(&out);
+    // Session output should contain s0
+    assert!(
+        sessions_output.contains("s0"),
+        "list-sessions should show s0, got: {}",
+        sessions_output
+    );
+
+    // Step 3: goto arxiv.org (session s0, tab t0)
+    let out = headless(&["browser", "goto", "https://arxiv.org", "-s", "s0", "-t", "t0"], 30);
     assert_success(&out, "goto arxiv.org");
 
-    let loc = headless(&["browser", "eval", "window.location.href"], 30);
+    // Step 4: eval to verify location
+    let loc = headless(
+        &["browser", "eval", "window.location.href", "-s", "s0", "-t", "t0"],
+        30,
+    );
     assert_success(&loc, "eval location");
     assert!(
         stdout_str(&loc).contains("arxiv.org"),
@@ -27,8 +45,11 @@ fn browser_basic_open_goto_snapshot_close() {
         stdout_str(&loc)
     );
 
-    // Step 3: snapshot and verify arxiv content
-    let out = headless_json(&["browser", "snapshot"], 30);
+    // Step 5: snapshot and verify arxiv content
+    let out = headless_json(
+        &["browser", "snapshot", "-s", "s0", "-t", "t0"],
+        30,
+    );
     assert_success(&out, "snapshot");
 
     let output = stdout_str(&out);
@@ -38,7 +59,7 @@ fn browser_basic_open_goto_snapshot_close() {
         &output[..output.len().min(500)]
     );
 
-    // Step 4: close browser
-    let out = headless(&["browser", "close"], 30);
+    // Step 6: close session
+    let out = headless(&["browser", "close", "-s", "s0"], 30);
     assert_success(&out, "close");
 }
