@@ -15,13 +15,24 @@ fn cookies_set_get_delete() {
 
     // Start session
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // Set cookie
-    let out = headless(&["browser", "cookies", "set", "test", "val", "-s", "s0"], 10);
+    let out = headless(
+        &["browser", "cookies", "set", "test", "val", "-s", "s0"],
+        10,
+    );
     assert_success(&out, "cookies set");
 
     // Get cookie — should contain "val"
@@ -59,7 +70,15 @@ fn cookies_list_and_clear() {
 
     // Start session
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
@@ -105,27 +124,51 @@ fn cookies_s1t2_shared() {
 
     // Start session with first tab
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // Create a second tab by opening a URL on s0
-    let out = headless(
-        &["browser", "open", "https://example.com", "-s", "s0"],
-        30,
-    );
+    let out = headless(&["browser", "open", "https://example.com", "-s", "s0"], 30);
     assert_success(&out, "create second tab");
 
     // Navigate second tab to a different page
     let out = headless(
-        &["browser", "goto", "https://example.com/page2", "-s", "s0", "-t", "t1"],
+        &[
+            "browser",
+            "goto",
+            "https://example.com/page2",
+            "-s",
+            "s0",
+            "-t",
+            "t1",
+        ],
         30,
     );
     assert_success(&out, "open second tab");
 
     // Set cookie on the session
-    let out = headless(&["browser", "cookies", "set", "shared", "cookieval", "-s", "s0"], 10);
+    let out = headless(
+        &[
+            "browser",
+            "cookies",
+            "set",
+            "shared",
+            "cookieval",
+            "-s",
+            "s0",
+        ],
+        10,
+    );
     assert_success(&out, "cookies set");
 
     // Get cookie — cookies are session-level so should be visible
@@ -152,21 +195,48 @@ fn storage_local_set_get() {
 
     // Start session
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // Set local storage key
     let out = headless(
-        &["browser", "local-storage", "set", "mykey", "myval", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "local-storage",
+            "set",
+            "mykey",
+            "myval",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "local-storage set");
 
     // Get local storage key
     let out = headless(
-        &["browser", "local-storage", "get", "mykey", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "local-storage",
+            "get",
+            "mykey",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "local-storage get");
@@ -189,14 +259,32 @@ fn storage_local_list_delete_clear() {
 
     // Start session
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // Set a key
     let out = headless(
-        &["browser", "local-storage", "set", "lskey", "lsval", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "local-storage",
+            "set",
+            "lskey",
+            "lsval",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "local-storage set");
@@ -215,7 +303,16 @@ fn storage_local_list_delete_clear() {
 
     // Delete the key
     let out = headless(
-        &["browser", "local-storage", "delete", "lskey", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "local-storage",
+            "delete",
+            "lskey",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "local-storage delete");
@@ -234,14 +331,33 @@ fn storage_local_list_delete_clear() {
 
     // Set an extra key to test clear
     let out = headless(
-        &["browser", "local-storage", "set", "extra", "val", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "local-storage",
+            "set",
+            "extra",
+            "val",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "local-storage set extra");
 
     // Clear local storage
     let out = headless(
-        &["browser", "local-storage", "clear", "extra", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "local-storage",
+            "clear",
+            "extra",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "local-storage clear");
@@ -273,21 +389,48 @@ fn storage_session_roundtrip() {
 
     // Start session
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // Set session storage key
     let out = headless(
-        &["browser", "session-storage", "set", "sk", "sv", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "session-storage",
+            "set",
+            "sk",
+            "sv",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "session-storage set");
 
     // Get session storage key
     let out = headless(
-        &["browser", "session-storage", "get", "sk", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "session-storage",
+            "get",
+            "sk",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "session-storage get");
@@ -310,14 +453,32 @@ fn storage_session_list_delete_clear() {
 
     // Start session
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // Set a session storage key
     let out = headless(
-        &["browser", "session-storage", "set", "sskey", "ssval", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "session-storage",
+            "set",
+            "sskey",
+            "ssval",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "session-storage set");
@@ -336,7 +497,16 @@ fn storage_session_list_delete_clear() {
 
     // Delete the key
     let out = headless(
-        &["browser", "session-storage", "delete", "sskey", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "session-storage",
+            "delete",
+            "sskey",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "session-storage delete");
@@ -355,14 +525,33 @@ fn storage_session_list_delete_clear() {
 
     // Set another key and clear
     let out = headless(
-        &["browser", "session-storage", "set", "ssextra", "ssval2", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "session-storage",
+            "set",
+            "ssextra",
+            "ssval2",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "session-storage set extra");
 
     // Clear session storage
     let out = headless(
-        &["browser", "session-storage", "clear", "extra", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "session-storage",
+            "clear",
+            "extra",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "session-storage clear");
@@ -394,28 +583,51 @@ fn storage_s1t2_isolation() {
 
     // Start session with first tab
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // Create a second tab by opening a URL on s0
-    let out = headless(
-        &["browser", "open", "https://example.com", "-s", "s0"],
-        30,
-    );
+    let out = headless(&["browser", "open", "https://example.com", "-s", "s0"], 30);
     assert_success(&out, "create second tab");
 
     // Navigate second tab to a different page
     let out = headless(
-        &["browser", "goto", "https://example.com/page2", "-s", "s0", "-t", "t1"],
+        &[
+            "browser",
+            "goto",
+            "https://example.com/page2",
+            "-s",
+            "s0",
+            "-t",
+            "t1",
+        ],
         30,
     );
     assert_success(&out, "open second tab");
 
     // Set local-storage on t0
     let out = headless(
-        &["browser", "local-storage", "set", "crosskey", "crossval", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "local-storage",
+            "set",
+            "crosskey",
+            "crossval",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "local-storage set on t0");
@@ -423,7 +635,16 @@ fn storage_s1t2_isolation() {
     // Get local-storage on t1 — both tabs are same origin (example.com),
     // so localStorage is shared. The value set on t0 should be visible on t1.
     let out = headless(
-        &["browser", "local-storage", "get", "crosskey", "-s", "s0", "-t", "t1"],
+        &[
+            "browser",
+            "local-storage",
+            "get",
+            "crosskey",
+            "-s",
+            "s0",
+            "-t",
+            "t1",
+        ],
         10,
     );
     assert_success(&out, "local-storage get on t1");

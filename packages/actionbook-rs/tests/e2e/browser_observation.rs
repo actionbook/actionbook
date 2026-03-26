@@ -37,15 +37,20 @@ fn obs_snapshot_has_content() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
-    let out = headless_json(
-        &["browser", "snapshot", "-s", "s0", "-t", "t0"],
-        30,
-    );
+    let out = headless_json(&["browser", "snapshot", "-s", "s0", "-t", "t0"], 30);
     assert_success(&out, "snapshot");
     let output = stdout_str(&out);
     assert!(
@@ -69,13 +74,29 @@ fn obs_snapshot_interactive() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     let out = headless_json(
-        &["browser", "snapshot", "--interactive", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "snapshot",
+            "--interactive",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "snapshot --interactive");
@@ -103,33 +124,32 @@ fn obs_snapshot_s1t2_different() {
 
     // Start with example.com on t0
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // Open example.org in a new tab (t1)
-    let out = headless(
-        &["browser", "open", "https://example.org", "-s", "s0"],
-        30,
-    );
+    let out = headless(&["browser", "open", "https://example.org", "-s", "s0"], 30);
     assert_success(&out, "open t1");
 
     // Snapshot t0 — extract only the snapshot content (not the full JSON envelope
     // which may differ by tab_id/url metadata).
-    let out = headless_json(
-        &["browser", "snapshot", "-s", "s0", "-t", "t0"],
-        30,
-    );
+    let out = headless_json(&["browser", "snapshot", "-s", "s0", "-t", "t0"], 30);
     assert_success(&out, "snapshot t0");
     let raw_t0 = stdout_str(&out);
     let snap_t0 = extract_snapshot_content(&raw_t0);
 
     // Snapshot t1
-    let out = headless_json(
-        &["browser", "snapshot", "-s", "s0", "-t", "t1"],
-        30,
-    );
+    let out = headless_json(&["browser", "snapshot", "-s", "s0", "-t", "t1"], 30);
     assert_success(&out, "snapshot t1");
     let raw_t1 = stdout_str(&out);
     let snap_t1 = extract_snapshot_content(&raw_t1);
@@ -155,33 +175,43 @@ fn obs_snapshot_seq_reflects_goto() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // Snapshot after landing on example.com — extract only the snapshot
     // content to avoid false-negatives from envelope metadata differences.
-    let out = headless_json(
-        &["browser", "snapshot", "-s", "s0", "-t", "t0"],
-        30,
-    );
+    let out = headless_json(&["browser", "snapshot", "-s", "s0", "-t", "t0"], 30);
     assert_success(&out, "snapshot A");
     let raw_a = stdout_str(&out);
     let snap_a = extract_snapshot_content(&raw_a);
 
     // Navigate to example.org
     let out = headless(
-        &["browser", "goto", "https://example.org", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://example.org",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto B");
 
     // Snapshot again
-    let out = headless_json(
-        &["browser", "snapshot", "-s", "s0", "-t", "t0"],
-        30,
-    );
+    let out = headless_json(&["browser", "snapshot", "-s", "s0", "-t", "t0"], 30);
     assert_success(&out, "snapshot B");
     let raw_b = stdout_str(&out);
     let snap_b = extract_snapshot_content(&raw_b);
@@ -207,7 +237,15 @@ fn obs_screenshot_file() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
@@ -227,11 +265,7 @@ fn obs_screenshot_file() {
     assert_success(&out, "screenshot");
 
     let metadata = std::fs::metadata(&path);
-    assert!(
-        metadata.is_ok(),
-        "screenshot file should exist at {}",
-        path
-    );
+    assert!(metadata.is_ok(), "screenshot file should exist at {}", path);
     assert!(
         metadata.unwrap().len() > 0,
         "screenshot file should be >0 bytes"
@@ -255,7 +289,15 @@ fn obs_pdf_produces_file() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
@@ -267,22 +309,12 @@ fn obs_pdf_produces_file() {
     let path = tmp.path().to_string_lossy().to_string();
     drop(tmp);
 
-    let out = headless(
-        &["browser", "pdf", &path, "-s", "s0", "-t", "t0"],
-        30,
-    );
+    let out = headless(&["browser", "pdf", &path, "-s", "s0", "-t", "t0"], 30);
     assert_success(&out, "pdf");
 
     let metadata = std::fs::metadata(&path);
-    assert!(
-        metadata.is_ok(),
-        "pdf file should exist at {}",
-        path
-    );
-    assert!(
-        metadata.unwrap().len() > 0,
-        "pdf file should be >0 bytes"
-    );
+    assert!(metadata.is_ok(), "pdf file should exist at {}", path);
+    assert!(metadata.unwrap().len() > 0, "pdf file should be >0 bytes");
 
     let _ = std::fs::remove_file(&path);
 
@@ -301,15 +333,20 @@ fn obs_title() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
-    let out = headless(
-        &["browser", "title", "-s", "s0", "-t", "t0"],
-        10,
-    );
+    let out = headless(&["browser", "title", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "title");
     let title = stdout_str(&out);
     assert!(
@@ -333,15 +370,20 @@ fn obs_url() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
-    let out = headless(
-        &["browser", "url", "-s", "s0", "-t", "t0"],
-        10,
-    );
+    let out = headless(&["browser", "url", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "url");
     let url = stdout_str(&out);
     assert!(
@@ -365,15 +407,20 @@ fn obs_viewport() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
-    let out = headless(
-        &["browser", "viewport", "-s", "s0", "-t", "t0"],
-        10,
-    );
+    let out = headless(&["browser", "viewport", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "viewport");
     let viewport = stdout_str(&out);
     // Viewport output should contain width/height numbers (e.g., "1440x900" or JSON with width/height)
@@ -398,15 +445,20 @@ fn obs_eval_arithmetic() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
-    let out = headless(
-        &["browser", "eval", "1+1", "-s", "s0", "-t", "t0"],
-        10,
-    );
+    let out = headless(&["browser", "eval", "1+1", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "eval 1+1");
     assert!(
         stdout_str(&out).contains('2'),
@@ -429,7 +481,15 @@ fn obs_eval_dom() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
@@ -460,15 +520,20 @@ fn obs_html_element() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
-    let out = headless(
-        &["browser", "html", "body", "-s", "s0", "-t", "t0"],
-        10,
-    );
+    let out = headless(&["browser", "html", "body", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "html body");
     let html = stdout_str(&out);
     assert!(
@@ -492,15 +557,20 @@ fn obs_text_element() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
-    let out = headless(
-        &["browser", "text", "body", "-s", "s0", "-t", "t0"],
-        10,
-    );
+    let out = headless(&["browser", "text", "body", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "text body");
     let text = stdout_str(&out);
     assert!(
@@ -525,7 +595,15 @@ fn obs_value_input() {
 
     // Use a page that has an input element; inject one via eval on example.com
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
@@ -533,9 +611,13 @@ fn obs_value_input() {
     // Inject an input element into the page
     let out = headless(
         &[
-            "browser", "eval",
+            "browser",
+            "eval",
             "document.body.innerHTML += '<input id=\"test-input\" type=\"text\" />'",
-            "-s", "s0", "-t", "t0",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
         ],
         10,
     );
@@ -543,7 +625,16 @@ fn obs_value_input() {
 
     // Fill the input
     let out = headless(
-        &["browser", "fill", "#test-input", "hello-world", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "fill",
+            "#test-input",
+            "hello-world",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "fill input");
@@ -575,7 +666,15 @@ fn obs_attr_single() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
@@ -608,7 +707,15 @@ fn obs_attrs_all() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
@@ -616,9 +723,13 @@ fn obs_attrs_all() {
     // Inject an input with known attributes
     let out = headless(
         &[
-            "browser", "eval",
+            "browser",
+            "eval",
             "document.body.innerHTML += '<input id=\"attrs-test\" type=\"text\" name=\"q\" />'",
-            "-s", "s0", "-t", "t0",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
         ],
         10,
     );
@@ -651,15 +762,20 @@ fn obs_box_position() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
-    let out = headless(
-        &["browser", "box", "body", "-s", "s0", "-t", "t0"],
-        10,
-    );
+    let out = headless(&["browser", "box", "body", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "box body");
     let box_output = stdout_str(&out);
     // Box output should contain position/size info (x, y, width, height)
@@ -684,15 +800,20 @@ fn obs_styles_computed() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
-    let out = headless(
-        &["browser", "styles", "body", "-s", "s0", "-t", "t0"],
-        10,
-    );
+    let out = headless(&["browser", "styles", "body", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "styles body");
     let styles = stdout_str(&out);
     assert!(
@@ -716,16 +837,21 @@ fn obs_describe_element() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // example.com has a link; describe it
-    let out = headless(
-        &["browser", "describe", "a", "-s", "s0", "-t", "t0"],
-        10,
-    );
+    let out = headless(&["browser", "describe", "a", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "describe a");
     let desc = stdout_str(&out);
     assert!(
@@ -749,16 +875,21 @@ fn obs_state_element() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // Use the link element on example.com for state query
-    let out = headless(
-        &["browser", "state", "a", "-s", "s0", "-t", "t0"],
-        10,
-    );
+    let out = headless(&["browser", "state", "a", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "state a");
     let state = stdout_str(&out);
     assert!(
@@ -782,21 +913,41 @@ fn obs_inspect_point() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     let out = headless(
-        &["browser", "inspect-point", "100,100", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "inspect-point",
+            "100,100",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "inspect-point 100,100");
     let inspect = stdout_str(&out);
     // Should contain element info at that coordinate
     assert!(
-        inspect.contains("selector") || inspect.contains("tag") || inspect.contains("role")
-            || inspect.contains("div") || inspect.contains("body") || inspect.contains("100"),
+        inspect.contains("selector")
+            || inspect.contains("tag")
+            || inspect.contains("role")
+            || inspect.contains("div")
+            || inspect.contains("body")
+            || inspect.contains("100"),
         "inspect-point should contain element info at coordinates, got: {}",
         inspect
     );
@@ -816,7 +967,15 @@ fn obs_query_one() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
@@ -849,7 +1008,15 @@ fn obs_query_all() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
@@ -882,7 +1049,15 @@ fn obs_query_count() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
@@ -924,13 +1099,23 @@ fn obs_query_nth() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     let out = headless(
-        &["browser", "query", "nth", "1", "div", "-s", "s0", "-t", "t0"],
+        &[
+            "browser", "query", "nth", "1", "div", "-s", "s0", "-t", "t0",
+        ],
         10,
     );
     assert_success(&out, "query nth 1 div");
@@ -957,23 +1142,36 @@ fn obs_console_logs() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // Emit a console.log message
     let out = headless(
-        &["browser", "eval", "console.log('actionbook-test-log-marker')", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "eval",
+            "console.log('actionbook-test-log-marker')",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "eval console.log");
 
     // Retrieve console logs
-    let out = headless(
-        &["browser", "logs", "console", "-s", "s0", "-t", "t0"],
-        10,
-    );
+    let out = headless(&["browser", "logs", "console", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "logs console");
     let logs = stdout_str(&out);
     assert!(
@@ -997,23 +1195,36 @@ fn obs_error_logs() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // Emit a console.error message
     let out = headless(
-        &["browser", "eval", "console.error('actionbook-test-error-marker')", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "eval",
+            "console.error('actionbook-test-error-marker')",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "eval console.error");
 
     // Retrieve error logs
-    let out = headless(
-        &["browser", "logs", "errors", "-s", "s0", "-t", "t0"],
-        10,
-    );
+    let out = headless(&["browser", "logs", "errors", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "logs errors");
     let logs = stdout_str(&out);
     assert!(

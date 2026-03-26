@@ -13,21 +13,48 @@ fn wait_element_exists() {
 
     // Start headless browser session with example.com
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start session");
 
     // Navigate to ensure page is loaded
     let out = headless(
-        &["browser", "goto", "https://example.com", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://example.com",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto example.com");
 
     // Wait for "body" element — should succeed immediately
     let out = headless(
-        &["browser", "wait", "element", "body", "-s", "s0", "-t", "t0", "--timeout", "5000"],
+        &[
+            "browser",
+            "wait",
+            "element",
+            "body",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
         30,
     );
     assert_success(&out, "wait element body");
@@ -45,21 +72,48 @@ fn wait_element_timeout() {
 
     // Start headless browser session
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start session");
 
     // Navigate to page
     let out = headless(
-        &["browser", "goto", "https://example.com", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://example.com",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto example.com");
 
     // Wait for nonexistent element — should fail with timeout
     let out = headless(
-        &["browser", "wait", "element", "#nonexistent", "-s", "s0", "-t", "t0", "--timeout", "2000"],
+        &[
+            "browser",
+            "wait",
+            "element",
+            "#nonexistent",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "2000",
+        ],
         30,
     );
     assert_failure(&out, "wait element #nonexistent should timeout");
@@ -77,21 +131,45 @@ fn wait_nav_after_click() {
 
     // Start headless browser session
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start session");
 
     // Navigate to example.com
     let out = headless(
-        &["browser", "goto", "https://example.com", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://example.com",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto example.com");
 
     // Record starting URL before click
     let out = headless(
-        &["browser", "eval", "window.location.href", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "eval",
+            "window.location.href",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "eval location before nav");
@@ -100,9 +178,13 @@ fn wait_nav_after_click() {
     // Inject a link that navigates to a different page
     let out = headless(
         &[
-            "browser", "eval",
+            "browser",
+            "eval",
             r#"(() => { const a = document.createElement('a'); a.href = 'https://example.com/nav-test'; a.id = 'nav-link'; a.textContent = 'Navigate'; document.body.appendChild(a); return 'injected'; })()"#,
-            "-s", "s0", "-t", "t0",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
         ],
         30,
     );
@@ -117,14 +199,32 @@ fn wait_nav_after_click() {
 
     // Wait for navigation to complete
     let out = headless(
-        &["browser", "wait", "navigation", "-s", "s0", "-t", "t0", "--timeout", "10000"],
+        &[
+            "browser",
+            "wait",
+            "navigation",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "10000",
+        ],
         30,
     );
     assert_success(&out, "wait navigation");
 
     // Verify URL changed from the starting URL
     let out = headless(
-        &["browser", "eval", "window.location.href", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "eval",
+            "window.location.href",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "eval location after nav");
@@ -148,21 +248,47 @@ fn wait_network_idle() {
 
     // Start headless browser session
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start session");
 
     // Navigate to example.com
     let out = headless(
-        &["browser", "goto", "https://example.com", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://example.com",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto example.com");
 
     // Wait for network idle — example.com is simple, should idle quickly
     let out = headless(
-        &["browser", "wait", "network-idle", "-s", "s0", "-t", "t0", "--timeout", "10000"],
+        &[
+            "browser",
+            "wait",
+            "network-idle",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "10000",
+        ],
         30,
     );
     assert_success(&out, "wait network-idle");
@@ -180,14 +306,30 @@ fn wait_condition_true() {
 
     // Start headless browser session
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start session");
 
     // Navigate to example.com
     let out = headless(
-        &["browser", "goto", "https://example.com", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://example.com",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto example.com");
@@ -195,9 +337,16 @@ fn wait_condition_true() {
     // Wait for condition: document.readyState === 'complete'
     let out = headless(
         &[
-            "browser", "wait", "condition",
+            "browser",
+            "wait",
+            "condition",
             "document.readyState === 'complete'",
-            "-s", "s0", "-t", "t0", "--timeout", "5000",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
         ],
         30,
     );

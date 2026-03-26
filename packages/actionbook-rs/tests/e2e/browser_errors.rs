@@ -14,19 +14,43 @@ fn err_click_nonexistent() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start session");
 
     let out = headless(
-        &["browser", "goto", "https://example.com", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://example.com",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto example.com");
 
     let out = headless(
-        &["browser", "click", "#does_not_exist_at_all", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "click",
+            "#does_not_exist_at_all",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_failure(&out, "click nonexistent element");
@@ -50,19 +74,37 @@ fn err_goto_invalid_url() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start session");
 
     let out = headless(
-        &["browser", "goto", "not-a-valid-url-at-all", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "not-a-valid-url-at-all",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_failure(&out, "goto invalid URL");
     let output = stdout_str(&out) + &stderr_str(&out);
     assert!(
-        output.to_lowercase().contains("error") || output.to_lowercase().contains("invalid") || output.to_lowercase().contains("fail"),
+        output.to_lowercase().contains("error")
+            || output.to_lowercase().contains("invalid")
+            || output.to_lowercase().contains("fail"),
         "goto invalid URL should mention error in output, got: {}",
         output
     );
@@ -80,25 +122,51 @@ fn err_eval_syntax_error() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start session");
 
     let out = headless(
-        &["browser", "goto", "https://example.com", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://example.com",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto example.com");
 
     let out = headless(
-        &["browser", "eval", "{{{{syntax_error", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "eval",
+            "{{{{syntax_error",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_failure(&out, "eval syntax error");
     let output = stdout_str(&out) + &stderr_str(&out);
     assert!(
-        output.to_lowercase().contains("error") || output.to_lowercase().contains("syntax") || output.to_lowercase().contains("fail"),
+        output.to_lowercase().contains("error")
+            || output.to_lowercase().contains("syntax")
+            || output.to_lowercase().contains("fail"),
         "eval syntax error should mention error in output, got: {}",
         output
     );
@@ -116,25 +184,52 @@ fn err_screenshot_bad_path() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start session");
 
     let out = headless(
-        &["browser", "goto", "https://example.com", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://example.com",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto example.com");
 
     let out = headless(
-        &["browser", "screenshot", "/nonexistent_dir_12345/x.png", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "screenshot",
+            "/nonexistent_dir_12345/x.png",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_failure(&out, "screenshot to bad path");
     let output = stdout_str(&out) + &stderr_str(&out);
     assert!(
-        output.to_lowercase().contains("error") || output.to_lowercase().contains("not found") || output.to_lowercase().contains("fail") || output.to_lowercase().contains("no such"),
+        output.to_lowercase().contains("error")
+            || output.to_lowercase().contains("not found")
+            || output.to_lowercase().contains("fail")
+            || output.to_lowercase().contains("no such"),
         "screenshot bad path should mention error in output, got: {}",
         output
     );
@@ -152,25 +247,54 @@ fn err_wait_timeout() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start session");
 
     let out = headless(
-        &["browser", "goto", "https://example.com", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://example.com",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto example.com");
 
     let out = headless(
-        &["browser", "wait", "element", "#absolutely_not_here", "-s", "s0", "-t", "t0", "--timeout", "1000"],
+        &[
+            "browser",
+            "wait",
+            "element",
+            "#absolutely_not_here",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "1000",
+        ],
         30,
     );
     assert_failure(&out, "wait for nonexistent element");
     let output = stdout_str(&out) + &stderr_str(&out);
     assert!(
-        output.to_lowercase().contains("timeout") || output.to_lowercase().contains("error") || output.to_lowercase().contains("not found"),
+        output.to_lowercase().contains("timeout")
+            || output.to_lowercase().contains("error")
+            || output.to_lowercase().contains("not found"),
         "wait timeout should mention error in output, got: {}",
         output
     );
@@ -188,19 +312,44 @@ fn err_fill_nonexistent() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start session");
 
     let out = headless(
-        &["browser", "goto", "https://example.com", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://example.com",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto example.com");
 
     let out = headless(
-        &["browser", "fill", "#does_not_exist_xyz", "text", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "fill",
+            "#does_not_exist_xyz",
+            "text",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_failure(&out, "fill nonexistent element");

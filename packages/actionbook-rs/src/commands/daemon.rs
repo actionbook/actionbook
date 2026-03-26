@@ -37,7 +37,9 @@ pub async fn run(cli: &Cli, command: &DaemonCommands) -> Result<()> {
                 if let Ok(pid_str) = std::fs::read_to_string(&pid_path) {
                     if let Ok(pid) = pid_str.trim().parse::<i32>() {
                         // SAFETY: sending SIGTERM to a known PID
-                        unsafe { libc::kill(pid, libc::SIGTERM); }
+                        unsafe {
+                            libc::kill(pid, libc::SIGTERM);
+                        }
                         // Brief wait for graceful shutdown
                         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                     }
