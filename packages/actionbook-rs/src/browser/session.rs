@@ -1920,6 +1920,19 @@ impl SessionManager {
                     // Post-send failure (DaemonError): the command may have already been
                     // forwarded to the browser. Do NOT fall back — that would risk
                     // duplicating non-idempotent operations (click, navigate, etc.).
+                    //
+                    // Exception: if the error is specifically a CDP timeout AND the method
+                    // is idempotent read-only, fall back to direct WS. We only match
+                    // timeout — other daemon errors (read failure, socket close, ID mismatch)
+                    // indicate a real protocol issue that should be surfaced, not retried.
+                    if is_cdp_timeout_error(&e) && is_idempotent_readonly_method(method) {
+                        tracing::warn!(
+                            "CDP timeout for idempotent method '{}', falling back to direct WS: {}",
+                            method,
+                            e
+                        );
+                        return None;
+                    }
                     tracing::warn!("Daemon error after command may have been sent: {}", e);
                     return Some(Err(e));
                 }
@@ -4748,6 +4761,28 @@ pub enum TextExtractionMode {
     Readability,
 }
 
+/// Strict allowlist of CDP methods that are idempotent and read-only.
+///
+/// These methods are safe to retry via a direct WS connection when the daemon
+/// times out, because executing them twice has no side effects.
+/// This list must NOT be expanded to include commands with side effects
+/// (click, navigate, type, etc.) — see `try_send_via_daemon` for context.
+fn is_idempotent_readonly_method(method: &str) -> bool {
+    matches!(
+        method,
+        "Page.captureScreenshot" | "Page.printToPDF" | "Page.getLayoutMetrics"
+    )
+}
+
+/// Returns true only if the error is a CDP command timeout from the daemon.
+///
+/// This deliberately does NOT match other DaemonError variants (read failure,
+/// socket close, ID mismatch, invalid response) — those indicate real protocol
+/// issues that should be surfaced, not silently retried.
+fn is_cdp_timeout_error(e: &ActionbookError) -> bool {
+    matches!(e, ActionbookError::DaemonError(msg) if msg.contains("CDP command timed out"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4765,6 +4800,62 @@ mod tests {
             active_profile: None,
             active_session: None,
         }
+    }
+
+    #[test]
+    fn idempotent_readonly_allowlist() {
+        // These methods are safe to retry via direct WS on timeout
+        assert!(is_idempotent_readonly_method("Page.captureScreenshot"));
+        assert!(is_idempotent_readonly_method("Page.printToPDF"));
+        assert!(is_idempotent_readonly_method("Page.getLayoutMetrics"));
+        // Side-effectful methods must NOT be in the allowlist
+        assert!(!is_idempotent_readonly_method("Input.dispatchMouseEvent"));
+        assert!(!is_idempotent_readonly_method("Page.navigate"));
+        assert!(!is_idempotent_readonly_method("Runtime.evaluate"));
+        assert!(!is_idempotent_readonly_method("DOM.setFileInputFiles"));
+        assert!(!is_idempotent_readonly_method("Input.dispatchKeyEvent"));
+    }
+
+    #[test]
+    fn cdp_timeout_error_detection() {
+        // Only CDP timeout errors should trigger fallback
+        let timeout_err = ActionbookError::DaemonError(
+            "CDP command timed out after 120s".to_string(),
+        );
+        assert!(is_cdp_timeout_error(&timeout_err));
+
+        let timeout_30s = ActionbookError::DaemonError(
+            "CDP command timed out after 30s".to_string(),
+        );
+        assert!(is_cdp_timeout_error(&timeout_30s));
+
+        // Other DaemonError variants must NOT be treated as timeout
+        let read_err = ActionbookError::DaemonError(
+            "Read error (command may have been executed): connection reset".to_string(),
+        );
+        assert!(!is_cdp_timeout_error(&read_err));
+
+        let closed_err = ActionbookError::DaemonError(
+            "Daemon closed connection without response (command may have been executed)"
+                .to_string(),
+        );
+        assert!(!is_cdp_timeout_error(&closed_err));
+
+        let id_mismatch = ActionbookError::DaemonError(
+            "Response ID mismatch: expected 5, got 3".to_string(),
+        );
+        assert!(!is_cdp_timeout_error(&id_mismatch));
+
+        let channel_dropped = ActionbookError::DaemonError(
+            "Response channel dropped".to_string(),
+        );
+        assert!(!is_cdp_timeout_error(&channel_dropped));
+
+        // DaemonNotRunning is a pre-send error, not a timeout
+        let not_running = ActionbookError::DaemonNotRunning(
+            "CDP command timed out after 30s".to_string(),
+        );
+        assert!(!is_cdp_timeout_error(&not_running));
     }
 
     #[test]
