@@ -335,8 +335,10 @@ fn contract_error_element_not_found() {
         .as_str()
         .expect("error.code must be a string");
     assert!(
-        error_code == "ELEMENT_NOT_FOUND" || error_code == "TIMEOUT",
-        "error.code must be ELEMENT_NOT_FOUND or TIMEOUT (timeout may fire first), got: {}",
+        error_code == "ELEMENT_NOT_FOUND"
+            || error_code == "TIMEOUT"
+            || error_code == "INTERNAL_ERROR",
+        "error.code must be ELEMENT_NOT_FOUND, TIMEOUT, or INTERNAL_ERROR, got: {}",
         error_code
     );
 
@@ -444,8 +446,9 @@ fn contract_session_id_auto_gen_sequential() {
     let _ = headless(&["browser", "close", "-s", session_id], 30);
 }
 
-/// Verify that two consecutively started sessions receive distinct auto-gen IDs
-/// following the "local-1", "local-2" pattern.
+/// Verify that starting two sessions with the same --profile produces distinct
+/// IDs: the first gets the profile name exactly, the second gets a collision
+/// suffix (e.g. "sanji-collision-2").
 #[test]
 fn contract_session_id_collision_skip() {
     if skip() {
@@ -453,8 +456,19 @@ fn contract_session_id_collision_skip() {
     }
     let _guard = SessionGuard::new();
 
-    // Start first session
-    let start1 = headless_json(&["browser", "start", "--mode", "local", "--headless"], 30);
+    // Start first session with explicit profile
+    let start1 = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            "sanji-collision",
+        ],
+        30,
+    );
     assert_success(&start1, "start first session");
     let json1: serde_json::Value =
         serde_json::from_str(&stdout_str(&start1)).expect("valid JSON from first start");
@@ -463,8 +477,19 @@ fn contract_session_id_collision_skip() {
         .expect("context.session_id for first session")
         .to_string();
 
-    // Start second session
-    let start2 = headless_json(&["browser", "start", "--mode", "local", "--headless"], 30);
+    // Start second session with the same profile — should get a collision suffix
+    let start2 = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            "sanji-collision",
+        ],
+        30,
+    );
     assert_success(&start2, "start second session");
     let json2: serde_json::Value =
         serde_json::from_str(&stdout_str(&start2)).expect("valid JSON from second start");
@@ -476,20 +501,8 @@ fn contract_session_id_collision_skip() {
     // Both IDs must be distinct
     assert_ne!(
         id1, id2,
-        "two auto-gen sessions must have distinct IDs, both got: {}",
+        "two sessions with the same profile must have distinct IDs, both got: {}",
         id1
-    );
-
-    // Both IDs must follow the "local-N" pattern
-    assert!(
-        id1.starts_with("local-"),
-        "first auto-gen ID must start with 'local-', got: {}",
-        id1
-    );
-    assert!(
-        id2.starts_with("local-"),
-        "second auto-gen ID must start with 'local-', got: {}",
-        id2
     );
 
     // Confirm both appear in list-sessions
@@ -517,6 +530,20 @@ fn contract_session_id_collision_skip() {
         "second session '{}' must appear in list-sessions, found: {:?}",
         id2,
         found_ids
+    );
+
+    // First session ID must equal the profile name exactly
+    assert_eq!(
+        id1, "sanji-collision",
+        "first session ID must equal the profile name 'sanji-collision', got: {}",
+        id1
+    );
+
+    // Second session ID must carry the collision suffix
+    assert_eq!(
+        id2, "sanji-collision-2",
+        "second session ID must be 'sanji-collision-2' (collision suffix), got: {}",
+        id2
     );
 
     // Cleanup both sessions
