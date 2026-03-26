@@ -2512,8 +2512,75 @@ async fn handle_scroll(
         Err(r) => return r,
     };
 
+    let dir = direction.to_lowercase();
+
+    // Handle special directions: top, bottom, into-view
+    match dir.as_str() {
+        "top" | "bottom" => {
+            let scroll_y = if dir == "top" { "0" } else { "document.body.scrollHeight" };
+            let js = format!("(function() {{ window.scrollTo(0, {scroll_y}); return true; }})()");
+            let op = BackendOp::Evaluate {
+                target_id: target_id.to_string(),
+                expression: js,
+                return_by_value: true,
+            };
+            return match backend.exec(op).await {
+                Ok(_) => ActionResult::ok(json!({"scrolled": direction})),
+                Err(e) => cdp_error_to_result(e),
+            };
+        }
+        "into-view" => {
+            let sel = match selector {
+                Some(s) => s,
+                None => {
+                    return ActionResult::fatal(
+                        "missing_selector",
+                        "into-view requires a selector",
+                        "provide a CSS selector",
+                    )
+                }
+            };
+            let sel_json = match serde_json::to_string(sel) {
+                Ok(s) => s,
+                Err(e) => {
+                    return ActionResult::fatal(
+                        "invalid_selector",
+                        e.to_string(),
+                        "check selector syntax",
+                    )
+                }
+            };
+            let js = format!(
+                r#"(function() {{
+{FIND_ELEMENT_JS}
+const el = __findElement({sel_json});
+if (!el) return false;
+el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+return true;
+}})()"#
+            );
+            let op = BackendOp::Evaluate {
+                target_id: target_id.to_string(),
+                expression: js,
+                return_by_value: true,
+            };
+            return match backend.exec(op).await {
+                Ok(result) => {
+                    let val = extract_eval_value(&result.value);
+                    if val.as_bool() == Some(true) {
+                        ActionResult::ok(json!({"scrolled": "into-view", "selector": sel}))
+                    } else {
+                        element_not_found(sel)
+                    }
+                }
+                Err(e) => cdp_error_to_result(e),
+            };
+        }
+        _ => {}
+    }
+
     let px = amount.unwrap_or(300);
-    let (dx, dy) = match direction.to_lowercase().as_str() {
+    let (dx, dy) = match dir.as_str() {
         "up" => (0, -px),
         "down" => (0, px),
         "left" => (-px, 0),
@@ -2522,7 +2589,7 @@ async fn handle_scroll(
             return ActionResult::fatal(
                 "invalid_direction",
                 format!("unknown scroll direction '{direction}'"),
-                "use: up, down, left, right",
+                "use: up, down, left, right, top, bottom, into-view",
             )
         }
     };

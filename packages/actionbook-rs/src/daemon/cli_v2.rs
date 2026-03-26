@@ -681,29 +681,13 @@ enum BrowserCmd {
     },
 
     /// Scroll the page or an element
-    Scroll {
-        /// Direction: up, down, left, right
-        direction: String,
-        /// Session ID (e.g. s0)
-        #[arg(short = 's', long)]
-        session: SessionId,
-        /// Tab ID (e.g. t0)
-        #[arg(short = 't', long)]
-        tab: TabId,
-        /// Amount in pixels (default: 300)
-        #[arg(long)]
-        amount: Option<i32>,
-        /// Optional CSS selector to scroll within
-        #[arg(long)]
-        selector: Option<String>,
-    },
+    #[command(subcommand)]
+    Scroll(ScrollCmd),
 
-    /// Move the mouse to absolute coordinates
+    /// Move the mouse to absolute coordinates (e.g. "200,300")
     MouseMove {
-        /// X coordinate
-        x: f64,
-        /// Y coordinate
-        y: f64,
+        /// Coordinates as "x,y"
+        coords: String,
         /// Session ID (e.g. s0)
         #[arg(short = 's', long)]
         session: SessionId,
@@ -850,6 +834,70 @@ enum QueryCmd {
     Nth {
         /// 1-based index
         n: u32,
+        /// CSS selector
+        selector: String,
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+}
+
+/// Scroll subcommands: up, down, left, right, top, bottom, into-view.
+#[derive(Subcommand, Debug)]
+enum ScrollCmd {
+    /// Scroll up
+    Up {
+        /// Amount in pixels (default: 300)
+        amount: Option<i32>,
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+    /// Scroll down
+    Down {
+        /// Amount in pixels (default: 300)
+        amount: Option<i32>,
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+    /// Scroll left
+    Left {
+        /// Amount in pixels (default: 300)
+        amount: Option<i32>,
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+    /// Scroll right
+    Right {
+        /// Amount in pixels (default: 300)
+        amount: Option<i32>,
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+    /// Scroll to top of page
+    Top {
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+    /// Scroll to bottom of page
+    Bottom {
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+    /// Scroll an element into view
+    IntoView {
         /// CSS selector
         selector: String,
         #[arg(short = 's', long)]
@@ -1300,20 +1348,35 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             selector,
             files,
         },
-        BrowserCmd::Scroll {
-            direction,
-            session,
-            tab,
-            amount,
-            selector,
-        } => Action::Scroll {
-            session,
-            tab,
-            direction,
-            amount,
-            selector,
+        BrowserCmd::Scroll(scroll_cmd) => match scroll_cmd {
+            ScrollCmd::Up { amount, session, tab } => Action::Scroll {
+                session, tab, direction: "up".to_string(), amount, selector: None,
+            },
+            ScrollCmd::Down { amount, session, tab } => Action::Scroll {
+                session, tab, direction: "down".to_string(), amount, selector: None,
+            },
+            ScrollCmd::Left { amount, session, tab } => Action::Scroll {
+                session, tab, direction: "left".to_string(), amount, selector: None,
+            },
+            ScrollCmd::Right { amount, session, tab } => Action::Scroll {
+                session, tab, direction: "right".to_string(), amount, selector: None,
+            },
+            ScrollCmd::Top { session, tab } => Action::Scroll {
+                session, tab, direction: "top".to_string(), amount: None, selector: None,
+            },
+            ScrollCmd::Bottom { session, tab } => Action::Scroll {
+                session, tab, direction: "bottom".to_string(), amount: None, selector: None,
+            },
+            ScrollCmd::IntoView { selector, session, tab } => Action::Scroll {
+                session, tab, direction: "into-view".to_string(), amount: None, selector: Some(selector),
+            },
         },
-        BrowserCmd::MouseMove { x, y, session, tab } => Action::MouseMove { session, tab, x, y },
+        BrowserCmd::MouseMove { coords, session, tab } => {
+            let parts: Vec<&str> = coords.split(',').collect();
+            let x = parts.first().and_then(|s| s.trim().parse::<f64>().ok()).unwrap_or(0.0);
+            let y = parts.get(1).and_then(|s| s.trim().parse::<f64>().ok()).unwrap_or(0.0);
+            Action::MouseMove { session, tab, x, y }
+        }
         BrowserCmd::CursorPosition { session, tab } => Action::CursorPosition { session, tab },
 
         // Waiting
