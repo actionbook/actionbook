@@ -700,6 +700,24 @@ fn int_hover() {
     );
     assert_success(&out, "start");
 
+    // Wait for page load so the DOM is accessible
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     let out = headless(&["browser", "hover", "body", "-s", "s0", "-t", "t0"], 30);
     assert_success(&out, "hover body");
 

@@ -114,11 +114,11 @@ impl Drop for SessionGuard {
 
 /// Close all active sessions so the next test starts with a clean slate.
 ///
-/// Reads `list-sessions` output to find active session IDs, then closes
-/// each one.  Retries once after a short delay to handle races where a
-/// session close is still propagating through the daemon.
+/// Strategy: attempt graceful close twice with a short delay.  If sessions
+/// still persist (e.g. after a panic left the browser hung), stop the
+/// daemon entirely — it will auto-restart on the next CLI command.
 pub fn ensure_no_sessions() {
-    for attempt in 0..2 {
+    for attempt in 0..3 {
         if attempt > 0 {
             std::thread::sleep(Duration::from_millis(500));
         }
@@ -139,10 +139,18 @@ pub fn ensure_no_sessions() {
         if sessions.is_empty() {
             return;
         }
-        for s in &sessions {
-            if let Some(id) = s.get("id").and_then(|v| v.as_str()) {
-                let _ = headless(&["browser", "close", "-s", id], 10);
+        if attempt < 2 {
+            // Graceful close
+            for s in &sessions {
+                if let Some(id) = s.get("id").and_then(|v| v.as_str()) {
+                    let _ = headless(&["browser", "close", "-s", id], 10);
+                }
             }
+        } else {
+            // Last resort: kill the daemon so all sessions are destroyed.
+            // The daemon auto-restarts on the next CLI command.
+            let _ = headless(&["daemon", "stop"], 10);
+            std::thread::sleep(Duration::from_millis(300));
         }
     }
 }
