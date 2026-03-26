@@ -6,6 +6,7 @@
 ignore = [
     { id = "RUSTSEC-2025-0119", reason = "rustls-webpki in transitive dep (chromiumoxide -> rustls)" },
     { id = "RUSTSEC-2026-0049", reason = "transitive dependency — awaiting upstream fix" },
+    { id = "RUSTSEC-2024-0436", reason = "paste unmaintained — transitive dep via thirtyfour, no fix available" },
 ]
 
 [licenses]
