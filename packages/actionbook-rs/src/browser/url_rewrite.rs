@@ -2,7 +2,7 @@
 ///
 /// Rewrites URLs to use privacy-friendly frontends that are less likely
 /// to block automated access. Inspired by x-tweet-fetcher's Nitter pattern.
-
+///
 /// Attempt to rewrite a URL to a privacy-friendly frontend.
 ///
 /// Returns `(possibly_rewritten_url, was_rewritten)`.

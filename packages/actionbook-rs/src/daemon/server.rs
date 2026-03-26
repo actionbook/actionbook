@@ -84,7 +84,10 @@ impl DaemonServer {
                 let last = last_activity.lock().await;
                 let elapsed = last.elapsed();
                 if elapsed >= self.idle_timeout && active_connections.load(Ordering::Relaxed) == 0 {
-                    info!("idle timeout reached ({:.0}s), shutting down", self.idle_timeout.as_secs_f64());
+                    info!(
+                        "idle timeout reached ({:.0}s), shutting down",
+                        self.idle_timeout.as_secs_f64()
+                    );
                     break;
                 }
                 self.idle_timeout.saturating_sub(elapsed)
@@ -185,17 +188,15 @@ async fn handle_connection(mut stream: UnixStream, router: &Router) -> std::io::
         }
         let payload_len = u32::from_le_bytes(len_buf);
 
-        wire::validate_frame_length(payload_len).map_err(|msg| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, msg)
-        })?;
+        wire::validate_frame_length(payload_len)
+            .map_err(|msg| std::io::Error::new(std::io::ErrorKind::InvalidData, msg))?;
 
         // Read payload.
         let mut payload = vec![0u8; payload_len as usize];
         stream.read_exact(&mut payload).await?;
 
-        let request: Request = wire::decode_payload(&payload).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-        })?;
+        let request: Request = wire::decode_payload(&payload)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
         debug!("request id={} action={:?}", request.id, request.action);
 
@@ -204,9 +205,7 @@ async fn handle_connection(mut stream: UnixStream, router: &Router) -> std::io::
 
         // Build and send response.
         let response = Response::new(request.id, result);
-        let frame = wire::encode_frame(&response).map_err(|e| {
-            std::io::Error::other(e)
-        })?;
+        let frame = wire::encode_frame(&response).map_err(std::io::Error::other)?;
 
         stream.write_all(&frame).await?;
         stream.flush().await?;
@@ -261,14 +260,35 @@ mod tests {
 
     #[async_trait]
     impl BackendSession for MockBackend {
-        fn events(&mut self) -> BoxStream<'static, BackendEvent> { Box::pin(stream::empty()) }
-        async fn exec(&mut self, _: BackendOp) -> crate::error::Result<OpResult> { Ok(OpResult::null()) }
-        async fn list_targets(&self) -> crate::error::Result<Vec<TargetInfo>> { Ok(vec![]) }
-        async fn checkpoint(&self) -> crate::error::Result<Checkpoint> {
-            Ok(Checkpoint { kind: crate::daemon::backend::BackendKind::Local, pid: Some(1), ws_url: "ws://m".into(), cdp_port: None, user_data_dir: None, headers: None })
+        fn events(&mut self) -> BoxStream<'static, BackendEvent> {
+            Box::pin(stream::empty())
         }
-        async fn health(&self) -> crate::error::Result<Health> { Ok(Health { connected: true, browser_version: None, uptime_secs: None }) }
-        async fn shutdown(&mut self, _: ShutdownPolicy) -> crate::error::Result<()> { Ok(()) }
+        async fn exec(&mut self, _: BackendOp) -> crate::error::Result<OpResult> {
+            Ok(OpResult::null())
+        }
+        async fn list_targets(&self) -> crate::error::Result<Vec<TargetInfo>> {
+            Ok(vec![])
+        }
+        async fn checkpoint(&self) -> crate::error::Result<Checkpoint> {
+            Ok(Checkpoint {
+                kind: crate::daemon::backend::BackendKind::Local,
+                pid: Some(1),
+                ws_url: "ws://m".into(),
+                cdp_port: None,
+                user_data_dir: None,
+                headers: None,
+            })
+        }
+        async fn health(&self) -> crate::error::Result<Health> {
+            Ok(Health {
+                connected: true,
+                browser_version: None,
+                uptime_secs: None,
+            })
+        }
+        async fn shutdown(&mut self, _: ShutdownPolicy) -> crate::error::Result<()> {
+            Ok(())
+        }
     }
 
     async fn setup_server_and_connect() -> (
@@ -286,13 +306,20 @@ mod tests {
             let mut reg = registry.lock().await;
             let backend = Box::new(MockBackend);
             let targets = vec![TargetInfo {
-                target_id: "T1".into(), target_type: "page".into(),
-                title: "Test".into(), url: "https://test.com".into(), attached: false,
+                target_id: "T1".into(),
+                target_type: "page".into(),
+                title: "Test".into(),
+                url: "https://test.com".into(),
+                attached: false,
             }];
             let (tx, _join) = SessionActor::spawn(SessionId(0), backend, targets);
             reg.register_session(SessionHandle {
-                tx, profile: "test".into(), mode: Mode::Local,
-                state: SessionState::Ready, tab_count: 1, created_at: Instant::now(),
+                tx,
+                profile: "test".into(),
+                mode: Mode::Local,
+                state: SessionState::Ready,
+                tab_count: 1,
+                created_at: Instant::now(),
             });
         }
         let router = Arc::new(Router::new(registry));
@@ -300,9 +327,7 @@ mod tests {
 
         let server = DaemonServer::new(sock_path.clone(), pid_path, router);
         let shutdown_clone = Arc::clone(&shutdown);
-        let handle = tokio::spawn(async move {
-            server.run(shutdown_clone).await
-        });
+        let handle = tokio::spawn(async move { server.run(shutdown_clone).await });
 
         // Wait briefly for the server to bind.
         tokio::time::sleep(Duration::from_millis(50)).await;

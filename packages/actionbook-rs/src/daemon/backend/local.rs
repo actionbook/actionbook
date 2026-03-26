@@ -23,9 +23,8 @@ use crate::daemon::backend_op::BackendOp;
 use crate::error::{ActionbookError, Result};
 
 /// Type alias for the WebSocket stream used by local backend.
-type WsStream = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
+type WsStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 // ---------------------------------------------------------------------------
 // LocalBackendFactory
@@ -209,19 +208,14 @@ impl BackendSession for LocalBackendSession {
         self.ws
             .send(Message::Text(cmd.to_string().into()))
             .await
-            .map_err(|e| {
-                ActionbookError::CdpConnectionFailed(format!("WS send failed: {e}"))
-            })?;
+            .map_err(|e| ActionbookError::CdpConnectionFailed(format!("WS send failed: {e}")))?;
 
         // Read until we get the response with our ID, with a 30s timeout.
-        tokio::time::timeout(
-            std::time::Duration::from_secs(30),
-            self.read_response(id),
-        )
-        .await
-        .map_err(|_| {
-            ActionbookError::CdpConnectionFailed("CDP response timeout (30s)".into())
-        })?
+        tokio::time::timeout(std::time::Duration::from_secs(30), self.read_response(id))
+            .await
+            .map_err(|_| {
+                ActionbookError::CdpConnectionFailed("CDP response timeout (30s)".into())
+            })?
     }
 
     async fn list_targets(&self) -> Result<Vec<TargetInfo>> {
@@ -355,27 +349,21 @@ impl LocalBackendSession {
         self.ws
             .send(Message::Text(cmd.to_string().into()))
             .await
-            .map_err(|e| {
-                ActionbookError::CdpConnectionFailed(format!("WS send failed: {e}"))
-            })?;
+            .map_err(|e| ActionbookError::CdpConnectionFailed(format!("WS send failed: {e}")))?;
 
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            self.read_response(id),
-        )
-        .await
-        .map_err(|_| {
-            ActionbookError::CdpConnectionFailed("Target.attachToTarget timeout".into())
-        })??;
+        let result =
+            tokio::time::timeout(std::time::Duration::from_secs(10), self.read_response(id))
+                .await
+                .map_err(|_| {
+                    ActionbookError::CdpConnectionFailed("Target.attachToTarget timeout".into())
+                })??;
 
         let session_id = result
             .value
             .get("sessionId")
             .and_then(|v| v.as_str())
             .ok_or_else(|| {
-                ActionbookError::CdpError(
-                    "Target.attachToTarget response missing sessionId".into(),
-                )
+                ActionbookError::CdpError("Target.attachToTarget response missing sessionId".into())
             })?
             .to_string();
 
@@ -519,10 +507,9 @@ fn kill_process(pid: u32) {
 /// Translate a [`BackendOp`] into a CDP method name and params JSON.
 fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
     match op {
-        BackendOp::Navigate { target_id: _, url } => (
-            "Page.navigate",
-            serde_json::json!({ "url": url }),
-        ),
+        BackendOp::Navigate { target_id: _, url } => {
+            ("Page.navigate", serde_json::json!({ "url": url }))
+        }
         BackendOp::Evaluate {
             target_id: _,
             expression,
@@ -534,10 +521,7 @@ fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
                 "returnByValue": return_by_value,
             }),
         ),
-        BackendOp::GetDocument { target_id: _ } => (
-            "DOM.getDocument",
-            serde_json::json!({}),
-        ),
+        BackendOp::GetDocument { target_id: _ } => ("DOM.getDocument", serde_json::json!({})),
         BackendOp::QuerySelector {
             target_id: _,
             node_id,
@@ -552,10 +536,7 @@ fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
         BackendOp::GetBoxModel {
             target_id: _,
             node_id,
-        } => (
-            "DOM.getBoxModel",
-            serde_json::json!({ "nodeId": node_id }),
-        ),
+        } => ("DOM.getBoxModel", serde_json::json!({ "nodeId": node_id })),
         BackendOp::DispatchMouseEvent {
             target_id: _,
             event_type,
@@ -596,18 +577,11 @@ fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
             }
             ("Page.captureScreenshot", params)
         }
-        BackendOp::PrintToPdf { target_id: _ } => (
-            "Page.printToPDF",
-            serde_json::json!({}),
-        ),
-        BackendOp::GetAccessibilityTree { target_id: _ } => (
-            "Accessibility.getFullAXTree",
-            serde_json::json!({}),
-        ),
-        BackendOp::GetCookies { target_id: _ } => (
-            "Network.getCookies",
-            serde_json::json!({}),
-        ),
+        BackendOp::PrintToPdf { target_id: _ } => ("Page.printToPDF", serde_json::json!({})),
+        BackendOp::GetAccessibilityTree { target_id: _ } => {
+            ("Accessibility.getFullAXTree", serde_json::json!({}))
+        }
+        BackendOp::GetCookies { target_id: _ } => ("Network.getCookies", serde_json::json!({})),
         BackendOp::SetCookie {
             target_id: _,
             name,
@@ -639,10 +613,7 @@ fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
             }
             ("Network.setCookie", params)
         }
-        BackendOp::GetTargets => (
-            "Target.getTargets",
-            serde_json::json!({}),
-        ),
+        BackendOp::GetTargets => ("Target.getTargets", serde_json::json!({})),
         BackendOp::CreateTarget {
             url,
             window_id: _,
@@ -673,21 +644,14 @@ fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
             }
             ("Network.deleteCookies", params)
         }
-        BackendOp::GetNodeForLocation {
-            target_id: _,
-            x,
-            y,
-        } => (
+        BackendOp::GetNodeForLocation { target_id: _, x, y } => (
             "DOM.getNodeForLocation",
             serde_json::json!({ "x": x, "y": y }),
         ),
         BackendOp::DomFocus {
             target_id: _,
             node_id,
-        } => (
-            "DOM.focus",
-            serde_json::json!({ "nodeId": node_id }),
-        ),
+        } => ("DOM.focus", serde_json::json!({ "nodeId": node_id })),
         BackendOp::SetFileInputFiles {
             target_id: _,
             node_id,

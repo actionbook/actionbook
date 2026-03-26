@@ -46,30 +46,22 @@ pub enum Action {
     },
 
     /// Close an existing session and its browser.
-    CloseSession {
-        session: SessionId,
-    },
+    CloseSession { session: SessionId },
 
     /// List all active sessions.
     ListSessions,
 
     /// Get detailed status of a session.
-    SessionStatus {
-        session: SessionId,
-    },
+    SessionStatus { session: SessionId },
 
     // =======================================================================
     // Session-level commands — require session
     // =======================================================================
     /// List all tabs in a session.
-    ListTabs {
-        session: SessionId,
-    },
+    ListTabs { session: SessionId },
 
     /// List all windows in a session.
-    ListWindows {
-        session: SessionId,
-    },
+    ListWindows { session: SessionId },
 
     /// Open a new tab (optionally in a specific or new window).
     NewTab {
@@ -85,10 +77,7 @@ pub enum Action {
     },
 
     /// Close a specific tab.
-    CloseTab {
-        session: SessionId,
-        tab: TabId,
-    },
+    CloseTab { session: SessionId, tab: TabId },
 
     // =======================================================================
     // Tab-level commands — require session + tab
@@ -101,22 +90,13 @@ pub enum Action {
     },
 
     /// Navigate back in history.
-    Back {
-        session: SessionId,
-        tab: TabId,
-    },
+    Back { session: SessionId, tab: TabId },
 
     /// Navigate forward in history.
-    Forward {
-        session: SessionId,
-        tab: TabId,
-    },
+    Forward { session: SessionId, tab: TabId },
 
     /// Reload the current page.
-    Reload {
-        session: SessionId,
-        tab: TabId,
-    },
+    Reload { session: SessionId, tab: TabId },
 
     /// Open a URL in a new tab within the same session (convenience action).
     Open {
@@ -147,9 +127,7 @@ pub enum Action {
     },
 
     /// Close the session's browser entirely.
-    Close {
-        session: SessionId,
-    },
+    Close { session: SessionId },
 
     /// Click an element by selector.
     Click {
@@ -228,16 +206,10 @@ pub enum Action {
     },
 
     /// Get the page title.
-    Title {
-        session: SessionId,
-        tab: TabId,
-    },
+    Title { session: SessionId, tab: TabId },
 
     /// Get the current page URL.
-    Url {
-        session: SessionId,
-        tab: TabId,
-    },
+    Url { session: SessionId, tab: TabId },
 
     /// Get the value of an input element.
     Value {
@@ -292,10 +264,7 @@ pub enum Action {
     },
 
     /// Get the viewport dimensions.
-    Viewport {
-        session: SessionId,
-        tab: TabId,
-    },
+    Viewport { session: SessionId, tab: TabId },
 
     /// Query elements matching a selector (css, xpath, or text).
     Query {
@@ -316,30 +285,19 @@ pub enum Action {
     },
 
     /// Get console log messages.
-    LogsConsole {
-        session: SessionId,
-        tab: TabId,
-    },
+    LogsConsole { session: SessionId, tab: TabId },
 
     /// Get error log messages.
-    LogsErrors {
-        session: SessionId,
-        tab: TabId,
-    },
+    LogsErrors { session: SessionId, tab: TabId },
 
     // =======================================================================
     // Data actions — Session-level (require session)
     // =======================================================================
     /// List all cookies for the session.
-    CookiesList {
-        session: SessionId,
-    },
+    CookiesList { session: SessionId },
 
     /// Get a specific cookie by name.
-    CookiesGet {
-        session: SessionId,
-        name: String,
-    },
+    CookiesGet { session: SessionId, name: String },
 
     /// Set a cookie.
     CookiesSet {
@@ -361,15 +319,10 @@ pub enum Action {
     },
 
     /// Delete a cookie by name.
-    CookiesDelete {
-        session: SessionId,
-        name: String,
-    },
+    CookiesDelete { session: SessionId, name: String },
 
     /// Clear all cookies for the session.
-    CookiesClear {
-        session: SessionId,
-    },
+    CookiesClear { session: SessionId },
 
     /// List all keys in web storage.
     StorageList {
@@ -489,10 +442,7 @@ pub enum Action {
     },
 
     /// Get the current cursor position.
-    CursorPosition {
-        session: SessionId,
-        tab: TabId,
-    },
+    CursorPosition { session: SessionId, tab: TabId },
 
     // =======================================================================
     // Waiting actions — Tab-level (require session + tab)
@@ -533,9 +483,7 @@ pub enum Action {
     // Session management
     // =======================================================================
     /// Close and re-start a session with the same profile/mode.
-    RestartSession {
-        session: SessionId,
-    },
+    RestartSession { session: SessionId },
 }
 
 impl Action {
@@ -769,9 +717,7 @@ mod tests {
         let json = serde_json::to_string(&action).unwrap();
         let decoded: Action = serde_json::from_str(&json).unwrap();
         match decoded {
-            Action::Type {
-                selector, text, ..
-            } => {
+            Action::Type { selector, text, .. } => {
                 assert_eq!(selector, "input[name=q]");
                 assert_eq!(text, "hello world");
             }

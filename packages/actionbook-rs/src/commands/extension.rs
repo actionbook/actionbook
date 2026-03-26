@@ -361,48 +361,6 @@ async fn stop(cli: &Cli, port: u16) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{resolve_pid_for_port, PidResolution};
-
-    #[test]
-    fn resolve_pid_prefers_alive_when_both_match_port() {
-        let result = resolve_pid_for_port(Some((1001, 19222)), Some((2002, 19222)), 19222, |pid| {
-            pid == 2002
-        });
-        assert_eq!(result, PidResolution::Selected(2002));
-    }
-
-    #[test]
-    fn resolve_pid_marks_ambiguous_when_both_alive() {
-        let result =
-            resolve_pid_for_port(Some((1001, 19222)), Some((2002, 19222)), 19222, |_pid| true);
-        assert_eq!(result, PidResolution::Ambiguous);
-    }
-
-    #[test]
-    fn resolve_pid_marks_both_dead_when_both_dead() {
-        let result =
-            resolve_pid_for_port(Some((1001, 19222)), Some((2002, 19222)), 19222, |_pid| {
-                false
-            });
-        assert_eq!(result, PidResolution::BothMatchedButDead);
-    }
-
-    #[test]
-    fn resolve_pid_falls_back_to_legacy_when_standard_missing() {
-        let result = resolve_pid_for_port(None, Some((2002, 19222)), 19222, |_pid| true);
-        assert_eq!(result, PidResolution::Selected(2002));
-    }
-
-    #[test]
-    fn resolve_pid_returns_no_match_for_other_port() {
-        let result =
-            resolve_pid_for_port(Some((1001, 18080)), Some((2002, 19090)), 19222, |_pid| true);
-        assert_eq!(result, PidResolution::NoMatch);
-    }
-}
-
 async fn install(cli: &Cli, force: bool) -> Result<()> {
     let dir = extension_installer::extension_dir()?;
 
@@ -418,32 +376,31 @@ async fn install(cli: &Cli, force: bool) -> Result<()> {
     let result = extension_installer::download_and_install(force).await;
 
     // Handle "already up to date" as a success case, not an error
-    match &result {
-        Err(crate::error::ActionbookError::ExtensionAlreadyUpToDate { current, latest: _ }) => {
-            if cli.json {
-                println!(
-                    "{}",
-                    serde_json::json!({
-                        "status": "already_installed",
-                        "version": current,
-                        "path": dir.display().to_string()
-                    })
-                );
-            } else {
-                println!(
-                    "  {} Local fallback extension v{} is already up to date",
-                    "✓".green(),
-                    current,
-                );
-                println!(
-                    "  {}  Use {} to force reinstall",
-                    "ℹ".dimmed(),
-                    "--force".dimmed()
-                );
-            }
-            return Ok(());
+    if let Err(crate::error::ActionbookError::ExtensionAlreadyUpToDate { current, latest: _ }) =
+        &result
+    {
+        if cli.json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "status": "already_installed",
+                    "version": current,
+                    "path": dir.display().to_string()
+                })
+            );
+        } else {
+            println!(
+                "  {} Local fallback extension v{} is already up to date",
+                "✓".green(),
+                current,
+            );
+            println!(
+                "  {}  Use {} to force reinstall",
+                "ℹ".dimmed(),
+                "--force".dimmed()
+            );
         }
-        _ => {}
+        return Ok(());
     }
 
     let version = result?;
@@ -534,4 +491,46 @@ async fn uninstall(cli: &Cli) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{resolve_pid_for_port, PidResolution};
+
+    #[test]
+    fn resolve_pid_prefers_alive_when_both_match_port() {
+        let result = resolve_pid_for_port(Some((1001, 19222)), Some((2002, 19222)), 19222, |pid| {
+            pid == 2002
+        });
+        assert_eq!(result, PidResolution::Selected(2002));
+    }
+
+    #[test]
+    fn resolve_pid_marks_ambiguous_when_both_alive() {
+        let result =
+            resolve_pid_for_port(Some((1001, 19222)), Some((2002, 19222)), 19222, |_pid| true);
+        assert_eq!(result, PidResolution::Ambiguous);
+    }
+
+    #[test]
+    fn resolve_pid_marks_both_dead_when_both_dead() {
+        let result =
+            resolve_pid_for_port(Some((1001, 19222)), Some((2002, 19222)), 19222, |_pid| {
+                false
+            });
+        assert_eq!(result, PidResolution::BothMatchedButDead);
+    }
+
+    #[test]
+    fn resolve_pid_falls_back_to_legacy_when_standard_missing() {
+        let result = resolve_pid_for_port(None, Some((2002, 19222)), 19222, |_pid| true);
+        assert_eq!(result, PidResolution::Selected(2002));
+    }
+
+    #[test]
+    fn resolve_pid_returns_no_match_for_other_port() {
+        let result =
+            resolve_pid_for_port(Some((1001, 18080)), Some((2002, 19090)), 19222, |_pid| true);
+        assert_eq!(result, PidResolution::NoMatch);
+    }
 }

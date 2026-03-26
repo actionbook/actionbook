@@ -39,12 +39,13 @@ impl DaemonClient {
     ///
     /// Returns a clear error with a hint if the socket is not available.
     pub async fn connect(socket_path: &Path) -> Result<Self, ClientError> {
-        let stream = UnixStream::connect(socket_path).await.map_err(|e| {
-            ClientError::ConnectionFailed {
-                path: socket_path.to_path_buf(),
-                source: e,
-            }
-        })?;
+        let stream =
+            UnixStream::connect(socket_path)
+                .await
+                .map_err(|e| ClientError::ConnectionFailed {
+                    path: socket_path.to_path_buf(),
+                    source: e,
+                })?;
         Ok(DaemonClient {
             stream,
             next_id: AtomicU64::new(1),
@@ -80,8 +81,7 @@ impl DaemonClient {
                 .map_err(ClientError::Io)?;
             let payload_len = u32::from_le_bytes(len_buf);
 
-            wire::validate_frame_length(payload_len)
-                .map_err(ClientError::Protocol)?;
+            wire::validate_frame_length(payload_len).map_err(ClientError::Protocol)?;
 
             // Read payload
             let mut payload = vec![0u8; payload_len as usize];

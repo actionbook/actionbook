@@ -5,17 +5,13 @@ use serde::{Deserialize, Serialize};
 /// Browser backend type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum BrowserBackend {
     /// Chrome DevTools Protocol (Chrome, Brave, Edge)
+    #[default]
     Cdp,
     /// Camoufox browser with anti-bot capabilities
     Camofox,
-}
-
-impl Default for BrowserBackend {
-    fn default() -> Self {
-        Self::Cdp
-    }
 }
 
 impl std::fmt::Display for BrowserBackend {

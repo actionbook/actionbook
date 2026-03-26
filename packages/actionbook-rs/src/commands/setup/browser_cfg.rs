@@ -167,7 +167,7 @@ fn configure_isolated(cli: &Cli, env: &EnvironmentInfo, config: &mut Config) -> 
                 "{}{} — {}",
                 b.browser_type.name(),
                 ver,
-                b.path.display().to_string().dimmed().to_string()
+                b.path.display().to_string().dimmed()
             )
         })
         .collect();

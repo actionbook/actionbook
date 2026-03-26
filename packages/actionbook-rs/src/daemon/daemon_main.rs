@@ -16,11 +16,11 @@ use super::backend::extension::ExtensionBackendFactory;
 use super::backend::local::LocalBackendFactory;
 use super::backend::BrowserBackendFactory;
 use super::persistence;
-use super::types::Mode;
 use super::recovery;
 use super::registry::SessionRegistry;
 use super::router::Router;
 use super::server::{self, DaemonServer};
+use super::types::Mode;
 
 /// Configuration for the daemon process.
 pub struct DaemonConfig {

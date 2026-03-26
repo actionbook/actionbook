@@ -163,8 +163,7 @@ pub fn save_state(path: &Path, state: &DaemonStateFile) -> std::io::Result<()> {
 
     // Write to a temp file in the same directory (so rename is atomic on POSIX).
     let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
-    let json = serde_json::to_string_pretty(state)
-        .map_err(std::io::Error::other)?;
+    let json = serde_json::to_string_pretty(state).map_err(std::io::Error::other)?;
     tmp.write_all(json.as_bytes())?;
     tmp.as_file().sync_all()?;
 
@@ -240,7 +239,10 @@ mod tests {
                     }],
                     checkpoint: BackendCheckpoint::Cloud(CloudCheckpoint {
                         wss_endpoint: "wss://cloud.example.com/session/xyz".into(),
-                        auth_headers: HashMap::from([("Authorization".into(), "Bearer tok".into())]),
+                        auth_headers: HashMap::from([(
+                            "Authorization".into(),
+                            "Bearer tok".into(),
+                        )]),
                         resume_token: Some("resume-abc".into()),
                     }),
                 },

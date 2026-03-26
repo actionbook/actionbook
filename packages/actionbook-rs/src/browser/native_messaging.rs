@@ -253,7 +253,7 @@ mod tests {
         for id in EXTENSION_IDS {
             assert_eq!(id.len(), 32, "ID {} should be 32 chars", id);
             assert!(
-                id.chars().all(|c| c >= 'a' && c <= 'p'),
+                id.chars().all(|c| ('a'..='p').contains(&c)),
                 "ID {} should only contain a-p",
                 id
             );

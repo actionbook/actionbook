@@ -126,7 +126,7 @@ pub fn generate_mouse_trajectory(start: Point, end: Point, steps: usize) -> Vec<
     // Generate control points for cubic Bezier curve
     // Add some randomness to make it look more human
     let distance = start.distance_to(&end);
-    let randomness = (distance * 0.2).max(20.0).min(100.0);
+    let randomness = (distance * 0.2).clamp(20.0, 100.0);
 
     let control1 = Point::new(
         start.x + (end.x - start.x) * 0.25 + rng.gen_range(-randomness..randomness),
@@ -178,9 +178,7 @@ pub fn calculate_movement_delays(points: &[Point], speed_multiplier: f64) -> Vec
     let total_distance: f64 = points.windows(2).map(|w| w[0].distance_to(&w[1])).sum();
 
     // Base duration: ~500ms for typical mouse movements
-    let base_duration_ms = (total_distance * 0.5 / speed_multiplier)
-        .max(100.0)
-        .min(2000.0);
+    let base_duration_ms = (total_distance * 0.5 / speed_multiplier).clamp(100.0, 2000.0);
 
     for i in 0..points.len() - 1 {
         let progress = i as f64 / (points.len() - 1) as f64;

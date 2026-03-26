@@ -244,8 +244,7 @@ mod tests {
     fn test_discover_browser() {
         // This test will pass on machines with a browser installed
         let result = discover_browser();
-        if result.is_ok() {
-            let info = result.unwrap();
+        if let Ok(info) = result {
             println!(
                 "Found browser: {} at {:?} (version: {:?})",
                 info.browser_type.name(),

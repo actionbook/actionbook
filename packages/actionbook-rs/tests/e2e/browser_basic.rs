@@ -13,7 +13,15 @@ fn browser_basic_open_goto_snapshot_close() {
 
     // Step 1: start a headless browser session with arxiv.org
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://arxiv.org"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://arxiv.org",
+        ],
         30,
     );
     assert_success(&out, "start session");
@@ -30,12 +38,31 @@ fn browser_basic_open_goto_snapshot_close() {
     );
 
     // Step 3: goto arxiv.org (session s0, tab t0)
-    let out = headless(&["browser", "goto", "https://arxiv.org", "-s", "s0", "-t", "t0"], 30);
+    let out = headless(
+        &[
+            "browser",
+            "goto",
+            "https://arxiv.org",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
+        30,
+    );
     assert_success(&out, "goto arxiv.org");
 
     // Step 4: eval to verify location
     let loc = headless(
-        &["browser", "eval", "window.location.href", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "eval",
+            "window.location.href",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&loc, "eval location");
@@ -46,10 +73,7 @@ fn browser_basic_open_goto_snapshot_close() {
     );
 
     // Step 5: snapshot and verify arxiv content
-    let out = headless_json(
-        &["browser", "snapshot", "-s", "s0", "-t", "t0"],
-        30,
-    );
+    let out = headless_json(&["browser", "snapshot", "-s", "s0", "-t", "t0"], 30);
     assert_success(&out, "snapshot");
 
     let output = stdout_str(&out);

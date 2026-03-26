@@ -3,7 +3,7 @@
 /// Different websites have vastly different JS rendering times.
 /// This module provides sensible defaults per domain so that
 /// `browser fetch` and other one-shot commands wait just long enough.
-
+///
 /// Wait hint categories with associated millisecond durations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WaitHint {

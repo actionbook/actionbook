@@ -10,19 +10,15 @@ use serde::{Deserialize, Serialize};
 /// Content format for page retrieval
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ContentFormat {
     /// Raw HTML content
+    #[default]
     Html,
     /// Markdown conversion (AI-friendly, ~80% token reduction)
     Markdown,
     /// Accessibility tree (semantic structure, ~95% size reduction)
     AccessibilityTree,
-}
-
-impl Default for ContentFormat {
-    fn default() -> Self {
-        Self::Html
-    }
 }
 
 impl std::fmt::Display for ContentFormat {

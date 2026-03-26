@@ -141,14 +141,12 @@ impl SessionActor {
                     let _ = req.response_tx.send(result);
                     break;
                 }
-                Action::SessionStatus { .. } => {
-                    ActionResult::ok(serde_json::json!({
-                        "session": self.session_id.to_string(),
-                        "state": self.state.to_string(),
-                        "tab_count": self.registries.tabs.len(),
-                        "window_count": self.registries.windows.len(),
-                    }))
-                }
+                Action::SessionStatus { .. } => ActionResult::ok(serde_json::json!({
+                    "session": self.session_id.to_string(),
+                    "state": self.state.to_string(),
+                    "tab_count": self.registries.tabs.len(),
+                    "window_count": self.registries.windows.len(),
+                })),
                 action => {
                     action_handler::handle_action(
                         self.session_id,
@@ -195,9 +193,7 @@ impl SessionActor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::daemon::backend::{
-        BackendEvent, Checkpoint, Health, OpResult, ShutdownPolicy,
-    };
+    use crate::daemon::backend::{BackendEvent, Checkpoint, Health, OpResult, ShutdownPolicy};
     use crate::daemon::backend_op::BackendOp;
     use crate::daemon::types::WindowId;
     use async_trait::async_trait;
@@ -362,7 +358,7 @@ mod tests {
     fn remove_nonexistent_tab() {
         let backend = Box::new(MockBackend::new(vec![]));
         let actor = SessionActor::new(SessionId(0), backend, vec![]);
-        assert!(actor.registries.tabs.get(&TabId(99)).is_none());
+        assert!(!actor.registries.tabs.contains_key(&TabId(99)));
     }
 
     #[test]

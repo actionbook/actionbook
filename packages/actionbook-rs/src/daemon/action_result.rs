@@ -14,9 +14,7 @@ use serde_json::Value;
 #[serde(tag = "status")]
 pub enum ActionResult {
     /// The action succeeded. `data` contains command-specific structured output.
-    Ok {
-        data: Value,
-    },
+    Ok { data: Value },
 
     /// Transient failure — safe to retry (e.g. network blip, CDP timeout).
     Retryable {

@@ -50,10 +50,7 @@ fn validate_token(provided: &str, expected: &str) -> bool {
     if provided.len() != expected.len() {
         return false;
     }
-    provided
-        .as_bytes()
-        .ct_eq(expected.as_bytes())
-        .into()
+    provided.as_bytes().ct_eq(expected.as_bytes()).into()
 }
 
 // ---------------------------------------------------------------------------
@@ -137,9 +134,12 @@ impl BrowserBackendFactory for ExtensionBackendFactory {
         let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|e| {
             ActionbookError::ExtensionError(format!("Failed to bind bridge listener: {e}"))
         })?;
-        let port = listener.local_addr().map_err(|e| {
-            ActionbookError::ExtensionError(format!("Failed to get bridge port: {e}"))
-        })?.port();
+        let port = listener
+            .local_addr()
+            .map_err(|e| {
+                ActionbookError::ExtensionError(format!("Failed to get bridge port: {e}"))
+            })?
+            .port();
 
         // 2. Generate a one-time token
         let token = generate_one_time_token();
@@ -170,8 +170,7 @@ struct BridgeState {
 }
 
 /// Type alias for the WebSocket stream used by the extension bridge.
-type ExtWsStream =
-    tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>;
+type ExtWsStream = tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>;
 
 /// Wait for the extension to connect to the bridge WS server.
 ///
@@ -182,15 +181,14 @@ async fn wait_for_extension_connect(
     token: String,
     port: u16,
 ) -> Result<ExtensionBackendSession> {
-    let state = Arc::new(Mutex::new(BridgeState {
-        token: Some(token),
-    }));
+    let state = Arc::new(Mutex::new(BridgeState { token: Some(token) }));
 
     let accept = async {
         loop {
-            let (stream, peer) = listener.accept().await.map_err(|e| {
-                ActionbookError::ExtensionError(format!("Accept failed: {e}"))
-            })?;
+            let (stream, peer) = listener
+                .accept()
+                .await
+                .map_err(|e| ActionbookError::ExtensionError(format!("Accept failed: {e}")))?;
 
             // Only accept from loopback
             if !peer.ip().is_loopback() {
@@ -239,9 +237,9 @@ async fn wait_for_extension_connect(
                             .status(tokio_tungstenite::tungstenite::http::StatusCode::UNAUTHORIZED)
                             .body(Some("Invalid token".to_string()))
                             .unwrap_or_else(|_| {
-                                tokio_tungstenite::tungstenite::http::Response::new(
-                                    Some("Invalid token".to_string()),
-                                )
+                                tokio_tungstenite::tungstenite::http::Response::new(Some(
+                                    "Invalid token".to_string(),
+                                ))
                             });
                         Err(reject)
                     }
@@ -342,20 +340,16 @@ impl ExtensionBackendSession {
         self.ws
             .send(Message::Text(msg_str.into()))
             .await
-            .map_err(|e| {
-                ActionbookError::ExtensionError(format!("Bridge WS send failed: {e}"))
-            })?;
+            .map_err(|e| ActionbookError::ExtensionError(format!("Bridge WS send failed: {e}")))?;
 
         // Read messages until we get the response with our ID.
         // Events are forwarded to the event channel.
-        let response = tokio::time::timeout(
-            std::time::Duration::from_secs(30),
-            self.read_response(id),
-        )
-        .await
-        .map_err(|_| {
-            ActionbookError::Timeout("Extension bridge response timeout (30s)".into())
-        })??;
+        let response =
+            tokio::time::timeout(std::time::Duration::from_secs(30), self.read_response(id))
+                .await
+                .map_err(|_| {
+                    ActionbookError::Timeout("Extension bridge response timeout (30s)".into())
+                })??;
 
         Ok(response)
     }
@@ -388,7 +382,10 @@ impl ExtensionBackendSession {
                         continue;
                     }
 
-                    tracing::debug!("Unrecognized bridge message: {}", &text[..text.len().min(200)]);
+                    tracing::debug!(
+                        "Unrecognized bridge message: {}",
+                        &text[..text.len().min(200)]
+                    );
                 }
                 Ok(Message::Close(_)) => {
                     let _ = self.event_tx.send(BackendEvent::Disconnected {
@@ -481,9 +478,7 @@ impl BackendSession for ExtensionBackendSession {
         let target_id = op.target_id().map(|s| s.to_string());
         let (method, params) = op_to_cdp(&op);
 
-        let result = self
-            .send_and_recv(method, params, target_id)
-            .await?;
+        let result = self.send_and_recv(method, params, target_id).await?;
 
         Ok(OpResult::new(result))
     }
@@ -555,10 +550,9 @@ impl BackendSession for ExtensionBackendSession {
 /// forwards these to `chrome.debugger.sendCommand()`.
 fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
     match op {
-        BackendOp::Navigate { target_id: _, url } => (
-            "Page.navigate",
-            serde_json::json!({ "url": url }),
-        ),
+        BackendOp::Navigate { target_id: _, url } => {
+            ("Page.navigate", serde_json::json!({ "url": url }))
+        }
         BackendOp::Evaluate {
             target_id: _,
             expression,
@@ -570,10 +564,7 @@ fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
                 "returnByValue": return_by_value,
             }),
         ),
-        BackendOp::GetDocument { target_id: _ } => (
-            "DOM.getDocument",
-            serde_json::json!({}),
-        ),
+        BackendOp::GetDocument { target_id: _ } => ("DOM.getDocument", serde_json::json!({})),
         BackendOp::QuerySelector {
             target_id: _,
             node_id,
@@ -588,10 +579,7 @@ fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
         BackendOp::GetBoxModel {
             target_id: _,
             node_id,
-        } => (
-            "DOM.getBoxModel",
-            serde_json::json!({ "nodeId": node_id }),
-        ),
+        } => ("DOM.getBoxModel", serde_json::json!({ "nodeId": node_id })),
         BackendOp::DispatchMouseEvent {
             target_id: _,
             event_type,
@@ -632,18 +620,11 @@ fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
             }
             ("Page.captureScreenshot", params)
         }
-        BackendOp::PrintToPdf { target_id: _ } => (
-            "Page.printToPDF",
-            serde_json::json!({}),
-        ),
-        BackendOp::GetAccessibilityTree { target_id: _ } => (
-            "Accessibility.getFullAXTree",
-            serde_json::json!({}),
-        ),
-        BackendOp::GetCookies { target_id: _ } => (
-            "Network.getCookies",
-            serde_json::json!({}),
-        ),
+        BackendOp::PrintToPdf { target_id: _ } => ("Page.printToPDF", serde_json::json!({})),
+        BackendOp::GetAccessibilityTree { target_id: _ } => {
+            ("Accessibility.getFullAXTree", serde_json::json!({}))
+        }
+        BackendOp::GetCookies { target_id: _ } => ("Network.getCookies", serde_json::json!({})),
         BackendOp::SetCookie {
             target_id: _,
             name,
@@ -675,10 +656,7 @@ fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
             }
             ("Network.setCookie", params)
         }
-        BackendOp::GetTargets => (
-            "Target.getTargets",
-            serde_json::json!({}),
-        ),
+        BackendOp::GetTargets => ("Target.getTargets", serde_json::json!({})),
         BackendOp::CreateTarget {
             url,
             window_id: _,
@@ -709,21 +687,14 @@ fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
             }
             ("Network.deleteCookies", params)
         }
-        BackendOp::GetNodeForLocation {
-            target_id: _,
-            x,
-            y,
-        } => (
+        BackendOp::GetNodeForLocation { target_id: _, x, y } => (
             "DOM.getNodeForLocation",
             serde_json::json!({ "x": x, "y": y }),
         ),
         BackendOp::DomFocus {
             target_id: _,
             node_id,
-        } => (
-            "DOM.focus",
-            serde_json::json!({ "nodeId": node_id }),
-        ),
+        } => ("DOM.focus", serde_json::json!({ "nodeId": node_id })),
         BackendOp::SetFileInputFiles {
             target_id: _,
             node_id,
@@ -930,9 +901,8 @@ mod tests {
         let token_clone = token.clone();
 
         // 2. Spawn the bridge acceptor
-        let bridge_handle = tokio::spawn(async move {
-            wait_for_extension_connect(listener, token, port).await
-        });
+        let bridge_handle =
+            tokio::spawn(async move { wait_for_extension_connect(listener, token, port).await });
 
         // 3. Simulate extension connecting with the correct token
         let url = format!("ws://127.0.0.1:{port}");
@@ -1043,9 +1013,8 @@ mod tests {
         let token = generate_one_time_token();
         let token_clone = token.clone();
 
-        let bridge_handle = tokio::spawn(async move {
-            wait_for_extension_connect(listener, token, port).await
-        });
+        let bridge_handle =
+            tokio::spawn(async move { wait_for_extension_connect(listener, token, port).await });
 
         // First connection with correct token — should succeed
         let url = format!("ws://127.0.0.1:{port}");

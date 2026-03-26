@@ -522,6 +522,7 @@ fn is_origin_allowed(origin: Option<&str>) -> bool {
 
 /// Handle a single incoming WebSocket connection.
 /// Performs origin validation during the upgrade, then does the hello handshake.
+#[allow(clippy::result_large_err)]
 async fn handle_connection(stream: TcpStream, state: Arc<Mutex<BridgeState>>) {
     // Capture origin during WebSocket upgrade for hello handshake validation.
     let captured_origin: Arc<std::sync::Mutex<Option<String>>> =

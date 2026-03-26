@@ -43,17 +43,11 @@ pub struct SessionRecoveryAction {
 #[serde(tag = "type")]
 pub enum RecoveryAction {
     /// Attempt to reconnect using the persisted checkpoint.
-    Reconnect {
-        checkpoint: BackendCheckpoint,
-    },
+    Reconnect { checkpoint: BackendCheckpoint },
     /// Mark the session as lost (browser process gone, cannot recover).
-    MarkLost {
-        reason: String,
-    },
+    MarkLost { reason: String },
     /// Mark the session as needing user intervention.
-    MarkUserAction {
-        reason: String,
-    },
+    MarkUserAction { reason: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -95,9 +89,7 @@ fn plan_single_session(session: &PersistedSession) -> SessionRecoveryAction {
     }
 }
 
-fn plan_local_recovery(
-    cp: &super::persistence::LocalCheckpoint,
-) -> RecoveryAction {
+fn plan_local_recovery(cp: &super::persistence::LocalCheckpoint) -> RecoveryAction {
     if is_process_alive(cp.pid) && is_chrome_process(cp.pid) {
         RecoveryAction::Reconnect {
             checkpoint: BackendCheckpoint::Local(cp.clone()),

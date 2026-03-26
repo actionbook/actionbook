@@ -8,9 +8,7 @@ use crate::error::Result;
 
 pub async fn run(cli: &Cli, command: &DaemonCommands) -> Result<()> {
     match command {
-        DaemonCommands::Serve { .. } | DaemonCommands::ServeV2 => {
-            run_serve().await
-        }
+        DaemonCommands::Serve { .. } | DaemonCommands::ServeV2 => run_serve().await,
         DaemonCommands::Status => {
             let socket = default_socket_path();
             let alive = UnixStream::connect(&socket).await.is_ok();
@@ -23,18 +21,10 @@ pub async fn run(cli: &Cli, command: &DaemonCommands) -> Result<()> {
                     })
                 );
             } else if alive {
-                println!(
-                    "{} Daemon is {}",
-                    "●".green(),
-                    "running".green()
-                );
+                println!("{} Daemon is {}", "●".green(), "running".green());
                 println!("  Socket: {}", socket.display());
             } else {
-                println!(
-                    "{} Daemon is {}",
-                    "○".dimmed(),
-                    "not running".dimmed()
-                );
+                println!("{} Daemon is {}", "○".dimmed(), "not running".dimmed());
             }
             Ok(())
         }

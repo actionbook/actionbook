@@ -242,7 +242,7 @@ fn parse_ax_tree_value_full(json: &str) -> Vec<A11yNode> {
         d
     }
 
-    let mut depth_cache: HashMap<String, usize> = HashMap::new();
+    let _depth_cache: HashMap<String, usize> = HashMap::new();
 
     // Parse with filtering (same as real implementation, no scope filter for benchmark)
     nodes

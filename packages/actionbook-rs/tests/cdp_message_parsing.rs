@@ -109,11 +109,7 @@ fn test_keychain_env_var_parsing() {
     ];
 
     for (input, expected) in test_cases {
-        let result = if input == "1" || input.eq_ignore_ascii_case("true") {
-            true
-        } else {
-            false
-        };
+        let result = input == "1" || input.eq_ignore_ascii_case("true");
         assert_eq!(result, expected, "Failed for input: {}", input);
     }
 }

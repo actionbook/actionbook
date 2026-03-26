@@ -110,24 +110,16 @@ pub async fn handle_action(
 ) -> ActionResult {
     match action {
         // -- Tab-level commands --
-        Action::Goto { tab, url, .. } => {
-            handle_goto(session_id, backend, regs, tab, &url).await
-        }
-        Action::Back { tab, .. } => {
-            handle_history(backend, regs, session_id, tab, "back").await
-        }
+        Action::Goto { tab, url, .. } => handle_goto(session_id, backend, regs, tab, &url).await,
+        Action::Back { tab, .. } => handle_history(backend, regs, session_id, tab, "back").await,
         Action::Forward { tab, .. } => {
             handle_history(backend, regs, session_id, tab, "forward").await
         }
-        Action::Reload { tab, .. } => {
-            handle_reload(session_id, backend, regs, tab).await
-        }
+        Action::Reload { tab, .. } => handle_reload(session_id, backend, regs, tab).await,
         Action::Open { url, .. } => {
             handle_new_tab(session_id, backend, regs, &url, false, None).await
         }
-        Action::Snapshot { tab, .. } => {
-            handle_snapshot(session_id, backend, regs, tab).await
-        }
+        Action::Snapshot { tab, .. } => handle_snapshot(session_id, backend, regs, tab).await,
         Action::Screenshot { tab, full_page, .. } => {
             handle_screenshot(session_id, backend, regs, tab, full_page).await
         }
@@ -138,8 +130,16 @@ pub async fn handle_action(
             count,
             ..
         } => {
-            handle_click(session_id, backend, regs, tab, &selector, button.as_deref(), count)
-                .await
+            handle_click(
+                session_id,
+                backend,
+                regs,
+                tab,
+                &selector,
+                button.as_deref(),
+                count,
+            )
+            .await
         }
         Action::Type {
             tab,
@@ -162,12 +162,12 @@ pub async fn handle_action(
             timeout_ms,
             ..
         } => handle_wait_element(session_id, backend, regs, tab, &selector, timeout_ms).await,
-        Action::Html {
-            tab, selector, ..
-        } => handle_html(session_id, backend, regs, tab, selector.as_deref()).await,
-        Action::Text {
-            tab, selector, ..
-        } => handle_text(session_id, backend, regs, tab, selector.as_deref()).await,
+        Action::Html { tab, selector, .. } => {
+            handle_html(session_id, backend, regs, tab, selector.as_deref()).await
+        }
+        Action::Text { tab, selector, .. } => {
+            handle_text(session_id, backend, regs, tab, selector.as_deref()).await
+        }
 
         // -- Session-level commands --
         Action::ListTabs { .. } => handle_list_tabs(regs),
@@ -178,47 +178,41 @@ pub async fn handle_action(
             window,
             ..
         } => handle_new_tab(session_id, backend, regs, &url, new_window, window).await,
-        Action::CloseTab { tab, .. } => {
-            handle_close_tab(session_id, backend, regs, tab).await
-        }
+        Action::CloseTab { tab, .. } => handle_close_tab(session_id, backend, regs, tab).await,
         Action::Close { .. } | Action::CloseSession { .. } => {
             // Handled at the session actor level, not here.
             ActionResult::ok(json!({"closed": true}))
         }
 
         // -- Observation commands (tab-level) --
-        Action::Pdf { tab, path, .. } => {
-            handle_pdf(session_id, backend, regs, tab, &path).await
-        }
+        Action::Pdf { tab, path, .. } => handle_pdf(session_id, backend, regs, tab, &path).await,
         Action::Title { tab, .. } => handle_title(session_id, backend, regs, tab).await,
         Action::Url { tab, .. } => handle_url(session_id, backend, regs, tab).await,
-        Action::Value {
-            tab, selector, ..
-        } => handle_value(session_id, backend, regs, tab, &selector).await,
+        Action::Value { tab, selector, .. } => {
+            handle_value(session_id, backend, regs, tab, &selector).await
+        }
         Action::Attr {
             tab,
             selector,
             name,
             ..
         } => handle_attr(session_id, backend, regs, tab, &selector, &name).await,
-        Action::Attrs {
-            tab, selector, ..
-        } => handle_attrs(session_id, backend, regs, tab, &selector).await,
-        Action::Describe {
-            tab, selector, ..
-        } => handle_describe(session_id, backend, regs, tab, &selector).await,
-        Action::State {
-            tab, selector, ..
-        } => handle_state(session_id, backend, regs, tab, &selector).await,
-        Action::Box_ {
-            tab, selector, ..
-        } => handle_box(session_id, backend, regs, tab, &selector).await,
-        Action::Styles {
-            tab, selector, ..
-        } => handle_styles(session_id, backend, regs, tab, &selector).await,
-        Action::Viewport { tab, .. } => {
-            handle_viewport(session_id, backend, regs, tab).await
+        Action::Attrs { tab, selector, .. } => {
+            handle_attrs(session_id, backend, regs, tab, &selector).await
         }
+        Action::Describe { tab, selector, .. } => {
+            handle_describe(session_id, backend, regs, tab, &selector).await
+        }
+        Action::State { tab, selector, .. } => {
+            handle_state(session_id, backend, regs, tab, &selector).await
+        }
+        Action::Box_ { tab, selector, .. } => {
+            handle_box(session_id, backend, regs, tab, &selector).await
+        }
+        Action::Styles { tab, selector, .. } => {
+            handle_styles(session_id, backend, regs, tab, &selector).await
+        }
+        Action::Viewport { tab, .. } => handle_viewport(session_id, backend, regs, tab).await,
         Action::Query {
             tab,
             selector,
@@ -231,14 +225,10 @@ pub async fn handle_action(
         Action::LogsConsole { tab, .. } => {
             handle_logs_console(session_id, backend, regs, tab).await
         }
-        Action::LogsErrors { tab, .. } => {
-            handle_logs_errors(session_id, backend, regs, tab).await
-        }
+        Action::LogsErrors { tab, .. } => handle_logs_errors(session_id, backend, regs, tab).await,
 
         // -- Data commands (session-level cookies) --
-        Action::CookiesList { .. } => {
-            handle_cookies_list(session_id, backend, regs).await
-        }
+        Action::CookiesList { .. } => handle_cookies_list(session_id, backend, regs).await,
         Action::CookiesGet { name, .. } => {
             handle_cookies_get(session_id, backend, regs, &name).await
         }
@@ -254,26 +244,32 @@ pub async fn handle_action(
             ..
         } => {
             handle_cookies_set(
-                session_id, backend, regs, &name, &value,
-                domain.as_deref(), path.as_deref(),
-                secure, http_only, same_site, expires,
+                session_id,
+                backend,
+                regs,
+                &name,
+                &value,
+                domain.as_deref(),
+                path.as_deref(),
+                secure,
+                http_only,
+                same_site,
+                expires,
             )
             .await
         }
         Action::CookiesDelete { name, .. } => {
             handle_cookies_delete(session_id, backend, regs, &name).await
         }
-        Action::CookiesClear { .. } => {
-            handle_cookies_clear(session_id, backend, regs).await
-        }
+        Action::CookiesClear { .. } => handle_cookies_clear(session_id, backend, regs).await,
 
         // -- Data commands (tab-level storage) --
         Action::StorageList { tab, kind, .. } => {
             handle_storage_list(session_id, backend, regs, tab, kind).await
         }
-        Action::StorageGet {
-            tab, kind, key, ..
-        } => handle_storage_get(session_id, backend, regs, tab, kind, &key).await,
+        Action::StorageGet { tab, kind, key, .. } => {
+            handle_storage_get(session_id, backend, regs, tab, kind, &key).await
+        }
         Action::StorageSet {
             tab,
             kind,
@@ -281,9 +277,9 @@ pub async fn handle_action(
             value,
             ..
         } => handle_storage_set(session_id, backend, regs, tab, kind, &key, &value).await,
-        Action::StorageDelete {
-            tab, kind, key, ..
-        } => handle_storage_delete(session_id, backend, regs, tab, kind, &key).await,
+        Action::StorageDelete { tab, kind, key, .. } => {
+            handle_storage_delete(session_id, backend, regs, tab, kind, &key).await
+        }
         Action::StorageClear { tab, kind, .. } => {
             handle_storage_clear(session_id, backend, regs, tab, kind).await
         }
@@ -296,12 +292,12 @@ pub async fn handle_action(
             by_text,
             ..
         } => handle_select(session_id, backend, regs, tab, &selector, &value, by_text).await,
-        Action::Hover {
-            tab, selector, ..
-        } => handle_hover(session_id, backend, regs, tab, &selector).await,
-        Action::Focus {
-            tab, selector, ..
-        } => handle_focus(session_id, backend, regs, tab, &selector).await,
+        Action::Hover { tab, selector, .. } => {
+            handle_hover(session_id, backend, regs, tab, &selector).await
+        }
+        Action::Focus { tab, selector, .. } => {
+            handle_focus(session_id, backend, regs, tab, &selector).await
+        }
         Action::Press {
             tab, key_or_chord, ..
         } => handle_press(session_id, backend, regs, tab, &key_or_chord).await,
@@ -343,17 +339,16 @@ pub async fn handle_action(
         }
 
         // -- Waiting commands --
-        Action::WaitNavigation { tab, timeout_ms, .. } => {
-            handle_wait_navigation(session_id, backend, regs, tab, timeout_ms).await
-        }
+        Action::WaitNavigation {
+            tab, timeout_ms, ..
+        } => handle_wait_navigation(session_id, backend, regs, tab, timeout_ms).await,
         Action::WaitNetworkIdle {
             tab,
             timeout_ms,
             idle_time_ms,
             ..
         } => {
-            handle_wait_network_idle(session_id, backend, regs, tab, timeout_ms, idle_time_ms)
-                .await
+            handle_wait_network_idle(session_id, backend, regs, tab, timeout_ms, idle_time_ms).await
         }
         Action::WaitCondition {
             tab,
@@ -515,11 +510,7 @@ async fn handle_click(
     let selector_json = match serde_json::to_string(selector) {
         Ok(s) => s,
         Err(e) => {
-            return ActionResult::fatal(
-                "invalid_selector",
-                e.to_string(),
-                "check selector syntax",
-            )
+            return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax")
         }
     };
 
@@ -658,11 +649,7 @@ async fn handle_fill(
     let selector_json = match serde_json::to_string(selector) {
         Ok(s) => s,
         Err(e) => {
-            return ActionResult::fatal(
-                "invalid_selector",
-                e.to_string(),
-                "check selector syntax",
-            )
+            return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax")
         }
     };
     let value_json = match serde_json::to_string(value) {
@@ -749,11 +736,7 @@ async fn handle_wait_element(
     let selector_json = match serde_json::to_string(selector) {
         Ok(s) => s,
         Err(e) => {
-            return ActionResult::fatal(
-                "invalid_selector",
-                e.to_string(),
-                "check selector syntax",
-            )
+            return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax")
         }
     };
 
@@ -1031,7 +1014,9 @@ async fn handle_value(
 
     let selector_json = match serde_json::to_string(selector) {
         Ok(s) => s,
-        Err(e) => return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax"),
+        Err(e) => {
+            return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax")
+        }
     };
 
     let js = format!(
@@ -1052,153 +1037,274 @@ return el.value;
     match backend.exec(op).await {
         Ok(result) => {
             let val = extract_eval_value(&result.value);
-            if val.is_null() { element_not_found(selector) }
-            else { ActionResult::ok(json!({"value": val, "selector": selector})) }
+            if val.is_null() {
+                element_not_found(selector)
+            } else {
+                ActionResult::ok(json!({"value": val, "selector": selector}))
+            }
         }
         Err(e) => cdp_error_to_result(e),
     }
 }
 
 async fn handle_attr(
-    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
-    tab: TabId, selector: &str, attr_name: &str,
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    selector: &str,
+    attr_name: &str,
 ) -> ActionResult {
-    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
-    let selector_json = match serde_json::to_string(selector) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax") };
-    let attr_json = match serde_json::to_string(attr_name) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_attr_name", e.to_string(), "check attribute name") };
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+    let selector_json = match serde_json::to_string(selector) {
+        Ok(s) => s,
+        Err(e) => {
+            return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax")
+        }
+    };
+    let attr_json = match serde_json::to_string(attr_name) {
+        Ok(s) => s,
+        Err(e) => {
+            return ActionResult::fatal("invalid_attr_name", e.to_string(), "check attribute name")
+        }
+    };
 
-    let js = format!(r#"(function() {{
+    let js = format!(
+        r#"(function() {{
 {FIND_ELEMENT_JS}
 const el = __findElement({selector_json});
 if (!el) return {{ __notfound: true }};
 return el.getAttribute({attr_json});
-}})()"#);
+}})()"#
+    );
 
-    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
     match backend.exec(op).await {
         Ok(result) => {
             let val = extract_eval_value(&result.value);
-            if val.get("__notfound").is_some() { element_not_found(selector) }
-            else { ActionResult::ok(json!({"attr": attr_name, "value": val, "selector": selector})) }
+            if val.get("__notfound").is_some() {
+                element_not_found(selector)
+            } else {
+                ActionResult::ok(json!({"attr": attr_name, "value": val, "selector": selector}))
+            }
         }
         Err(e) => cdp_error_to_result(e),
     }
 }
 
 async fn handle_attrs(
-    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
-    tab: TabId, selector: &str,
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    selector: &str,
 ) -> ActionResult {
-    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
-    let selector_json = match serde_json::to_string(selector) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax") };
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+    let selector_json = match serde_json::to_string(selector) {
+        Ok(s) => s,
+        Err(e) => {
+            return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax")
+        }
+    };
 
-    let js = format!(r#"(function() {{
+    let js = format!(
+        r#"(function() {{
 {FIND_ELEMENT_JS}
 const el = __findElement({selector_json});
 if (!el) return null;
 const attrs = {{}};
 for (const a of el.attributes) {{ attrs[a.name] = a.value; }}
 return attrs;
-}})()"#);
+}})()"#
+    );
 
-    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
     match backend.exec(op).await {
         Ok(result) => {
             let val = extract_eval_value(&result.value);
-            if val.is_null() { element_not_found(selector) }
-            else { ActionResult::ok(json!({"attributes": val, "selector": selector})) }
+            if val.is_null() {
+                element_not_found(selector)
+            } else {
+                ActionResult::ok(json!({"attributes": val, "selector": selector}))
+            }
         }
         Err(e) => cdp_error_to_result(e),
     }
 }
 
 async fn handle_describe(
-    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
-    tab: TabId, selector: &str,
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    selector: &str,
 ) -> ActionResult {
-    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
-    let selector_json = match serde_json::to_string(selector) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax") };
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+    let selector_json = match serde_json::to_string(selector) {
+        Ok(s) => s,
+        Err(e) => {
+            return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax")
+        }
+    };
 
-    let js = format!(r#"(function() {{
+    let js = format!(
+        r#"(function() {{
 {FIND_ELEMENT_JS}
 const el = __findElement({selector_json});
 if (!el) return null;
 const rect = el.getBoundingClientRect();
 return {{ tag: el.tagName.toLowerCase(), role: el.getAttribute('role') || '', text: (el.innerText || '').substring(0, 200), id: el.id || '', className: el.className || '', ariaLabel: el.getAttribute('aria-label') || '', href: el.href || '', type: el.type || '', name: el.name || '', value: el.value || '', placeholder: el.placeholder || '', x: rect.left, y: rect.top, width: rect.width, height: rect.height }};
-}})()"#);
+}})()"#
+    );
 
-    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
     match backend.exec(op).await {
         Ok(result) => {
             let val = extract_eval_value(&result.value);
-            if val.is_null() { element_not_found(selector) }
-            else { ActionResult::ok(json!({"description": val, "selector": selector})) }
+            if val.is_null() {
+                element_not_found(selector)
+            } else {
+                ActionResult::ok(json!({"description": val, "selector": selector}))
+            }
         }
         Err(e) => cdp_error_to_result(e),
     }
 }
 
 async fn handle_state(
-    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
-    tab: TabId, selector: &str,
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    selector: &str,
 ) -> ActionResult {
-    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
-    let selector_json = match serde_json::to_string(selector) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax") };
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+    let selector_json = match serde_json::to_string(selector) {
+        Ok(s) => s,
+        Err(e) => {
+            return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax")
+        }
+    };
 
-    let js = format!(r#"(function() {{
+    let js = format!(
+        r#"(function() {{
 {FIND_ELEMENT_JS}
 const el = __findElement({selector_json});
 if (!el) return null;
 const rect = el.getBoundingClientRect();
 const style = window.getComputedStyle(el);
 return {{ visible: rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none', enabled: !el.disabled, checked: !!el.checked, selected: !!el.selected, focused: document.activeElement === el, required: !!el.required, readOnly: !!el.readOnly }};
-}})()"#);
+}})()"#
+    );
 
-    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
     match backend.exec(op).await {
         Ok(result) => {
             let val = extract_eval_value(&result.value);
-            if val.is_null() { element_not_found(selector) }
-            else { ActionResult::ok(json!({"state": val, "selector": selector})) }
+            if val.is_null() {
+                element_not_found(selector)
+            } else {
+                ActionResult::ok(json!({"state": val, "selector": selector}))
+            }
         }
         Err(e) => cdp_error_to_result(e),
     }
 }
 
 async fn handle_box(
-    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
-    tab: TabId, selector: &str,
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    selector: &str,
 ) -> ActionResult {
-    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
-    let selector_json = match serde_json::to_string(selector) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax") };
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+    let selector_json = match serde_json::to_string(selector) {
+        Ok(s) => s,
+        Err(e) => {
+            return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax")
+        }
+    };
 
-    let js = format!(r#"(function() {{
+    let js = format!(
+        r#"(function() {{
 {FIND_ELEMENT_JS}
 const el = __findElement({selector_json});
 if (!el) return null;
 const rect = el.getBoundingClientRect();
 return {{ x: rect.left, y: rect.top, width: rect.width, height: rect.height, right: rect.right, bottom: rect.bottom }};
-}})()"#);
+}})()"#
+    );
 
-    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
     match backend.exec(op).await {
         Ok(result) => {
             let val = extract_eval_value(&result.value);
-            if val.is_null() { element_not_found(selector) }
-            else { ActionResult::ok(json!({"box": val, "selector": selector})) }
+            if val.is_null() {
+                element_not_found(selector)
+            } else {
+                ActionResult::ok(json!({"box": val, "selector": selector}))
+            }
         }
         Err(e) => cdp_error_to_result(e),
     }
 }
 
 async fn handle_styles(
-    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
-    tab: TabId, selector: &str,
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    selector: &str,
 ) -> ActionResult {
-    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
-    let selector_json = match serde_json::to_string(selector) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax") };
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+    let selector_json = match serde_json::to_string(selector) {
+        Ok(s) => s,
+        Err(e) => {
+            return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax")
+        }
+    };
 
-    let js = format!(r#"(function() {{
+    let js = format!(
+        r#"(function() {{
 {FIND_ELEMENT_JS}
 const el = __findElement({selector_json});
 if (!el) return null;
@@ -1207,23 +1313,37 @@ const props = ['display','visibility','opacity','color','backgroundColor','fontS
 const result = {{}};
 for (const p of props) {{ result[p] = cs.getPropertyValue(p.replace(/([A-Z])/g, '-$1').toLowerCase()); }}
 return result;
-}})()"#);
+}})()"#
+    );
 
-    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
     match backend.exec(op).await {
         Ok(result) => {
             let val = extract_eval_value(&result.value);
-            if val.is_null() { element_not_found(selector) }
-            else { ActionResult::ok(json!({"styles": val, "selector": selector})) }
+            if val.is_null() {
+                element_not_found(selector)
+            } else {
+                ActionResult::ok(json!({"styles": val, "selector": selector}))
+            }
         }
         Err(e) => cdp_error_to_result(e),
     }
 }
 
 async fn handle_viewport(
-    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, tab: TabId,
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
 ) -> ActionResult {
-    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
 
     let op = BackendOp::Evaluate {
         target_id: target_id.to_string(),
@@ -1234,7 +1354,11 @@ async fn handle_viewport(
     match backend.exec(op).await {
         Ok(result) => {
             let raw = extract_eval_value(&result.value);
-            let val = if let Some(s) = raw.as_str() { serde_json::from_str(s).unwrap_or(raw) } else { raw };
+            let val = if let Some(s) = raw.as_str() {
+                serde_json::from_str(s).unwrap_or(raw)
+            } else {
+                raw
+            };
             ActionResult::ok(json!({"viewport": val}))
         }
         Err(e) => cdp_error_to_result(e),
@@ -1242,37 +1366,74 @@ async fn handle_viewport(
 }
 
 async fn handle_query(
-    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
-    tab: TabId, selector: &str, mode: QueryMode,
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    selector: &str,
+    mode: QueryMode,
 ) -> ActionResult {
-    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
-    let selector_json = match serde_json::to_string(selector) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax") };
-
-    let js = match mode {
-        QueryMode::Css => format!(r#"(function() {{ const els = document.querySelectorAll({selector_json}); return Array.from(els).slice(0, 100).map((el, i) => {{ const rect = el.getBoundingClientRect(); return {{ index: i, tag: el.tagName.toLowerCase(), id: el.id || '', text: (el.innerText || '').substring(0, 80), x: rect.left, y: rect.top, width: rect.width, height: rect.height }}; }}); }})()"#),
-        QueryMode::Xpath => format!(r#"(function() {{ const result = document.evaluate({selector_json}, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null); const items = []; for (let i = 0; i < Math.min(result.snapshotLength, 100); i++) {{ const el = result.snapshotItem(i); if (el.nodeType === 1) {{ const rect = el.getBoundingClientRect(); items.push({{ index: i, tag: el.tagName.toLowerCase(), id: el.id || '', text: (el.innerText || '').substring(0, 80), x: rect.left, y: rect.top, width: rect.width, height: rect.height }}); }} }} return items; }})()"#),
-        QueryMode::Text => format!(r#"(function() {{ const text = {selector_json}; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null); const results = []; while (walker.nextNode()) {{ if (walker.currentNode.textContent.includes(text) && results.length < 100) {{ const el = walker.currentNode.parentElement; if (el) {{ const rect = el.getBoundingClientRect(); results.push({{ index: results.length, tag: el.tagName.toLowerCase(), id: el.id || '', text: (el.innerText || '').substring(0, 80), x: rect.left, y: rect.top, width: rect.width, height: rect.height }}); }} }} }} return results; }})()"#),
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+    let selector_json = match serde_json::to_string(selector) {
+        Ok(s) => s,
+        Err(e) => {
+            return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax")
+        }
     };
 
-    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    let js = match mode {
+        QueryMode::Css => format!(
+            r#"(function() {{ const els = document.querySelectorAll({selector_json}); return Array.from(els).slice(0, 100).map((el, i) => {{ const rect = el.getBoundingClientRect(); return {{ index: i, tag: el.tagName.toLowerCase(), id: el.id || '', text: (el.innerText || '').substring(0, 80), x: rect.left, y: rect.top, width: rect.width, height: rect.height }}; }}); }})()"#
+        ),
+        QueryMode::Xpath => format!(
+            r#"(function() {{ const result = document.evaluate({selector_json}, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null); const items = []; for (let i = 0; i < Math.min(result.snapshotLength, 100); i++) {{ const el = result.snapshotItem(i); if (el.nodeType === 1) {{ const rect = el.getBoundingClientRect(); items.push({{ index: i, tag: el.tagName.toLowerCase(), id: el.id || '', text: (el.innerText || '').substring(0, 80), x: rect.left, y: rect.top, width: rect.width, height: rect.height }}); }} }} return items; }})()"#
+        ),
+        QueryMode::Text => format!(
+            r#"(function() {{ const text = {selector_json}; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null); const results = []; while (walker.nextNode()) {{ if (walker.currentNode.textContent.includes(text) && results.length < 100) {{ const el = walker.currentNode.parentElement; if (el) {{ const rect = el.getBoundingClientRect(); results.push({{ index: results.length, tag: el.tagName.toLowerCase(), id: el.id || '', text: (el.innerText || '').substring(0, 80), x: rect.left, y: rect.top, width: rect.width, height: rect.height }}); }} }} }} return results; }})()"#
+        ),
+    };
+
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
     match backend.exec(op).await {
         Ok(result) => {
             let val = extract_eval_value(&result.value);
-            ActionResult::ok(json!({"results": val, "selector": selector, "mode": mode.to_string()}))
+            ActionResult::ok(
+                json!({"results": val, "selector": selector, "mode": mode.to_string()}),
+            )
         }
         Err(e) => cdp_error_to_result(e),
     }
 }
 
 async fn handle_inspect_point(
-    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
-    tab: TabId, x: f64, y: f64,
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    x: f64,
+    y: f64,
 ) -> ActionResult {
-    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
 
-    let js = format!(r#"(function() {{ const el = document.elementFromPoint({x}, {y}); if (!el) return null; const rect = el.getBoundingClientRect(); return {{ tag: el.tagName.toLowerCase(), id: el.id || '', className: el.className || '', text: (el.innerText || '').substring(0, 200), role: el.getAttribute('role') || '', ariaLabel: el.getAttribute('aria-label') || '', href: el.href || '', x: rect.left, y: rect.top, width: rect.width, height: rect.height }}; }})()"#);
+    let js = format!(
+        r#"(function() {{ const el = document.elementFromPoint({x}, {y}); if (!el) return null; const rect = el.getBoundingClientRect(); return {{ tag: el.tagName.toLowerCase(), id: el.id || '', className: el.className || '', text: (el.innerText || '').substring(0, 200), role: el.getAttribute('role') || '', ariaLabel: el.getAttribute('aria-label') || '', href: el.href || '', x: rect.left, y: rect.top, width: rect.width, height: rect.height }}; }})()"#
+    );
 
-    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
     match backend.exec(op).await {
         Ok(result) => {
             let val = extract_eval_value(&result.value);
@@ -1283,29 +1444,55 @@ async fn handle_inspect_point(
 }
 
 async fn handle_logs_console(
-    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, tab: TabId,
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
 ) -> ActionResult {
-    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
 
     let js = r#"(function() { if (!window.__ab_console_logs) { window.__ab_console_logs = []; const orig = { log: console.log, warn: console.warn, info: console.info, debug: console.debug, error: console.error }; for (const [level, fn] of Object.entries(orig)) { console[level] = function(...args) { window.__ab_console_logs.push({ level, message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '), timestamp: Date.now() }); fn.apply(console, args); }; } } const logs = window.__ab_console_logs.slice(-200); window.__ab_console_logs = []; return logs; })()"#;
 
-    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js.to_string(), return_by_value: true };
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js.to_string(),
+        return_by_value: true,
+    };
     match backend.exec(op).await {
-        Ok(result) => { let val = extract_eval_value(&result.value); ActionResult::ok(json!({"logs": val})) }
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            ActionResult::ok(json!({"logs": val}))
+        }
         Err(e) => cdp_error_to_result(e),
     }
 }
 
 async fn handle_logs_errors(
-    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, tab: TabId,
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
 ) -> ActionResult {
-    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
 
     let js = r#"(function() { if (!window.__ab_error_logs) { window.__ab_error_logs = []; const origError = console.error; console.error = function(...args) { window.__ab_error_logs.push({ message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '), timestamp: Date.now() }); origError.apply(console, args); }; window.addEventListener('error', function(e) { window.__ab_error_logs.push({ message: e.message, source: e.filename, line: e.lineno, col: e.colno, timestamp: Date.now() }); }); window.addEventListener('unhandledrejection', function(e) { window.__ab_error_logs.push({ message: 'Unhandled rejection: ' + String(e.reason), timestamp: Date.now() }); }); } const errors = window.__ab_error_logs.slice(-200); window.__ab_error_logs = []; return errors; })()"#;
 
-    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js.to_string(), return_by_value: true };
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js.to_string(),
+        return_by_value: true,
+    };
     match backend.exec(op).await {
-        Ok(result) => { let val = extract_eval_value(&result.value); ActionResult::ok(json!({"errors": val})) }
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            ActionResult::ok(json!({"errors": val}))
+        }
         Err(e) => cdp_error_to_result(e),
     }
 }
@@ -1315,29 +1502,70 @@ async fn handle_logs_errors(
 // ---------------------------------------------------------------------------
 
 fn resolve_any_tab(session_id: SessionId, regs: &Registries) -> Result<&str, ActionResult> {
-    regs.tabs.values().next().map(|t| t.target_id.as_str()).ok_or_else(|| {
-        ActionResult::fatal("no_tabs", format!("session {session_id} has no open tabs for cookie operations"), format!("open a tab first with `actionbook browser open -s {session_id} <url>`"))
-    })
+    regs.tabs
+        .values()
+        .next()
+        .map(|t| t.target_id.as_str())
+        .ok_or_else(|| {
+            ActionResult::fatal(
+                "no_tabs",
+                format!("session {session_id} has no open tabs for cookie operations"),
+                format!("open a tab first with `actionbook browser open -s {session_id} <url>`"),
+            )
+        })
 }
 
-async fn handle_cookies_list(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries) -> ActionResult {
-    let target_id = match resolve_any_tab(session_id, regs) { Ok(t) => t, Err(r) => return r };
-    let op = BackendOp::GetCookies { target_id: target_id.to_string() };
+async fn handle_cookies_list(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+) -> ActionResult {
+    let target_id = match resolve_any_tab(session_id, regs) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+    let op = BackendOp::GetCookies {
+        target_id: target_id.to_string(),
+    };
     match backend.exec(op).await {
-        Ok(result) => { let cookies = result.value.get("cookies").cloned().unwrap_or(json!([])); ActionResult::ok(json!({"cookies": cookies})) }
+        Ok(result) => {
+            let cookies = result.value.get("cookies").cloned().unwrap_or(json!([]));
+            ActionResult::ok(json!({"cookies": cookies}))
+        }
         Err(e) => cdp_error_to_result(e),
     }
 }
 
-async fn handle_cookies_get(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, name: &str) -> ActionResult {
-    let target_id = match resolve_any_tab(session_id, regs) { Ok(t) => t, Err(r) => return r };
-    let op = BackendOp::GetCookies { target_id: target_id.to_string() };
+async fn handle_cookies_get(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    name: &str,
+) -> ActionResult {
+    let target_id = match resolve_any_tab(session_id, regs) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+    let op = BackendOp::GetCookies {
+        target_id: target_id.to_string(),
+    };
     match backend.exec(op).await {
         Ok(result) => {
-            let cookies = result.value.get("cookies").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-            let found: Vec<_> = cookies.into_iter().filter(|c| c.get("name").and_then(|n| n.as_str()) == Some(name)).collect();
-            if found.is_empty() { ActionResult::ok(json!({"cookie": null, "name": name})) }
-            else { ActionResult::ok(json!({"cookie": found[0], "name": name})) }
+            let cookies = result
+                .value
+                .get("cookies")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let found: Vec<_> = cookies
+                .into_iter()
+                .filter(|c| c.get("name").and_then(|n| n.as_str()) == Some(name))
+                .collect();
+            if found.is_empty() {
+                ActionResult::ok(json!({"cookie": null, "name": name}))
+            } else {
+                ActionResult::ok(json!({"cookie": found[0], "name": name}))
+            }
         }
         Err(e) => cdp_error_to_result(e),
     }
@@ -1345,15 +1573,32 @@ async fn handle_cookies_get(session_id: SessionId, backend: &mut dyn BackendSess
 
 #[allow(clippy::too_many_arguments)]
 async fn handle_cookies_set(
-    session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries,
-    name: &str, value: &str, domain: Option<&str>, path: Option<&str>,
-    secure: Option<bool>, http_only: Option<bool>, same_site: Option<SameSite>, expires: Option<f64>,
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    name: &str,
+    value: &str,
+    domain: Option<&str>,
+    path: Option<&str>,
+    secure: Option<bool>,
+    http_only: Option<bool>,
+    same_site: Option<SameSite>,
+    expires: Option<f64>,
 ) -> ActionResult {
-    let target_id = match resolve_any_tab(session_id, regs) { Ok(t) => t, Err(r) => return r };
+    let target_id = match resolve_any_tab(session_id, regs) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
     let op = BackendOp::SetCookie {
-        target_id: target_id.to_string(), name: name.to_string(), value: value.to_string(),
-        domain: domain.unwrap_or("").to_string(), path: path.unwrap_or("/").to_string(),
-        secure, http_only, same_site: same_site.map(|s| s.to_string()), expires,
+        target_id: target_id.to_string(),
+        name: name.to_string(),
+        value: value.to_string(),
+        domain: domain.unwrap_or("").to_string(),
+        path: path.unwrap_or("/").to_string(),
+        secure,
+        http_only,
+        same_site: same_site.map(|s| s.to_string()),
+        expires,
     };
     match backend.exec(op).await {
         Ok(_) => ActionResult::ok(json!({"set_cookie": name})),
@@ -1361,20 +1606,47 @@ async fn handle_cookies_set(
     }
 }
 
-async fn handle_cookies_delete(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, name: &str) -> ActionResult {
-    let target_id = match resolve_any_tab(session_id, regs) { Ok(t) => t, Err(r) => return r };
-    let op = BackendOp::DeleteCookies { target_id: target_id.to_string(), name: name.to_string(), domain: None, path: None };
+async fn handle_cookies_delete(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    name: &str,
+) -> ActionResult {
+    let target_id = match resolve_any_tab(session_id, regs) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+    let op = BackendOp::DeleteCookies {
+        target_id: target_id.to_string(),
+        name: name.to_string(),
+        domain: None,
+        path: None,
+    };
     match backend.exec(op).await {
         Ok(_) => ActionResult::ok(json!({"deleted_cookie": name})),
         Err(e) => cdp_error_to_result(e),
     }
 }
 
-async fn handle_cookies_clear(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries) -> ActionResult {
-    let target_id = match resolve_any_tab(session_id, regs) { Ok(t) => t, Err(r) => return r };
-    let get_op = BackendOp::GetCookies { target_id: target_id.to_string() };
+async fn handle_cookies_clear(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+) -> ActionResult {
+    let target_id = match resolve_any_tab(session_id, regs) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
+    let get_op = BackendOp::GetCookies {
+        target_id: target_id.to_string(),
+    };
     let cookies = match backend.exec(get_op).await {
-        Ok(result) => result.value.get("cookies").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+        Ok(result) => result
+            .value
+            .get("cookies")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default(),
         Err(e) => return cdp_error_to_result(e),
     };
     let mut deleted = 0;
@@ -1382,8 +1654,15 @@ async fn handle_cookies_clear(session_id: SessionId, backend: &mut dyn BackendSe
         let cname = cookie.get("name").and_then(|n| n.as_str()).unwrap_or("");
         let cdomain = cookie.get("domain").and_then(|d| d.as_str());
         let cpath = cookie.get("path").and_then(|p| p.as_str());
-        let op = BackendOp::DeleteCookies { target_id: target_id.to_string(), name: cname.to_string(), domain: cdomain.map(|s| s.to_string()), path: cpath.map(|s| s.to_string()) };
-        if let Err(e) = backend.exec(op).await { return cdp_error_to_result(e); }
+        let op = BackendOp::DeleteCookies {
+            target_id: target_id.to_string(),
+            name: cname.to_string(),
+            domain: cdomain.map(|s| s.to_string()),
+            path: cpath.map(|s| s.to_string()),
+        };
+        if let Err(e) = backend.exec(op).await {
+            return cdp_error_to_result(e);
+        }
         deleted += 1;
     }
     ActionResult::ok(json!({"cleared_cookies": deleted}))
@@ -1394,62 +1673,154 @@ async fn handle_cookies_clear(session_id: SessionId, backend: &mut dyn BackendSe
 // ---------------------------------------------------------------------------
 
 fn storage_js_name(kind: StorageKind) -> &'static str {
-    match kind { StorageKind::Local => "localStorage", StorageKind::Session => "sessionStorage" }
+    match kind {
+        StorageKind::Local => "localStorage",
+        StorageKind::Session => "sessionStorage",
+    }
 }
 
-async fn handle_storage_list(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, tab: TabId, kind: StorageKind) -> ActionResult {
-    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+async fn handle_storage_list(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    kind: StorageKind,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
     let store = storage_js_name(kind);
-    let js = format!(r#"(function() {{ const keys = []; for (let i = 0; i < {store}.length; i++) {{ keys.push({store}.key(i)); }} return keys; }})()"#);
-    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    let js = format!(
+        r#"(function() {{ const keys = []; for (let i = 0; i < {store}.length; i++) {{ keys.push({store}.key(i)); }} return keys; }})()"#
+    );
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
     match backend.exec(op).await {
-        Ok(result) => { let val = extract_eval_value(&result.value); ActionResult::ok(json!({"keys": val, "kind": kind.to_string()})) }
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            ActionResult::ok(json!({"keys": val, "kind": kind.to_string()}))
+        }
         Err(e) => cdp_error_to_result(e),
     }
 }
 
-async fn handle_storage_get(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, tab: TabId, kind: StorageKind, key: &str) -> ActionResult {
-    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+async fn handle_storage_get(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    kind: StorageKind,
+    key: &str,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
     let store = storage_js_name(kind);
-    let key_json = match serde_json::to_string(key) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_key", e.to_string(), "check key") };
+    let key_json = match serde_json::to_string(key) {
+        Ok(s) => s,
+        Err(e) => return ActionResult::fatal("invalid_key", e.to_string(), "check key"),
+    };
     let js = format!("{store}.getItem({key_json})");
-    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
     match backend.exec(op).await {
-        Ok(result) => { let val = extract_eval_value(&result.value); ActionResult::ok(json!({"key": key, "value": val, "kind": kind.to_string()})) }
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            ActionResult::ok(json!({"key": key, "value": val, "kind": kind.to_string()}))
+        }
         Err(e) => cdp_error_to_result(e),
     }
 }
 
-async fn handle_storage_set(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, tab: TabId, kind: StorageKind, key: &str, value: &str) -> ActionResult {
-    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+async fn handle_storage_set(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    kind: StorageKind,
+    key: &str,
+    value: &str,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
     let store = storage_js_name(kind);
-    let key_json = match serde_json::to_string(key) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_key", e.to_string(), "check key") };
-    let value_json = match serde_json::to_string(value) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_value", e.to_string(), "check value") };
+    let key_json = match serde_json::to_string(key) {
+        Ok(s) => s,
+        Err(e) => return ActionResult::fatal("invalid_key", e.to_string(), "check key"),
+    };
+    let value_json = match serde_json::to_string(value) {
+        Ok(s) => s,
+        Err(e) => return ActionResult::fatal("invalid_value", e.to_string(), "check value"),
+    };
     let js = format!("{store}.setItem({key_json}, {value_json})");
-    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
     match backend.exec(op).await {
         Ok(_) => ActionResult::ok(json!({"set": key, "kind": kind.to_string()})),
         Err(e) => cdp_error_to_result(e),
     }
 }
 
-async fn handle_storage_delete(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, tab: TabId, kind: StorageKind, key: &str) -> ActionResult {
-    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+async fn handle_storage_delete(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    kind: StorageKind,
+    key: &str,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
     let store = storage_js_name(kind);
-    let key_json = match serde_json::to_string(key) { Ok(s) => s, Err(e) => return ActionResult::fatal("invalid_key", e.to_string(), "check key") };
+    let key_json = match serde_json::to_string(key) {
+        Ok(s) => s,
+        Err(e) => return ActionResult::fatal("invalid_key", e.to_string(), "check key"),
+    };
     let js = format!("{store}.removeItem({key_json})");
-    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
     match backend.exec(op).await {
         Ok(_) => ActionResult::ok(json!({"deleted": key, "kind": kind.to_string()})),
         Err(e) => cdp_error_to_result(e),
     }
 }
 
-async fn handle_storage_clear(session_id: SessionId, backend: &mut dyn BackendSession, regs: &Registries, tab: TabId, kind: StorageKind) -> ActionResult {
-    let target_id = match resolve_tab(session_id, regs, tab) { Ok(t) => t, Err(r) => return r };
+async fn handle_storage_clear(
+    session_id: SessionId,
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    tab: TabId,
+    kind: StorageKind,
+) -> ActionResult {
+    let target_id = match resolve_tab(session_id, regs, tab) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
     let store = storage_js_name(kind);
     let js = format!("{store}.clear()");
-    let op = BackendOp::Evaluate { target_id: target_id.to_string(), expression: js, return_by_value: true };
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
     match backend.exec(op).await {
         Ok(_) => ActionResult::ok(json!({"cleared": kind.to_string()})),
         Err(e) => cdp_error_to_result(e),
@@ -1630,11 +2001,7 @@ async fn handle_select(
     let selector_json = match serde_json::to_string(selector) {
         Ok(s) => s,
         Err(e) => {
-            return ActionResult::fatal(
-                "invalid_selector",
-                e.to_string(),
-                "check selector syntax",
-            )
+            return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax")
         }
     };
     let value_json = match serde_json::to_string(value) {
@@ -2142,7 +2509,10 @@ async fn handle_wait_navigation(
         if tokio::time::Instant::now() >= deadline {
             return ActionResult::retryable(
                 "navigation_timeout",
-                format!("navigation did not complete within {}ms", timeout.as_millis()),
+                format!(
+                    "navigation did not complete within {}ms",
+                    timeout.as_millis()
+                ),
             );
         }
 
@@ -2278,11 +2648,7 @@ async fn resolve_element_center(
     selector: &str,
 ) -> Result<(f64, f64), ActionResult> {
     let selector_json = serde_json::to_string(selector).map_err(|e| {
-        ActionResult::fatal(
-            "invalid_selector",
-            e.to_string(),
-            "check selector syntax",
-        )
+        ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax")
     })?;
 
     let js = format!(
@@ -2311,26 +2677,20 @@ return {{ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }};
         return Err(element_not_found(selector));
     }
 
-    let x = coords
-        .get("x")
-        .and_then(|v| v.as_f64())
-        .ok_or_else(|| {
-            ActionResult::fatal(
-                "invalid_coordinates",
-                "element returned no x coordinate",
-                "check selector",
-            )
-        })?;
-    let y = coords
-        .get("y")
-        .and_then(|v| v.as_f64())
-        .ok_or_else(|| {
-            ActionResult::fatal(
-                "invalid_coordinates",
-                "element returned no y coordinate",
-                "check selector",
-            )
-        })?;
+    let x = coords.get("x").and_then(|v| v.as_f64()).ok_or_else(|| {
+        ActionResult::fatal(
+            "invalid_coordinates",
+            "element returned no x coordinate",
+            "check selector",
+        )
+    })?;
+    let y = coords.get("y").and_then(|v| v.as_f64()).ok_or_else(|| {
+        ActionResult::fatal(
+            "invalid_coordinates",
+            "element returned no y coordinate",
+            "check selector",
+        )
+    })?;
 
     Ok((x, y))
 }
@@ -2357,11 +2717,7 @@ fn map_key_name(key: &str) -> (&str, &str) {
 }
 
 /// Look up a tab's CDP target_id, or return a Fatal ActionResult.
-fn resolve_tab(
-    session_id: SessionId,
-    regs: &Registries,
-    tab: TabId,
-) -> Result<&str, ActionResult> {
+fn resolve_tab(session_id: SessionId, regs: &Registries, tab: TabId) -> Result<&str, ActionResult> {
     match regs.find_tab(tab) {
         Some(entry) => Ok(&entry.target_id),
         None => Err(ActionResult::fatal(
@@ -2379,11 +2735,7 @@ async fn focus_element(
     selector: &str,
 ) -> Result<(), ActionResult> {
     let selector_json = serde_json::to_string(selector).map_err(|e| {
-        ActionResult::fatal(
-            "invalid_selector",
-            e.to_string(),
-            "check selector syntax",
-        )
+        ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax")
     })?;
 
     let js = format!(
@@ -2440,9 +2792,11 @@ fn cdp_error_to_result(err: ActionbookError) -> ActionResult {
             "backend_disconnected",
             "session may be recovering, retry in a moment",
         ),
-        ActionbookError::CdpError(msg) => {
-            ActionResult::fatal("cdp_error", msg.clone(), "check the CDP command and parameters")
-        }
+        ActionbookError::CdpError(msg) => ActionResult::fatal(
+            "cdp_error",
+            msg.clone(),
+            "check the CDP command and parameters",
+        ),
         _ => ActionResult::fatal("backend_error", err.to_string(), "check browser logs"),
     }
 }
@@ -2564,9 +2918,7 @@ mod tests {
 
         async fn exec(&mut self, op: BackendOp) -> crate::error::Result<OpResult> {
             self.ops.push(op);
-            self.responses
-                .pop_front()
-                .unwrap_or(Ok(OpResult::null()))
+            self.responses.pop_front().unwrap_or(Ok(OpResult::null()))
         }
 
         async fn list_targets(&self) -> crate::error::Result<Vec<TargetInfo>> {
@@ -2712,9 +3064,8 @@ mod tests {
 
     #[tokio::test]
     async fn screenshot_sends_capture() {
-        let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(
-            json!({"data": "base64data"}),
-        ))]);
+        let mut backend =
+            MockBackendSession::new(vec![Ok(OpResult::new(json!({"data": "base64data"})))]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId(0);
 
@@ -2767,9 +3118,15 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(backend.ops().len(), 4);
         assert!(matches!(&backend.ops()[0], BackendOp::Evaluate { .. }));
-        assert!(matches!(&backend.ops()[1], BackendOp::DispatchMouseEvent { event_type, .. } if event_type == "mouseMoved"));
-        assert!(matches!(&backend.ops()[2], BackendOp::DispatchMouseEvent { event_type, .. } if event_type == "mousePressed"));
-        assert!(matches!(&backend.ops()[3], BackendOp::DispatchMouseEvent { event_type, .. } if event_type == "mouseReleased"));
+        assert!(
+            matches!(&backend.ops()[1], BackendOp::DispatchMouseEvent { event_type, .. } if event_type == "mouseMoved")
+        );
+        assert!(
+            matches!(&backend.ops()[2], BackendOp::DispatchMouseEvent { event_type, .. } if event_type == "mousePressed")
+        );
+        assert!(
+            matches!(&backend.ops()[3], BackendOp::DispatchMouseEvent { event_type, .. } if event_type == "mouseReleased")
+        );
     }
 
     #[tokio::test]
@@ -2828,14 +3185,15 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(backend.ops().len(), 5);
         assert!(matches!(&backend.ops()[0], BackendOp::Evaluate { .. }));
-        assert!(matches!(&backend.ops()[1], BackendOp::DispatchKeyEvent { event_type, .. } if event_type == "keyDown"));
+        assert!(
+            matches!(&backend.ops()[1], BackendOp::DispatchKeyEvent { event_type, .. } if event_type == "keyDown")
+        );
     }
 
     #[tokio::test]
     async fn fill_uses_js_value_setter() {
-        let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(
-            json!({"result": {"value": true}}),
-        ))]);
+        let mut backend =
+            MockBackendSession::new(vec![Ok(OpResult::new(json!({"result": {"value": true}})))]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId(0);
 
@@ -2912,9 +3270,8 @@ mod tests {
 
     #[tokio::test]
     async fn new_tab_creates_target_and_registers() {
-        let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(
-            json!({"targetId": "NEW_TARGET_1"}),
-        ))]);
+        let mut backend =
+            MockBackendSession::new(vec![Ok(OpResult::new(json!({"targetId": "NEW_TARGET_1"})))]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId(0);
 
@@ -2963,9 +3320,9 @@ mod tests {
 
     #[tokio::test]
     async fn backend_disconnect_returns_retryable() {
-        let mut backend = MockBackendSession::new(vec![Err(
-            ActionbookError::CdpConnectionFailed("WS closed".into()),
-        )]);
+        let mut backend = MockBackendSession::new(vec![Err(ActionbookError::CdpConnectionFailed(
+            "WS closed".into(),
+        ))]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId(0);
 
@@ -3054,9 +3411,8 @@ mod tests {
 
     #[tokio::test]
     async fn text_with_selector_not_found() {
-        let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(
-            json!({"result": {"value": null}}),
-        ))]);
+        let mut backend =
+            MockBackendSession::new(vec![Ok(OpResult::new(json!({"result": {"value": null}})))]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId(0);
 

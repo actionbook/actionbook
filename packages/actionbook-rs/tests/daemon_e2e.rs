@@ -19,7 +19,7 @@ use tokio::task::JoinHandle;
 use actionbook::daemon::action::Action;
 use actionbook::daemon::action_result::ActionResult;
 use actionbook::daemon::client::DaemonClient;
-use actionbook::daemon::registry::{SessionHandle, SessionState, SessionRegistry};
+use actionbook::daemon::registry::{SessionHandle, SessionRegistry, SessionState};
 use actionbook::daemon::router::Router;
 use actionbook::daemon::server::DaemonServer;
 use actionbook::daemon::session_actor::SessionActor;
@@ -35,7 +35,9 @@ use actionbook::daemon::types::{Mode, SessionId, TabId};
 /// the server's JoinHandle, and the shutdown flag.
 async fn start_test_daemon() -> TestDaemon {
     let dir = tempfile::tempdir().expect("create temp dir");
-    let socket_path = dir.path().join(format!("test-daemon-{}.sock", std::process::id()));
+    let socket_path = dir
+        .path()
+        .join(format!("test-daemon-{}.sock", std::process::id()));
     let pid_path = dir.path().join("test.pid");
 
     let registry = Arc::new(Mutex::new(SessionRegistry::new()));
@@ -274,9 +276,7 @@ struct MockBackendFactory {
 
 impl MockBackendFactory {
     fn new(kind: BackendKind) -> Self {
-        Self {
-            backend_kind: kind,
-        }
+        Self { backend_kind: kind }
     }
 }
 
@@ -306,10 +306,7 @@ impl BrowserBackendFactory for MockBackendFactory {
         Ok(Box::new(MockBackend::new()))
     }
 
-    async fn resume(
-        &self,
-        _cp: Checkpoint,
-    ) -> actionbook::error::Result<Box<dyn BackendSession>> {
+    async fn resume(&self, _cp: Checkpoint) -> actionbook::error::Result<Box<dyn BackendSession>> {
         Ok(Box::new(MockBackend::new()))
     }
 }
@@ -319,7 +316,9 @@ async fn start_test_daemon_with_factories(
     factories: HashMap<Mode, Arc<dyn BrowserBackendFactory>>,
 ) -> TestDaemon {
     let dir = tempfile::tempdir().expect("create temp dir");
-    let socket_path = dir.path().join(format!("test-daemon-{}.sock", std::process::id()));
+    let socket_path = dir
+        .path()
+        .join(format!("test-daemon-{}.sock", std::process::id()));
     let pid_path = dir.path().join("test.pid");
 
     let registry = Arc::new(Mutex::new(SessionRegistry::new()));
@@ -406,13 +405,7 @@ async fn e2e_missing_tab_returns_fatal() {
 async fn e2e_list_tabs_via_router() {
     let (daemon, ids) = start_daemon_with_mock_sessions(&["default"]).await;
 
-    let data = send_ok(
-        &daemon,
-        Action::ListTabs {
-            session: ids[0],
-        },
-    )
-    .await;
+    let data = send_ok(&daemon, Action::ListTabs { session: ids[0] }).await;
 
     let tabs = data["tabs"].as_array().expect("tabs array");
     assert_eq!(tabs.len(), 1, "mock session should have 1 tab");
@@ -447,20 +440,17 @@ async fn e2e_goto_and_snapshot_stub() {
     )
     .await;
     // The mock backend returns {"nodes": [...]}, action_handler passes it through.
-    assert!(data["nodes"].is_array(), "snapshot should contain nodes array, got: {data}");
+    assert!(
+        data["nodes"].is_array(),
+        "snapshot should contain nodes array, got: {data}"
+    );
 }
 
 #[tokio::test]
 async fn e2e_close_session_stub() {
     let (daemon, ids) = start_daemon_with_mock_sessions(&["default"]).await;
 
-    let data = send_ok(
-        &daemon,
-        Action::CloseSession {
-            session: ids[0],
-        },
-    )
-    .await;
+    let data = send_ok(&daemon, Action::CloseSession { session: ids[0] }).await;
     assert_eq!(data["closed"], ids[0].to_string());
 }
 
@@ -483,13 +473,7 @@ async fn e2e_multi_tab_new_and_close() {
     assert!(new_tab.starts_with('t'), "tab id should start with 't'");
 
     // List tabs -- should have 2.
-    let data = send_ok(
-        &daemon,
-        Action::ListTabs {
-            session: ids[0],
-        },
-    )
-    .await;
+    let data = send_ok(&daemon, Action::ListTabs { session: ids[0] }).await;
     let tabs = data["tabs"].as_array().expect("tabs array");
     assert_eq!(tabs.len(), 2, "should have 2 tabs after NewTab");
 
@@ -507,13 +491,7 @@ async fn e2e_multi_tab_new_and_close() {
     assert_eq!(data["closed_tab"], new_tab.as_str());
 
     // List tabs -- should be back to 1.
-    let data = send_ok(
-        &daemon,
-        Action::ListTabs {
-            session: ids[0],
-        },
-    )
-    .await;
+    let data = send_ok(&daemon, Action::ListTabs { session: ids[0] }).await;
     let tabs = data["tabs"].as_array().expect("tabs array");
     assert_eq!(tabs.len(), 1, "should have 1 tab after CloseTab");
 }

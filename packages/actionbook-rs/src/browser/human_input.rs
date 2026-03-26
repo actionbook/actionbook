@@ -74,7 +74,7 @@ pub fn typing_delays(text: &str, fast: bool) -> Vec<(char, u64)> {
 
         // Faster for repeated characters
         if ch == prev_char {
-            delay = delay / 2;
+            delay /= 2;
         }
 
         // Occasional pause (5% chance)

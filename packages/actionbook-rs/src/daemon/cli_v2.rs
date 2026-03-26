@@ -853,15 +853,7 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
         BrowserCmd::Close { session } => Action::CloseSession { session },
 
         // Tab
-        BrowserCmd::Goto {
-            url,
-            session,
-            tab,
-        } => Action::Goto {
-            session,
-            tab,
-            url,
-        },
+        BrowserCmd::Goto { url, session, tab } => Action::Goto { session, tab, url },
         BrowserCmd::Snapshot {
             session,
             tab,
@@ -916,11 +908,7 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             selector: selector.unwrap_or_default(),
             value: text,
         },
-        BrowserCmd::Eval {
-            code,
-            session,
-            tab,
-        } => Action::Eval {
+        BrowserCmd::Eval { code, session, tab } => Action::Eval {
             session,
             tab,
             expression: code,
@@ -928,30 +916,114 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
 
         // Observation
         BrowserCmd::Pdf { path, session, tab } => Action::Pdf {
-            session, tab, path: path.to_string_lossy().to_string(),
+            session,
+            tab,
+            path: path.to_string_lossy().to_string(),
         },
         BrowserCmd::Title { session, tab } => Action::Title { session, tab },
         BrowserCmd::Url { session, tab } => Action::Url { session, tab },
-        BrowserCmd::Value { selector, session, tab } => Action::Value { session, tab, selector },
-        BrowserCmd::Attr { selector, name, session, tab } => Action::Attr { session, tab, selector, name },
-        BrowserCmd::Attrs { selector, session, tab } => Action::Attrs { session, tab, selector },
-        BrowserCmd::Describe { selector, session, tab } => Action::Describe { session, tab, selector },
-        BrowserCmd::State { selector, session, tab } => Action::State { session, tab, selector },
-        BrowserCmd::Box_ { selector, session, tab } => Action::Box_ { session, tab, selector },
-        BrowserCmd::Styles { selector, session, tab } => Action::Styles { session, tab, selector },
-        BrowserCmd::Viewport { session, tab } => Action::Viewport { session, tab },
-        BrowserCmd::Query { selector, session, tab, mode } => Action::Query {
-            session, tab, selector, mode: mode.into(),
+        BrowserCmd::Value {
+            selector,
+            session,
+            tab,
+        } => Action::Value {
+            session,
+            tab,
+            selector,
         },
-        BrowserCmd::InspectPoint { x, y, session, tab } => Action::InspectPoint { session, tab, x, y },
+        BrowserCmd::Attr {
+            selector,
+            name,
+            session,
+            tab,
+        } => Action::Attr {
+            session,
+            tab,
+            selector,
+            name,
+        },
+        BrowserCmd::Attrs {
+            selector,
+            session,
+            tab,
+        } => Action::Attrs {
+            session,
+            tab,
+            selector,
+        },
+        BrowserCmd::Describe {
+            selector,
+            session,
+            tab,
+        } => Action::Describe {
+            session,
+            tab,
+            selector,
+        },
+        BrowserCmd::State {
+            selector,
+            session,
+            tab,
+        } => Action::State {
+            session,
+            tab,
+            selector,
+        },
+        BrowserCmd::Box_ {
+            selector,
+            session,
+            tab,
+        } => Action::Box_ {
+            session,
+            tab,
+            selector,
+        },
+        BrowserCmd::Styles {
+            selector,
+            session,
+            tab,
+        } => Action::Styles {
+            session,
+            tab,
+            selector,
+        },
+        BrowserCmd::Viewport { session, tab } => Action::Viewport { session, tab },
+        BrowserCmd::Query {
+            selector,
+            session,
+            tab,
+            mode,
+        } => Action::Query {
+            session,
+            tab,
+            selector,
+            mode: mode.into(),
+        },
+        BrowserCmd::InspectPoint { x, y, session, tab } => {
+            Action::InspectPoint { session, tab, x, y }
+        }
         BrowserCmd::LogsConsole { session, tab } => Action::LogsConsole { session, tab },
         BrowserCmd::LogsErrors { session, tab } => Action::LogsErrors { session, tab },
 
         // Cookies
         BrowserCmd::CookiesList { session } => Action::CookiesList { session },
         BrowserCmd::CookiesGet { name, session } => Action::CookiesGet { session, name },
-        BrowserCmd::CookiesSet { name, value, session, domain, path, secure, http_only, same_site, expires } => Action::CookiesSet {
-            session, name, value, domain, path,
+        BrowserCmd::CookiesSet {
+            name,
+            value,
+            session,
+            domain,
+            path,
+            secure,
+            http_only,
+            same_site,
+            expires,
+        } => Action::CookiesSet {
+            session,
+            name,
+            value,
+            domain,
+            path,
             secure: if secure { Some(true) } else { None },
             http_only: if http_only { Some(true) } else { None },
             same_site: same_site.map(|s| s.into()),
@@ -961,11 +1033,51 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
         BrowserCmd::CookiesClear { session } => Action::CookiesClear { session },
 
         // Storage
-        BrowserCmd::StorageList { session, tab, kind } => Action::StorageList { session, tab, kind: kind.into() },
-        BrowserCmd::StorageGet { key, session, tab, kind } => Action::StorageGet { session, tab, kind: kind.into(), key },
-        BrowserCmd::StorageSet { key, value, session, tab, kind } => Action::StorageSet { session, tab, kind: kind.into(), key, value },
-        BrowserCmd::StorageDelete { key, session, tab, kind } => Action::StorageDelete { session, tab, kind: kind.into(), key },
-        BrowserCmd::StorageClear { session, tab, kind } => Action::StorageClear { session, tab, kind: kind.into() },
+        BrowserCmd::StorageList { session, tab, kind } => Action::StorageList {
+            session,
+            tab,
+            kind: kind.into(),
+        },
+        BrowserCmd::StorageGet {
+            key,
+            session,
+            tab,
+            kind,
+        } => Action::StorageGet {
+            session,
+            tab,
+            kind: kind.into(),
+            key,
+        },
+        BrowserCmd::StorageSet {
+            key,
+            value,
+            session,
+            tab,
+            kind,
+        } => Action::StorageSet {
+            session,
+            tab,
+            kind: kind.into(),
+            key,
+            value,
+        },
+        BrowserCmd::StorageDelete {
+            key,
+            session,
+            tab,
+            kind,
+        } => Action::StorageDelete {
+            session,
+            tab,
+            kind: kind.into(),
+            key,
+        },
+        BrowserCmd::StorageClear { session, tab, kind } => Action::StorageClear {
+            session,
+            tab,
+            kind: kind.into(),
+        },
 
         // Interaction
         BrowserCmd::Select {
@@ -999,11 +1111,7 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             tab,
             selector,
         },
-        BrowserCmd::Press {
-            key,
-            session,
-            tab,
-        } => Action::Press {
+        BrowserCmd::Press { key, session, tab } => Action::Press {
             session,
             tab,
             key_or_chord: key,
@@ -1043,21 +1151,8 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             amount,
             selector,
         },
-        BrowserCmd::MouseMove {
-            x,
-            y,
-            session,
-            tab,
-        } => Action::MouseMove {
-            session,
-            tab,
-            x,
-            y,
-        },
-        BrowserCmd::CursorPosition { session, tab } => Action::CursorPosition {
-            session,
-            tab,
-        },
+        BrowserCmd::MouseMove { x, y, session, tab } => Action::MouseMove { session, tab, x, y },
+        BrowserCmd::CursorPosition { session, tab } => Action::CursorPosition { session, tab },
 
         // Waiting
         BrowserCmd::WaitNavigation {
@@ -1126,8 +1221,8 @@ pub async fn ensure_daemon_running(socket_path: &Path) -> Result<(), String> {
     info!("daemon not running, auto-starting...");
 
     // Re-exec ourselves with `daemon serve-v2` which runs run_daemon() in foreground.
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("cannot determine own executable: {e}"))?;
+    let exe =
+        std::env::current_exe().map_err(|e| format!("cannot determine own executable: {e}"))?;
 
     let child = std::process::Command::new(&exe)
         .args(["daemon", "serve-v2"])
@@ -1289,9 +1384,7 @@ mod tests {
         .unwrap();
         match action {
             Action::StartSession {
-                mode,
-                cdp_endpoint,
-                ..
+                mode, cdp_endpoint, ..
             } => {
                 assert_eq!(mode, Mode::Cloud);
                 assert_eq!(

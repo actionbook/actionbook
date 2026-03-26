@@ -119,17 +119,11 @@ pub enum BackendEvent {
         reason: String,
     },
     /// A new target (tab) was created.
-    TargetCreated {
-        target_id: String,
-    },
+    TargetCreated { target_id: String },
     /// A target (tab) was destroyed.
-    TargetDestroyed {
-        target_id: String,
-    },
+    TargetDestroyed { target_id: String },
     /// A JavaScript dialog appeared.
-    Dialog {
-        message: String,
-    },
+    Dialog { message: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -227,7 +221,11 @@ mod tests {
 
     #[test]
     fn backend_kind_serde_round_trip() {
-        for kind in [BackendKind::Local, BackendKind::Extension, BackendKind::Cloud] {
+        for kind in [
+            BackendKind::Local,
+            BackendKind::Extension,
+            BackendKind::Cloud,
+        ] {
             let json = serde_json::to_string(&kind).unwrap();
             let decoded: BackendKind = serde_json::from_str(&json).unwrap();
             assert_eq!(kind, decoded);

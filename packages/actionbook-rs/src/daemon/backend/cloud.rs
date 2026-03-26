@@ -24,9 +24,8 @@ use crate::daemon::backend_op::BackendOp;
 use crate::error::{ActionbookError, Result};
 
 /// Type alias for the WebSocket stream used by cloud backend.
-type WsStream = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
+type WsStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// Reconnection configuration for cloud connections.
 struct ReconnectConfig {
@@ -179,18 +178,13 @@ impl BackendSession for CloudBackendSession {
         self.ws
             .send(Message::Text(cmd.to_string().into()))
             .await
-            .map_err(|e| {
-                ActionbookError::CdpConnectionFailed(format!("WSS send failed: {e}"))
-            })?;
+            .map_err(|e| ActionbookError::CdpConnectionFailed(format!("WSS send failed: {e}")))?;
 
-        tokio::time::timeout(
-            Duration::from_secs(30),
-            self.read_response(id),
-        )
-        .await
-        .map_err(|_| {
-            ActionbookError::CdpConnectionFailed("CDP response timeout (30s)".into())
-        })?
+        tokio::time::timeout(Duration::from_secs(30), self.read_response(id))
+            .await
+            .map_err(|_| {
+                ActionbookError::CdpConnectionFailed("CDP response timeout (30s)".into())
+            })?
     }
 
     /// List targets via WSS using Target.getTargets (no HTTP endpoint for cloud).
@@ -207,18 +201,14 @@ impl BackendSession for CloudBackendSession {
         probe_ws
             .send(Message::Text(cmd.to_string().into()))
             .await
-            .map_err(|e| {
-                ActionbookError::CdpConnectionFailed(format!("WSS send failed: {e}"))
-            })?;
+            .map_err(|e| ActionbookError::CdpConnectionFailed(format!("WSS send failed: {e}")))?;
 
         let result = tokio::time::timeout(
             Duration::from_secs(10),
             read_single_response(&mut probe_ws, 1),
         )
         .await
-        .map_err(|_| {
-            ActionbookError::CdpConnectionFailed("Target.getTargets timeout".into())
-        })??;
+        .map_err(|_| ActionbookError::CdpConnectionFailed("Target.getTargets timeout".into()))??;
 
         let _ = probe_ws.close(None).await;
 
@@ -282,9 +272,16 @@ impl BackendSession for CloudBackendSession {
                     });
                 }
 
-                match tokio::time::timeout(Duration::from_secs(5), read_single_response(&mut probe_ws, 1)).await {
+                match tokio::time::timeout(
+                    Duration::from_secs(5),
+                    read_single_response(&mut probe_ws, 1),
+                )
+                .await
+                {
                     Ok(Ok(result)) => {
-                        let version = result.value.get("product")
+                        let version = result
+                            .value
+                            .get("product")
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string());
                         Ok(Health {
@@ -353,27 +350,20 @@ impl CloudBackendSession {
         self.ws
             .send(Message::Text(cmd.to_string().into()))
             .await
-            .map_err(|e| {
-                ActionbookError::CdpConnectionFailed(format!("WSS send failed: {e}"))
-            })?;
+            .map_err(|e| ActionbookError::CdpConnectionFailed(format!("WSS send failed: {e}")))?;
 
-        let result = tokio::time::timeout(
-            Duration::from_secs(10),
-            self.read_response(id),
-        )
-        .await
-        .map_err(|_| {
-            ActionbookError::CdpConnectionFailed("Target.attachToTarget timeout".into())
-        })??;
+        let result = tokio::time::timeout(Duration::from_secs(10), self.read_response(id))
+            .await
+            .map_err(|_| {
+                ActionbookError::CdpConnectionFailed("Target.attachToTarget timeout".into())
+            })??;
 
         let session_id = result
             .value
             .get("sessionId")
             .and_then(|v| v.as_str())
             .ok_or_else(|| {
-                ActionbookError::CdpError(
-                    "Target.attachToTarget response missing sessionId".into(),
-                )
+                ActionbookError::CdpError("Target.attachToTarget response missing sessionId".into())
             })?
             .to_string();
 
@@ -393,25 +383,19 @@ impl CloudBackendSession {
 // ---------------------------------------------------------------------------
 
 /// Build a WSS connection with auth headers.
-async fn connect_wss(
-    ws_url: &str,
-    headers: &HashMap<String, String>,
-) -> Result<WsStream> {
-    let mut request = ws_url.into_client_request().map_err(|e| {
-        ActionbookError::CdpConnectionFailed(format!("Bad WebSocket URL: {e}"))
-    })?;
+async fn connect_wss(ws_url: &str, headers: &HashMap<String, String>) -> Result<WsStream> {
+    let mut request = ws_url
+        .into_client_request()
+        .map_err(|e| ActionbookError::CdpConnectionFailed(format!("Bad WebSocket URL: {e}")))?;
 
     if !headers.is_empty() {
         for (key, value) in headers {
             request.headers_mut().insert(
-                tokio_tungstenite::tungstenite::http::HeaderName::try_from(key.as_str())
-                    .map_err(|e| {
-                        ActionbookError::CdpConnectionFailed(format!("Bad header name: {e}"))
-                    })?,
+                tokio_tungstenite::tungstenite::http::HeaderName::try_from(key.as_str()).map_err(
+                    |e| ActionbookError::CdpConnectionFailed(format!("Bad header name: {e}")),
+                )?,
                 tokio_tungstenite::tungstenite::http::HeaderValue::from_str(value).map_err(
-                    |e| {
-                        ActionbookError::CdpConnectionFailed(format!("Bad header value: {e}"))
-                    },
+                    |e| ActionbookError::CdpConnectionFailed(format!("Bad header value: {e}")),
                 )?,
             );
         }
@@ -420,9 +404,7 @@ async fn connect_wss(
     let (ws, _) = tokio_tungstenite::connect_async(request)
         .await
         .map_err(|e| {
-            ActionbookError::CdpConnectionFailed(format!(
-                "WSS connection to {ws_url} failed: {e}"
-            ))
+            ActionbookError::CdpConnectionFailed(format!("WSS connection to {ws_url} failed: {e}"))
         })?;
 
     Ok(ws)
@@ -458,7 +440,11 @@ async fn connect_wss_and_monitor(
                         "method": "Browser.getVersion",
                         "params": {},
                     });
-                    if probe_ws.send(Message::Text(cmd.to_string().into())).await.is_err() {
+                    if probe_ws
+                        .send(Message::Text(cmd.to_string().into()))
+                        .await
+                        .is_err()
+                    {
                         false
                     } else {
                         tokio::time::timeout(
@@ -523,10 +509,7 @@ async fn connect_wss_with_retry(
 
 /// Attempt reconnection with exponential backoff (1s, 2s, 4s, ..., max 30s).
 /// Returns `true` if a health probe succeeded within the retry window.
-async fn attempt_reconnect_probe(
-    ws_url: &str,
-    headers: &HashMap<String, String>,
-) -> bool {
+async fn attempt_reconnect_probe(ws_url: &str, headers: &HashMap<String, String>) -> bool {
     let config = ReconnectConfig::default();
     let mut delay = config.initial_delay;
 
@@ -578,9 +561,7 @@ async fn read_single_response(ws: &mut WsStream, expected_id: i64) -> Result<OpR
                     Ok(response) => {
                         if response.id == expected_id {
                             if let Some(err) = response.error {
-                                return Err(ActionbookError::CdpError(format!(
-                                    "CDP error: {err}"
-                                )));
+                                return Err(ActionbookError::CdpError(format!("CDP error: {err}")));
                             }
                             return Ok(OpResult::new(
                                 response.result.unwrap_or(serde_json::Value::Null),
@@ -622,10 +603,9 @@ async fn read_single_response(ws: &mut WsStream, expected_id: i64) -> Result<OpR
 /// speak raw CDP, just over different transports.
 fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
     match op {
-        BackendOp::Navigate { target_id: _, url } => (
-            "Page.navigate",
-            serde_json::json!({ "url": url }),
-        ),
+        BackendOp::Navigate { target_id: _, url } => {
+            ("Page.navigate", serde_json::json!({ "url": url }))
+        }
         BackendOp::Evaluate {
             target_id: _,
             expression,
@@ -637,10 +617,7 @@ fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
                 "returnByValue": return_by_value,
             }),
         ),
-        BackendOp::GetDocument { target_id: _ } => (
-            "DOM.getDocument",
-            serde_json::json!({}),
-        ),
+        BackendOp::GetDocument { target_id: _ } => ("DOM.getDocument", serde_json::json!({})),
         BackendOp::QuerySelector {
             target_id: _,
             node_id,
@@ -655,10 +632,7 @@ fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
         BackendOp::GetBoxModel {
             target_id: _,
             node_id,
-        } => (
-            "DOM.getBoxModel",
-            serde_json::json!({ "nodeId": node_id }),
-        ),
+        } => ("DOM.getBoxModel", serde_json::json!({ "nodeId": node_id })),
         BackendOp::DispatchMouseEvent {
             target_id: _,
             event_type,
@@ -699,18 +673,11 @@ fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
             }
             ("Page.captureScreenshot", params)
         }
-        BackendOp::PrintToPdf { target_id: _ } => (
-            "Page.printToPDF",
-            serde_json::json!({}),
-        ),
-        BackendOp::GetAccessibilityTree { target_id: _ } => (
-            "Accessibility.getFullAXTree",
-            serde_json::json!({}),
-        ),
-        BackendOp::GetCookies { target_id: _ } => (
-            "Network.getCookies",
-            serde_json::json!({}),
-        ),
+        BackendOp::PrintToPdf { target_id: _ } => ("Page.printToPDF", serde_json::json!({})),
+        BackendOp::GetAccessibilityTree { target_id: _ } => {
+            ("Accessibility.getFullAXTree", serde_json::json!({}))
+        }
+        BackendOp::GetCookies { target_id: _ } => ("Network.getCookies", serde_json::json!({})),
         BackendOp::SetCookie {
             target_id: _,
             name,
@@ -742,10 +709,7 @@ fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
             }
             ("Network.setCookie", params)
         }
-        BackendOp::GetTargets => (
-            "Target.getTargets",
-            serde_json::json!({}),
-        ),
+        BackendOp::GetTargets => ("Target.getTargets", serde_json::json!({})),
         BackendOp::CreateTarget {
             url,
             window_id: _,
@@ -776,21 +740,14 @@ fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
             }
             ("Network.deleteCookies", params)
         }
-        BackendOp::GetNodeForLocation {
-            target_id: _,
-            x,
-            y,
-        } => (
+        BackendOp::GetNodeForLocation { target_id: _, x, y } => (
             "DOM.getNodeForLocation",
             serde_json::json!({ "x": x, "y": y }),
         ),
         BackendOp::DomFocus {
             target_id: _,
             node_id,
-        } => (
-            "DOM.focus",
-            serde_json::json!({ "nodeId": node_id }),
-        ),
+        } => ("DOM.focus", serde_json::json!({ "nodeId": node_id })),
         BackendOp::SetFileInputFiles {
             target_id: _,
             node_id,
@@ -983,10 +940,7 @@ mod tests {
             request.headers().get("Authorization").unwrap(),
             "Bearer token123"
         );
-        assert_eq!(
-            request.headers().get("X-Session-Id").unwrap(),
-            "sess-abc"
-        );
+        assert_eq!(request.headers().get("X-Session-Id").unwrap(), "sess-abc");
     }
 
     #[test]
@@ -1018,9 +972,10 @@ mod tests {
         let factory = CloudBackendFactory;
         let spec = AttachSpec {
             ws_url: "wss://nonexistent.invalid:9999/browser".into(),
-            headers: Some(HashMap::from([
-                ("Authorization".into(), "Bearer test".into()),
-            ])),
+            headers: Some(HashMap::from([(
+                "Authorization".into(),
+                "Bearer test".into(),
+            )])),
         };
         let result = factory.attach(spec).await;
         assert!(result.is_err());
@@ -1035,9 +990,10 @@ mod tests {
             ws_url: "wss://nonexistent.invalid:9999/browser".into(),
             cdp_port: None,
             user_data_dir: None,
-            headers: Some(HashMap::from([
-                ("Authorization".into(), "Bearer test".into()),
-            ])),
+            headers: Some(HashMap::from([(
+                "Authorization".into(),
+                "Bearer test".into(),
+            )])),
         };
         let result = factory.resume(cp).await;
         assert!(result.is_err());

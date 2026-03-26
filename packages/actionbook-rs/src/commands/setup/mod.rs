@@ -74,7 +74,8 @@ pub async fn run(cli: &Cli, args: SetupArgs<'_>) -> Result<()> {
 
     let browser_flag = args.browser;
 
-    // Steps 2–4: configure → recap → save (with restart loop)
+    // Steps 2–4: configure → recap → save
+    #[allow(clippy::never_loop)]
     let config = loop {
         // Step 2: API Key
         if !cli.json {
@@ -519,7 +520,7 @@ fn print_completion(cli: &Cli, config: &Config, skills_result: &mode::SkillsResu
                 "command": "setup",
                 "status": "complete",
                 "config_path": Config::config_path().display().to_string(),
-                "browser_mode": serde_json::to_value(&config.browser.mode).unwrap_or(serde_json::Value::Null),
+                "browser_mode": serde_json::to_value(config.browser.mode).unwrap_or(serde_json::Value::Null),
                 "browser": config.browser.executable.as_deref().unwrap_or("built-in"),
                 "headless": config.browser.headless,
                 "extension_port": config.browser.extension.port,

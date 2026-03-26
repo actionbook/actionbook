@@ -102,10 +102,9 @@ async fn recv_json_timeout(
     >,
     timeout_ms: u64,
 ) -> Option<serde_json::Value> {
-    match tokio::time::timeout(Duration::from_millis(timeout_ms), recv_json(ws)).await {
-        Ok(val) => Some(val),
-        Err(_) => None,
-    }
+    tokio::time::timeout(Duration::from_millis(timeout_ms), recv_json(ws))
+        .await
+        .ok()
 }
 
 /// Try to read one text message. Returns None on close, error, or stream end.
@@ -133,10 +132,9 @@ async fn try_recv_json_timeout(
     >,
     timeout_ms: u64,
 ) -> Option<serde_json::Value> {
-    match tokio::time::timeout(Duration::from_millis(timeout_ms), try_recv_json(ws)).await {
-        Ok(val) => val,
-        Err(_) => None,
-    }
+    tokio::time::timeout(Duration::from_millis(timeout_ms), try_recv_json(ws))
+        .await
+        .unwrap_or_default()
 }
 
 /// Send the hello handshake as extension and wait for hello_ack.

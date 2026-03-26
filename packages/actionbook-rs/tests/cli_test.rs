@@ -177,7 +177,6 @@ mod sources_command {
     }
 }
 
-
 mod config_command {
     use super::*;
 

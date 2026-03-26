@@ -308,6 +308,7 @@ pub fn parse_ax_tree(
     let mut refs = HashMap::new();
     let mut ref_counter = 0usize;
 
+    #[allow(clippy::too_many_arguments)]
     fn render(
         ax_nodes: &[AxNode],
         children_map: &HashMap<usize, Vec<usize>>,

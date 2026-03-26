@@ -169,21 +169,17 @@ fn strip_html_tags(html: &str) -> String {
                     if SKIP_TAGS.iter().any(|t| *t == tag_lower) {
                         in_skip_block = false;
                     }
-                    if BLOCK_TAGS.iter().any(|t| *t == tag_lower) {
-                        if !last_was_whitespace {
-                            result.push('\n');
-                            last_was_whitespace = true;
-                        }
+                    if BLOCK_TAGS.iter().any(|t| *t == tag_lower) && !last_was_whitespace {
+                        result.push('\n');
+                        last_was_whitespace = true;
                     }
                 } else {
                     if SKIP_TAGS.iter().any(|t| *t == tag_lower) {
                         in_skip_block = true;
                     }
-                    if BLOCK_TAGS.iter().any(|t| *t == tag_lower) {
-                        if !last_was_whitespace {
-                            result.push('\n');
-                            last_was_whitespace = true;
-                        }
+                    if BLOCK_TAGS.iter().any(|t| *t == tag_lower) && !last_was_whitespace {
+                        result.push('\n');
+                        last_was_whitespace = true;
                     }
                 }
                 continue;

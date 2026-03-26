@@ -36,9 +36,7 @@ pub enum BackendOp {
 
     // ---- DOM queries ----
     /// Get the document root node (`DOM.getDocument`).
-    GetDocument {
-        target_id: String,
-    },
+    GetDocument { target_id: String },
 
     /// Query a CSS selector within a node (`DOM.querySelector`).
     QuerySelector {
@@ -48,10 +46,7 @@ pub enum BackendOp {
     },
 
     /// Get the box model (position/size) of a node (`DOM.getBoxModel`).
-    GetBoxModel {
-        target_id: String,
-        node_id: i64,
-    },
+    GetBoxModel { target_id: String, node_id: i64 },
 
     // ---- Input dispatch ----
     /// Dispatch a mouse event (`Input.dispatchMouseEvent`).
@@ -87,20 +82,14 @@ pub enum BackendOp {
     },
 
     /// Print the page to PDF (`Page.printToPDF`).
-    PrintToPdf {
-        target_id: String,
-    },
+    PrintToPdf { target_id: String },
 
     /// Get the accessibility tree (`Accessibility.getFullAXTree`).
-    GetAccessibilityTree {
-        target_id: String,
-    },
+    GetAccessibilityTree { target_id: String },
 
     // ---- Cookies ----
     /// Get all cookies (`Network.getCookies`).
-    GetCookies {
-        target_id: String,
-    },
+    GetCookies { target_id: String },
 
     /// Set a cookie (`Network.setCookie`).
     SetCookie {
@@ -126,18 +115,11 @@ pub enum BackendOp {
     },
 
     /// Get the DOM node at a specific page coordinate (`DOM.getNodeForLocation`).
-    GetNodeForLocation {
-        target_id: String,
-        x: i64,
-        y: i64,
-    },
+    GetNodeForLocation { target_id: String, x: i64, y: i64 },
 
     // ---- DOM manipulation ----
     /// Focus a DOM node (`DOM.focus`).
-    DomFocus {
-        target_id: String,
-        node_id: i64,
-    },
+    DomFocus { target_id: String, node_id: i64 },
 
     /// Set files on a file input element (`DOM.setFileInputFiles`).
     SetFileInputFiles {
@@ -160,9 +142,7 @@ pub enum BackendOp {
     },
 
     /// Close a target (`Target.closeTarget`).
-    CloseTarget {
-        target_id: String,
-    },
+    CloseTarget { target_id: String },
 }
 
 impl BackendOp {
@@ -267,10 +247,7 @@ mod tests {
         };
         match op {
             BackendOp::DispatchMouseEvent {
-                x,
-                y,
-                click_count,
-                ..
+                x, y, click_count, ..
             } => {
                 assert!((x - 150.0).abs() < f64::EPSILON);
                 assert!((y - 300.0).abs() < f64::EPSILON);

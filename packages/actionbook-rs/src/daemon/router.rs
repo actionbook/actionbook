@@ -314,7 +314,10 @@ impl Router {
         };
         registry.register(session_id, handle);
 
-        info!("started session {session_id} ({mode}) with {} tab(s)", tab_ids.len());
+        info!(
+            "started session {session_id} ({mode}) with {} tab(s)",
+            tab_ids.len()
+        );
 
         // Save state after session creation.
         self.trigger_save(&registry);
@@ -657,17 +660,11 @@ mod tests {
             Ok(Box::new(MockBackend))
         }
 
-        async fn attach(
-            &self,
-            _spec: AttachSpec,
-        ) -> crate::error::Result<Box<dyn BackendSession>> {
+        async fn attach(&self, _spec: AttachSpec) -> crate::error::Result<Box<dyn BackendSession>> {
             Ok(Box::new(MockBackend))
         }
 
-        async fn resume(
-            &self,
-            _cp: Checkpoint,
-        ) -> crate::error::Result<Box<dyn BackendSession>> {
+        async fn resume(&self, _cp: Checkpoint) -> crate::error::Result<Box<dyn BackendSession>> {
             Ok(Box::new(MockBackend))
         }
     }
