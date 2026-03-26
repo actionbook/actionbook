@@ -130,7 +130,6 @@ jobs:
 
   unit-tests-macos:
     name: Unit Tests (macOS)
-    if: github.event_name == 'push'
     runs-on: macos-latest
     timeout-minutes: 15
 
@@ -162,7 +161,6 @@ jobs:
 
   e2e-tests:
     name: E2E Tests
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
