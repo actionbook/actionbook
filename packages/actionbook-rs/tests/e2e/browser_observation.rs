@@ -53,6 +53,24 @@ fn obs_snapshot_has_content() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     let out = headless_json(&["browser", "snapshot", "-s", "s0", "-t", "t0"], 30);
     assert_success(&out, "snapshot");
     let output = stdout_str(&out);
@@ -90,6 +108,24 @@ fn obs_snapshot_interactive() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     let out = headless_json(
         &[
@@ -142,6 +178,24 @@ fn obs_snapshot_s1t2_different() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     // Open example.org in a new tab (t1)
     let out = headless(&["browser", "open", "https://example.org", "-s", "s0"], 30);
     assert_success(&out, "open t1");
@@ -193,6 +247,24 @@ fn obs_snapshot_seq_reflects_goto() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     // Snapshot after landing on example.com — extract only the snapshot
     // content to avoid false-negatives from envelope metadata differences.
@@ -257,6 +329,24 @@ fn obs_screenshot_file() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     let tmp = tempfile::Builder::new()
         .suffix(".png")
         .tempfile()
@@ -310,6 +400,24 @@ fn obs_pdf_produces_file() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     let tmp = tempfile::Builder::new()
         .suffix(".pdf")
         .tempfile()
@@ -355,6 +463,24 @@ fn obs_title() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     let out = headless(&["browser", "title", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "title");
     let title = stdout_str(&out);
@@ -393,6 +519,24 @@ fn obs_url() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     let out = headless(&["browser", "url", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "url");
     let url = stdout_str(&out);
@@ -430,6 +574,24 @@ fn obs_viewport() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     let out = headless(&["browser", "viewport", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "viewport");
@@ -470,6 +632,24 @@ fn obs_eval_arithmetic() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     let out = headless(&["browser", "eval", "1+1", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "eval 1+1");
     assert!(
@@ -506,6 +686,24 @@ fn obs_eval_dom() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     let out = headless(
         &["browser", "eval", "document.title", "-s", "s0", "-t", "t0"],
@@ -547,6 +745,24 @@ fn obs_html_element() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     let out = headless(&["browser", "html", "body", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "html body");
     let html = stdout_str(&out);
@@ -584,6 +800,24 @@ fn obs_text_element() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     let out = headless(&["browser", "text", "body", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "text body");
@@ -623,6 +857,24 @@ fn obs_value_input() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     // Inject an input element into the page
     let out = headless(
@@ -696,6 +948,24 @@ fn obs_attr_single() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     // example.com has an <a> element with href
     let out = headless(
         &["browser", "attr", "a", "href", "-s", "s0", "-t", "t0"],
@@ -737,6 +1007,24 @@ fn obs_attrs_all() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     // Inject an input with known attributes
     let out = headless(
@@ -794,6 +1082,24 @@ fn obs_box_position() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     let out = headless(&["browser", "box", "body", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "box body");
     let box_output = stdout_str(&out);
@@ -833,6 +1139,24 @@ fn obs_styles_computed() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     let out = headless(&["browser", "styles", "body", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "styles body");
     let styles = stdout_str(&out);
@@ -870,6 +1194,24 @@ fn obs_describe_element() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     // example.com has a link; describe it
     let out = headless(&["browser", "describe", "a", "-s", "s0", "-t", "t0"], 10);
@@ -910,6 +1252,24 @@ fn obs_state_element() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     // Use the link element on example.com for state query
     let out = headless(&["browser", "state", "a", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "state a");
@@ -948,6 +1308,24 @@ fn obs_inspect_point() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     let out = headless(
         &[
@@ -1005,6 +1383,24 @@ fn obs_query_one() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     let out = headless(
         &["browser", "query", "one", "body", "-s", "s0", "-t", "t0"],
         10,
@@ -1047,6 +1443,24 @@ fn obs_query_all() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     let out = headless(
         &["browser", "query", "all", "div", "-s", "s0", "-t", "t0"],
         10,
@@ -1088,6 +1502,24 @@ fn obs_query_count() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     let out = headless(
         &["browser", "query", "count", "div", "-s", "s0", "-t", "t0"],
@@ -1202,6 +1634,24 @@ fn obs_console_logs() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     // Emit a console.log message
     let out = headless(
         &[
@@ -1218,7 +1668,7 @@ fn obs_console_logs() {
     assert_success(&out, "eval console.log");
 
     // Brief delay to let the browser process the console message
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    std::thread::sleep(std::time::Duration::from_millis(1000));
 
     // Retrieve console logs
     let out = headless(&["browser", "logs-console", "-s", "s0", "-t", "t0"], 10);
@@ -1259,6 +1709,24 @@ fn obs_error_logs() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     // Emit a console.error message
     let out = headless(
         &[
@@ -1275,7 +1743,7 @@ fn obs_error_logs() {
     assert_success(&out, "eval console.error");
 
     // Brief delay to let the browser process the console message
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    std::thread::sleep(std::time::Duration::from_millis(1000));
 
     // Retrieve error logs
     let out = headless(&["browser", "logs-errors", "-s", "s0", "-t", "t0"], 10);
