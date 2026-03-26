@@ -30,6 +30,24 @@ fn nav_goto_and_verify_url() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     // Navigate to example.org
     let out = headless(
         &[
@@ -93,6 +111,24 @@ fn nav_goto_seq_two_urls() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     // Navigate to first URL
     let out = headless(
@@ -192,6 +228,24 @@ fn nav_goto_s1t2_cross_tab() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     // Open example.org in a new tab (t1)
     let out = headless(&["browser", "open", "https://example.org", "-s", "s0"], 30);
     assert_success(&out, "open t1");
@@ -279,6 +333,24 @@ fn nav_back_forward() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     // Navigate to url_a
     let out = headless(
@@ -383,6 +455,24 @@ fn nav_reload() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     // Navigate to a page
     let out = headless(

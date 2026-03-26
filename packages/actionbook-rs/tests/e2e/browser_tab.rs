@@ -123,6 +123,39 @@ fn tab_switch_changes_active() {
     let out = headless(&["browser", "open", "https://example.org", "-s", "s0"], 30);
     assert_success(&out, "open second tab");
 
+    // Explicitly navigate t1 to example.org (Chrome may open internal URLs)
+    let out = headless(
+        &[
+            "browser",
+            "goto",
+            "https://example.org",
+            "-s",
+            "s0",
+            "-t",
+            "t1",
+        ],
+        30,
+    );
+    assert_success(&out, "goto example.org on t1");
+
+    // Wait for t1 to finish loading
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t1",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for t1 load");
+
     // Eval on t0 — should be example.com
     let out = headless(
         &[

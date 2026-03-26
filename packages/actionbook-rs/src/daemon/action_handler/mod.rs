@@ -1023,9 +1023,16 @@ mod tests {
 
     #[tokio::test]
     async fn eval_returns_value() {
-        let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(
-            json!({"result": {"type": "string", "value": "Example Title"}}),
-        ))]);
+        let mut backend = MockBackendSession::new(vec![
+            // First call: log capture initialization
+            Ok(OpResult::new(
+                json!({"result": {"type": "boolean", "value": true}}),
+            )),
+            // Second call: actual eval
+            Ok(OpResult::new(
+                json!({"result": {"type": "string", "value": "Example Title"}}),
+            )),
+        ]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId(0);
 

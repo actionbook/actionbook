@@ -31,6 +31,24 @@ fn int_click_element() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     // Inject a button that sets a flag when clicked
     let out = headless(
         &[
@@ -101,6 +119,24 @@ fn int_click_s1t2_isolation() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     // Open second tab (t1)
     let out = headless(&["browser", "open", "https://example.com", "-s", "s0"], 30);
@@ -188,6 +224,24 @@ fn int_click_seq() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     // Inject two buttons
     let out = headless(
@@ -283,6 +337,24 @@ fn int_fill_input() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     // Inject an input element
     let out = headless(
         &[
@@ -354,9 +426,45 @@ fn int_fill_s1t2_isolation() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     // Open second tab (t1)
     let out = headless(&["browser", "open", "https://example.com", "-s", "s0"], 30);
     assert_success(&out, "open t1");
+
+    // Wait for t1 to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t1",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for t1 load");
 
     // Inject input on t0
     let out = headless(
@@ -453,6 +561,24 @@ fn int_fill_seq() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     // Inject two inputs
     let out = headless(
@@ -552,6 +678,24 @@ fn int_type_text() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     // Inject an input
     let out = headless(
         &[
@@ -573,7 +717,7 @@ fn int_type_text() {
 
     // Type text into the input
     let out = headless(
-        &["browser", "type", "#test", "world", "-s", "s0", "-t", "t0"],
+        &["browser", "type", "world", "#test", "-s", "s0", "-t", "t0"],
         30,
     );
     assert_success(&out, "type world");
@@ -627,6 +771,24 @@ fn int_select_dropdown() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     // Inject a select element with options
     let out = headless(
         &[
@@ -646,7 +808,17 @@ fn int_select_dropdown() {
 
     // Select opt2
     let out = headless(
-        &["browser", "select", "#sel", "opt2", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "select",
+            "opt2",
+            "--selector",
+            "#sel",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "select opt2");
@@ -700,6 +872,24 @@ fn int_hover() {
     );
     assert_success(&out, "start");
 
+    // Wait for page load so the DOM is accessible
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     let out = headless(&["browser", "hover", "body", "-s", "s0", "-t", "t0"], 30);
     assert_success(&out, "hover body");
 
@@ -731,6 +921,24 @@ fn int_focus() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     // Inject an input
     let out = headless(
@@ -803,6 +1011,24 @@ fn int_press_key() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     let out = headless(&["browser", "press", "Enter", "-s", "s0", "-t", "t0"], 30);
     assert_success(&out, "press Enter");
 
@@ -834,6 +1060,24 @@ fn int_drag() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     let out = headless(
         &["browser", "drag", "body", "body", "-s", "s0", "-t", "t0"],
@@ -881,6 +1125,24 @@ fn int_upload() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     // Inject a file input element
     let out = headless(
         &[
@@ -896,13 +1158,14 @@ fn int_upload() {
     );
     assert_success(&out, "inject file input");
 
-    // Upload file (upload takes selector then file paths as positional args)
+    // Upload file (files are positional, selector is a named --selector flag)
     let out = headless(
         &[
             "browser",
             "upload",
-            "#file-upload",
             &file_path,
+            "--selector",
+            "#file-upload",
             "-s",
             "s0",
             "-t",
@@ -941,6 +1204,24 @@ fn int_mouse_move() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     let out = headless(
         &["browser", "mouse-move", "200,300", "-s", "s0", "-t", "t0"],
         30,
@@ -975,6 +1256,24 @@ fn int_cursor_position() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     let out = headless(&["browser", "cursor-position", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "cursor-position");
@@ -1014,6 +1313,24 @@ fn int_scroll_down() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     // Inject tall content to make the page scrollable
     let out = headless(
@@ -1085,6 +1402,24 @@ fn int_scroll_top() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     // Inject tall content to make the page scrollable
     let out = headless(
@@ -1180,6 +1515,24 @@ fn int_scroll_into_view() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     let out = headless(
         &[

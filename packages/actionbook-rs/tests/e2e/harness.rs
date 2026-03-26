@@ -114,11 +114,11 @@ impl Drop for SessionGuard {
 
 /// Close all active sessions so the next test starts with a clean slate.
 ///
-/// Reads `list-sessions` output to find active session IDs, then closes
-/// each one.  Retries once after a short delay to handle races where a
-/// session close is still propagating through the daemon.
+/// Strategy: attempt graceful close twice with a short delay.  If sessions
+/// still persist (e.g. after a panic left the browser hung), stop the
+/// daemon entirely — it will auto-restart on the next CLI command.
 pub fn ensure_no_sessions() {
-    for attempt in 0..2 {
+    for attempt in 0..3 {
         if attempt > 0 {
             std::thread::sleep(Duration::from_millis(500));
         }
@@ -132,37 +132,38 @@ pub fn ensure_no_sessions() {
             Err(_) => return,
         };
         let sessions = parsed
-            .get("sessions")
+            .get("data")
+            .and_then(|data| data.get("sessions"))
+            .or_else(|| parsed.get("sessions"))
             .and_then(|s| s.as_array())
             .cloned()
             .unwrap_or_default();
         if sessions.is_empty() {
             return;
         }
-        for s in &sessions {
-            if let Some(id) = s.get("id").and_then(|v| v.as_str()) {
-                let _ = headless(&["browser", "close", "-s", id], 10);
+        if attempt < 2 {
+            // Graceful close
+            for s in &sessions {
+                if let Some(id) = s.get("id").and_then(|v| v.as_str()) {
+                    let _ = headless(&["browser", "close", "-s", id], 10);
+                }
             }
+        } else {
+            // Last resort: kill the daemon so all sessions are destroyed.
+            // The daemon auto-restarts on the next CLI command.
+            let _ = headless(&["daemon", "stop"], 10);
+            std::thread::sleep(Duration::from_secs(1));
         }
     }
 }
 
 // ── Trusted HTML helpers ────────────────────────────────────────────
 
-/// JS snippet that registers a `default` TrustedTypes policy (idempotent).
-///
-/// Chrome 146+ enforces Trusted Types and only allows creating a policy
-/// named `'default'`.  A default policy is special: it is automatically
-/// invoked for any bare innerHTML assignment, so once registered all
-/// subsequent `el.innerHTML = str` calls go through it transparently.
-const ENSURE_DEFAULT_POLICY_JS: &str =
-    "if(window.trustedTypes&&trustedTypes.createPolicy&&!trustedTypes.defaultPolicy){trustedTypes.createPolicy('default',{createHTML:function(s){return s}})}";
-
-/// Generate JS that sets `document.body.innerHTML`, compatible with
+/// Generate JS that sets `document.body` content, compatible with
 /// Chrome 146+ Trusted Types enforcement.
 ///
-/// Registers a `default` TrustedTypes policy (if needed) so that the
-/// plain innerHTML assignment is accepted by the browser.
+/// Uses `<template>` element whose `innerHTML` is exempt from
+/// TrustedTypes — no policy creation needed.
 #[allow(dead_code)]
 pub fn set_body_html_js(html: &str) -> String {
     let escaped = html
@@ -171,13 +172,16 @@ pub fn set_body_html_js(html: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r");
     format!(
-        "(function(){{ {ENSURE_DEFAULT_POLICY_JS}; document.body.innerHTML='{}'; }})()",
+        "(function(){{ document.body.textContent=''; var t=document.createElement('template'); t.innerHTML='{}'; document.body.append(t.content); }})()",
         escaped
     )
 }
 
-/// Generate JS that appends to `document.body.innerHTML`, compatible
+/// Generate JS that appends HTML to `document.body`, compatible
 /// with Chrome 146+ Trusted Types enforcement.
+///
+/// Uses `<template>` element whose `innerHTML` is exempt from
+/// TrustedTypes — no policy creation needed.
 #[allow(dead_code)]
 pub fn append_body_html_js(html: &str) -> String {
     let escaped = html
@@ -186,7 +190,7 @@ pub fn append_body_html_js(html: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r");
     format!(
-        "(function(){{ {ENSURE_DEFAULT_POLICY_JS}; var el=document.createElement('div'); el.innerHTML='{}'; while(el.firstChild){{ document.body.appendChild(el.firstChild); }} }})()",
+        "(function(){{ var t=document.createElement('template'); t.innerHTML='{}'; document.body.append(t.content); }})()",
         escaped
     )
 }

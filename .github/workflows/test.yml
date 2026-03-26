@@ -311,7 +311,7 @@ jobs:
           RUN_E2E_TESTS: "true"
         run: |
           set -o pipefail
-          cargo nextest run --test e2e --test-threads=1 --profile ci 2>&1 | tee e2e-test-output.txt
+          cargo nextest run --test e2e -j 1 --profile ci 2>&1 | tee e2e-test-output.txt
 
       - name: Test summary
         if: always()

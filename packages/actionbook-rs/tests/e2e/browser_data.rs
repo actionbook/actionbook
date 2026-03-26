@@ -33,6 +33,24 @@ fn cookies_set_get_delete() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     // Set cookie
     let out = headless_json(
         &["browser", "cookies", "set", "test", "val", "-s", "s0"],
@@ -88,6 +106,24 @@ fn cookies_list_and_clear() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     // Set a cookie
     let out = headless(
@@ -196,6 +232,24 @@ fn cookies_s1t2_shared() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     // Create a second tab by opening a URL on s0
     let out = headless(&["browser", "open", "https://example.com", "-s", "s0"], 30);
     assert_success(&out, "create second tab");
@@ -267,6 +321,24 @@ fn storage_local_set_get() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     // Set local storage key
     let out = headless(
         &[
@@ -331,6 +403,24 @@ fn storage_local_list_delete_clear() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     // Set a key
     let out = headless(
@@ -463,6 +553,24 @@ fn storage_session_roundtrip() {
     );
     assert_success(&out, "start");
 
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
+
     // Set session storage key
     let out = headless(
         &[
@@ -527,6 +635,24 @@ fn storage_session_list_delete_clear() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     // Set a session storage key
     let out = headless(
@@ -658,6 +784,24 @@ fn storage_s1t2_isolation() {
         30,
     );
     assert_success(&out, "start");
+
+    // Wait for page to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for page load");
 
     // Create a second tab by opening a URL on s0
     let out = headless(&["browser", "open", "https://example.com", "-s", "s0"], 30);
