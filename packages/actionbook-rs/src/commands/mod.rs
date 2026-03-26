@@ -15,6 +15,7 @@ use crate::config::Config;
 /// Determine the effective profile name from CLI flags and config.
 ///
 /// Priority: CLI --profile > config default_profile > "actionbook"
+#[allow(dead_code)]
 pub(crate) fn effective_profile_name<'a>(cli: &'a Cli, config: &'a Config) -> &'a str {
     cli.profile
         .as_deref()

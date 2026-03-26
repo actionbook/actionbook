@@ -235,9 +235,12 @@ pub async fn handle_action(
         Action::Box_ { tab, selector, .. } => {
             observation::handle_box(session_id, backend, regs, tab, &selector).await
         }
-        Action::Styles { tab, selector, .. } => {
-            observation::handle_styles(session_id, backend, regs, tab, &selector).await
-        }
+        Action::Styles {
+            tab,
+            selector,
+            names,
+            ..
+        } => observation::handle_styles(session_id, backend, regs, tab, &selector, &names).await,
         Action::Viewport { tab, .. } => {
             observation::handle_viewport(session_id, backend, regs, tab).await
         }
@@ -264,11 +267,45 @@ pub async fn handle_action(
         Action::InspectPoint { tab, x, y, .. } => {
             observation::handle_inspect_point(session_id, backend, regs, tab, x, y).await
         }
-        Action::LogsConsole { tab, .. } => {
-            observation::handle_logs_console(session_id, backend, regs, tab).await
+        Action::LogsConsole {
+            tab,
+            level,
+            tail,
+            since,
+            clear,
+            ..
+        } => {
+            observation::handle_logs_console(
+                session_id,
+                backend,
+                regs,
+                tab,
+                level.as_deref(),
+                tail,
+                since.as_deref(),
+                clear,
+            )
+            .await
         }
-        Action::LogsErrors { tab, .. } => {
-            observation::handle_logs_errors(session_id, backend, regs, tab).await
+        Action::LogsErrors {
+            tab,
+            source,
+            tail,
+            since,
+            clear,
+            ..
+        } => {
+            observation::handle_logs_errors(
+                session_id,
+                backend,
+                regs,
+                tab,
+                source.as_deref(),
+                tail,
+                since.as_deref(),
+                clear,
+            )
+            .await
         }
 
         // -- Data commands (session-level cookies) --

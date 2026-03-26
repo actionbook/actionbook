@@ -847,6 +847,7 @@ pub(super) async fn handle_styles(
     regs: &Registries,
     tab: TabId,
     selector: &str,
+    names: &[String],
 ) -> ActionResult {
     let target_id = match resolve_tab(session_id, regs, tab) {
         Ok(t) => t,
@@ -859,13 +860,20 @@ pub(super) async fn handle_styles(
         }
     };
 
+    // If names are specified, only retrieve those; otherwise use default set.
+    let props_js = if names.is_empty() {
+        "['display','visibility','opacity','color','backgroundColor','fontSize','fontWeight','fontFamily','margin','padding','border','position','zIndex','overflow','cursor','width','height']".to_string()
+    } else {
+        serde_json::to_string(names).unwrap_or_else(|_| "[]".to_string())
+    };
+
     let js = format!(
         r#"(function() {{
 {FIND_ELEMENT_JS}
 const el = __findElement({selector_json});
 if (!el) return null;
 const cs = window.getComputedStyle(el);
-const props = ['display','visibility','opacity','color','backgroundColor','fontSize','fontWeight','fontFamily','margin','padding','border','position','zIndex','overflow','cursor','width','height'];
+const props = {props_js};
 const result = {{}};
 for (const p of props) {{ result[p] = cs.getPropertyValue(p.replace(/([A-Z])/g, '-$1').toLowerCase()); }}
 return result;
@@ -952,11 +960,16 @@ pub(super) async fn handle_inspect_point(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn handle_logs_console(
     session_id: SessionId,
     backend: &mut dyn BackendSession,
     regs: &Registries,
     tab: TabId,
+    level: Option<&str>,
+    tail: Option<u32>,
+    since: Option<&str>,
+    clear: bool,
 ) -> ActionResult {
     let target_id = match resolve_tab(session_id, regs, tab) {
         Ok(t) => t,
@@ -967,11 +980,37 @@ pub(super) async fn handle_logs_console(
         return result;
     }
 
-    let js = r#"(function() { if (!window.__ab_console_logs) { return []; } const logs = window.__ab_console_logs.slice(-200); window.__ab_console_logs = []; return logs; })()"#;
+    let limit = tail.unwrap_or(200);
+    let clear_after = clear;
+
+    // Build JS to retrieve (and optionally filter) logs
+    let level_filter = match level {
+        Some(lvl) => format!(
+            ".filter(l => l.level === {lvl_json})",
+            lvl_json = serde_json::to_string(lvl).unwrap_or_else(|_| format!("\"{lvl}\""))
+        ),
+        None => String::new(),
+    };
+    let since_filter = match since {
+        Some(ts) => format!(
+            ".filter(l => l.timestamp >= {ts_json})",
+            ts_json = serde_json::to_string(ts).unwrap_or_else(|_| format!("\"{ts}\""))
+        ),
+        None => String::new(),
+    };
+    let clear_stmt = if clear_after {
+        "window.__ab_console_logs = [];"
+    } else {
+        ""
+    };
+
+    let js = format!(
+        r#"(function() {{ if (!window.__ab_console_logs) {{ return []; }} const logs = window.__ab_console_logs{level_filter}{since_filter}.slice(-{limit}); {clear_stmt} return logs; }})()"#
+    );
 
     let op = BackendOp::Evaluate {
         target_id: target_id.to_string(),
-        expression: js.to_string(),
+        expression: js,
         return_by_value: true,
     };
     match backend.exec(op).await {
@@ -983,11 +1022,16 @@ pub(super) async fn handle_logs_console(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn handle_logs_errors(
     session_id: SessionId,
     backend: &mut dyn BackendSession,
     regs: &Registries,
     tab: TabId,
+    source: Option<&str>,
+    tail: Option<u32>,
+    since: Option<&str>,
+    clear: bool,
 ) -> ActionResult {
     let target_id = match resolve_tab(session_id, regs, tab) {
         Ok(t) => t,
@@ -998,11 +1042,36 @@ pub(super) async fn handle_logs_errors(
         return result;
     }
 
-    let js = r#"(function() { if (!window.__ab_error_logs) { return []; } const errors = window.__ab_error_logs.slice(-200); window.__ab_error_logs = []; return errors; })()"#;
+    let limit = tail.unwrap_or(200);
+    let clear_after = clear;
+
+    let source_filter = match source {
+        Some(src) => format!(
+            ".filter(e => e.source === {src_json})",
+            src_json = serde_json::to_string(src).unwrap_or_else(|_| format!("\"{src}\""))
+        ),
+        None => String::new(),
+    };
+    let since_filter = match since {
+        Some(ts) => format!(
+            ".filter(e => e.timestamp >= {ts_json})",
+            ts_json = serde_json::to_string(ts).unwrap_or_else(|_| format!("\"{ts}\""))
+        ),
+        None => String::new(),
+    };
+    let clear_stmt = if clear_after {
+        "window.__ab_error_logs = [];"
+    } else {
+        ""
+    };
+
+    let js = format!(
+        r#"(function() {{ if (!window.__ab_error_logs) {{ return []; }} const errors = window.__ab_error_logs{source_filter}{since_filter}.slice(-{limit}); {clear_stmt} return errors; }})()"#
+    );
 
     let op = BackendOp::Evaluate {
         target_id: target_id.to_string(),
-        expression: js.to_string(),
+        expression: js,
         return_by_value: true,
     };
     match backend.exec(op).await {

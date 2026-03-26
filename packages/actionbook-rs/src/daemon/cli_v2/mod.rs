@@ -460,7 +460,12 @@ enum BrowserCmd {
         parent_depth: Option<u32>,
     },
 
-    /// Get console log messages
+    /// Capture browser logs (console or errors)
+    #[command(subcommand)]
+    Logs(LogsCmd),
+
+    /// Get console log messages (legacy flat form)
+    #[command(hide = true, name = "logs-console")]
     LogsConsole {
         /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
@@ -480,9 +485,13 @@ enum BrowserCmd {
         /// Clear the log buffer after reading
         #[arg(long)]
         clear: bool,
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
     },
 
-    /// Get error log messages
+    /// Get error log messages (legacy flat form)
+    #[command(hide = true, name = "logs-errors")]
     LogsErrors {
         /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
@@ -502,6 +511,9 @@ enum BrowserCmd {
         /// Clear the error buffer after reading
         #[arg(long)]
         clear: bool,
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
     },
 
     // =======================================================================
@@ -649,6 +661,50 @@ enum BrowserCmd {
         /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
+    },
+}
+
+// ---------------------------------------------------------------------------
+// LogsCmd subcommand
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum LogsCmd {
+    /// Capture browser console logs
+    Console {
+        #[arg(short = 's', long)]
+        session: String,
+        #[arg(short = 't', long)]
+        tab: String,
+        #[arg(long)]
+        level: Option<String>,
+        #[arg(long)]
+        tail: Option<u32>,
+        #[arg(long)]
+        since: Option<u64>,
+        #[arg(long)]
+        clear: bool,
+        #[arg(long)]
+        source: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Capture browser error logs
+    Errors {
+        #[arg(short = 's', long)]
+        session: String,
+        #[arg(short = 't', long)]
+        tab: String,
+        #[arg(long)]
+        source: Option<String>,
+        #[arg(long)]
+        tail: Option<u32>,
+        #[arg(long)]
+        since: Option<u64>,
+        #[arg(long)]
+        clear: bool,
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -968,6 +1024,56 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
                 parent_depth,
             }
         }
+        BrowserCmd::Logs(logs_cmd) => match logs_cmd {
+            LogsCmd::Console {
+                session,
+                tab,
+                level,
+                tail,
+                since,
+                clear,
+                ..
+            } => {
+                let session = session
+                    .parse::<SessionId>()
+                    .map_err(|e| format!("invalid session id: {e}"))?;
+                let tab = tab
+                    .parse::<TabId>()
+                    .map_err(|e| format!("invalid tab id: {e}"))?;
+                Action::LogsConsole {
+                    session,
+                    tab,
+                    level,
+                    tail,
+                    since: since.map(|n| n.to_string()),
+                    clear,
+                }
+            }
+            LogsCmd::Errors {
+                session,
+                tab,
+                source,
+                tail,
+                since,
+                clear,
+                ..
+            } => {
+                let session = session
+                    .parse::<SessionId>()
+                    .map_err(|e| format!("invalid session id: {e}"))?;
+                let tab = tab
+                    .parse::<TabId>()
+                    .map_err(|e| format!("invalid tab id: {e}"))?;
+                Action::LogsErrors {
+                    session,
+                    tab,
+                    source,
+                    tail,
+                    since: since.map(|n| n.to_string()),
+                    clear,
+                }
+            }
+        },
         BrowserCmd::LogsConsole {
             session,
             tab,
@@ -975,6 +1081,7 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             tail,
             since,
             clear,
+            ..
         } => Action::LogsConsole {
             session,
             tab,
@@ -990,6 +1097,7 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             tail,
             since,
             clear,
+            ..
         } => Action::LogsErrors {
             session,
             tab,
@@ -1977,6 +2085,7 @@ mod tests {
             tail: None,
             since: None,
             clear: false,
+            json: false,
         })
         .unwrap();
         assert!(matches!(
@@ -1995,6 +2104,7 @@ mod tests {
             tail: None,
             since: None,
             clear: false,
+            json: false,
         })
         .unwrap();
         assert!(matches!(action, Action::LogsErrors { tab: TabId(3), .. }));

@@ -1054,121 +1054,99 @@ fn observation_context(action: &Action, _result: &ActionResult) -> Option<Value>
 fn normalize_observation_data(action: &Action, data: &Value) -> Value {
     match action {
         Action::Snapshot { .. } => {
-            // Handler returns accessibility tree data (string or object)
-            if data.is_string() {
-                serde_json::json!({
-                    "format": "snapshot",
-                    "content": data,
-                    "nodes": null,
-                    "stats": {
-                        "node_count": null,
-                        "interactive_count": null
-                    }
-                })
-            } else {
-                // Already structured — pass through but ensure format field
-                let mut obj = if let Value::Object(map) = data.clone() {
-                    map
-                } else {
-                    let mut m = serde_json::Map::new();
-                    m.insert("content".into(), data.clone());
-                    m
-                };
-                obj.entry("format")
-                    .or_insert_with(|| Value::String("snapshot".into()));
-                obj.entry("nodes").or_insert(Value::Null);
-                obj.entry("stats").or_insert_with(
-                    || serde_json::json!({"node_count": null, "interactive_count": null}),
-                );
-                Value::Object(obj)
-            }
+            // Handler returns raw CDP value — wrap in { tree: val }
+            serde_json::json!({ "tree": data })
         }
         Action::Title { .. } => {
-            let value = data
-                .as_str()
-                .map(|s| Value::String(s.to_string()))
-                .unwrap_or_else(|| data.clone());
+            // Handler returns {"title": val}
+            let value = data.get("title").cloned().unwrap_or_else(|| data.clone());
             serde_json::json!({
                 "value": value,
-                "target": { "selector": null }
+                "target": { "selector": Value::Null }
             })
         }
         Action::Url { .. } => {
-            let value = data
-                .as_str()
-                .map(|s| Value::String(s.to_string()))
-                .unwrap_or_else(|| data.clone());
+            // Handler returns {"url": val}
+            let value = data.get("url").cloned().unwrap_or_else(|| data.clone());
             serde_json::json!({
                 "value": value,
-                "target": { "selector": null }
+                "target": { "selector": Value::Null }
             })
         }
         Action::Html { selector, .. } => {
-            let value = data
-                .as_str()
-                .map(|s| Value::String(s.to_string()))
-                .unwrap_or_else(|| data.clone());
+            // Handler returns {"html": val}
+            let value = data.get("html").cloned().unwrap_or_else(|| data.clone());
             serde_json::json!({
                 "value": value,
                 "target": { "selector": selector }
             })
         }
         Action::Text { selector, .. } => {
-            let value = data
-                .as_str()
-                .map(|s| Value::String(s.to_string()))
-                .unwrap_or_else(|| data.get("text").cloned().unwrap_or_else(|| data.clone()));
+            // Handler returns {"text": val}
+            let value = data.get("text").cloned().unwrap_or_else(|| data.clone());
             serde_json::json!({
                 "value": value,
                 "target": { "selector": selector }
             })
         }
         Action::Value { selector, .. } => {
-            let value = data
-                .as_str()
-                .map(|s| Value::String(s.to_string()))
-                .unwrap_or_else(|| data.clone());
+            // Handler returns {"value": val, "selector": selector}
+            // "value" field name is already correct; just normalize shape
+            let value = data.get("value").cloned().unwrap_or_else(|| data.clone());
             serde_json::json!({
-                "value": value,
-                "target": { "selector": selector }
+                "target": { "selector": selector },
+                "value": value
             })
         }
-        Action::Attr { selector, .. } => {
-            let value = data
-                .as_str()
-                .map(|s| Value::String(s.to_string()))
-                .unwrap_or_else(|| data.clone());
+        Action::Attr { selector, name, .. } => {
+            // Handler returns {"attr": attr_name, "value": val, "selector": selector}
+            let value = data.get("value").cloned().unwrap_or(Value::Null);
+            let attribute = data
+                .get("attr")
+                .cloned()
+                .unwrap_or_else(|| Value::String(name.clone()));
             serde_json::json!({
-                "value": value,
-                "target": { "selector": selector }
+                "target": { "selector": selector },
+                "attribute": attribute,
+                "value": value
             })
         }
         Action::Viewport { .. } => {
-            // Handler returns { width, height } or similar — normalize
-            let width = data.get("width").cloned().unwrap_or(Value::Null);
-            let height = data.get("height").cloned().unwrap_or(Value::Null);
+            // Handler returns {"viewport": {width, height, scrollX, scrollY, devicePixelRatio}}
+            let vp = data.get("viewport").unwrap_or(data);
+            let width = vp.get("width").cloned().unwrap_or(Value::Null);
+            let height = vp.get("height").cloned().unwrap_or(Value::Null);
             serde_json::json!({
                 "width": width,
                 "height": height
             })
         }
         Action::Attrs { selector, .. } => {
+            // Handler returns {"attributes": val, "selector": selector}
+            let value = data
+                .get("attributes")
+                .cloned()
+                .unwrap_or_else(|| data.clone());
             serde_json::json!({
                 "target": { "selector": selector },
-                "value": data
+                "value": value
             })
         }
         Action::Styles { selector, .. } => {
+            // Handler returns {"styles": val, "selector": selector}
+            let value = data.get("styles").cloned().unwrap_or_else(|| data.clone());
             serde_json::json!({
                 "target": { "selector": selector },
-                "value": data
+                "value": value
             })
         }
         Action::Box_ { selector, .. } => {
-            let x = data.get("x").cloned().unwrap_or(Value::Null);
-            let y = data.get("y").cloned().unwrap_or(Value::Null);
-            let width = data.get("width").cloned().unwrap_or(Value::Null);
-            let height = data.get("height").cloned().unwrap_or(Value::Null);
+            // Handler returns {"box": val, "selector": selector}
+            let box_val = data.get("box").unwrap_or(data);
+            let x = box_val.get("x").cloned().unwrap_or(Value::Null);
+            let y = box_val.get("y").cloned().unwrap_or(Value::Null);
+            let width = box_val.get("width").cloned().unwrap_or(Value::Null);
+            let height = box_val.get("height").cloned().unwrap_or(Value::Null);
             serde_json::json!({
                 "target": { "selector": selector },
                 "value": { "x": x, "y": y, "width": width, "height": height }
@@ -1178,38 +1156,64 @@ fn normalize_observation_data(action: &Action, data: &Value) -> Value {
             // Already has mode/count/item(s) structure from handler — pass through
             data.clone()
         }
-        Action::Describe { .. } => {
-            // Pass through describe data
-            data.clone()
-        }
-        Action::State { selector, .. } => {
-            // Normalize to { target, state }
+        Action::Describe { selector, .. } => {
+            // Handler returns {"description": val, "selector": selector}
+            let summary = data
+                .get("description")
+                .cloned()
+                .unwrap_or_else(|| data.clone());
             serde_json::json!({
                 "target": { "selector": selector },
-                "state": data
+                "summary": summary
             })
         }
-        Action::InspectPoint { .. } => {
-            // Pass through
-            data.clone()
+        Action::State { selector, .. } => {
+            // Handler returns {"state": val, "selector": selector}
+            let flags = data.get("state").cloned().unwrap_or_else(|| data.clone());
+            serde_json::json!({
+                "target": { "selector": selector },
+                "flags": flags
+            })
+        }
+        Action::InspectPoint { x, y, .. } => {
+            // Handler returns {"element": val, "x": x, "y": y}
+            let element = data.get("element").cloned().unwrap_or(Value::Null);
+            serde_json::json!({
+                "point": { "x": x, "y": y },
+                "element": element
+            })
         }
         Action::LogsConsole { clear, .. } => {
+            // Handler returns {"logs": val (array)}
             let items = data
-                .as_array()
+                .get("logs")
+                .and_then(|v| v.as_array())
                 .cloned()
                 .map(Value::Array)
-                .unwrap_or_else(|| data.get("items").cloned().unwrap_or(Value::Array(vec![])));
+                .unwrap_or_else(|| {
+                    data.as_array()
+                        .cloned()
+                        .map(Value::Array)
+                        .unwrap_or(Value::Array(vec![]))
+                });
             serde_json::json!({
                 "items": items,
                 "cleared": clear
             })
         }
         Action::LogsErrors { clear, .. } => {
+            // Handler returns {"errors": val (array)}
             let items = data
-                .as_array()
+                .get("errors")
+                .and_then(|v| v.as_array())
                 .cloned()
                 .map(Value::Array)
-                .unwrap_or_else(|| data.get("items").cloned().unwrap_or(Value::Array(vec![])));
+                .unwrap_or_else(|| {
+                    data.as_array()
+                        .cloned()
+                        .map(Value::Array)
+                        .unwrap_or(Value::Array(vec![]))
+                });
             serde_json::json!({
                 "items": items,
                 "cleared": clear
@@ -1229,37 +1233,67 @@ fn format_observation_text(action: &Action, result: &ActionResult) -> Option<Str
             let prefix = prefixed_header(&session_id, Some(&tab_id), None);
             match action {
                 Action::Snapshot { .. } => {
-                    // Output content directly (no "ok" prefix)
+                    // Handler returns raw CDP value — output directly
                     if data.is_string() {
                         data.as_str().unwrap_or("").to_string()
-                    } else if let Some(content) = data.get("content") {
-                        content.as_str().unwrap_or("").to_string()
                     } else {
                         serde_json::to_string_pretty(data).unwrap_or_else(|_| data.to_string())
                     }
                 }
-                Action::Title { .. }
-                | Action::Url { .. }
-                | Action::Html { .. }
-                | Action::Value { .. }
-                | Action::Attr { .. } => {
-                    // Output the value string directly
-                    data.as_str().unwrap_or("").to_string()
+                Action::Title { .. } => {
+                    // Handler returns {"title": val}
+                    data.get("title")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_else(|| data.as_str().unwrap_or(""))
+                        .to_string()
                 }
-                Action::Text { .. } => data.as_str().map(|s| s.to_string()).unwrap_or_else(|| {
+                Action::Url { .. } => {
+                    // Handler returns {"url": val}
+                    data.get("url")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_else(|| data.as_str().unwrap_or(""))
+                        .to_string()
+                }
+                Action::Html { .. } => {
+                    // Handler returns {"html": val}
+                    data.get("html")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_else(|| data.as_str().unwrap_or(""))
+                        .to_string()
+                }
+                Action::Value { .. } => {
+                    // Handler returns {"value": val, "selector": selector}
+                    data.get("value")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_else(|| data.as_str().unwrap_or(""))
+                        .to_string()
+                }
+                Action::Attr { .. } => {
+                    // Handler returns {"attr": attr_name, "value": val, "selector": selector}
+                    data.get("value")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_else(|| data.as_str().unwrap_or(""))
+                        .to_string()
+                }
+                Action::Text { .. } => {
+                    // Handler returns {"text": val}
                     data.get("text")
                         .and_then(|v| v.as_str())
-                        .unwrap_or("")
+                        .unwrap_or_else(|| data.as_str().unwrap_or(""))
                         .to_string()
-                }),
+                }
                 Action::Viewport { .. } => {
-                    let width = data.get("width").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let height = data.get("height").and_then(|v| v.as_u64()).unwrap_or(0);
+                    // Handler returns {"viewport": {width, height, ...}}
+                    let vp = data.get("viewport").unwrap_or(data);
+                    let width = vp.get("width").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let height = vp.get("height").and_then(|v| v.as_u64()).unwrap_or(0);
                     format!("{width}x{height}")
                 }
-                Action::Attrs { .. } | Action::Styles { .. } | Action::State { .. } => {
+                Action::Attrs { .. } => {
+                    // Handler returns {"attributes": val, "selector": selector}
+                    let obj_val = data.get("attributes").unwrap_or(data);
                     let mut out = prefix;
-                    if let Some(obj) = data.as_object() {
+                    if let Some(obj) = obj_val.as_object() {
                         for (k, v) in obj {
                             let val_str = v
                                 .as_str()
@@ -1270,16 +1304,60 @@ fn format_observation_text(action: &Action, result: &ActionResult) -> Option<Str
                     } else {
                         out.push('\n');
                         out.push_str(
-                            &serde_json::to_string_pretty(data)
-                                .unwrap_or_else(|_| data.to_string()),
+                            &serde_json::to_string_pretty(obj_val)
+                                .unwrap_or_else(|_| obj_val.to_string()),
+                        );
+                    }
+                    out
+                }
+                Action::Styles { .. } => {
+                    // Handler returns {"styles": val, "selector": selector}
+                    let obj_val = data.get("styles").unwrap_or(data);
+                    let mut out = prefix;
+                    if let Some(obj) = obj_val.as_object() {
+                        for (k, v) in obj {
+                            let val_str = v
+                                .as_str()
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| v.to_string());
+                            out.push_str(&format!("\n{k}: {val_str}"));
+                        }
+                    } else {
+                        out.push('\n');
+                        out.push_str(
+                            &serde_json::to_string_pretty(obj_val)
+                                .unwrap_or_else(|_| obj_val.to_string()),
+                        );
+                    }
+                    out
+                }
+                Action::State { .. } => {
+                    // Handler returns {"state": val, "selector": selector}
+                    let obj_val = data.get("state").unwrap_or(data);
+                    let mut out = prefix;
+                    if let Some(obj) = obj_val.as_object() {
+                        for (k, v) in obj {
+                            let val_str = v
+                                .as_str()
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| v.to_string());
+                            out.push_str(&format!("\n{k}: {val_str}"));
+                        }
+                    } else {
+                        out.push('\n');
+                        out.push_str(
+                            &serde_json::to_string_pretty(obj_val)
+                                .unwrap_or_else(|_| obj_val.to_string()),
                         );
                     }
                     out
                 }
                 Action::Box_ { .. } => {
+                    // Handler returns {"box": val, "selector": selector}
+                    let box_val = data.get("box").unwrap_or(data);
                     let mut out = prefix;
                     for key in &["x", "y", "width", "height"] {
-                        if let Some(v) = data.get(key) {
+                        if let Some(v) = box_val.get(key) {
                             out.push_str(&format!("\n{key}: {v}"));
                         }
                     }
@@ -1294,16 +1372,18 @@ fn format_observation_text(action: &Action, result: &ActionResult) -> Option<Str
                     }
                 }
                 Action::Describe { .. } => {
+                    // Handler returns {"description": val, "selector": selector}
+                    let desc = data.get("description").unwrap_or(data);
                     let mut out = prefix;
                     // Output summary line if available
-                    if let Some(summary) = data.get("summary").and_then(|v| v.as_str()) {
-                        out.push_str(&format!("\n{summary}"));
-                    } else if let Some(tag) = data.get("tag").and_then(|v| v.as_str()) {
+                    if let Some(tag) = desc.get("tag").and_then(|v| v.as_str()) {
                         out.push_str(&format!("\ntag: {tag}"));
-                        if let Some(role) = data.get("role").and_then(|v| v.as_str()) {
-                            out.push_str(&format!("  role: {role}"));
+                        if let Some(role) = desc.get("role").and_then(|v| v.as_str()) {
+                            if !role.is_empty() {
+                                out.push_str(&format!("  role: {role}"));
+                            }
                         }
-                        if let Some(text) = data.get("text").and_then(|v| v.as_str()) {
+                        if let Some(text) = desc.get("text").and_then(|v| v.as_str()) {
                             if !text.is_empty() {
                                 out.push_str(&format!("\ntext: {text}"));
                             }
@@ -1311,41 +1391,57 @@ fn format_observation_text(action: &Action, result: &ActionResult) -> Option<Str
                     } else {
                         out.push('\n');
                         out.push_str(
-                            &serde_json::to_string_pretty(data)
-                                .unwrap_or_else(|_| data.to_string()),
+                            &serde_json::to_string_pretty(desc)
+                                .unwrap_or_else(|_| desc.to_string()),
                         );
-                    }
-                    // nearby elements if present
-                    if let Some(nearby) = data.get("nearby") {
-                        if !nearby.is_null() {
-                            out.push_str(&format!("\nnearby: {nearby}"));
-                        }
                     }
                     out
                 }
                 Action::InspectPoint { x, y, .. } => {
+                    // Handler returns {"element": val, "x": x, "y": y}
+                    let element = data.get("element").unwrap_or(data);
                     let mut out = prefix;
                     out.push_str(&format!("\npoint: {x},{y}"));
-                    if let Some(sel) = data.get("selector").and_then(|v| v.as_str()) {
-                        out.push_str(&format!("\nselector: {sel}"));
-                    }
-                    if let Some(tag) = data.get("tag").and_then(|v| v.as_str()) {
+                    if let Some(tag) = element.get("tag").and_then(|v| v.as_str()) {
                         out.push_str(&format!("\ntag: {tag}"));
+                    }
+                    if let Some(sel) = element.get("selector").and_then(|v| v.as_str()) {
+                        out.push_str(&format!("\nselector: {sel}"));
                     }
                     out
                 }
-                Action::LogsConsole { .. } | Action::LogsErrors { .. } => {
+                Action::LogsConsole { .. } => {
+                    // Handler returns {"logs": val (array)}
+                    let items = data
+                        .get("logs")
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_else(|| data.as_array().cloned().unwrap_or_default());
                     let mut out = prefix;
-                    let items = data.as_array().cloned().unwrap_or_else(|| {
-                        data.get("items")
-                            .and_then(|v| v.as_array())
-                            .cloned()
-                            .unwrap_or_default()
-                    });
                     for item in &items {
                         let line = item.as_str().map(|s| s.to_string()).unwrap_or_else(|| {
-                            item.get("text")
-                                .or_else(|| item.get("message"))
+                            item.get("message")
+                                .or_else(|| item.get("text"))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| item.to_string())
+                        });
+                        out.push_str(&format!("\n{line}"));
+                    }
+                    out
+                }
+                Action::LogsErrors { .. } => {
+                    // Handler returns {"errors": val (array)}
+                    let items = data
+                        .get("errors")
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_else(|| data.as_array().cloned().unwrap_or_default());
+                    let mut out = prefix;
+                    for item in &items {
+                        let line = item.as_str().map(|s| s.to_string()).unwrap_or_else(|| {
+                            item.get("message")
+                                .or_else(|| item.get("text"))
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string())
                                 .unwrap_or_else(|| item.to_string())
