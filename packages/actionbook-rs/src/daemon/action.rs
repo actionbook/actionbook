@@ -11,7 +11,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::types::{Mode, QueryMode, SameSite, SessionId, StorageKind, TabId, WindowId};
+use super::types::{
+    Mode, QueryCardinality, QueryMode, SameSite, SessionId, StorageKind, TabId, WindowId,
+};
 
 /// A typed command sent from CLI (or MCP/AI SDK client) to the daemon.
 ///
@@ -266,7 +268,7 @@ pub enum Action {
     /// Get the viewport dimensions.
     Viewport { session: SessionId, tab: TabId },
 
-    /// Query elements matching a selector (css, xpath, or text).
+    /// Query elements matching a selector with cardinality constraint.
     Query {
         session: SessionId,
         tab: TabId,
@@ -274,6 +276,12 @@ pub enum Action {
         /// Query mode: css, xpath, or text.
         #[serde(default = "default_query_mode")]
         mode: QueryMode,
+        /// Cardinality mode: one, all, count, nth.
+        #[serde(default = "default_query_cardinality")]
+        cardinality: QueryCardinality,
+        /// 1-based index for nth mode.
+        #[serde(default)]
+        nth_index: Option<u32>,
     },
 
     /// Inspect the element at a specific point on the page.
@@ -587,6 +595,10 @@ fn default_mode() -> Mode {
 
 fn default_query_mode() -> QueryMode {
     QueryMode::Css
+}
+
+fn default_query_cardinality() -> QueryCardinality {
+    QueryCardinality::All
 }
 
 // ---------------------------------------------------------------------------

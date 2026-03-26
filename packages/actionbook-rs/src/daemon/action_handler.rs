@@ -14,7 +14,9 @@ use super::action::Action;
 use super::action_result::ActionResult;
 use super::backend::BackendSession;
 use super::backend_op::BackendOp;
-use super::types::{QueryMode, SameSite, SessionId, StorageKind, TabId, WindowId};
+use super::types::{
+    QueryCardinality, QueryMode, SameSite, SessionId, StorageKind, TabId, WindowId,
+};
 use crate::error::ActionbookError;
 
 // ---------------------------------------------------------------------------
@@ -217,8 +219,22 @@ pub async fn handle_action(
             tab,
             selector,
             mode,
+            cardinality,
+            nth_index,
             ..
-        } => handle_query(session_id, backend, regs, tab, &selector, mode).await,
+        } => {
+            handle_query(
+                session_id,
+                backend,
+                regs,
+                tab,
+                &selector,
+                mode,
+                cardinality,
+                nth_index,
+            )
+            .await
+        }
         Action::InspectPoint { tab, x, y, .. } => {
             handle_inspect_point(session_id, backend, regs, tab, x, y).await
         }
@@ -1440,6 +1456,7 @@ async fn handle_viewport(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_query(
     session_id: SessionId,
     backend: &mut dyn BackendSession,
@@ -1447,6 +1464,8 @@ async fn handle_query(
     tab: TabId,
     selector: &str,
     mode: QueryMode,
+    cardinality: QueryCardinality,
+    nth_index: Option<u32>,
 ) -> ActionResult {
     let target_id = match resolve_tab(session_id, regs, tab) {
         Ok(t) => t,
@@ -1459,15 +1478,29 @@ async fn handle_query(
         }
     };
 
+    // Query all matching elements with metadata (PRD §10.7).
     let js = match mode {
         QueryMode::Css => format!(
-            r#"(function() {{ const els = document.querySelectorAll({selector_json}); return Array.from(els).slice(0, 100).map((el, i) => {{ const rect = el.getBoundingClientRect(); return {{ index: i, tag: el.tagName.toLowerCase(), id: el.id || '', text: (el.innerText || '').substring(0, 80), x: rect.left, y: rect.top, width: rect.width, height: rect.height }}; }}); }})()"#
+            r#"(function() {{
+                const els = document.querySelectorAll({selector_json});
+                return Array.from(els).slice(0, 500).map((el, i) => {{
+                    const rect = el.getBoundingClientRect();
+                    const cs = window.getComputedStyle(el);
+                    return {{
+                        selector: {selector_json} + ':nth-of-type(' + (i+1) + ')',
+                        tag: el.tagName.toLowerCase(),
+                        text: (el.innerText || '').substring(0, 80),
+                        visible: cs.display !== 'none' && cs.visibility !== 'hidden' && rect.width > 0,
+                        enabled: !el.disabled
+                    }};
+                }});
+            }})()"#
         ),
         QueryMode::Xpath => format!(
-            r#"(function() {{ const result = document.evaluate({selector_json}, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null); const items = []; for (let i = 0; i < Math.min(result.snapshotLength, 100); i++) {{ const el = result.snapshotItem(i); if (el.nodeType === 1) {{ const rect = el.getBoundingClientRect(); items.push({{ index: i, tag: el.tagName.toLowerCase(), id: el.id || '', text: (el.innerText || '').substring(0, 80), x: rect.left, y: rect.top, width: rect.width, height: rect.height }}); }} }} return items; }})()"#
+            r#"(function() {{ const result = document.evaluate({selector_json}, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null); const items = []; for (let i = 0; i < Math.min(result.snapshotLength, 500); i++) {{ const el = result.snapshotItem(i); if (el.nodeType === 1) {{ const rect = el.getBoundingClientRect(); const cs = window.getComputedStyle(el); items.push({{ selector: {selector_json}, tag: el.tagName.toLowerCase(), text: (el.innerText || '').substring(0, 80), visible: cs.display !== 'none' && cs.visibility !== 'hidden' && rect.width > 0, enabled: !el.disabled }}); }} }} return items; }})()"#
         ),
         QueryMode::Text => format!(
-            r#"(function() {{ const text = {selector_json}; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null); const results = []; while (walker.nextNode()) {{ if (walker.currentNode.textContent.includes(text) && results.length < 100) {{ const el = walker.currentNode.parentElement; if (el) {{ const rect = el.getBoundingClientRect(); results.push({{ index: results.length, tag: el.tagName.toLowerCase(), id: el.id || '', text: (el.innerText || '').substring(0, 80), x: rect.left, y: rect.top, width: rect.width, height: rect.height }}); }} }} }} return results; }})()"#
+            r#"(function() {{ const text = {selector_json}; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null); const results = []; while (walker.nextNode()) {{ if (walker.currentNode.textContent.includes(text) && results.length < 500) {{ const el = walker.currentNode.parentElement; if (el) {{ const rect = el.getBoundingClientRect(); const cs = window.getComputedStyle(el); results.push({{ selector: el.tagName.toLowerCase(), tag: el.tagName.toLowerCase(), text: (el.innerText || '').substring(0, 80), visible: cs.display !== 'none' && cs.visibility !== 'hidden' && rect.width > 0, enabled: !el.disabled }}); }} }} }} return results; }})()"#
         ),
     };
 
@@ -1476,12 +1509,65 @@ async fn handle_query(
         expression: js,
         return_by_value: true,
     };
+
     match backend.exec(op).await {
         Ok(result) => {
             let val = extract_eval_value(&result.value);
-            ActionResult::ok(
-                json!({"results": val, "selector": selector, "mode": mode.to_string()}),
-            )
+            let items = val.as_array().cloned().unwrap_or_default();
+            let count = items.len();
+
+            match cardinality {
+                QueryCardinality::One => {
+                    if count == 0 {
+                        return ActionResult::fatal(
+                            "ELEMENT_NOT_FOUND",
+                            format!("no elements match selector '{selector}'"),
+                            "check the selector or wait for the element to appear",
+                        );
+                    }
+                    if count > 1 {
+                        return ActionResult::fatal(
+                            "MULTIPLE_MATCHES",
+                            format!("Query mode 'one' requires exactly 1 match, found {count}"),
+                            "use 'query all' or narrow your selector",
+                        );
+                    }
+                    ActionResult::ok(json!({
+                        "mode": "one",
+                        "query": selector,
+                        "count": 1,
+                        "item": items[0],
+                    }))
+                }
+                QueryCardinality::All => ActionResult::ok(json!({
+                    "mode": "all",
+                    "query": selector,
+                    "count": count,
+                    "items": items,
+                })),
+                QueryCardinality::Count => ActionResult::ok(json!({
+                    "mode": "count",
+                    "query": selector,
+                    "count": count,
+                })),
+                QueryCardinality::Nth => {
+                    let n = nth_index.unwrap_or(1) as usize;
+                    if n == 0 || n > count {
+                        return ActionResult::fatal(
+                            "INDEX_OUT_OF_RANGE",
+                            format!("index {n} out of range (found {count} matches)"),
+                            "use 'query count' to check the number of matches first",
+                        );
+                    }
+                    ActionResult::ok(json!({
+                        "mode": "nth",
+                        "query": selector,
+                        "index": n,
+                        "count": count,
+                        "item": items[n - 1],
+                    }))
+                }
+            }
         }
         Err(e) => cdp_error_to_result(e),
     }

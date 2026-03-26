@@ -52,7 +52,68 @@ fn format_ok(data: &Value) -> String {
         Value::Null => String::new(),
         Value::Bool(b) => b.to_string(),
         Value::Number(n) => n.to_string(),
-        // Arrays and objects get pretty-printed JSON
+        Value::Object(map) => {
+            // Query-specific text formatting (PRD §10.7)
+            if let Some(mode) = map.get("mode").and_then(|v| v.as_str()) {
+                return format_query_result(mode, data);
+            }
+            serde_json::to_string_pretty(data).unwrap_or_else(|_| data.to_string())
+        }
+        _ => serde_json::to_string_pretty(data).unwrap_or_else(|_| data.to_string()),
+    }
+}
+
+/// Format query results as human-readable text per PRD §10.7.
+fn format_query_result(mode: &str, data: &Value) -> String {
+    let count = data.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
+    match mode {
+        "count" => count.to_string(),
+        "one" => {
+            let mut out = String::from("1 match\n");
+            if let Some(item) = data.get("item") {
+                if let Some(sel) = item.get("selector").and_then(|v| v.as_str()) {
+                    out.push_str(&format!("selector: {sel}\n"));
+                }
+                if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+                    if !text.is_empty() {
+                        out.push_str(&format!("text: {text}\n"));
+                    }
+                }
+                if let Some(tag) = item.get("tag").and_then(|v| v.as_str()) {
+                    out.push_str(&format!("tag: {tag}"));
+                }
+            }
+            out.trim_end().to_string()
+        }
+        "all" => {
+            let mut out = format!("{count} match{}\n", if count == 1 { "" } else { "es" });
+            if let Some(items) = data.get("items").and_then(|v| v.as_array()) {
+                for (i, item) in items.iter().enumerate() {
+                    let sel = item.get("selector").and_then(|v| v.as_str()).unwrap_or("");
+                    let text = item.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                    out.push_str(&format!("{}. {sel}\n", i + 1));
+                    if !text.is_empty() {
+                        out.push_str(&format!("   {text}\n"));
+                    }
+                }
+            }
+            out.trim_end().to_string()
+        }
+        "nth" => {
+            let index = data.get("index").and_then(|v| v.as_u64()).unwrap_or(0);
+            let mut out = format!("match {index}/{count}\n");
+            if let Some(item) = data.get("item") {
+                if let Some(sel) = item.get("selector").and_then(|v| v.as_str()) {
+                    out.push_str(&format!("selector: {sel}\n"));
+                }
+                if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+                    if !text.is_empty() {
+                        out.push_str(&format!("text: {text}"));
+                    }
+                }
+            }
+            out.trim_end().to_string()
+        }
         _ => serde_json::to_string_pretty(data).unwrap_or_else(|_| data.to_string()),
     }
 }

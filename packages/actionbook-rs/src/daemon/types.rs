@@ -145,6 +145,35 @@ impl fmt::Display for QueryMode {
 }
 
 // ---------------------------------------------------------------------------
+// QueryCardinality
+// ---------------------------------------------------------------------------
+
+/// Cardinality mode for the `query` command (PRD §10.7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryCardinality {
+    /// Expect exactly one match.
+    One,
+    /// Return all matches.
+    All,
+    /// Return only the match count.
+    Count,
+    /// Return the nth match (1-based).
+    Nth,
+}
+
+impl fmt::Display for QueryCardinality {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            QueryCardinality::One => write!(f, "one"),
+            QueryCardinality::All => write!(f, "all"),
+            QueryCardinality::Count => write!(f, "count"),
+            QueryCardinality::Nth => write!(f, "nth"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // StorageKind
 // ---------------------------------------------------------------------------
 

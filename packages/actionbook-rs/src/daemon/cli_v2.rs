@@ -16,7 +16,7 @@ use super::action::Action;
 use super::client::{self, DaemonClient};
 use super::daemon_main::DaemonConfig;
 use super::formatter;
-use super::types::{Mode, QueryMode, SameSite, SessionId, StorageKind, TabId};
+use super::types::{Mode, QueryCardinality, QueryMode, SameSite, SessionId, StorageKind, TabId};
 
 /// Actionbook CLI v2 — browser automation via daemon
 #[derive(Parser, Debug)]
@@ -386,20 +386,9 @@ enum BrowserCmd {
         tab: TabId,
     },
 
-    /// Query elements matching a selector
-    Query {
-        /// Selector string
-        selector: String,
-        /// Session ID (e.g. s0)
-        #[arg(short = 's', long)]
-        session: SessionId,
-        /// Tab ID (e.g. t0)
-        #[arg(short = 't', long)]
-        tab: TabId,
-        /// Query mode: css, xpath, or text
-        #[arg(short = 'm', long, value_enum, default_value = "css")]
-        mode: CliQueryMode,
-    },
+    /// Query elements matching a selector with cardinality constraint
+    #[command(subcommand)]
+    Query(QueryCmd),
 
     /// Inspect the element at a point on the page
     InspectPoint {
@@ -805,6 +794,49 @@ impl From<CliQueryMode> for QueryMode {
     }
 }
 
+/// Query subcommands: one, all, count, nth (PRD §10.7).
+#[derive(Subcommand, Debug)]
+enum QueryCmd {
+    /// Query exactly one element
+    One {
+        /// CSS selector
+        selector: String,
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+    /// Query all matching elements
+    All {
+        /// CSS selector
+        selector: String,
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+    /// Count matching elements
+    Count {
+        /// CSS selector
+        selector: String,
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+    /// Query the nth matching element (1-based)
+    Nth {
+        /// 1-based index
+        n: u32,
+        /// CSS selector
+        selector: String,
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+}
+
 /// CLI-facing storage kind enum.
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 enum CliStorageKind {
@@ -1038,16 +1070,56 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             selector,
         },
         BrowserCmd::Viewport { session, tab } => Action::Viewport { session, tab },
-        BrowserCmd::Query {
-            selector,
-            session,
-            tab,
-            mode,
-        } => Action::Query {
-            session,
-            tab,
-            selector,
-            mode: mode.into(),
+        BrowserCmd::Query(qcmd) => match qcmd {
+            QueryCmd::One {
+                selector,
+                session,
+                tab,
+            } => Action::Query {
+                session,
+                tab,
+                selector,
+                mode: QueryMode::Css,
+                cardinality: QueryCardinality::One,
+                nth_index: None,
+            },
+            QueryCmd::All {
+                selector,
+                session,
+                tab,
+            } => Action::Query {
+                session,
+                tab,
+                selector,
+                mode: QueryMode::Css,
+                cardinality: QueryCardinality::All,
+                nth_index: None,
+            },
+            QueryCmd::Count {
+                selector,
+                session,
+                tab,
+            } => Action::Query {
+                session,
+                tab,
+                selector,
+                mode: QueryMode::Css,
+                cardinality: QueryCardinality::Count,
+                nth_index: None,
+            },
+            QueryCmd::Nth {
+                n,
+                selector,
+                session,
+                tab,
+            } => Action::Query {
+                session,
+                tab,
+                selector,
+                mode: QueryMode::Css,
+                cardinality: QueryCardinality::Nth,
+                nth_index: Some(n),
+            },
         },
         BrowserCmd::InspectPoint { x, y, session, tab } => {
             Action::InspectPoint { session, tab, x, y }
