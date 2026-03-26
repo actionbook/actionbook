@@ -1023,9 +1023,14 @@ mod tests {
 
     #[tokio::test]
     async fn eval_returns_value() {
-        let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(
-            json!({"result": {"type": "string", "value": "Example Title"}}),
-        ))]);
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(
+                json!({"result": {"type": "boolean", "value": true}}),
+            )),
+            Ok(OpResult::new(
+                json!({"result": {"type": "string", "value": "Example Title"}}),
+            )),
+        ]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId(0);
 
@@ -1042,6 +1047,9 @@ mod tests {
         .await;
 
         assert!(result.is_ok());
+        assert_eq!(backend.ops().len(), 2);
+        assert!(matches!(&backend.ops()[0], BackendOp::Evaluate { .. }));
+        assert!(matches!(&backend.ops()[1], BackendOp::Evaluate { .. }));
         match result {
             ActionResult::Ok { data } => assert_eq!(data, "Example Title"),
             _ => panic!("expected Ok"),
