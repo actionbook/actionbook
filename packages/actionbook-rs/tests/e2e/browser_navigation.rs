@@ -16,21 +16,45 @@ fn nav_goto_and_verify_url() {
 
     // Start a headless session with example.com
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // Navigate to example.org
     let out = headless(
-        &["browser", "goto", "https://example.org", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://example.org",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto example.org");
 
     // Verify location
     let out = headless(
-        &["browser", "eval", "window.location.href", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "eval",
+            "window.location.href",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "eval location");
@@ -55,20 +79,44 @@ fn nav_goto_seq_two_urls() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // Navigate to first URL
     let out = headless(
-        &["browser", "goto", "https://example.org", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://example.org",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto example.org");
 
     let out = headless(
-        &["browser", "eval", "window.location.href", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "eval",
+            "window.location.href",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "eval location after first goto");
@@ -80,13 +128,29 @@ fn nav_goto_seq_two_urls() {
 
     // Navigate to second URL
     let out = headless(
-        &["browser", "goto", "https://httpbin.org", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://httpbin.org",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto httpbin.org");
 
     let out = headless(
-        &["browser", "eval", "window.location.href", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "eval",
+            "window.location.href",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "eval location after second goto");
@@ -112,28 +176,49 @@ fn nav_goto_s1t2_cross_tab() {
 
     // Start with example.com on t0
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // Open example.org in a new tab (t1)
-    let out = headless(
-        &["browser", "open", "https://example.org", "-s", "s0"],
-        30,
-    );
+    let out = headless(&["browser", "open", "https://example.org", "-s", "s0"], 30);
     assert_success(&out, "open t1");
 
     // Navigate t1 to httpbin.org
     let out = headless(
-        &["browser", "goto", "https://httpbin.org", "-s", "s0", "-t", "t1"],
+        &[
+            "browser",
+            "goto",
+            "https://httpbin.org",
+            "-s",
+            "s0",
+            "-t",
+            "t1",
+        ],
         30,
     );
     assert_success(&out, "goto httpbin.org on t1");
 
     // Verify t1 is on httpbin.org
     let out = headless(
-        &["browser", "eval", "window.location.href", "-s", "s0", "-t", "t1"],
+        &[
+            "browser",
+            "eval",
+            "window.location.href",
+            "-s",
+            "s0",
+            "-t",
+            "t1",
+        ],
         30,
     );
     assert_success(&out, "eval t1 location");
@@ -145,7 +230,15 @@ fn nav_goto_s1t2_cross_tab() {
 
     // Verify t0 is still on example.com
     let out = headless(
-        &["browser", "eval", "window.location.href", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "eval",
+            "window.location.href",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "eval t0 location");
@@ -170,34 +263,63 @@ fn nav_back_forward() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // Navigate to url_a
     let out = headless(
-        &["browser", "goto", "https://example.org", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://example.org",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto example.org");
 
     // Navigate to url_b
     let out = headless(
-        &["browser", "goto", "https://httpbin.org", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://httpbin.org",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto httpbin.org");
 
     // Back — should return to example.org
-    let out = headless(
-        &["browser", "back", "-s", "s0", "-t", "t0"],
-        30,
-    );
+    let out = headless(&["browser", "back", "-s", "s0", "-t", "t0"], 30);
     assert_success(&out, "back");
 
     let out = headless(
-        &["browser", "eval", "window.location.href", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "eval",
+            "window.location.href",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "eval after back");
@@ -208,14 +330,19 @@ fn nav_back_forward() {
     );
 
     // Forward — should return to httpbin.org
-    let out = headless(
-        &["browser", "forward", "-s", "s0", "-t", "t0"],
-        30,
-    );
+    let out = headless(&["browser", "forward", "-s", "s0", "-t", "t0"], 30);
     assert_success(&out, "forward");
 
     let out = headless(
-        &["browser", "eval", "window.location.href", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "eval",
+            "window.location.href",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "eval after forward");
@@ -239,28 +366,60 @@ fn nav_reload() {
     }
 
     let out = headless(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
+        ],
         30,
     );
     assert_success(&out, "start");
 
     // Navigate to a page
     let out = headless(
-        &["browser", "goto", "https://example.org", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://example.org",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto");
 
     // Set a JS marker on the page
     let out = headless(
-        &["browser", "eval", "window.__test_marker = 42", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "eval",
+            "window.__test_marker = 42",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "eval set marker");
 
     // Verify marker is set
     let out = headless(
-        &["browser", "eval", "window.__test_marker", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "eval",
+            "window.__test_marker",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "eval verify marker");
@@ -271,15 +430,20 @@ fn nav_reload() {
     );
 
     // Reload the page — marker should be cleared
-    let out = headless(
-        &["browser", "reload", "-s", "s0", "-t", "t0"],
-        30,
-    );
+    let out = headless(&["browser", "reload", "-s", "s0", "-t", "t0"], 30);
     assert_success(&out, "reload");
 
     // Verify marker is gone (should be undefined/null)
     let out = headless(
-        &["browser", "eval", "typeof window.__test_marker", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "eval",
+            "typeof window.__test_marker",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "eval after reload");

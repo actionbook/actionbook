@@ -10,12 +10,12 @@
 //!   RUN_E2E_TESTS=true cargo test --test e2e -- --test-threads=1 --nocapture
 
 mod browser_basic;
-mod browser_lifecycle;
-mod browser_tab;
-mod browser_navigation;
-mod browser_observation;
-mod browser_interaction;
-mod browser_waiting;
 mod browser_data;
 mod browser_errors;
+mod browser_interaction;
+mod browser_lifecycle;
+mod browser_navigation;
+mod browser_observation;
+mod browser_tab;
+mod browser_waiting;
 mod harness;
