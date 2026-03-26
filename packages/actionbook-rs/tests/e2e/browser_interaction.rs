@@ -448,6 +448,24 @@ fn int_fill_s1t2_isolation() {
     let out = headless(&["browser", "open", "https://example.com", "-s", "s0"], 30);
     assert_success(&out, "open t1");
 
+    // Wait for t1 to fully load
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "document.readyState === 'complete'",
+            "-s",
+            "s0",
+            "-t",
+            "t1",
+            "--timeout",
+            "5000",
+        ],
+        30,
+    );
+    assert_success(&out, "wait for t1 load");
+
     // Inject input on t0
     let out = headless(
         &[
