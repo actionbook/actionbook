@@ -913,18 +913,11 @@ fn format_tab_nav_text(action: &Action, result: &ActionResult) -> Option<String>
                     .and_then(|v| v.as_array())
                     .cloned()
                     .unwrap_or_default();
-                let total = tabs.len();
                 let mut out = prefixed_header(&session_id, None, None);
-                out.push_str(&format!("\nok {command}\n"));
-                out.push_str(&format!("{total} tab{}", if total == 1 { "" } else { "s" }));
                 for tab in &tabs {
                     let tab_id = tab.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?");
                     let url = tab.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                    let title = tab.get("title").and_then(|v| v.as_str()).unwrap_or("");
                     out.push_str(&format!("\n[{session_id} {tab_id}] {url}"));
-                    if !title.is_empty() {
-                        out.push_str(&format!("\n  title: {title}"));
-                    }
                 }
                 out
             }
@@ -934,9 +927,16 @@ fn format_tab_nav_text(action: &Action, result: &ActionResult) -> Option<String>
                     Action::NewTab { url, .. } => url.as_str(),
                     _ => "",
                 };
+                let title = data
+                    .get("tab")
+                    .and_then(|_| data.get("title"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let mut out = prefixed_header(&session_id, Some(tab_id), Some(url));
-                out.push_str(&format!("\nok {command}\n"));
-                out.push_str(&format!("tab: {tab_id}\nurl: {url}"));
+                out.push_str(&format!("\nok {command}"));
+                if !title.is_empty() {
+                    out.push_str(&format!("\ntitle: {title}"));
+                }
                 out
             }
             Action::CloseTab { tab, .. } => {
@@ -950,8 +950,12 @@ fn format_tab_nav_text(action: &Action, result: &ActionResult) -> Option<String>
             | Action::Reload { tab, .. } => {
                 let to_url = data.get("to_url").and_then(|v| v.as_str()).unwrap_or("");
                 let from_url = data.get("from_url").and_then(|v| v.as_str()).unwrap_or("");
+                let title = data.get("title").and_then(|v| v.as_str()).unwrap_or("");
                 let mut out = prefixed_header(&session_id, Some(&tab.to_string()), Some(to_url));
                 out.push_str(&format!("\nok {command}"));
+                if !title.is_empty() {
+                    out.push_str(&format!("\ntitle: {title}"));
+                }
                 if from_url != to_url {
                     out.push_str(&format!("\n{from_url} \u{2192} {to_url}"));
                 }

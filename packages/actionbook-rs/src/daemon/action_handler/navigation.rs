@@ -19,7 +19,7 @@ pub(super) async fn handle_goto(
         .unwrap_or_default();
 
     let op = BackendOp::Navigate {
-        target_id: target_id.to_string(),
+        target_id: target_id.clone(),
         url: url.to_string(),
     };
 
@@ -69,7 +69,7 @@ pub(super) async fn handle_history(
         .unwrap_or_default();
 
     let op = BackendOp::Evaluate {
-        target_id: target_id.to_string(),
+        target_id: target_id.clone(),
         expression: format!("history.{direction}()"),
         return_by_value: true,
     };
@@ -79,7 +79,7 @@ pub(super) async fn handle_history(
             // Update the tab registry URL after navigation.
             let mut to_url = from_url.clone();
             let url_op = BackendOp::Evaluate {
-                target_id: target_id.to_string(),
+                target_id: target_id.clone(),
                 expression: "window.location.href".to_string(),
                 return_by_value: true,
             };
@@ -128,7 +128,7 @@ pub(super) async fn handle_reload(
         .unwrap_or_default();
 
     let op = BackendOp::Evaluate {
-        target_id: target_id.to_string(),
+        target_id: target_id.clone(),
         expression: "location.reload()".to_string(),
         return_by_value: true,
     };
@@ -138,7 +138,7 @@ pub(super) async fn handle_reload(
             // Update the tab registry URL after reload (URL may have changed due to redirects).
             let mut to_url = from_url.clone();
             let url_op = BackendOp::Evaluate {
-                target_id: target_id.to_string(),
+                target_id: target_id.clone(),
                 expression: "window.location.href".to_string(),
                 return_by_value: true,
             };

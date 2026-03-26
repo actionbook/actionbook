@@ -95,6 +95,7 @@ fn contract_new_tab_text() {
     assert_success(&out, "new-tab text");
 
     let text = stdout_str(&out);
+    // new-tab text format: [sid tid] <url>\nok browser.new-tab
     assert!(
         text.contains("[local-1 t"),
         "text output should contain [local-1 tN] prefix, got: {text}"
@@ -102,10 +103,6 @@ fn contract_new_tab_text() {
     assert!(
         text.contains("ok browser.new-tab"),
         "text output should contain 'ok browser.new-tab', got: {text}"
-    );
-    assert!(
-        text.contains("tab:"),
-        "text output should contain 'tab:', got: {text}"
     );
 
     let out = headless(&["browser", "close", "-s", "local-1"], 30);
@@ -254,7 +251,7 @@ fn contract_goto_json() {
         &[
             "browser",
             "goto",
-            "data:text/html,<h1>hello</h1>",
+            "data:text/html,<title>Test Title</title><h1>hello</h1>",
             "-s",
             "local-1",
             "-t",
@@ -277,6 +274,10 @@ fn contract_goto_json() {
     assert!(
         v["data"]["to_url"].is_string(),
         "data.to_url should be a string"
+    );
+    assert!(
+        v["data"]["title"].is_string(),
+        "data.title should be a string"
     );
 
     let out = headless(&["browser", "close", "-s", "local-1"], 30);
@@ -312,7 +313,7 @@ fn contract_goto_text() {
         &[
             "browser",
             "goto",
-            "data:text/html,<h1>hello</h1>",
+            "data:text/html,<title>Hello Page</title><h1>hello</h1>",
             "-s",
             "local-1",
             "-t",
@@ -330,6 +331,10 @@ fn contract_goto_text() {
     assert!(
         text.contains("ok browser.goto"),
         "text output should contain 'ok browser.goto', got: {text}"
+    );
+    assert!(
+        text.contains("title: Hello Page"),
+        "text output should contain 'title: Hello Page', got: {text}"
     );
 
     let out = headless(&["browser", "close", "-s", "local-1"], 30);
@@ -468,7 +473,7 @@ fn contract_new_tab_window_flags_conflict() {
     assert_success(&out, "start");
 
     // Using both --new-window and --window should fail (clap conflicts_with)
-    let out = headless(
+    let out = headless_json(
         &[
             "browser",
             "new-tab",
@@ -489,6 +494,23 @@ fn contract_new_tab_window_flags_conflict() {
             || stderr.contains("conflict"),
         "error should mention conflicting flags, got stderr: {stderr}"
     );
+
+    // Verify the error code is INVALID_ARGUMENT
+    let text = stdout_str(&out);
+    if let Ok(v) = serde_json::from_str::<Value>(&text) {
+        assert_eq!(
+            v["error"]["code"], "INVALID_ARGUMENT",
+            "error.code should be INVALID_ARGUMENT, got: {}",
+            v["error"]["code"]
+        );
+    } else {
+        // clap may print to stderr; check stderr contains the conflict message
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            err.contains("--new-window") && err.contains("--window"),
+            "stderr should mention the conflicting flags, got: {err}"
+        );
+    }
 
     let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
