@@ -953,7 +953,8 @@ fn obs_inspect_point() {
         &[
             "browser",
             "inspect-point",
-            "100,100",
+            "100",
+            "100",
             "-s",
             "s0",
             "-t",
@@ -1199,7 +1200,7 @@ fn obs_console_logs() {
     assert_success(&out, "eval console.log");
 
     // Retrieve console logs
-    let out = headless(&["browser", "logs", "console", "-s", "s0", "-t", "t0"], 10);
+    let out = headless(&["browser", "logs-console", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "logs console");
     let logs = stdout_str(&out);
     assert!(
@@ -1253,7 +1254,7 @@ fn obs_error_logs() {
     assert_success(&out, "eval console.error");
 
     // Retrieve error logs
-    let out = headless(&["browser", "logs", "errors", "-s", "s0", "-t", "t0"], 10);
+    let out = headless(&["browser", "logs-errors", "-s", "s0", "-t", "t0"], 10);
     assert_success(&out, "logs errors");
     let logs = stdout_str(&out);
     assert!(

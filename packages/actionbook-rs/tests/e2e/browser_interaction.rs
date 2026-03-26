@@ -924,13 +924,14 @@ fn int_upload() {
     );
     assert_success(&out, "inject file input");
 
-    // Upload file (upload takes selector then file paths as positional args)
+    // Upload file (files are positional, selector is a named --selector flag)
     let out = headless(
         &[
             "browser",
             "upload",
-            "#file-upload",
             &file_path,
+            "--selector",
+            "#file-upload",
             "-s",
             "s0",
             "-t",
