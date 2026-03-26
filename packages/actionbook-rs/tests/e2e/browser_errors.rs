@@ -3,7 +3,7 @@
 //! Each test starts a headless session, issues a command expected to fail,
 //! asserts non-zero exit, then closes the session.
 
-use crate::harness::{assert_failure, assert_success, headless, skip};
+use crate::harness::{assert_failure, assert_success, headless, skip, stderr_str, stdout_str};
 
 // ── 1. ELEMENT_NOT_FOUND: click nonexistent selector ───────────────
 
@@ -30,6 +30,12 @@ fn err_click_nonexistent() {
         30,
     );
     assert_failure(&out, "click nonexistent element");
+    let output = stdout_str(&out) + &stderr_str(&out);
+    assert!(
+        output.to_lowercase().contains("not found") || output.to_lowercase().contains("error"),
+        "click nonexistent should mention error in output, got: {}",
+        output
+    );
 
     let out = headless(&["browser", "close", "-s", "s0"], 30);
     assert_success(&out, "close session");
@@ -54,6 +60,12 @@ fn err_goto_invalid_url() {
         30,
     );
     assert_failure(&out, "goto invalid URL");
+    let output = stdout_str(&out) + &stderr_str(&out);
+    assert!(
+        output.to_lowercase().contains("error") || output.to_lowercase().contains("invalid") || output.to_lowercase().contains("fail"),
+        "goto invalid URL should mention error in output, got: {}",
+        output
+    );
 
     let out = headless(&["browser", "close", "-s", "s0"], 30);
     assert_success(&out, "close session");
@@ -84,6 +96,12 @@ fn err_eval_syntax_error() {
         30,
     );
     assert_failure(&out, "eval syntax error");
+    let output = stdout_str(&out) + &stderr_str(&out);
+    assert!(
+        output.to_lowercase().contains("error") || output.to_lowercase().contains("syntax") || output.to_lowercase().contains("fail"),
+        "eval syntax error should mention error in output, got: {}",
+        output
+    );
 
     let out = headless(&["browser", "close", "-s", "s0"], 30);
     assert_success(&out, "close session");
@@ -114,6 +132,12 @@ fn err_screenshot_bad_path() {
         30,
     );
     assert_failure(&out, "screenshot to bad path");
+    let output = stdout_str(&out) + &stderr_str(&out);
+    assert!(
+        output.to_lowercase().contains("error") || output.to_lowercase().contains("not found") || output.to_lowercase().contains("fail") || output.to_lowercase().contains("no such"),
+        "screenshot bad path should mention error in output, got: {}",
+        output
+    );
 
     let out = headless(&["browser", "close", "-s", "s0"], 30);
     assert_success(&out, "close session");
@@ -144,6 +168,12 @@ fn err_wait_timeout() {
         30,
     );
     assert_failure(&out, "wait for nonexistent element");
+    let output = stdout_str(&out) + &stderr_str(&out);
+    assert!(
+        output.to_lowercase().contains("timeout") || output.to_lowercase().contains("error") || output.to_lowercase().contains("not found"),
+        "wait timeout should mention error in output, got: {}",
+        output
+    );
 
     let out = headless(&["browser", "close", "-s", "s0"], 30);
     assert_success(&out, "close session");
@@ -174,6 +204,12 @@ fn err_fill_nonexistent() {
         30,
     );
     assert_failure(&out, "fill nonexistent element");
+    let output = stdout_str(&out) + &stderr_str(&out);
+    assert!(
+        output.to_lowercase().contains("not found") || output.to_lowercase().contains("error"),
+        "fill nonexistent should mention error in output, got: {}",
+        output
+    );
 
     let out = headless(&["browser", "close", "-s", "s0"], 30);
     assert_success(&out, "close session");

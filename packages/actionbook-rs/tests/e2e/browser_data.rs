@@ -110,7 +110,14 @@ fn cookies_s1t2_shared() {
     );
     assert_success(&out, "start");
 
-    // Open a second tab (same origin)
+    // Create a second tab by opening a URL on s0
+    let out = headless(
+        &["browser", "open", "https://example.com", "-s", "s0"],
+        30,
+    );
+    assert_success(&out, "create second tab");
+
+    // Navigate second tab to a different page
     let out = headless(
         &["browser", "goto", "https://example.com/page2", "-s", "s0", "-t", "t1"],
         30,
@@ -225,6 +232,20 @@ fn storage_local_list_delete_clear() {
         stdout_str(&out)
     );
 
+    // Set an extra key to test clear
+    let out = headless(
+        &["browser", "local-storage", "set", "extra", "val", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "local-storage set extra");
+
+    // Clear local storage
+    let out = headless(
+        &["browser", "local-storage", "clear", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "local-storage clear");
+
     // Close session
     let out = headless(&["browser", "close", "-s", "s0"], 30);
     assert_success(&out, "close");
@@ -269,6 +290,76 @@ fn storage_session_roundtrip() {
     assert_success(&out, "close");
 }
 
+#[test]
+fn storage_session_list_delete_clear() {
+    if skip() {
+        return;
+    }
+
+    // Start session
+    let out = headless(
+        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        30,
+    );
+    assert_success(&out, "start");
+
+    // Set a session storage key
+    let out = headless(
+        &["browser", "session-storage", "set", "sskey", "ssval", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "session-storage set");
+
+    // List — should contain our key
+    let out = headless(
+        &["browser", "session-storage", "list", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "session-storage list");
+    assert!(
+        stdout_str(&out).contains("sskey"),
+        "session-storage list should contain 'sskey', got: {}",
+        stdout_str(&out)
+    );
+
+    // Delete the key
+    let out = headless(
+        &["browser", "session-storage", "delete", "sskey", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "session-storage delete");
+
+    // List after delete — should not contain the key
+    let out = headless(
+        &["browser", "session-storage", "list", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "session-storage list after delete");
+    assert!(
+        !stdout_str(&out).contains("sskey"),
+        "session-storage list after delete should not contain 'sskey', got: {}",
+        stdout_str(&out)
+    );
+
+    // Set another key and clear
+    let out = headless(
+        &["browser", "session-storage", "set", "ssextra", "ssval2", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "session-storage set extra");
+
+    // Clear session storage
+    let out = headless(
+        &["browser", "session-storage", "clear", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "session-storage clear");
+
+    // Close session
+    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    assert_success(&out, "close");
+}
+
 // ── Cross-tab Storage ──────────────────────────────────────────────
 
 #[test]
@@ -284,7 +375,14 @@ fn storage_s1t2_isolation() {
     );
     assert_success(&out, "start");
 
-    // Open a second tab
+    // Create a second tab by opening a URL on s0
+    let out = headless(
+        &["browser", "open", "https://example.com", "-s", "s0"],
+        30,
+    );
+    assert_success(&out, "create second tab");
+
+    // Navigate second tab to a different page
     let out = headless(
         &["browser", "goto", "https://example.com/page2", "-s", "s0", "-t", "t1"],
         30,
@@ -299,12 +397,20 @@ fn storage_s1t2_isolation() {
     assert_success(&out, "local-storage set on t0");
 
     // Get local-storage on t1 — same origin so may or may not be shared
-    // depending on implementation. We just verify the command succeeds.
+    // depending on implementation. Verify the command ran and produced output.
     let out = headless(
         &["browser", "local-storage", "get", "crosskey", "-s", "s0", "-t", "t1"],
         10,
     );
     assert_success(&out, "local-storage get on t1");
+    let t1_output = stdout_str(&out);
+    // Same-origin tabs share localStorage, so we expect the value to be visible
+    // on t1. If not shared, the output would not contain the value.
+    // Either way, assert that we got a non-empty response.
+    assert!(
+        !t1_output.trim().is_empty(),
+        "local-storage get on t1 should produce output, got empty"
+    );
 
     // Close session
     let out = headless(&["browser", "close", "-s", "s0"], 30);

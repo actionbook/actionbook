@@ -608,7 +608,7 @@ fn int_drag() {
     assert_success(&out, "start");
 
     let out = headless(
-        &["browser", "drag", "--from", "body", "--to", "body", "-s", "s0", "-t", "t0"],
+        &["browser", "drag", "body", "body", "-s", "s0", "-t", "t0"],
         30,
     );
     assert_success(&out, "drag body to body");
@@ -684,10 +684,10 @@ fn int_mouse_move() {
     assert_success(&out, "start");
 
     let out = headless(
-        &["browser", "mouse-move", "200", "300", "-s", "s0", "-t", "t0"],
+        &["browser", "mouse-move", "200,300", "-s", "s0", "-t", "t0"],
         30,
     );
-    assert_success(&out, "mouse-move 200 300");
+    assert_success(&out, "mouse-move 200,300");
 
     let out = headless(&["browser", "close", "-s", "s0"], 30);
     assert_success(&out, "close");
@@ -755,7 +755,7 @@ fn int_scroll_down() {
 
     // Scroll down
     let out = headless(
-        &["browser", "scroll", "down", "-s", "s0", "-t", "t0", "--amount", "500"],
+        &["browser", "scroll", "down", "500", "-s", "s0", "-t", "t0"],
         30,
     );
     assert_success(&out, "scroll down");
@@ -805,7 +805,7 @@ fn int_scroll_top() {
 
     // Scroll down first
     let out = headless(
-        &["browser", "scroll", "down", "-s", "s0", "-t", "t0", "--amount", "500"],
+        &["browser", "scroll", "down", "500", "-s", "s0", "-t", "t0"],
         30,
     );
     assert_success(&out, "scroll down");
@@ -840,6 +840,32 @@ fn int_scroll_top() {
         "scrollY should be 0 after scroll top, got: {}",
         stdout_str(&out)
     );
+
+    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    assert_success(&out, "close");
+}
+
+// ---------------------------------------------------------------------------
+// 18. int_scroll_into_view — S1T1: scroll into-view "body" → exit 0
+// ---------------------------------------------------------------------------
+
+#[test]
+fn int_scroll_into_view() {
+    if skip() {
+        return;
+    }
+
+    let out = headless(
+        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        30,
+    );
+    assert_success(&out, "start");
+
+    let out = headless(
+        &["browser", "scroll", "into-view", "body", "-s", "s0", "-t", "t0"],
+        30,
+    );
+    assert_success(&out, "scroll into-view body");
 
     let out = headless(&["browser", "close", "-s", "s0"], 30);
     assert_success(&out, "close");

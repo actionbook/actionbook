@@ -89,6 +89,14 @@ fn wait_nav_after_click() {
     );
     assert_success(&out, "goto example.com");
 
+    // Record starting URL before click
+    let out = headless(
+        &["browser", "eval", "window.location.href", "-s", "s0", "-t", "t0"],
+        30,
+    );
+    assert_success(&out, "eval location before nav");
+    let start_url = stdout_str(&out);
+
     // Inject a link that navigates to a different page
     let out = headless(
         &[
@@ -114,7 +122,7 @@ fn wait_nav_after_click() {
     );
     assert_success(&out, "wait navigation");
 
-    // Verify URL changed
+    // Verify URL changed from the starting URL
     let out = headless(
         &["browser", "eval", "window.location.href", "-s", "s0", "-t", "t0"],
         30,
@@ -122,8 +130,8 @@ fn wait_nav_after_click() {
     assert_success(&out, "eval location after nav");
     let url = stdout_str(&out);
     assert!(
-        url.contains("nav-test") || url.contains("example.com"),
-        "URL should reflect navigation, got: {}",
+        url != start_url,
+        "URL should have changed after navigation, but still: {}",
         url
     );
 

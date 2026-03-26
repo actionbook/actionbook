@@ -7,6 +7,19 @@
 
 use crate::harness::{assert_success, headless, headless_json, skip, stdout_str};
 
+/// Extract the snapshot content from the JSON output, stripping envelope
+/// metadata (tab_id, url, etc.) so that two snapshots can be compared by
+/// content alone. Falls back to the raw string if parsing fails.
+fn extract_snapshot_content(raw: &str) -> String {
+    // Try to parse as JSON and pull out the "data" or "content" field.
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) {
+        if let Some(data) = v.get("data").or_else(|| v.get("content")) {
+            return data.to_string();
+        }
+    }
+    raw.to_string()
+}
+
 // ---------------------------------------------------------------------------
 // 1. obs_snapshot_has_content — S1T1: snapshot contains page text
 // ---------------------------------------------------------------------------
@@ -96,13 +109,15 @@ fn obs_snapshot_s1t2_different() {
     );
     assert_success(&out, "open t1");
 
-    // Snapshot t0
+    // Snapshot t0 — extract only the snapshot content (not the full JSON envelope
+    // which may differ by tab_id/url metadata).
     let out = headless_json(
         &["browser", "snapshot", "-s", "s0", "-t", "t0"],
         30,
     );
     assert_success(&out, "snapshot t0");
-    let snap_t0 = stdout_str(&out);
+    let raw_t0 = stdout_str(&out);
+    let snap_t0 = extract_snapshot_content(&raw_t0);
 
     // Snapshot t1
     let out = headless_json(
@@ -110,7 +125,8 @@ fn obs_snapshot_s1t2_different() {
         30,
     );
     assert_success(&out, "snapshot t1");
-    let snap_t1 = stdout_str(&out);
+    let raw_t1 = stdout_str(&out);
+    let snap_t1 = extract_snapshot_content(&raw_t1);
 
     // The two snapshots should be different (different pages)
     assert_ne!(
@@ -138,13 +154,15 @@ fn obs_snapshot_seq_reflects_goto() {
     );
     assert_success(&out, "start");
 
-    // Snapshot after landing on example.com
+    // Snapshot after landing on example.com — extract only the snapshot
+    // content to avoid false-negatives from envelope metadata differences.
     let out = headless_json(
         &["browser", "snapshot", "-s", "s0", "-t", "t0"],
         30,
     );
     assert_success(&out, "snapshot A");
-    let snap_a = stdout_str(&out);
+    let raw_a = stdout_str(&out);
+    let snap_a = extract_snapshot_content(&raw_a);
 
     // Navigate to example.org
     let out = headless(
@@ -159,7 +177,8 @@ fn obs_snapshot_seq_reflects_goto() {
         30,
     );
     assert_success(&out, "snapshot B");
-    let snap_b = stdout_str(&out);
+    let raw_b = stdout_str(&out);
+    let snap_b = extract_snapshot_content(&raw_b);
 
     // Snapshots should differ after navigation
     assert_ne!(
@@ -868,11 +887,53 @@ fn obs_query_count() {
     );
     assert_success(&out, "query count div");
     let count_output = stdout_str(&out);
-    // Should contain a number representing the count of div elements
+    // Extract the numeric count from the output and verify it is a reasonable number (>= 0)
+    let count: i64 = count_output
+        .split_whitespace()
+        .find_map(|w| w.parse::<i64>().ok())
+        .unwrap_or_else(|| {
+            panic!(
+                "query count div should contain a parseable number, got: {}",
+                count_output
+            )
+        });
     assert!(
-        count_output.chars().any(|c| c.is_ascii_digit()),
-        "query count div should return a number, got: {}",
-        count_output
+        count >= 0,
+        "query count div should return a non-negative count, got: {}",
+        count
+    );
+
+    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    assert_success(&out, "close");
+}
+
+// ---------------------------------------------------------------------------
+// 24b. obs_query_nth — S1T1: query nth 1 "div"
+// ---------------------------------------------------------------------------
+
+#[test]
+fn obs_query_nth() {
+    if skip() {
+        return;
+    }
+
+    let out = headless(
+        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        30,
+    );
+    assert_success(&out, "start");
+
+    let out = headless(
+        &["browser", "query", "nth", "1", "div", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "query nth 1 div");
+    let nth_output = stdout_str(&out);
+    // Should return info about the first div element (selector, tag, or other element data)
+    assert!(
+        nth_output.contains("div") || nth_output.contains("selector") || nth_output.contains("tag"),
+        "query nth 1 div should return element info, got: {}",
+        nth_output
     );
 
     let out = headless(&["browser", "close", "-s", "s0"], 30);
