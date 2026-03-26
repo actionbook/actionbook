@@ -4,7 +4,7 @@
 //! Uses daemon v2 CLI format with --session and --tab addressing.
 //! Each test is self-contained: start → operate → assert → close.
 
-use crate::harness::{assert_success, headless, skip, stdout_str, SessionGuard};
+use crate::harness::{assert_success, headless, set_body_html_js, skip, stdout_str, SessionGuard};
 
 // ---------------------------------------------------------------------------
 // 1. int_click_element — S1T1: inject button via eval → click → verify
@@ -36,7 +36,9 @@ fn int_click_element() {
         &[
             "browser",
             "eval",
-            r#"document.body.innerHTML = '<button id="btn" onclick="window.__clicked=true">Click me</button>'"#,
+            &set_body_html_js(
+                r#"<button id="btn" onclick="window.__clicked=true">Click me</button>"#,
+            ),
             "-s",
             "s0",
             "-t",
@@ -109,7 +111,7 @@ fn int_click_s1t2_isolation() {
         &[
             "browser",
             "eval",
-            r#"document.body.innerHTML = '<button id="btn" onclick="window.__clicked=true">Click</button>'"#,
+            &set_body_html_js(r#"<button id="btn" onclick="window.__clicked=true">Click</button>"#),
             "-s",
             "s0",
             "-t",
@@ -192,7 +194,9 @@ fn int_click_seq() {
         &[
             "browser",
             "eval",
-            r#"document.body.innerHTML = '<button id="a" onclick="window.__a=true">A</button><button id="b" onclick="window.__b=true">B</button>'"#,
+            &set_body_html_js(
+                r#"<button id="a" onclick="window.__a=true">A</button><button id="b" onclick="window.__b=true">B</button>"#,
+            ),
             "-s",
             "s0",
             "-t",
@@ -284,7 +288,7 @@ fn int_fill_input() {
         &[
             "browser",
             "eval",
-            r#"document.body.innerHTML = '<input id="test" type="text" />'"#,
+            &set_body_html_js(r#"<input id="test" type="text" />"#),
             "-s",
             "s0",
             "-t",
@@ -359,7 +363,7 @@ fn int_fill_s1t2_isolation() {
         &[
             "browser",
             "eval",
-            r#"document.body.innerHTML = '<input id="test" type="text" />'"#,
+            &set_body_html_js(r#"<input id="test" type="text" />"#),
             "-s",
             "s0",
             "-t",
@@ -374,7 +378,7 @@ fn int_fill_s1t2_isolation() {
         &[
             "browser",
             "eval",
-            r#"document.body.innerHTML = '<input id="test" type="text" />'"#,
+            &set_body_html_js(r#"<input id="test" type="text" />"#),
             "-s",
             "s0",
             "-t",
@@ -455,7 +459,7 @@ fn int_fill_seq() {
         &[
             "browser",
             "eval",
-            r#"document.body.innerHTML = '<input id="a" type="text" /><input id="b" type="text" />'"#,
+            &set_body_html_js(r#"<input id="a" type="text" /><input id="b" type="text" />"#),
             "-s",
             "s0",
             "-t",
@@ -553,7 +557,7 @@ fn int_type_text() {
         &[
             "browser",
             "eval",
-            r#"document.body.innerHTML = '<input id="test" type="text" />'"#,
+            &set_body_html_js(r#"<input id="test" type="text" />"#),
             "-s",
             "s0",
             "-t",
@@ -628,7 +632,9 @@ fn int_select_dropdown() {
         &[
             "browser",
             "eval",
-            r#"document.body.innerHTML = '<select id="sel"><option value="opt1">One</option><option value="opt2">Two</option><option value="opt3">Three</option></select>'"#,
+            &set_body_html_js(
+                r#"<select id="sel"><option value="opt1">One</option><option value="opt2">Two</option><option value="opt3">Three</option></select>"#,
+            ),
             "-s",
             "s0",
             "-t",
@@ -731,7 +737,7 @@ fn int_focus() {
         &[
             "browser",
             "eval",
-            r#"document.body.innerHTML = '<input id="focus-test" type="text" />'"#,
+            &set_body_html_js(r#"<input id="focus-test" type="text" />"#),
             "-s",
             "s0",
             "-t",
@@ -880,7 +886,7 @@ fn int_upload() {
         &[
             "browser",
             "eval",
-            r#"document.body.innerHTML = '<input id="file-upload" type="file" />'"#,
+            &set_body_html_js(r#"<input id="file-upload" type="file" />"#),
             "-s",
             "s0",
             "-t",

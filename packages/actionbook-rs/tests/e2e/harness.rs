@@ -135,6 +135,42 @@ pub fn ensure_no_sessions() {
     }
 }
 
+// ── Trusted HTML helpers ────────────────────────────────────────────
+
+/// Generate JS that sets `document.body.innerHTML`, compatible with
+/// Chrome 146+ Trusted Types enforcement.
+///
+/// Creates a one-time TrustedTypes policy to wrap the raw HTML string,
+/// falling back to direct assignment when Trusted Types is unavailable.
+#[allow(dead_code)]
+pub fn set_body_html_js(html: &str) -> String {
+    // Escape for embedding in a JS single-quoted string
+    let escaped = html
+        .replace('\\', "\\\\")
+        .replace('\'', "\\'")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r");
+    format!(
+        "(function(){{ var h='{}'; if(window.trustedTypes&&trustedTypes.createPolicy){{ if(!window.__abTestPolicy){{ window.__abTestPolicy=trustedTypes.createPolicy('ab-test',{{createHTML:function(s){{return s}}}}); }} document.body.innerHTML=window.__abTestPolicy.createHTML(h); }}else{{ document.body.innerHTML=h; }} }})()",
+        escaped
+    )
+}
+
+/// Generate JS that appends to `document.body.innerHTML`, compatible
+/// with Chrome 146+ Trusted Types enforcement.
+#[allow(dead_code)]
+pub fn append_body_html_js(html: &str) -> String {
+    let escaped = html
+        .replace('\\', "\\\\")
+        .replace('\'', "\\'")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r");
+    format!(
+        "(function(){{ var h='{}'; var el=document.createElement('div'); if(window.trustedTypes&&trustedTypes.createPolicy){{ if(!window.__abTestPolicy){{ window.__abTestPolicy=trustedTypes.createPolicy('ab-test',{{createHTML:function(s){{return s}}}}); }} el.innerHTML=window.__abTestPolicy.createHTML(h); }}else{{ el.innerHTML=h; }} while(el.firstChild){{ document.body.appendChild(el.firstChild); }} }})()",
+        escaped
+    )
+}
+
 // ── Assertions ──────────────────────────────────────────────────────
 
 pub fn stdout_str(output: &Output) -> String {

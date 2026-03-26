@@ -5,7 +5,9 @@
 //! Uses daemon v2 CLI format with --session and --tab addressing.
 //! Each test is self-contained: start -> operate -> assert -> close.
 
-use crate::harness::{assert_success, headless, headless_json, skip, stdout_str, SessionGuard};
+use crate::harness::{
+    append_body_html_js, assert_success, headless, headless_json, skip, stdout_str, SessionGuard,
+};
 
 /// Extract the snapshot content from the JSON output, stripping envelope
 /// metadata (tab_id, url, etc.) so that two snapshots can be compared by
@@ -627,7 +629,7 @@ fn obs_value_input() {
         &[
             "browser",
             "eval",
-            "document.body.innerHTML += '<input id=\"test-input\" type=\"text\" />'",
+            &append_body_html_js(r#"<input id="test-input" type="text" />"#),
             "-s",
             "s0",
             "-t",
@@ -741,7 +743,7 @@ fn obs_attrs_all() {
         &[
             "browser",
             "eval",
-            "document.body.innerHTML += '<input id=\"attrs-test\" type=\"text\" name=\"q\" />'",
+            &append_body_html_js(r#"<input id="attrs-test" type="text" name="q" />"#),
             "-s",
             "s0",
             "-t",
