@@ -195,7 +195,7 @@ jobs:
           mkdir -p target/llvm-cov
           set -o pipefail
           cargo llvm-cov nextest --lib --test cli_test --test cdp_message_parsing --profile ci --no-fail-fast 2>&1 | tee target/llvm-cov/coverage-summary.txt
-          cargo llvm-cov report --lcov --output-path target/llvm-cov/lcov.info
+          cargo llvm-cov report --lcov --output-path target/llvm-cov/lcov.info --fail-under-lines 70
 
       - name: Extract coverage percentage
         if: always()
