@@ -3,13 +3,14 @@
 //! Uses daemon v2 CLI format with --session and --tab addressing.
 //! All steps run in a single test function to guarantee execution order.
 
-use crate::harness::{assert_success, headless, headless_json, skip, stdout_str};
+use crate::harness::{assert_success, headless, headless_json, skip, stdout_str, SessionGuard};
 
 #[test]
 fn browser_basic_open_goto_snapshot_close() {
     if skip() {
         return;
     }
+    let _guard = SessionGuard::new();
 
     // Step 1: start a headless browser session with arxiv.org
     let out = headless(

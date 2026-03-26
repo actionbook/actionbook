@@ -4,7 +4,7 @@
 //! Uses daemon v2 CLI format with --session and --tab addressing.
 
 use crate::harness::{
-    assert_failure, assert_success, ensure_no_sessions, headless, headless_json, skip, stdout_str,
+    assert_failure, assert_success, headless, headless_json, skip, stdout_str, SessionGuard,
 };
 
 // ---------------------------------------------------------------------------
@@ -16,7 +16,7 @@ fn lifecycle_open_and_close() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     // Start a headless browser session
     let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
@@ -46,7 +46,7 @@ fn lifecycle_open_headless() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     // Start headless — should succeed
     let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
@@ -66,7 +66,7 @@ fn lifecycle_open_with_url() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     // Start session with a URL
     let out = headless(
@@ -117,6 +117,7 @@ fn lifecycle_status_shows_info() {
     if skip() {
         return;
     }
+    let _guard = SessionGuard::new();
 
     let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start session");
@@ -145,6 +146,7 @@ fn lifecycle_list_sessions() {
     if skip() {
         return;
     }
+    let _guard = SessionGuard::new();
 
     let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start session");
@@ -172,6 +174,7 @@ fn lifecycle_restart() {
     if skip() {
         return;
     }
+    let _guard = SessionGuard::new();
 
     let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start session");
@@ -204,7 +207,7 @@ fn lifecycle_close_after_operations() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     // Start session
     let out = headless(
@@ -254,7 +257,7 @@ fn lifecycle_close_s1t2_closes_all() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     // Start session
     let out = headless(
@@ -289,7 +292,7 @@ fn lifecycle_double_close() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     // Start session
     let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);

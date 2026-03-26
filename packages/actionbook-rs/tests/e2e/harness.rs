@@ -88,11 +88,34 @@ pub fn headless_json(args: &[&str], timeout_secs: u64) -> Output {
 
 // ── Cleanup helpers ─────────────────────────────────────────────────
 
+/// RAII guard that ensures sessions are cleaned up even when a test panics.
+///
+/// Create at the start of each test with `let _guard = SessionGuard::new();`.
+/// On creation it calls `ensure_no_sessions()` to start clean.  On drop
+/// (including panic-triggered unwind) it calls `ensure_no_sessions()` again,
+/// preventing one test's leftover session from cascading failures into all
+/// subsequent tests.
+#[allow(dead_code)]
+pub struct SessionGuard;
+
+#[allow(dead_code)]
+impl SessionGuard {
+    pub fn new() -> Self {
+        ensure_no_sessions();
+        Self
+    }
+}
+
+impl Drop for SessionGuard {
+    fn drop(&mut self) {
+        ensure_no_sessions();
+    }
+}
+
 /// Close all active sessions so the next test starts with a clean slate.
 ///
 /// Reads `list-sessions` output to find active session IDs, then closes
 /// each one.  Errors are silently ignored (sessions may already be gone).
-#[allow(dead_code)]
 pub fn ensure_no_sessions() {
     let out = headless_json(&["browser", "list-sessions"], 10);
     if !out.status.success() {

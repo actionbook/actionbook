@@ -4,7 +4,7 @@
 //! Uses daemon v2 CLI format with --session and --tab addressing.
 //! Each test is self-contained: start → operate → assert → close.
 
-use crate::harness::{assert_success, ensure_no_sessions, headless, skip, stdout_str};
+use crate::harness::{assert_success, headless, skip, stdout_str, SessionGuard};
 
 // ---------------------------------------------------------------------------
 // 1. int_click_element — S1T1: inject button via eval → click → verify
@@ -15,7 +15,7 @@ fn int_click_element() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -83,6 +83,7 @@ fn int_click_s1t2_isolation() {
     if skip() {
         return;
     }
+    let _guard = SessionGuard::new();
 
     // Start session with tab t0
     let out = headless(
@@ -170,7 +171,7 @@ fn int_click_seq() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -262,7 +263,7 @@ fn int_fill_input() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -333,7 +334,7 @@ fn int_fill_s1t2_isolation() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -433,7 +434,7 @@ fn int_fill_seq() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -531,7 +532,7 @@ fn int_type_text() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -606,7 +607,7 @@ fn int_select_dropdown() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -677,7 +678,7 @@ fn int_hover() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -709,7 +710,7 @@ fn int_focus() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -780,7 +781,7 @@ fn int_press_key() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -812,7 +813,7 @@ fn int_drag() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -847,7 +848,7 @@ fn int_upload() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     // Create a temporary file to upload
     let tmp = tempfile::Builder::new()
@@ -918,7 +919,7 @@ fn int_mouse_move() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -953,7 +954,7 @@ fn int_cursor_position() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -992,7 +993,7 @@ fn int_scroll_down() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -1063,7 +1064,7 @@ fn int_scroll_top() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -1158,7 +1159,7 @@ fn int_scroll_into_view() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[

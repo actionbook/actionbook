@@ -3,7 +3,7 @@
 //! Uses daemon v2 CLI format with --session and --tab addressing.
 //! Each test runs as a single function to guarantee execution order.
 
-use crate::harness::{assert_success, ensure_no_sessions, headless, skip, stdout_str};
+use crate::harness::{assert_success, headless, skip, stdout_str, SessionGuard};
 
 // ── Test 1: nav_goto_and_verify_url ────────────────────────────────────
 
@@ -13,7 +13,7 @@ fn nav_goto_and_verify_url() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     // Start a headless session with example.com
     let out = headless(
@@ -78,6 +78,7 @@ fn nav_goto_seq_two_urls() {
     if skip() {
         return;
     }
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -174,7 +175,7 @@ fn nav_goto_s1t2_cross_tab() {
     if skip() {
         return;
     }
-    ensure_no_sessions();
+    let _guard = SessionGuard::new();
 
     // Start with example.com on t0
     let out = headless(
@@ -263,6 +264,7 @@ fn nav_back_forward() {
     if skip() {
         return;
     }
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -366,6 +368,7 @@ fn nav_reload() {
     if skip() {
         return;
     }
+    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
