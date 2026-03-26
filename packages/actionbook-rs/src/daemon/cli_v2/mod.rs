@@ -1895,6 +1895,7 @@ mod tests {
             selector: "#copy".into(),
             session: session.clone(),
             tab,
+            mode: None,
         })
         .unwrap();
         assert!(matches!(action, Action::Text { selector: Some(sel), .. } if sel == "#copy"));
@@ -1930,6 +1931,7 @@ mod tests {
             selector: "#field".into(),
             session: session.clone(),
             tab,
+            nearby: false,
         })
         .unwrap();
         assert!(matches!(action, Action::Describe { selector, .. } if selector == "#field"));
@@ -1954,13 +1956,14 @@ mod tests {
             selector: "#field".into(),
             session: session.clone(),
             tab,
+            names: vec![],
         })
         .unwrap();
         assert!(matches!(action, Action::Styles { selector, .. } if selector == "#field"));
 
         let (action, _) = build_action(BrowserCmd::InspectPoint {
-            x: 10.5,
-            y: 20.25,
+            coords: "10.5,20.25".to_string(),
+            parent_depth: None,
             session: session.clone(),
             tab,
         })
@@ -1970,17 +1973,30 @@ mod tests {
         let (action, _) = build_action(BrowserCmd::LogsConsole {
             session: session.clone(),
             tab,
+            level: None,
+            tail: None,
+            since: None,
+            clear: false,
         })
         .unwrap();
         assert!(matches!(
             action,
             Action::LogsConsole {
                 session: s,
-                tab: TabId(3)
+                tab: TabId(3),
+                ..
             } if s == session
         ));
 
-        let (action, _) = build_action(BrowserCmd::LogsErrors { session, tab }).unwrap();
+        let (action, _) = build_action(BrowserCmd::LogsErrors {
+            session,
+            tab,
+            source: None,
+            tail: None,
+            since: None,
+            clear: false,
+        })
+        .unwrap();
         assert!(matches!(action, Action::LogsErrors { tab: TabId(3), .. }));
     }
 
