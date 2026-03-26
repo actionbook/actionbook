@@ -800,6 +800,28 @@ async fn handle_eval(
 
     match backend.exec(op).await {
         Ok(result) => {
+            // Check for JS exceptions in the result
+            if result.value.get("exceptionDetails").is_some() {
+                let desc = result
+                    .value
+                    .get("exceptionDetails")
+                    .and_then(|e| e.get("exception"))
+                    .and_then(|e| e.get("description"))
+                    .and_then(|d| d.as_str())
+                    .or_else(|| {
+                        result
+                            .value
+                            .get("exceptionDetails")
+                            .and_then(|e| e.get("text"))
+                            .and_then(|t| t.as_str())
+                    })
+                    .unwrap_or("evaluation threw an exception");
+                return ActionResult::fatal(
+                    "eval_error",
+                    desc,
+                    "check the expression syntax",
+                );
+            }
             let val = extract_eval_value(&result.value);
             ActionResult::ok(val)
         }
@@ -1754,11 +1776,31 @@ async fn handle_cookies_set(
         Ok(t) => t,
         Err(r) => return r,
     };
+    // If no domain specified, derive from current page URL
+    let effective_domain = match domain {
+        Some(d) => d.to_string(),
+        None => {
+            let url_op = BackendOp::Evaluate {
+                target_id: target_id.to_string(),
+                expression: "window.location.hostname".to_string(),
+                return_by_value: true,
+            };
+            let hostname = match backend.exec(url_op).await {
+                Ok(val) => {
+                    let raw = extract_eval_value(&val.value);
+                    raw.as_str().unwrap_or("localhost").to_string()
+                }
+                Err(_) => "localhost".to_string(),
+            };
+            // CDP expects domain with leading dot for subdomain matching
+            if hostname.starts_with('.') { hostname } else { format!(".{hostname}") }
+        }
+    };
     let op = BackendOp::SetCookie {
         target_id: target_id.to_string(),
         name: name.to_string(),
         value: value.to_string(),
-        domain: domain.unwrap_or("").to_string(),
+        domain: effective_domain,
         path: path.unwrap_or("/").to_string(),
         secure,
         http_only,
@@ -1785,10 +1827,26 @@ async fn handle_cookies_delete(
         Ok(t) => t,
         Err(r) => return r,
     };
+    // Derive domain from current page for CDP
+    let domain = {
+        let url_op = BackendOp::Evaluate {
+            target_id: target_id.to_string(),
+            expression: "window.location.hostname".to_string(),
+            return_by_value: true,
+        };
+        match backend.exec(url_op).await {
+            Ok(val) => {
+                let raw = extract_eval_value(&val.value);
+                let h = raw.as_str().unwrap_or("localhost").to_string();
+                if h.starts_with('.') { h } else { format!(".{h}") }
+            }
+            Err(_) => ".localhost".to_string(),
+        }
+    };
     let op = BackendOp::DeleteCookies {
         target_id: target_id.to_string(),
         name: name.to_string(),
-        domain: None,
+        domain: Some(domain),
         path: None,
     };
     match backend.exec(op).await {

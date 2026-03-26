@@ -3,7 +3,7 @@
 //! Each test starts a headless session, issues a command expected to fail,
 //! asserts non-zero exit, then closes the session.
 
-use crate::harness::{assert_failure, assert_success, headless, skip, stderr_str, stdout_str};
+use crate::harness::{assert_failure, assert_success, ensure_no_sessions, headless, skip, stderr_str, stdout_str};
 
 // ── 1. ELEMENT_NOT_FOUND: click nonexistent selector ───────────────
 
@@ -12,6 +12,7 @@ fn err_click_nonexistent() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -72,6 +73,7 @@ fn err_goto_invalid_url() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -120,6 +122,7 @@ fn err_eval_syntax_error() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -182,6 +185,7 @@ fn err_screenshot_bad_path() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -245,6 +249,7 @@ fn err_wait_timeout() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -310,6 +315,7 @@ fn err_fill_nonexistent() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[

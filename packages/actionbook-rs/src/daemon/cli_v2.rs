@@ -451,148 +451,20 @@ enum BrowserCmd {
     // =======================================================================
     // Data commands — Cookies (require -s)
     // =======================================================================
-    /// List all cookies
-    CookiesList {
-        /// Session ID (e.g. s0)
-        #[arg(short = 's', long)]
-        session: SessionId,
-        /// Filter by domain
-        #[arg(long)]
-        domain: Option<String>,
-    },
-
-    /// Get a specific cookie by name
-    CookiesGet {
-        /// Cookie name
-        name: String,
-        /// Session ID (e.g. s0)
-        #[arg(short = 's', long)]
-        session: SessionId,
-    },
-
-    /// Set a cookie
-    CookiesSet {
-        /// Cookie name
-        name: String,
-        /// Cookie value
-        value: String,
-        /// Session ID (e.g. s0)
-        #[arg(short = 's', long)]
-        session: SessionId,
-        /// Cookie domain
-        #[arg(long)]
-        domain: Option<String>,
-        /// Cookie path
-        #[arg(long)]
-        path: Option<String>,
-        /// Secure flag
-        #[arg(long)]
-        secure: bool,
-        /// HttpOnly flag
-        #[arg(long)]
-        http_only: bool,
-        /// SameSite attribute
-        #[arg(long, value_enum)]
-        same_site: Option<CliSameSite>,
-        /// Expiration timestamp (seconds since epoch)
-        #[arg(long)]
-        expires: Option<f64>,
-    },
-
-    /// Delete a cookie by name
-    CookiesDelete {
-        /// Cookie name
-        name: String,
-        /// Session ID (e.g. s0)
-        #[arg(short = 's', long)]
-        session: SessionId,
-    },
-
-    /// Clear all cookies
-    CookiesClear {
-        /// Session ID (e.g. s0)
-        #[arg(short = 's', long)]
-        session: SessionId,
-        /// Filter by domain
-        #[arg(long)]
-        domain: Option<String>,
-    },
+    /// Cookie operations (list, get, set, delete, clear)
+    #[command(subcommand)]
+    Cookies(CookiesCmd),
 
     // =======================================================================
     // Data commands — Storage (require -s and -t)
     // =======================================================================
-    /// List all keys in web storage
-    StorageList {
-        /// Session ID (e.g. s0)
-        #[arg(short = 's', long)]
-        session: SessionId,
-        /// Tab ID (e.g. t0)
-        #[arg(short = 't', long)]
-        tab: TabId,
-        /// Storage kind: local or session
-        #[arg(short = 'k', long, value_enum)]
-        kind: CliStorageKind,
-    },
+    /// Local storage operations (list, get, set, delete, clear)
+    #[command(subcommand)]
+    LocalStorage(LocalStorageCmd),
 
-    /// Get a value from web storage
-    StorageGet {
-        /// Storage key
-        key: String,
-        /// Session ID (e.g. s0)
-        #[arg(short = 's', long)]
-        session: SessionId,
-        /// Tab ID (e.g. t0)
-        #[arg(short = 't', long)]
-        tab: TabId,
-        /// Storage kind: local or session
-        #[arg(short = 'k', long, value_enum)]
-        kind: CliStorageKind,
-    },
-
-    /// Set a value in web storage
-    StorageSet {
-        /// Storage key
-        key: String,
-        /// Storage value
-        value: String,
-        /// Session ID (e.g. s0)
-        #[arg(short = 's', long)]
-        session: SessionId,
-        /// Tab ID (e.g. t0)
-        #[arg(short = 't', long)]
-        tab: TabId,
-        /// Storage kind: local or session
-        #[arg(short = 'k', long, value_enum)]
-        kind: CliStorageKind,
-    },
-
-    /// Delete a key from web storage
-    StorageDelete {
-        /// Storage key
-        key: String,
-        /// Session ID (e.g. s0)
-        #[arg(short = 's', long)]
-        session: SessionId,
-        /// Tab ID (e.g. t0)
-        #[arg(short = 't', long)]
-        tab: TabId,
-        /// Storage kind: local or session
-        #[arg(short = 'k', long, value_enum)]
-        kind: CliStorageKind,
-    },
-
-    /// Clear all web storage of a given kind
-    StorageClear {
-        /// Session ID (e.g. s0)
-        #[arg(short = 's', long)]
-        session: SessionId,
-        /// Tab ID (e.g. t0)
-        #[arg(short = 't', long)]
-        tab: TabId,
-        /// Storage kind: local or session
-        #[arg(short = 'k', long, value_enum)]
-        kind: CliStorageKind,
-    },
+    /// Session storage operations (list, get, set, delete, clear)
+    #[command(subcommand)]
+    SessionStorage(SessionStorageCmd),
 
     // =======================================================================
     // Interaction commands — require -s and -t
@@ -900,6 +772,117 @@ impl From<CliSameSite> for SameSite {
         }
     }
 }
+
+/// Cookies subcommands: list, get, set, delete, clear.
+#[derive(Subcommand, Debug)]
+enum CookiesCmd {
+    /// List all cookies
+    List {
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Filter by domain
+        #[arg(long)]
+        domain: Option<String>,
+    },
+    /// Get a specific cookie by name
+    Get {
+        /// Cookie name
+        name: String,
+        #[arg(short = 's', long)]
+        session: SessionId,
+    },
+    /// Set a cookie
+    Set {
+        /// Cookie name
+        name: String,
+        /// Cookie value
+        value: String,
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(long)]
+        domain: Option<String>,
+        #[arg(long)]
+        path: Option<String>,
+        #[arg(long)]
+        secure: bool,
+        #[arg(long)]
+        http_only: bool,
+        #[arg(long, value_enum)]
+        same_site: Option<CliSameSite>,
+        #[arg(long)]
+        expires: Option<f64>,
+    },
+    /// Delete a cookie by name
+    Delete {
+        /// Cookie name
+        name: String,
+        #[arg(short = 's', long)]
+        session: SessionId,
+    },
+    /// Clear all cookies
+    Clear {
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Filter by domain
+        #[arg(long)]
+        domain: Option<String>,
+    },
+}
+
+/// Storage subcommands: list, get, set, delete, clear.
+#[derive(Subcommand, Debug)]
+enum StorageSubCmd {
+    /// List all keys
+    List {
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+    /// Get a value by key
+    Get {
+        /// Storage key
+        key: String,
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+    /// Set a key-value pair
+    Set {
+        /// Storage key
+        key: String,
+        /// Storage value
+        value: String,
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+    /// Delete a key
+    Delete {
+        /// Storage key
+        key: String,
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+    /// Clear all keys
+    Clear {
+        /// Optional key (ignored, clears all)
+        key: Option<String>,
+        #[arg(short = 's', long)]
+        session: SessionId,
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+}
+
+/// Wrapper — local-storage uses StorageSubCmd with Local kind.
+type LocalStorageCmd = StorageSubCmd;
+/// Wrapper — session-storage uses StorageSubCmd with Session kind.
+type SessionStorageCmd = StorageSubCmd;
 
 /// Wait subcommands: element, navigation, network-idle, condition.
 #[derive(Subcommand, Debug)]
@@ -1228,78 +1211,25 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
         BrowserCmd::LogsErrors { session, tab } => Action::LogsErrors { session, tab },
 
         // Cookies
-        BrowserCmd::CookiesList { session, domain } => Action::CookiesList { session, domain },
-        BrowserCmd::CookiesGet { name, session } => Action::CookiesGet { session, name },
-        BrowserCmd::CookiesSet {
-            name,
-            value,
-            session,
-            domain,
-            path,
-            secure,
-            http_only,
-            same_site,
-            expires,
-        } => Action::CookiesSet {
-            session,
-            name,
-            value,
-            domain,
-            path,
-            secure: if secure { Some(true) } else { None },
-            http_only: if http_only { Some(true) } else { None },
-            same_site: same_site.map(|s| s.into()),
-            expires,
+        BrowserCmd::Cookies(cmd) => match cmd {
+            CookiesCmd::List { session, domain } => Action::CookiesList { session, domain },
+            CookiesCmd::Get { name, session } => Action::CookiesGet { session, name },
+            CookiesCmd::Set { name, value, session, domain, path, secure, http_only, same_site, expires } => Action::CookiesSet {
+                session, name, value, domain, path,
+                secure: if secure { Some(true) } else { None },
+                http_only: if http_only { Some(true) } else { None },
+                same_site: same_site.map(|s| s.into()),
+                expires,
+            },
+            CookiesCmd::Delete { name, session } => Action::CookiesDelete { session, name },
+            CookiesCmd::Clear { session, domain } => Action::CookiesClear { session, domain },
         },
-        BrowserCmd::CookiesDelete { name, session } => Action::CookiesDelete { session, name },
-        BrowserCmd::CookiesClear { session, domain } => Action::CookiesClear { session, domain },
 
-        // Storage
-        BrowserCmd::StorageList { session, tab, kind } => Action::StorageList {
-            session,
-            tab,
-            kind: kind.into(),
-        },
-        BrowserCmd::StorageGet {
-            key,
-            session,
-            tab,
-            kind,
-        } => Action::StorageGet {
-            session,
-            tab,
-            kind: kind.into(),
-            key,
-        },
-        BrowserCmd::StorageSet {
-            key,
-            value,
-            session,
-            tab,
-            kind,
-        } => Action::StorageSet {
-            session,
-            tab,
-            kind: kind.into(),
-            key,
-            value,
-        },
-        BrowserCmd::StorageDelete {
-            key,
-            session,
-            tab,
-            kind,
-        } => Action::StorageDelete {
-            session,
-            tab,
-            kind: kind.into(),
-            key,
-        },
-        BrowserCmd::StorageClear { session, tab, kind } => Action::StorageClear {
-            session,
-            tab,
-            kind: kind.into(),
-        },
+        // Local Storage
+        BrowserCmd::LocalStorage(cmd) => storage_cmd_to_action(cmd, StorageKind::Local),
+
+        // Session Storage
+        BrowserCmd::SessionStorage(cmd) => storage_cmd_to_action(cmd, StorageKind::Session),
 
         // Interaction
         BrowserCmd::Select {
@@ -1412,6 +1342,17 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
     };
 
     Ok((action, screenshot_path))
+}
+
+/// Convert a storage subcommand + kind into an Action.
+fn storage_cmd_to_action(cmd: StorageSubCmd, kind: StorageKind) -> Action {
+    match cmd {
+        StorageSubCmd::List { session, tab } => Action::StorageList { session, tab, kind },
+        StorageSubCmd::Get { key, session, tab } => Action::StorageGet { session, tab, kind, key },
+        StorageSubCmd::Set { key, value, session, tab } => Action::StorageSet { session, tab, kind, key, value },
+        StorageSubCmd::Delete { key, session, tab } => Action::StorageDelete { session, tab, kind, key },
+        StorageSubCmd::Clear { session, tab, .. } => Action::StorageClear { session, tab, kind },
+    }
 }
 
 // ---------------------------------------------------------------------------
