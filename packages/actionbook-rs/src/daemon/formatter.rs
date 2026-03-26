@@ -1613,13 +1613,24 @@ mod tests {
             ]
         }));
         let out = format_cli_result(&action, &result);
-        assert!(out.starts_with("[local-1]"));
-        assert!(out.contains("ok browser.list-tabs"));
-        assert!(out.contains("2 tabs"));
-        assert!(out.contains("[local-1 t0] https://actionbook.dev"));
-        assert!(out.contains("title: Home"));
-        // Empty title should not show
-        assert!(!out.contains("title: \n"));
+        assert!(
+            out.starts_with("[local-1]"),
+            "list-tabs text should start with session header, got: {out}"
+        );
+        // New format: session header + one line per tab, no "ok" line
+        assert!(
+            out.contains("[local-1 t0] https://actionbook.dev"),
+            "should contain first tab line, got: {out}"
+        );
+        assert!(
+            out.contains("[local-1 t1] https://actionbook.dev/docs"),
+            "should contain second tab line, got: {out}"
+        );
+        // No "ok" status line in list-tabs format
+        assert!(
+            !out.contains("ok browser.list-tabs"),
+            "list-tabs should not contain ok line, got: {out}"
+        );
     }
 
     #[test]
@@ -1684,9 +1695,19 @@ mod tests {
             out.starts_with("[local-1 t2] https://actionbook.dev"),
             "new-tab text should start with [session tab] url prefix, got: {out}"
         );
-        assert!(out.contains("ok browser.new-tab"));
-        assert!(out.contains("tab: t2"));
-        assert!(out.contains("url: https://actionbook.dev"));
+        assert!(
+            out.contains("ok browser.new-tab"),
+            "new-tab text should contain ok line, got: {out}"
+        );
+        // New format uses [sid tid] url header instead of separate tab:/url: lines
+        assert!(
+            !out.contains("tab: t2"),
+            "new-tab should not use old 'tab:' format, got: {out}"
+        );
+        assert!(
+            !out.contains("url: https://actionbook.dev"),
+            "new-tab should not use old 'url:' format, got: {out}"
+        );
     }
 
     #[test]
