@@ -252,6 +252,20 @@ git commit -m "[scope]feat: description"
 In `packages/cli*` or `packages/actionbook-rs`, should follow the rules
 
 
+### Product Principles
+
+- Stateless interface, stateful runtime.                                                                                                                                                                                    
+The CLI interface facing agents is completely stateless — every command explicitly addresses via --session and --tab, is self-contained, and depends on no side effects from prior commands. The daemon itself is stateful,  
+holding the CDP connection pool and session/tab registry. The key distinction: the agent doesn't need to track any state; the daemon manages it on its behalf.                                                               
+- Absolute-path addressing, like a filesystem.                                                                                                                                                                               
+The core analogy: humans open a file in an IDE before editing; agents call write(full_path, content) directly. All per-tab commands must include --session + --tab — omitting either is an error. There is no implicit       
+"current tab" concept. This eliminates global locks and makes multi-tab parallel operations a first-class citizen.                                                                                                           
+- Designed for LLM consumers, not humans.                                                                                                                                                                                    
+Output defaults to compact text rather than JSON, because LLMs consume tokens more efficiently that way. Every response carries a [session tab] url prefix so the agent always knows its context. Short IDs (s0, t3) replace 
+UUIDs, compressing addressing from 40+ tokens down to 3–4.                                                                                                                                                                   
+- Errors as guidance.                                                                                                                                                                                                        
+Every error response includes a hint field telling the agent what to do next. For example, SESSION_NOT_FOUND suggests run browser launch. This reduces the tokens agents waste on error recovery.                            
+
 ### Architecture
 
 - **Three-layer decoupling.** CLI layer, Daemon layer, and Browser layer are independent, interacting only through protocols and trait boundaries. CLI layer handles argument parsing and output formatting only — no browser access. Daemon layer handles IPC routing and connection management only — no command semantics. Browser layer abstracts backends via traits — agnostic to whether commands come from CLI or daemon. Anti-pattern: calling `chromiumoxide::Browser::connect()` then `println!` directly in a command handler — that couples all three layers.
