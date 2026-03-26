@@ -830,19 +830,20 @@ mod tests {
             open_url: Some("https://example.com".into()),
             cdp_endpoint: None,
             ws_headers: None,
+            set_session_id: None,
         };
         let result = ActionResult::ok(json!({
-            "session_id": "s0",
+            "session_id": "local-1",
             "tab_ids": ["native-tab-1"]
         }));
         let out = format_cli_result_json(&action, &result, 42);
         let decoded: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(decoded["ok"], true);
         assert_eq!(decoded["command"], "browser.start");
-        assert_eq!(decoded["context"]["session_id"], "s0");
+        assert_eq!(decoded["context"]["session_id"], "local-1");
         assert_eq!(decoded["context"]["tab_id"], Value::Null);
         assert_eq!(decoded["context"]["url"], Value::Null);
-        assert_eq!(decoded["data"]["session_id"], "s0");
+        assert_eq!(decoded["data"]["session_id"], "local-1");
         assert_eq!(decoded["meta"]["duration_ms"], 42);
     }
 
@@ -851,12 +852,12 @@ mod tests {
         let action = Action::ListSessions;
         let result = ActionResult::ok(json!({
             "sessions": [
-                {"id": "s0", "state": "ready", "tab_count": 2}
+                {"id": "local-1", "state": "ready", "tab_count": 2}
             ]
         }));
         let out = format_cli_result(&action, &result);
         assert!(out.contains("1 session"));
-        assert!(out.contains("[s0]"));
+        assert!(out.contains("[local-1]"));
         assert!(out.contains("status: running"));
         assert!(out.contains("tabs: 2"));
     }
@@ -864,16 +865,16 @@ mod tests {
     #[test]
     fn lifecycle_text_formats_status_with_prefix() {
         let action = Action::SessionStatus {
-            session: SessionId(0),
+            session: SessionId::new_unchecked("local-1"),
         };
         let result = ActionResult::ok(json!({
-            "session": "s0",
+            "session": "local-1",
             "state": "running",
             "tab_count": 2,
             "window_count": 1
         }));
         let out = format_cli_result(&action, &result);
-        assert!(out.starts_with("[s0]"));
+        assert!(out.starts_with("[local-1]"));
         assert!(out.contains("status: running"));
         assert!(out.contains("tabs: 2"));
         assert!(out.contains("windows: 1"));
@@ -888,13 +889,14 @@ mod tests {
             open_url: Some("https://example.com".into()),
             cdp_endpoint: None,
             ws_headers: None,
+            set_session_id: None,
         };
         let result = ActionResult::ok(json!({
-            "session_id": "s0",
+            "session_id": "local-1",
             "tab_ids": ["native-tab-1"]
         }));
         let out = format_cli_result(&action, &result);
-        assert!(out.starts_with("[s0]\n"));
+        assert!(out.starts_with("[local-1]\n"));
         assert!(!out.contains("[s0 t0]"));
         assert!(out.contains("ok browser.start"));
         assert!(out.contains("mode: local"));
@@ -903,14 +905,14 @@ mod tests {
     #[test]
     fn lifecycle_text_restart_uses_session_prefix_only() {
         let action = Action::RestartSession {
-            session: SessionId(0),
+            session: SessionId::new_unchecked("local-1"),
         };
         let result = ActionResult::ok(json!({
-            "session_id": "s0",
+            "session_id": "local-1",
             "tab_ids": ["native-tab-1"]
         }));
         let out = format_cli_result(&action, &result);
-        assert!(out.starts_with("[s0]\n"));
+        assert!(out.starts_with("[local-1]\n"));
         assert!(!out.contains("[s0 t0]"));
         assert!(out.contains("ok browser.restart"));
     }
@@ -921,7 +923,7 @@ mod tests {
         let result = ActionResult::ok(json!({
             "sessions": [
                 {
-                    "id": "s0",
+                    "id": "local-1",
                     "mode": "local",
                     "state": "ready",
                     "tab_count": 2
@@ -931,7 +933,7 @@ mod tests {
         let out = format_cli_result_json(&action, &result, 7);
         let decoded: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(decoded["data"]["total_sessions"], 1);
-        assert_eq!(decoded["data"]["sessions"][0]["session_id"], "s0");
+        assert_eq!(decoded["data"]["sessions"][0]["session_id"], "local-1");
         assert_eq!(decoded["data"]["sessions"][0]["status"], "running");
         assert_eq!(decoded["data"]["sessions"][0]["tabs_count"], 2);
         assert_eq!(decoded["data"]["sessions"][0]["mode"], "local");
@@ -954,7 +956,7 @@ mod tests {
     #[test]
     fn lifecycle_text_formats_failures_with_error_code() {
         let action = Action::CloseSession {
-            session: SessionId(5),
+            session: SessionId::new_unchecked("local-5"),
         };
         let result = ActionResult::fatal(
             "session_not_found",
