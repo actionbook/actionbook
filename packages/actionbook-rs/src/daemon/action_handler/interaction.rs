@@ -532,7 +532,11 @@ pub(super) async fn handle_scroll(
     // Handle special directions: top, bottom, into-view
     match dir.as_str() {
         "top" | "bottom" => {
-            let scroll_y = if dir == "top" { "0" } else { "document.body.scrollHeight" };
+            let scroll_y = if dir == "top" {
+                "0"
+            } else {
+                "document.body.scrollHeight"
+            };
             let js = format!("(function() {{ window.scrollTo(0, {scroll_y}); return true; }})()");
             let op = BackendOp::Evaluate {
                 target_id: target_id.to_string(),

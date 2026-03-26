@@ -1,6 +1,9 @@
 use super::*;
 
-pub(super) fn resolve_any_tab(session_id: SessionId, regs: &Registries) -> Result<&str, ActionResult> {
+pub(super) fn resolve_any_tab(
+    session_id: SessionId,
+    regs: &Registries,
+) -> Result<&str, ActionResult> {
     regs.tabs
         .values()
         .next()
@@ -109,7 +112,11 @@ pub(super) async fn handle_cookies_set(
                 Err(_) => "localhost".to_string(),
             };
             // CDP expects domain with leading dot for subdomain matching
-            if hostname.starts_with('.') { hostname } else { format!(".{hostname}") }
+            if hostname.starts_with('.') {
+                hostname
+            } else {
+                format!(".{hostname}")
+            }
         }
     };
     let op = BackendOp::SetCookie {
@@ -154,7 +161,11 @@ pub(super) async fn handle_cookies_delete(
             Ok(val) => {
                 let raw = extract_eval_value(&val.value);
                 let h = raw.as_str().unwrap_or("localhost").to_string();
-                if h.starts_with('.') { h } else { format!(".{h}") }
+                if h.starts_with('.') {
+                    h
+                } else {
+                    format!(".{h}")
+                }
             }
             Err(_) => ".localhost".to_string(),
         }

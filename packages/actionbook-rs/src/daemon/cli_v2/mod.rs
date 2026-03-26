@@ -881,8 +881,22 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
         BrowserCmd::Cookies(cmd) => match cmd {
             CookiesCmd::List { session, domain } => Action::CookiesList { session, domain },
             CookiesCmd::Get { name, session } => Action::CookiesGet { session, name },
-            CookiesCmd::Set { name, value, session, domain, path, secure, http_only, same_site, expires } => Action::CookiesSet {
-                session, name, value, domain, path,
+            CookiesCmd::Set {
+                name,
+                value,
+                session,
+                domain,
+                path,
+                secure,
+                http_only,
+                same_site,
+                expires,
+            } => Action::CookiesSet {
+                session,
+                name,
+                value,
+                domain,
+                path,
                 secure: if secure { Some(true) } else { None },
                 http_only: if http_only { Some(true) } else { None },
                 same_site: same_site.map(|s| s.into()),
@@ -958,49 +972,137 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             files,
         },
         BrowserCmd::Scroll(scroll_cmd) => match scroll_cmd {
-            ScrollCmd::Up { amount, session, tab } => Action::Scroll {
-                session, tab, direction: "up".to_string(), amount, selector: None,
+            ScrollCmd::Up {
+                amount,
+                session,
+                tab,
+            } => Action::Scroll {
+                session,
+                tab,
+                direction: "up".to_string(),
+                amount,
+                selector: None,
             },
-            ScrollCmd::Down { amount, session, tab } => Action::Scroll {
-                session, tab, direction: "down".to_string(), amount, selector: None,
+            ScrollCmd::Down {
+                amount,
+                session,
+                tab,
+            } => Action::Scroll {
+                session,
+                tab,
+                direction: "down".to_string(),
+                amount,
+                selector: None,
             },
-            ScrollCmd::Left { amount, session, tab } => Action::Scroll {
-                session, tab, direction: "left".to_string(), amount, selector: None,
+            ScrollCmd::Left {
+                amount,
+                session,
+                tab,
+            } => Action::Scroll {
+                session,
+                tab,
+                direction: "left".to_string(),
+                amount,
+                selector: None,
             },
-            ScrollCmd::Right { amount, session, tab } => Action::Scroll {
-                session, tab, direction: "right".to_string(), amount, selector: None,
+            ScrollCmd::Right {
+                amount,
+                session,
+                tab,
+            } => Action::Scroll {
+                session,
+                tab,
+                direction: "right".to_string(),
+                amount,
+                selector: None,
             },
             ScrollCmd::Top { session, tab } => Action::Scroll {
-                session, tab, direction: "top".to_string(), amount: None, selector: None,
+                session,
+                tab,
+                direction: "top".to_string(),
+                amount: None,
+                selector: None,
             },
             ScrollCmd::Bottom { session, tab } => Action::Scroll {
-                session, tab, direction: "bottom".to_string(), amount: None, selector: None,
+                session,
+                tab,
+                direction: "bottom".to_string(),
+                amount: None,
+                selector: None,
             },
-            ScrollCmd::IntoView { selector, session, tab } => Action::Scroll {
-                session, tab, direction: "into-view".to_string(), amount: None, selector: Some(selector),
+            ScrollCmd::IntoView {
+                selector,
+                session,
+                tab,
+            } => Action::Scroll {
+                session,
+                tab,
+                direction: "into-view".to_string(),
+                amount: None,
+                selector: Some(selector),
             },
         },
-        BrowserCmd::MouseMove { coords, session, tab } => {
+        BrowserCmd::MouseMove {
+            coords,
+            session,
+            tab,
+        } => {
             let parts: Vec<&str> = coords.split(',').collect();
-            let x = parts.first().and_then(|s| s.trim().parse::<f64>().ok()).unwrap_or(0.0);
-            let y = parts.get(1).and_then(|s| s.trim().parse::<f64>().ok()).unwrap_or(0.0);
+            let x = parts
+                .first()
+                .and_then(|s| s.trim().parse::<f64>().ok())
+                .unwrap_or(0.0);
+            let y = parts
+                .get(1)
+                .and_then(|s| s.trim().parse::<f64>().ok())
+                .unwrap_or(0.0);
             Action::MouseMove { session, tab, x, y }
         }
         BrowserCmd::CursorPosition { session, tab } => Action::CursorPosition { session, tab },
 
         // Waiting
         BrowserCmd::Wait(wait_cmd) => match wait_cmd {
-            WaitCmd::Element { selector, session, tab, timeout } => Action::WaitElement {
-                session, tab, selector, timeout_ms: timeout,
+            WaitCmd::Element {
+                selector,
+                session,
+                tab,
+                timeout,
+            } => Action::WaitElement {
+                session,
+                tab,
+                selector,
+                timeout_ms: timeout,
             },
-            WaitCmd::Navigation { session, tab, timeout } => Action::WaitNavigation {
-                session, tab, timeout_ms: timeout,
+            WaitCmd::Navigation {
+                session,
+                tab,
+                timeout,
+            } => Action::WaitNavigation {
+                session,
+                tab,
+                timeout_ms: timeout,
             },
-            WaitCmd::NetworkIdle { session, tab, timeout, idle_time } => Action::WaitNetworkIdle {
-                session, tab, timeout_ms: timeout, idle_time_ms: idle_time,
+            WaitCmd::NetworkIdle {
+                session,
+                tab,
+                timeout,
+                idle_time,
+            } => Action::WaitNetworkIdle {
+                session,
+                tab,
+                timeout_ms: timeout,
+                idle_time_ms: idle_time,
             },
-            WaitCmd::Condition { expression, session, tab, timeout } => Action::WaitCondition {
-                session, tab, expression, timeout_ms: timeout,
+            WaitCmd::Condition {
+                expression,
+                session,
+                tab,
+                timeout,
+            } => Action::WaitCondition {
+                session,
+                tab,
+                expression,
+                timeout_ms: timeout,
             },
         },
 
@@ -1015,9 +1117,30 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
 fn storage_cmd_to_action(cmd: StorageSubCmd, kind: StorageKind) -> Action {
     match cmd {
         StorageSubCmd::List { session, tab } => Action::StorageList { session, tab, kind },
-        StorageSubCmd::Get { key, session, tab } => Action::StorageGet { session, tab, kind, key },
-        StorageSubCmd::Set { key, value, session, tab } => Action::StorageSet { session, tab, kind, key, value },
-        StorageSubCmd::Delete { key, session, tab } => Action::StorageDelete { session, tab, kind, key },
+        StorageSubCmd::Get { key, session, tab } => Action::StorageGet {
+            session,
+            tab,
+            kind,
+            key,
+        },
+        StorageSubCmd::Set {
+            key,
+            value,
+            session,
+            tab,
+        } => Action::StorageSet {
+            session,
+            tab,
+            kind,
+            key,
+            value,
+        },
+        StorageSubCmd::Delete { key, session, tab } => Action::StorageDelete {
+            session,
+            tab,
+            kind,
+            key,
+        },
         StorageSubCmd::Clear { session, tab, .. } => Action::StorageClear { session, tab, kind },
     }
 }

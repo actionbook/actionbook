@@ -189,11 +189,7 @@ pub(super) async fn handle_eval(
                             .and_then(|t| t.as_str())
                     })
                     .unwrap_or("evaluation threw an exception");
-                return ActionResult::fatal(
-                    "eval_error",
-                    desc,
-                    "check the expression syntax",
-                );
+                return ActionResult::fatal("eval_error", desc, "check the expression syntax");
             }
             let val = extract_eval_value(&result.value);
             ActionResult::ok(val)

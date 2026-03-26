@@ -119,16 +119,24 @@ pub async fn handle_action(
 ) -> ActionResult {
     match action {
         // -- Tab-level commands --
-        Action::Goto { tab, url, .. } => navigation::handle_goto(session_id, backend, regs, tab, &url).await,
-        Action::Back { tab, .. } => navigation::handle_history(backend, regs, session_id, tab, "back").await,
+        Action::Goto { tab, url, .. } => {
+            navigation::handle_goto(session_id, backend, regs, tab, &url).await
+        }
+        Action::Back { tab, .. } => {
+            navigation::handle_history(backend, regs, session_id, tab, "back").await
+        }
         Action::Forward { tab, .. } => {
             navigation::handle_history(backend, regs, session_id, tab, "forward").await
         }
-        Action::Reload { tab, .. } => navigation::handle_reload(session_id, backend, regs, tab).await,
+        Action::Reload { tab, .. } => {
+            navigation::handle_reload(session_id, backend, regs, tab).await
+        }
         Action::Open { url, .. } => {
             session::handle_new_tab(session_id, backend, regs, &url, false, None).await
         }
-        Action::Snapshot { tab, .. } => observation::handle_snapshot(session_id, backend, regs, tab).await,
+        Action::Snapshot { tab, .. } => {
+            observation::handle_snapshot(session_id, backend, regs, tab).await
+        }
         Action::Screenshot { tab, full_page, .. } => {
             observation::handle_screenshot(session_id, backend, regs, tab, full_page).await
         }
@@ -170,7 +178,10 @@ pub async fn handle_action(
             selector,
             timeout_ms,
             ..
-        } => observation::handle_wait_element(session_id, backend, regs, tab, &selector, timeout_ms).await,
+        } => {
+            observation::handle_wait_element(session_id, backend, regs, tab, &selector, timeout_ms)
+                .await
+        }
         Action::Html { tab, selector, .. } => {
             observation::handle_html(session_id, backend, regs, tab, selector.as_deref()).await
         }
@@ -187,15 +198,21 @@ pub async fn handle_action(
             window,
             ..
         } => session::handle_new_tab(session_id, backend, regs, &url, new_window, window).await,
-        Action::CloseTab { tab, .. } => session::handle_close_tab(session_id, backend, regs, tab).await,
+        Action::CloseTab { tab, .. } => {
+            session::handle_close_tab(session_id, backend, regs, tab).await
+        }
         Action::Close { .. } | Action::CloseSession { .. } => {
             // Handled at the session actor level, not here.
             ActionResult::ok(json!({"closed": true}))
         }
 
         // -- Observation commands (tab-level) --
-        Action::Pdf { tab, path, .. } => observation::handle_pdf(session_id, backend, regs, tab, &path).await,
-        Action::Title { tab, .. } => observation::handle_title(session_id, backend, regs, tab).await,
+        Action::Pdf { tab, path, .. } => {
+            observation::handle_pdf(session_id, backend, regs, tab, &path).await
+        }
+        Action::Title { tab, .. } => {
+            observation::handle_title(session_id, backend, regs, tab).await
+        }
         Action::Url { tab, .. } => observation::handle_url(session_id, backend, regs, tab).await,
         Action::Value { tab, selector, .. } => {
             observation::handle_value(session_id, backend, regs, tab, &selector).await
@@ -221,7 +238,9 @@ pub async fn handle_action(
         Action::Styles { tab, selector, .. } => {
             observation::handle_styles(session_id, backend, regs, tab, &selector).await
         }
-        Action::Viewport { tab, .. } => observation::handle_viewport(session_id, backend, regs, tab).await,
+        Action::Viewport { tab, .. } => {
+            observation::handle_viewport(session_id, backend, regs, tab).await
+        }
         Action::Query {
             tab,
             selector,
@@ -248,7 +267,9 @@ pub async fn handle_action(
         Action::LogsConsole { tab, .. } => {
             observation::handle_logs_console(session_id, backend, regs, tab).await
         }
-        Action::LogsErrors { tab, .. } => observation::handle_logs_errors(session_id, backend, regs, tab).await,
+        Action::LogsErrors { tab, .. } => {
+            observation::handle_logs_errors(session_id, backend, regs, tab).await
+        }
 
         // -- Data commands (session-level cookies) --
         Action::CookiesList { ref domain, .. } => {
@@ -318,7 +339,10 @@ pub async fn handle_action(
             value,
             by_text,
             ..
-        } => interaction::handle_select(session_id, backend, regs, tab, &selector, &value, by_text).await,
+        } => {
+            interaction::handle_select(session_id, backend, regs, tab, &selector, &value, by_text)
+                .await
+        }
         Action::Hover { tab, selector, .. } => {
             interaction::handle_hover(session_id, backend, regs, tab, &selector).await
         }
@@ -333,7 +357,10 @@ pub async fn handle_action(
             from_selector,
             to_selector,
             ..
-        } => interaction::handle_drag(session_id, backend, regs, tab, &from_selector, &to_selector).await,
+        } => {
+            interaction::handle_drag(session_id, backend, regs, tab, &from_selector, &to_selector)
+                .await
+        }
         Action::Upload {
             tab,
             selector,
@@ -375,14 +402,25 @@ pub async fn handle_action(
             idle_time_ms,
             ..
         } => {
-            waiting::handle_wait_network_idle(session_id, backend, regs, tab, timeout_ms, idle_time_ms).await
+            waiting::handle_wait_network_idle(
+                session_id,
+                backend,
+                regs,
+                tab,
+                timeout_ms,
+                idle_time_ms,
+            )
+            .await
         }
         Action::WaitCondition {
             tab,
             expression,
             timeout_ms,
             ..
-        } => waiting::handle_wait_condition(session_id, backend, regs, tab, &expression, timeout_ms).await,
+        } => {
+            waiting::handle_wait_condition(session_id, backend, regs, tab, &expression, timeout_ms)
+                .await
+        }
 
         // -- Session management --
         Action::RestartSession { .. } => {
@@ -406,7 +444,11 @@ pub async fn handle_action(
 // ---------------------------------------------------------------------------
 
 /// Look up a tab's CDP target_id, or return a Fatal ActionResult.
-pub(super) fn resolve_tab(session_id: SessionId, regs: &Registries, tab: TabId) -> Result<&str, ActionResult> {
+pub(super) fn resolve_tab(
+    session_id: SessionId,
+    regs: &Registries,
+    tab: TabId,
+) -> Result<&str, ActionResult> {
     match regs.find_tab(tab) {
         Some(entry) => Ok(&entry.target_id),
         None => Err(ActionResult::fatal(

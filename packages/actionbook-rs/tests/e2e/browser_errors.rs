@@ -3,7 +3,9 @@
 //! Each test starts a headless session, issues a command expected to fail,
 //! asserts non-zero exit, then closes the session.
 
-use crate::harness::{assert_failure, assert_success, ensure_no_sessions, headless, skip, stderr_str, stdout_str};
+use crate::harness::{
+    assert_failure, assert_success, ensure_no_sessions, headless, skip, stderr_str, stdout_str,
+};
 
 // ── 1. ELEMENT_NOT_FOUND: click nonexistent selector ───────────────
 
