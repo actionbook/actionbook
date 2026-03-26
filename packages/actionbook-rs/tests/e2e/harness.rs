@@ -162,8 +162,8 @@ pub fn ensure_no_sessions() {
 /// Generate JS that sets `document.body` content, compatible with
 /// Chrome 146+ Trusted Types enforcement.
 ///
-/// Uses `DOMParser` to parse HTML into a document fragment, avoiding
-/// any `innerHTML` assignment that triggers TrustedTypes restrictions.
+/// Uses `<template>` element whose `innerHTML` is exempt from
+/// TrustedTypes — no policy creation needed.
 #[allow(dead_code)]
 pub fn set_body_html_js(html: &str) -> String {
     let escaped = html
@@ -172,7 +172,7 @@ pub fn set_body_html_js(html: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r");
     format!(
-        "(function(){{ document.body.textContent=''; var d=new DOMParser().parseFromString('{}','text/html'); while(d.body.firstChild){{ document.body.appendChild(d.body.firstChild); }} }})()",
+        "(function(){{ document.body.textContent=''; var t=document.createElement('template'); t.innerHTML='{}'; document.body.append(t.content); }})()",
         escaped
     )
 }
@@ -180,8 +180,8 @@ pub fn set_body_html_js(html: &str) -> String {
 /// Generate JS that appends HTML to `document.body`, compatible
 /// with Chrome 146+ Trusted Types enforcement.
 ///
-/// Uses `DOMParser` to parse HTML into a document fragment, avoiding
-/// any `innerHTML` assignment that triggers TrustedTypes restrictions.
+/// Uses `<template>` element whose `innerHTML` is exempt from
+/// TrustedTypes — no policy creation needed.
 #[allow(dead_code)]
 pub fn append_body_html_js(html: &str) -> String {
     let escaped = html
@@ -190,7 +190,7 @@ pub fn append_body_html_js(html: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r");
     format!(
-        "(function(){{ var d=new DOMParser().parseFromString('{}','text/html'); while(d.body.firstChild){{ document.body.appendChild(d.body.firstChild); }} }})()",
+        "(function(){{ var t=document.createElement('template'); t.innerHTML='{}'; document.body.append(t.content); }})()",
         escaped
     )
 }
