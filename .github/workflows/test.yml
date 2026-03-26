@@ -271,9 +271,9 @@ jobs:
       - name: Build Allure Report
         if: always()
         run: |
-          # Copy previous history if available
-          if [ -d gh-pages/history ]; then
-            cp -r gh-pages/history allure-results/history
+          # Copy previous history if available (deployed under /test-report/)
+          if [ -d gh-pages/test-report/history ]; then
+            cp -r gh-pages/test-report/history allure-results/history
           fi
           allure generate allure-results -o allure-report --clean
           # Prepare publish directory with history
