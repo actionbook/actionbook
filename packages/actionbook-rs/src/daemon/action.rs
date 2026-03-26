@@ -121,6 +121,15 @@ pub enum Action {
         /// Use compact output format.
         #[serde(default)]
         compact: bool,
+        /// Show cursor overlay in snapshot.
+        #[serde(default)]
+        cursor: bool,
+        /// Maximum depth of the accessibility tree.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        depth: Option<u32>,
+        /// Restrict snapshot to elements matching this selector.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
     },
 
     /// Take a screenshot (PNG).
@@ -198,6 +207,9 @@ pub enum Action {
         tab: TabId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         selector: Option<String>,
+        /// Text extraction mode: "raw" (default) or "readability".
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<String>,
     },
 
     // =======================================================================
@@ -245,6 +257,9 @@ pub enum Action {
         session: SessionId,
         tab: TabId,
         selector: String,
+        /// Include nearby elements (parent, siblings) in the description.
+        #[serde(default)]
+        nearby: bool,
     },
 
     /// Get the interactive state of an element (visible, enabled, checked, etc.).
@@ -267,6 +282,9 @@ pub enum Action {
         session: SessionId,
         tab: TabId,
         selector: String,
+        /// Specific CSS property names to retrieve (default: all computed styles).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        names: Vec<String>,
     },
 
     /// Get the viewport dimensions.
@@ -294,13 +312,46 @@ pub enum Action {
         tab: TabId,
         x: f64,
         y: f64,
+        /// How many parent levels to include.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent_depth: Option<u32>,
     },
 
     /// Get console log messages.
-    LogsConsole { session: SessionId, tab: TabId },
+    LogsConsole {
+        session: SessionId,
+        tab: TabId,
+        /// Filter by log level.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        level: Option<String>,
+        /// Return only the last N log entries.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tail: Option<u32>,
+        /// Return entries since this timestamp/marker.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since: Option<String>,
+        /// Clear the log buffer after reading.
+        #[serde(default)]
+        clear: bool,
+    },
 
     /// Get error log messages.
-    LogsErrors { session: SessionId, tab: TabId },
+    LogsErrors {
+        session: SessionId,
+        tab: TabId,
+        /// Filter by error source.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<String>,
+        /// Return only the last N error entries.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tail: Option<u32>,
+        /// Return entries since this timestamp/marker.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since: Option<String>,
+        /// Clear the error buffer after reading.
+        #[serde(default)]
+        clear: bool,
+    },
 
     // =======================================================================
     // Data actions — Session-level (require session)

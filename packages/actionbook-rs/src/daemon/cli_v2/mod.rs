@@ -201,6 +201,15 @@ enum BrowserCmd {
         /// Compact output
         #[arg(short = 'c', long)]
         compact: bool,
+        /// Show cursor overlay in snapshot
+        #[arg(long)]
+        cursor: bool,
+        /// Maximum depth of the accessibility tree
+        #[arg(long)]
+        depth: Option<u32>,
+        /// Restrict snapshot to elements matching this selector
+        #[arg(long)]
+        selector: Option<String>,
     },
 
     /// Take a screenshot (saves PNG to path)
@@ -325,6 +334,9 @@ enum BrowserCmd {
         /// Tab ID (e.g. t0)
         #[arg(short = 't', long)]
         tab: TabId,
+        /// Text extraction mode: raw (default) or readability
+        #[arg(long, value_parser = ["raw", "readability"])]
+        mode: Option<String>,
     },
 
     /// Get the value of an input element
@@ -375,6 +387,9 @@ enum BrowserCmd {
         /// Tab ID (e.g. t0)
         #[arg(short = 't', long)]
         tab: TabId,
+        /// Include nearby elements (parent, siblings) in the description
+        #[arg(long)]
+        nearby: bool,
     },
 
     /// Get the interactive state of an element
@@ -412,6 +427,8 @@ enum BrowserCmd {
         /// Tab ID (e.g. t0)
         #[arg(short = 't', long)]
         tab: TabId,
+        /// Specific CSS property names to retrieve (default: all computed styles)
+        names: Vec<String>,
     },
 
     /// Get the viewport dimensions
@@ -430,16 +447,17 @@ enum BrowserCmd {
 
     /// Inspect the element at a point on the page
     InspectPoint {
-        /// X coordinate
-        x: f64,
-        /// Y coordinate
-        y: f64,
+        /// Point to inspect as "x,y" (e.g. "100,200")
+        coords: String,
         /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
         #[arg(short = 't', long)]
         tab: TabId,
+        /// How many parent levels to include
+        #[arg(long)]
+        parent_depth: Option<u32>,
     },
 
     /// Get console log messages
@@ -450,6 +468,18 @@ enum BrowserCmd {
         /// Tab ID (e.g. t0)
         #[arg(short = 't', long)]
         tab: TabId,
+        /// Filter by log level
+        #[arg(long)]
+        level: Option<String>,
+        /// Return only the last N log entries
+        #[arg(long)]
+        tail: Option<u32>,
+        /// Return entries since this timestamp/marker
+        #[arg(long)]
+        since: Option<String>,
+        /// Clear the log buffer after reading
+        #[arg(long)]
+        clear: bool,
     },
 
     /// Get error log messages
@@ -460,6 +490,18 @@ enum BrowserCmd {
         /// Tab ID (e.g. t0)
         #[arg(short = 't', long)]
         tab: TabId,
+        /// Filter by error source
+        #[arg(long)]
+        source: Option<String>,
+        /// Return only the last N error entries
+        #[arg(long)]
+        tail: Option<u32>,
+        /// Return entries since this timestamp/marker
+        #[arg(long)]
+        since: Option<String>,
+        /// Clear the error buffer after reading
+        #[arg(long)]
+        clear: bool,
     },
 
     // =======================================================================
@@ -683,11 +725,17 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             tab,
             interactive,
             compact,
+            cursor,
+            depth,
+            selector,
         } => Action::Snapshot {
             session,
             tab,
             interactive,
             compact,
+            cursor,
+            depth,
+            selector,
         },
         BrowserCmd::Screenshot {
             path: _,
@@ -759,10 +807,12 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             selector,
             session,
             tab,
+            mode,
         } => Action::Text {
             session,
             tab,
             selector: Some(selector),
+            mode,
         },
         BrowserCmd::Value {
             selector,
@@ -797,10 +847,12 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             selector,
             session,
             tab,
+            nearby,
         } => Action::Describe {
             session,
             tab,
             selector,
+            nearby,
         },
         BrowserCmd::State {
             selector,
@@ -824,10 +876,12 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             selector,
             session,
             tab,
+            names,
         } => Action::Styles {
             session,
             tab,
             selector,
+            names,
         },
         BrowserCmd::Viewport { session, tab } => Action::Viewport { session, tab },
         BrowserCmd::Query(qcmd) => match qcmd {
@@ -885,11 +939,65 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
                 nth_index: Some(n),
             },
         },
-        BrowserCmd::InspectPoint { x, y, session, tab } => {
-            Action::InspectPoint { session, tab, x, y }
+        BrowserCmd::InspectPoint {
+            coords,
+            session,
+            tab,
+            parent_depth,
+        } => {
+            let parts: Vec<&str> = coords.splitn(2, ',').collect();
+            if parts.len() != 2 {
+                return Err(format!(
+                    "invalid coords '{}': expected format 'x,y' (e.g. '100,200')",
+                    coords
+                ));
+            }
+            let x = parts[0]
+                .trim()
+                .parse::<f64>()
+                .map_err(|_| format!("invalid x coordinate '{}'", parts[0].trim()))?;
+            let y = parts[1]
+                .trim()
+                .parse::<f64>()
+                .map_err(|_| format!("invalid y coordinate '{}'", parts[1].trim()))?;
+            Action::InspectPoint {
+                session,
+                tab,
+                x,
+                y,
+                parent_depth,
+            }
         }
-        BrowserCmd::LogsConsole { session, tab } => Action::LogsConsole { session, tab },
-        BrowserCmd::LogsErrors { session, tab } => Action::LogsErrors { session, tab },
+        BrowserCmd::LogsConsole {
+            session,
+            tab,
+            level,
+            tail,
+            since,
+            clear,
+        } => Action::LogsConsole {
+            session,
+            tab,
+            level,
+            tail,
+            since,
+            clear,
+        },
+        BrowserCmd::LogsErrors {
+            session,
+            tab,
+            source,
+            tail,
+            since,
+            clear,
+        } => Action::LogsErrors {
+            session,
+            tab,
+            source,
+            tail,
+            since,
+            clear,
+        },
 
         // Cookies
         BrowserCmd::Cookies(cmd) => match cmd {
@@ -1502,6 +1610,9 @@ mod tests {
             tab: TabId(0),
             interactive: true,
             compact: false,
+            cursor: false,
+            depth: None,
+            selector: None,
         })
         .unwrap();
         match action {

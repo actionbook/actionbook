@@ -453,6 +453,9 @@ async fn e2e_goto_and_snapshot_stub() {
             tab: TabId(0),
             interactive: false,
             compact: true,
+            cursor: false,
+            depth: None,
+            selector: None,
         },
     )
     .await;

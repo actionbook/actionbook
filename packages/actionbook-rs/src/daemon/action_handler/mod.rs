@@ -859,6 +859,9 @@ mod tests {
                 tab: TabId(0),
                 interactive: false,
                 compact: false,
+                cursor: false,
+                depth: None,
+                selector: None,
             },
         )
         .await;
@@ -1347,6 +1350,7 @@ mod tests {
                 session: sid,
                 tab: TabId(0),
                 selector: Some("#missing".into()),
+                mode: None,
             },
         )
         .await;

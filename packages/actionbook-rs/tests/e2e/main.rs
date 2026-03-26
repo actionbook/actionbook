@@ -20,4 +20,5 @@ mod browser_observation;
 mod browser_tab;
 mod browser_waiting;
 mod contract;
+mod contract_b2a;
 mod harness;

@@ -47,6 +47,8 @@ pub fn format_cli_result(action: &Action, result: &ActionResult) -> String {
             output
         } else if let Some(output) = format_tab_nav_text(action, result) {
             output
+        } else if let Some(output) = format_observation_text(action, result) {
+            output
         } else {
             format_result(result)
         }
@@ -101,6 +103,10 @@ pub fn format_cli_result_json(action: &Action, result: &ActionResult, duration_m
                 r#"{"ok":false,"command":"internal.serialization","context":null,"data":null,"error":{"code":"INTERNAL_ERROR","message":"failed to serialize result","retryable":false,"details":{"hint":"retry the command"}},"meta":{"duration_ms":0,"warnings":[],"pagination":null,"truncated":false}}"#.to_string()
             })
         } else if let Some(envelope) = normalize_tab_nav_json(action, result, duration_ms) {
+            serde_json::to_string(&envelope).unwrap_or_else(|_| {
+                r#"{"ok":false,"command":"internal.serialization","context":null,"data":null,"error":{"code":"INTERNAL_ERROR","message":"failed to serialize result","retryable":false,"details":{"hint":"retry the command"}},"meta":{"duration_ms":0,"warnings":[],"pagination":null,"truncated":false}}"#.to_string()
+            })
+        } else if let Some(envelope) = normalize_observation_json(action, result, duration_ms) {
             serde_json::to_string(&envelope).unwrap_or_else(|_| {
                 r#"{"ok":false,"command":"internal.serialization","context":null,"data":null,"error":{"code":"INTERNAL_ERROR","message":"failed to serialize result","retryable":false,"details":{"hint":"retry the command"}},"meta":{"duration_ms":0,"warnings":[],"pagination":null,"truncated":false}}"#.to_string()
             })
@@ -977,6 +983,394 @@ fn format_tab_nav_text(action: &Action, result: &ActionResult) -> Option<String>
 }
 
 // ---------------------------------------------------------------------------
+// Phase B2a: Observation / Query / Logging normalization
+// ---------------------------------------------------------------------------
+
+fn observation_command(action: &Action) -> Option<&'static str> {
+    match action {
+        Action::Snapshot { .. } => Some("browser.snapshot"),
+        Action::Title { .. } => Some("browser.title"),
+        Action::Url { .. } => Some("browser.url"),
+        Action::Viewport { .. } => Some("browser.viewport"),
+        Action::Html { .. } => Some("browser.html"),
+        Action::Text { .. } => Some("browser.text"),
+        Action::Value { .. } => Some("browser.value"),
+        Action::Attr { .. } => Some("browser.attr"),
+        Action::Attrs { .. } => Some("browser.attrs"),
+        Action::Box_ { .. } => Some("browser.box"),
+        Action::Styles { .. } => Some("browser.styles"),
+        Action::Query { .. } => Some("browser.query"),
+        Action::Describe { .. } => Some("browser.describe"),
+        Action::State { .. } => Some("browser.state"),
+        Action::InspectPoint { .. } => Some("browser.inspect-point"),
+        Action::LogsConsole { .. } => Some("browser.logs.console"),
+        Action::LogsErrors { .. } => Some("browser.logs.errors"),
+        _ => None,
+    }
+}
+
+fn normalize_observation_json(
+    action: &Action,
+    result: &ActionResult,
+    duration_ms: u128,
+) -> Option<Value> {
+    let command = observation_command(action)?;
+    let ok = result.is_ok();
+    let data = match result {
+        ActionResult::Ok { data } => normalize_observation_data(action, data),
+        _ => Value::Null,
+    };
+    let context = observation_context(action, result);
+    let error = match result {
+        ActionResult::Ok { .. } => Value::Null,
+        _ => normalized_error_value(&normalize_error(result)),
+    };
+    Some(serde_json::json!({
+        "ok": ok,
+        "command": command,
+        "context": context.unwrap_or(Value::Null),
+        "data": data,
+        "error": error,
+        "meta": {
+            "duration_ms": duration_ms,
+            "warnings": [],
+            "pagination": null,
+            "truncated": false
+        }
+    }))
+}
+
+fn observation_context(action: &Action, _result: &ActionResult) -> Option<Value> {
+    let session_id = action.session_id()?.to_string();
+    let tab_id = action_tab_id(action)?.to_string();
+    Some(serde_json::json!({
+        "session_id": session_id,
+        "tab_id": tab_id,
+        "url": null,
+        "title": null
+    }))
+}
+
+fn normalize_observation_data(action: &Action, data: &Value) -> Value {
+    match action {
+        Action::Snapshot { .. } => {
+            // Handler returns accessibility tree data (string or object)
+            if data.is_string() {
+                serde_json::json!({
+                    "format": "snapshot",
+                    "content": data,
+                    "nodes": null,
+                    "stats": {
+                        "node_count": null,
+                        "interactive_count": null
+                    }
+                })
+            } else {
+                // Already structured — pass through but ensure format field
+                let mut obj = if let Value::Object(map) = data.clone() {
+                    map
+                } else {
+                    let mut m = serde_json::Map::new();
+                    m.insert("content".into(), data.clone());
+                    m
+                };
+                obj.entry("format")
+                    .or_insert_with(|| Value::String("snapshot".into()));
+                obj.entry("nodes").or_insert(Value::Null);
+                obj.entry("stats").or_insert_with(
+                    || serde_json::json!({"node_count": null, "interactive_count": null}),
+                );
+                Value::Object(obj)
+            }
+        }
+        Action::Title { .. } => {
+            let value = data
+                .as_str()
+                .map(|s| Value::String(s.to_string()))
+                .unwrap_or_else(|| data.clone());
+            serde_json::json!({
+                "value": value,
+                "target": { "selector": null }
+            })
+        }
+        Action::Url { .. } => {
+            let value = data
+                .as_str()
+                .map(|s| Value::String(s.to_string()))
+                .unwrap_or_else(|| data.clone());
+            serde_json::json!({
+                "value": value,
+                "target": { "selector": null }
+            })
+        }
+        Action::Html { selector, .. } => {
+            let value = data
+                .as_str()
+                .map(|s| Value::String(s.to_string()))
+                .unwrap_or_else(|| data.clone());
+            serde_json::json!({
+                "value": value,
+                "target": { "selector": selector }
+            })
+        }
+        Action::Text { selector, .. } => {
+            let value = data
+                .as_str()
+                .map(|s| Value::String(s.to_string()))
+                .unwrap_or_else(|| data.get("text").cloned().unwrap_or_else(|| data.clone()));
+            serde_json::json!({
+                "value": value,
+                "target": { "selector": selector }
+            })
+        }
+        Action::Value { selector, .. } => {
+            let value = data
+                .as_str()
+                .map(|s| Value::String(s.to_string()))
+                .unwrap_or_else(|| data.clone());
+            serde_json::json!({
+                "value": value,
+                "target": { "selector": selector }
+            })
+        }
+        Action::Attr { selector, .. } => {
+            let value = data
+                .as_str()
+                .map(|s| Value::String(s.to_string()))
+                .unwrap_or_else(|| data.clone());
+            serde_json::json!({
+                "value": value,
+                "target": { "selector": selector }
+            })
+        }
+        Action::Viewport { .. } => {
+            // Handler returns { width, height } or similar — normalize
+            let width = data.get("width").cloned().unwrap_or(Value::Null);
+            let height = data.get("height").cloned().unwrap_or(Value::Null);
+            serde_json::json!({
+                "width": width,
+                "height": height
+            })
+        }
+        Action::Attrs { selector, .. } => {
+            serde_json::json!({
+                "target": { "selector": selector },
+                "value": data
+            })
+        }
+        Action::Styles { selector, .. } => {
+            serde_json::json!({
+                "target": { "selector": selector },
+                "value": data
+            })
+        }
+        Action::Box_ { selector, .. } => {
+            let x = data.get("x").cloned().unwrap_or(Value::Null);
+            let y = data.get("y").cloned().unwrap_or(Value::Null);
+            let width = data.get("width").cloned().unwrap_or(Value::Null);
+            let height = data.get("height").cloned().unwrap_or(Value::Null);
+            serde_json::json!({
+                "target": { "selector": selector },
+                "value": { "x": x, "y": y, "width": width, "height": height }
+            })
+        }
+        Action::Query { .. } => {
+            // Already has mode/count/item(s) structure from handler — pass through
+            data.clone()
+        }
+        Action::Describe { .. } => {
+            // Pass through describe data
+            data.clone()
+        }
+        Action::State { selector, .. } => {
+            // Normalize to { target, state }
+            serde_json::json!({
+                "target": { "selector": selector },
+                "state": data
+            })
+        }
+        Action::InspectPoint { .. } => {
+            // Pass through
+            data.clone()
+        }
+        Action::LogsConsole { .. } => {
+            let items = data
+                .as_array()
+                .cloned()
+                .map(Value::Array)
+                .unwrap_or_else(|| data.get("items").cloned().unwrap_or(Value::Array(vec![])));
+            serde_json::json!({
+                "items": items,
+                "cleared": false
+            })
+        }
+        Action::LogsErrors { .. } => {
+            let items = data
+                .as_array()
+                .cloned()
+                .map(Value::Array)
+                .unwrap_or_else(|| data.get("items").cloned().unwrap_or(Value::Array(vec![])));
+            serde_json::json!({
+                "items": items,
+                "cleared": false
+            })
+        }
+        _ => data.clone(),
+    }
+}
+
+fn format_observation_text(action: &Action, result: &ActionResult) -> Option<String> {
+    let _command = observation_command(action)?;
+    let session_id = action.session_id()?.to_string();
+    let tab_id = action_tab_id(action)?.to_string();
+
+    Some(match result {
+        ActionResult::Ok { data } => {
+            let prefix = prefixed_header(&session_id, Some(&tab_id), None);
+            match action {
+                Action::Snapshot { .. } => {
+                    // Output content directly (no "ok" prefix)
+                    if data.is_string() {
+                        data.as_str().unwrap_or("").to_string()
+                    } else if let Some(content) = data.get("content") {
+                        content.as_str().unwrap_or("").to_string()
+                    } else {
+                        serde_json::to_string_pretty(data).unwrap_or_else(|_| data.to_string())
+                    }
+                }
+                Action::Title { .. }
+                | Action::Url { .. }
+                | Action::Html { .. }
+                | Action::Value { .. }
+                | Action::Attr { .. } => {
+                    // Output the value string directly
+                    data.as_str().unwrap_or("").to_string()
+                }
+                Action::Text { .. } => data.as_str().map(|s| s.to_string()).unwrap_or_else(|| {
+                    data.get("text")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string()
+                }),
+                Action::Viewport { .. } => {
+                    let width = data.get("width").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let height = data.get("height").and_then(|v| v.as_u64()).unwrap_or(0);
+                    format!("{width}x{height}")
+                }
+                Action::Attrs { .. } | Action::Styles { .. } | Action::State { .. } => {
+                    let mut out = prefix;
+                    if let Some(obj) = data.as_object() {
+                        for (k, v) in obj {
+                            let val_str = v
+                                .as_str()
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| v.to_string());
+                            out.push_str(&format!("\n{k}: {val_str}"));
+                        }
+                    } else {
+                        out.push('\n');
+                        out.push_str(
+                            &serde_json::to_string_pretty(data)
+                                .unwrap_or_else(|_| data.to_string()),
+                        );
+                    }
+                    out
+                }
+                Action::Box_ { .. } => {
+                    let mut out = prefix;
+                    for key in &["x", "y", "width", "height"] {
+                        if let Some(v) = data.get(key) {
+                            out.push_str(&format!("\n{key}: {v}"));
+                        }
+                    }
+                    out
+                }
+                Action::Query { .. } => {
+                    // Use existing format_query_result
+                    if let Some(mode) = data.get("mode").and_then(|v| v.as_str()) {
+                        format_query_result(mode, data)
+                    } else {
+                        serde_json::to_string_pretty(data).unwrap_or_else(|_| data.to_string())
+                    }
+                }
+                Action::Describe { .. } => {
+                    let mut out = prefix;
+                    // Output summary line if available
+                    if let Some(summary) = data.get("summary").and_then(|v| v.as_str()) {
+                        out.push_str(&format!("\n{summary}"));
+                    } else if let Some(tag) = data.get("tag").and_then(|v| v.as_str()) {
+                        out.push_str(&format!("\ntag: {tag}"));
+                        if let Some(role) = data.get("role").and_then(|v| v.as_str()) {
+                            out.push_str(&format!("  role: {role}"));
+                        }
+                        if let Some(text) = data.get("text").and_then(|v| v.as_str()) {
+                            if !text.is_empty() {
+                                out.push_str(&format!("\ntext: {text}"));
+                            }
+                        }
+                    } else {
+                        out.push('\n');
+                        out.push_str(
+                            &serde_json::to_string_pretty(data)
+                                .unwrap_or_else(|_| data.to_string()),
+                        );
+                    }
+                    // nearby elements if present
+                    if let Some(nearby) = data.get("nearby") {
+                        if !nearby.is_null() {
+                            out.push_str(&format!("\nnearby: {nearby}"));
+                        }
+                    }
+                    out
+                }
+                Action::InspectPoint { x, y, .. } => {
+                    let mut out = prefix;
+                    out.push_str(&format!("\npoint: {x},{y}"));
+                    if let Some(sel) = data.get("selector").and_then(|v| v.as_str()) {
+                        out.push_str(&format!("\nselector: {sel}"));
+                    }
+                    if let Some(tag) = data.get("tag").and_then(|v| v.as_str()) {
+                        out.push_str(&format!("\ntag: {tag}"));
+                    }
+                    out
+                }
+                Action::LogsConsole { .. } | Action::LogsErrors { .. } => {
+                    let mut out = prefix;
+                    let items = data.as_array().cloned().unwrap_or_else(|| {
+                        data.get("items")
+                            .and_then(|v| v.as_array())
+                            .cloned()
+                            .unwrap_or_default()
+                    });
+                    for item in &items {
+                        let line = item.as_str().map(|s| s.to_string()).unwrap_or_else(|| {
+                            item.get("text")
+                                .or_else(|| item.get("message"))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| item.to_string())
+                        });
+                        out.push_str(&format!("\n{line}"));
+                    }
+                    out
+                }
+                _ => return None,
+            }
+        }
+        _ => {
+            let err = normalize_error(result);
+            let mut out = String::new();
+            if let Some(prefix) = prefix_for_action(action) {
+                out.push_str(&prefix);
+                out.push('\n');
+            }
+            out.push_str(&format!("error {}: {}", err.code, err.message));
+            out
+        }
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1424,6 +1818,9 @@ mod tests {
                 tab: crate::daemon::types::TabId(0),
                 interactive: true,
                 compact: false,
+                cursor: false,
+                depth: None,
+                selector: None,
             }),
             "browser.snapshot"
         );
@@ -1440,6 +1837,10 @@ mod tests {
             command_name(&Action::LogsConsole {
                 session: SessionId::new_unchecked("local-1"),
                 tab: crate::daemon::types::TabId(0),
+                level: None,
+                tail: None,
+                since: None,
+                clear: false,
             }),
             "browser.logs.console"
         );
@@ -1958,5 +2359,127 @@ mod tests {
             out,
             "[local-1 t5]\nerror TAB_NOT_FOUND: tab t5 does not exist"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase B2a: Observation / Query / Logging tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn observation_json_envelope_wraps_title_result() {
+        let action = Action::Title {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        };
+        let result = ActionResult::ok(json!("My Page Title"));
+        let out = format_cli_result_json(&action, &result, 8);
+        let d: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(d["ok"], true);
+        assert_eq!(d["command"], "browser.title");
+        assert_eq!(d["context"]["session_id"], "local-1");
+        assert_eq!(d["context"]["tab_id"], "t0");
+        assert_eq!(d["data"]["value"], "My Page Title");
+        assert_eq!(d["meta"]["duration_ms"], 8);
+        assert!(d["error"].is_null());
+    }
+
+    #[test]
+    fn observation_json_envelope_wraps_viewport_result() {
+        let action = Action::Viewport {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        };
+        let result = ActionResult::ok(json!({"width": 1280, "height": 720}));
+        let out = format_cli_result_json(&action, &result, 3);
+        let d: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(d["ok"], true);
+        assert_eq!(d["command"], "browser.viewport");
+        assert_eq!(d["data"]["width"], 1280);
+        assert_eq!(d["data"]["height"], 720);
+        assert_eq!(d["meta"]["duration_ms"], 3);
+    }
+
+    #[test]
+    fn observation_json_envelope_wraps_query_result() {
+        let action = Action::Query {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            selector: ".item".into(),
+            mode: crate::daemon::types::QueryMode::Css,
+            cardinality: crate::daemon::types::QueryCardinality::All,
+            nth_index: None,
+        };
+        let result = ActionResult::ok(json!({
+            "mode": "all",
+            "count": 2,
+            "items": [{"selector": ".item:nth-child(1)"}, {"selector": ".item:nth-child(2)"}]
+        }));
+        let out = format_cli_result_json(&action, &result, 12);
+        let d: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(d["ok"], true);
+        assert_eq!(d["command"], "browser.query");
+        assert_eq!(d["data"]["mode"], "all");
+        assert_eq!(d["data"]["count"], 2);
+    }
+
+    #[test]
+    fn observation_text_formats_title() {
+        let action = Action::Title {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        };
+        let result = ActionResult::ok(json!("My Page Title"));
+        let out = format_cli_result(&action, &result);
+        assert_eq!(out, "My Page Title");
+    }
+
+    #[test]
+    fn observation_text_formats_viewport() {
+        let action = Action::Viewport {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        };
+        let result = ActionResult::ok(json!({"width": 1920, "height": 1080}));
+        let out = format_cli_result(&action, &result);
+        assert_eq!(out, "1920x1080");
+    }
+
+    #[test]
+    fn observation_json_logs_console_wraps_array() {
+        let action = Action::LogsConsole {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            level: None,
+            tail: None,
+            since: None,
+            clear: false,
+        };
+        let result = ActionResult::ok(json!([
+            {"level": "log", "text": "hello"},
+            {"level": "warn", "text": "world"}
+        ]));
+        let out = format_cli_result_json(&action, &result, 5);
+        let d: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(d["ok"], true);
+        assert_eq!(d["command"], "browser.logs.console");
+        assert!(d["data"]["items"].is_array());
+        assert_eq!(d["data"]["items"].as_array().unwrap().len(), 2);
+        assert_eq!(d["data"]["cleared"], false);
+    }
+
+    #[test]
+    fn observation_json_value_uses_selector() {
+        let action = Action::Value {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            selector: "#my-input".into(),
+        };
+        let result = ActionResult::ok(json!("hello world"));
+        let out = format_cli_result_json(&action, &result, 4);
+        let d: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(d["ok"], true);
+        assert_eq!(d["command"], "browser.value");
+        assert_eq!(d["data"]["value"], "hello world");
+        assert_eq!(d["data"]["target"]["selector"], "#my-input");
     }
 }
