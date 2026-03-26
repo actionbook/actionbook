@@ -218,7 +218,7 @@ async fn handle_request_loop(stream: &mut UnixStream, router: &Router) -> std::i
         // Build and send response.
         let response = Response::new(request.id, result);
         let frame = wire::encode_frame(&response).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, e)
+            std::io::Error::other(e)
         })?;
 
         stream.write_all(&frame).await?;

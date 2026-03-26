@@ -81,7 +81,7 @@ impl DaemonClient {
             let payload_len = u32::from_le_bytes(len_buf);
 
             wire::validate_frame_length(payload_len)
-                .map_err(|msg| ClientError::Protocol(msg))?;
+                .map_err(ClientError::Protocol)?;
 
             // Read payload
             let mut payload = vec![0u8; payload_len as usize];

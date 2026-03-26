@@ -10,5 +10,6 @@ mod api;
 pub mod commands;
 #[cfg(unix)]
 pub mod daemon;
+#[allow(dead_code)]
 pub mod daemon_v2;
 mod update_notifier;

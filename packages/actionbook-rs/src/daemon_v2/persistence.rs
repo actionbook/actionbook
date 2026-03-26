@@ -164,7 +164,7 @@ pub fn save_state(path: &Path, state: &DaemonStateFile) -> std::io::Result<()> {
     // Write to a temp file in the same directory (so rename is atomic on POSIX).
     let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
     let json = serde_json::to_string_pretty(state)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        .map_err(std::io::Error::other)?;
     tmp.write_all(json.as_bytes())?;
     tmp.as_file().sync_all()?;
 

@@ -549,17 +549,15 @@ async fn attempt_reconnect_probe(
                 .send(Message::Text(cmd.to_string().into()))
                 .await
                 .is_ok()
-            {
-                if tokio::time::timeout(
+                && tokio::time::timeout(
                     Duration::from_secs(5),
                     read_single_response(&mut probe_ws, 1),
                 )
                 .await
                 .is_ok()
-                {
-                    tracing::info!(attempt, "Cloud backend reconnect probe succeeded");
-                    return true;
-                }
+            {
+                tracing::info!(attempt, "Cloud backend reconnect probe succeeded");
+                return true;
             }
         }
 

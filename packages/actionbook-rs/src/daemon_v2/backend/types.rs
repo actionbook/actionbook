@@ -148,10 +148,12 @@ pub struct OpResult {
 }
 
 impl OpResult {
+    /// Wrap a raw CDP response value.
     pub fn new(value: serde_json::Value) -> Self {
         Self { value }
     }
 
+    /// Create a null (empty) result.
     pub fn null() -> Self {
         Self {
             value: serde_json::Value::Null,

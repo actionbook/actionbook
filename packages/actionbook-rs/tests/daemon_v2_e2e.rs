@@ -748,13 +748,12 @@ async fn e2e_start_goto_snapshot_close() {
     )
     .await;
 
-    // StartSession is not yet implemented in the router -- it will return Fatal.
-    // When Phase 1.4 is complete, replace this assertion with the full flow.
+    // No local backend factory is registered in this test, so StartSession returns Fatal.
     match start_result {
         ActionResult::Fatal { code, .. } => {
             assert_eq!(
-                code, "not_implemented",
-                "StartSession should be not_implemented until wired up"
+                code, "no_backend_factory",
+                "StartSession should fail when no backend factory is registered for the mode"
             );
         }
         ActionResult::Ok { data } => {

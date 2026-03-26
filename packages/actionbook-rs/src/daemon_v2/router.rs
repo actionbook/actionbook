@@ -153,7 +153,7 @@ impl Router {
             None => {
                 return ActionResult::fatal(
                     "no_backend_factory",
-                    &format!("no backend factory configured for mode '{mode}'"),
+                    format!("no backend factory configured for mode '{mode}'"),
                     "available modes depend on daemon configuration",
                 );
             }
@@ -170,7 +170,7 @@ impl Router {
             {
                 return ActionResult::fatal(
                     "session_exists",
-                    &format!(
+                    format!(
                         "a session with profile '{profile_name}' already exists"
                     ),
                     "close the existing session first, or use a different profile",
@@ -217,7 +217,7 @@ impl Router {
                     Err(e) => {
                         return ActionResult::fatal(
                             "backend_start_failed",
-                            &format!("failed to start browser: {e}"),
+                            format!("failed to start browser: {e}"),
                             "check that Chrome/Chromium is installed and accessible",
                         );
                     }
@@ -233,7 +233,7 @@ impl Router {
                     Err(e) => {
                         return ActionResult::fatal(
                             "backend_attach_failed",
-                            &format!("failed to connect to extension: {e}"),
+                            format!("failed to connect to extension: {e}"),
                             "ensure the Actionbook browser extension is installed and active",
                         );
                     }
@@ -249,7 +249,7 @@ impl Router {
                     Err(e) => {
                         return ActionResult::fatal(
                             "backend_attach_failed",
-                            &format!("failed to connect to cloud browser: {e}"),
+                            format!("failed to connect to cloud browser: {e}"),
                             "check that the WSS endpoint is reachable and auth is correct",
                         );
                     }
@@ -258,10 +258,7 @@ impl Router {
         };
 
         // Discover initial tabs.
-        let targets: Vec<TargetInfo> = match backend.list_targets().await {
-            Ok(t) => t,
-            Err(_) => vec![],
-        };
+        let targets: Vec<TargetInfo> = backend.list_targets().await.unwrap_or_default();
 
         let tab_ids: Vec<String> = targets
             .iter()
@@ -349,7 +346,7 @@ impl Router {
                 None => {
                     return ActionResult::fatal(
                         "session_not_found",
-                        &format!("session {session_id} does not exist"),
+                        format!("session {session_id} does not exist"),
                         "run `actionbook browser list-sessions` to see available sessions",
                     );
                 }
@@ -366,7 +363,7 @@ impl Router {
         if tx.send(msg).await.is_err() {
             return ActionResult::fatal(
                 "session_dead",
-                &format!("session {session_id} is no longer responding"),
+                format!("session {session_id} is no longer responding"),
                 "run `actionbook browser list-sessions` to check session status",
             );
         }
@@ -375,7 +372,7 @@ impl Router {
             Ok(result) => result,
             Err(_) => ActionResult::fatal(
                 "session_dead",
-                &format!("session {session_id} dropped the response"),
+                format!("session {session_id} dropped the response"),
                 "the session may have crashed — try again or close it",
             ),
         }

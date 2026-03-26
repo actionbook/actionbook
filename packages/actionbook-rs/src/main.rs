@@ -5,6 +5,7 @@ mod commands;
 mod config;
 #[cfg(unix)]
 mod daemon;
+#[allow(dead_code)]
 mod daemon_v2;
 mod error;
 mod update_notifier;

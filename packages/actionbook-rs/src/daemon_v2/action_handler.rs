@@ -47,13 +47,18 @@ pub struct WindowEntry {
 
 /// Mutable registries passed into action handlers.
 pub struct Registries {
+    /// Open tabs keyed by tab ID.
     pub tabs: std::collections::HashMap<TabId, TabEntry>,
+    /// Open windows keyed by window ID.
     pub windows: std::collections::HashMap<WindowId, WindowEntry>,
+    /// Counter for allocating the next tab ID.
     pub next_tab_id: u32,
+    /// Counter for allocating the next window ID.
     pub next_window_id: u32,
 }
 
 impl Registries {
+    /// Create empty registries.
     pub fn new() -> Self {
         Self {
             tabs: std::collections::HashMap::new(),
@@ -63,12 +68,14 @@ impl Registries {
         }
     }
 
+    /// Allocate the next [`TabId`].
     pub fn alloc_tab_id(&mut self) -> TabId {
         let id = TabId(self.next_tab_id);
         self.next_tab_id += 1;
         id
     }
 
+    /// Allocate the next [`WindowId`].
     pub fn alloc_window_id(&mut self) -> WindowId {
         let id = WindowId(self.next_window_id);
         self.next_window_id += 1;
@@ -833,8 +840,8 @@ return el ? el.outerHTML : null;
     match backend.exec(op).await {
         Ok(result) => {
             let val = extract_eval_value(&result.value);
-            if val.is_null() && selector.is_some() {
-                element_not_found(selector.unwrap())
+            if let Some(sel) = selector.filter(|_| val.is_null()) {
+                element_not_found(sel)
             } else {
                 ActionResult::ok(json!({"html": val}))
             }
@@ -887,8 +894,8 @@ return el ? el.innerText : null;
     match backend.exec(op).await {
         Ok(result) => {
             let val = extract_eval_value(&result.value);
-            if val.is_null() && selector.is_some() {
-                element_not_found(selector.unwrap())
+            if let Some(sel) = selector.filter(|_| val.is_null()) {
+                element_not_found(sel)
             } else {
                 ActionResult::ok(json!({"text": val}))
             }
@@ -1307,7 +1314,7 @@ async fn handle_logs_errors(
 // Data handlers — Cookies (session-level, use first tab as proxy target)
 // ---------------------------------------------------------------------------
 
-fn resolve_any_tab<'a>(session_id: SessionId, regs: &'a Registries) -> Result<&'a str, ActionResult> {
+fn resolve_any_tab(session_id: SessionId, regs: &Registries) -> Result<&str, ActionResult> {
     regs.tabs.values().next().map(|t| t.target_id.as_str()).ok_or_else(|| {
         ActionResult::fatal("no_tabs", format!("session {session_id} has no open tabs for cookie operations"), format!("open a tab first with `actionbook browser open -s {session_id} <url>`"))
     })
@@ -1528,15 +1535,10 @@ async fn handle_new_tab(
                 );
                 wid
             } else if let Some(w) = window {
-                if !regs.windows.contains_key(&w) {
-                    regs.windows.insert(
-                        w,
-                        WindowEntry {
-                            id: w,
-                            tabs: Vec::new(),
-                        },
-                    );
-                }
+                regs.windows.entry(w).or_insert_with(|| WindowEntry {
+                    id: w,
+                    tabs: Vec::new(),
+                });
                 w
             } else {
                 regs.windows
@@ -1996,8 +1998,8 @@ return true;
             let val = extract_eval_value(&result.value);
             if val.as_bool() == Some(true) {
                 ActionResult::ok(json!({"scrolled": direction, "amount": px}))
-            } else if selector.is_some() {
-                element_not_found(selector.unwrap())
+            } else if let Some(sel) = selector {
+                element_not_found(sel)
             } else {
                 ActionResult::ok(json!({"scrolled": direction, "amount": px}))
             }
@@ -2109,13 +2111,12 @@ async fn handle_wait_navigation(
 
     // Poll until URL changes or document.readyState is complete
     loop {
-        let check_js = format!(
-            r#"(function() {{
+        let check_js = r#"(function() {
                 const url = window.location.href;
                 const ready = document.readyState;
-                return {{ url: url, ready: ready }};
-            }})()"#
-        );
+                return { url: url, ready: ready };
+            })()"#
+            .to_string();
         let op = BackendOp::Evaluate {
             target_id: target_id.to_string(),
             expression: check_js,
@@ -2356,11 +2357,11 @@ fn map_key_name(key: &str) -> (&str, &str) {
 }
 
 /// Look up a tab's CDP target_id, or return a Fatal ActionResult.
-fn resolve_tab<'a>(
+fn resolve_tab(
     session_id: SessionId,
-    regs: &'a Registries,
+    regs: &Registries,
     tab: TabId,
-) -> Result<&'a str, ActionResult> {
+) -> Result<&str, ActionResult> {
     match regs.find_tab(tab) {
         Some(entry) => Ok(&entry.target_id),
         None => Err(ActionResult::fatal(

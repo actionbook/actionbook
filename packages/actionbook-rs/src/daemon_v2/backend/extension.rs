@@ -213,6 +213,7 @@ async fn wait_for_extension_connect(
 
             // Perform WS upgrade with token validation in the handshake callback.
             let token_for_cb = expected_token.clone();
+            #[allow(clippy::result_large_err)]
             let ws_result = tokio_tungstenite::accept_hdr_async(
                 stream,
                 move |req: &tokio_tungstenite::tungstenite::http::Request<()>,
