@@ -115,19 +115,31 @@ impl Drop for SessionGuard {
 /// Close all active sessions so the next test starts with a clean slate.
 ///
 /// Reads `list-sessions` output to find active session IDs, then closes
-/// each one.  Errors are silently ignored (sessions may already be gone).
+/// each one.  Retries once after a short delay to handle races where a
+/// session close is still propagating through the daemon.
 pub fn ensure_no_sessions() {
-    let out = headless_json(&["browser", "list-sessions"], 10);
-    if !out.status.success() {
-        return;
-    }
-    let text = stdout_str(&out);
-    let parsed: serde_json::Value = match serde_json::from_str(&text) {
-        Ok(v) => v,
-        Err(_) => return,
-    };
-    if let Some(sessions) = parsed.get("sessions").and_then(|s| s.as_array()) {
-        for s in sessions {
+    for attempt in 0..2 {
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        let out = headless_json(&["browser", "list-sessions"], 10);
+        if !out.status.success() {
+            return;
+        }
+        let text = stdout_str(&out);
+        let parsed: serde_json::Value = match serde_json::from_str(&text) {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        let sessions = parsed
+            .get("sessions")
+            .and_then(|s| s.as_array())
+            .cloned()
+            .unwrap_or_default();
+        if sessions.is_empty() {
+            return;
+        }
+        for s in &sessions {
             if let Some(id) = s.get("id").and_then(|v| v.as_str()) {
                 let _ = headless(&["browser", "close", "-s", id], 10);
             }
@@ -137,21 +149,29 @@ pub fn ensure_no_sessions() {
 
 // ── Trusted HTML helpers ────────────────────────────────────────────
 
+/// JS snippet that registers a `default` TrustedTypes policy (idempotent).
+///
+/// Chrome 146+ enforces Trusted Types and only allows creating a policy
+/// named `'default'`.  A default policy is special: it is automatically
+/// invoked for any bare innerHTML assignment, so once registered all
+/// subsequent `el.innerHTML = str` calls go through it transparently.
+const ENSURE_DEFAULT_POLICY_JS: &str =
+    "if(window.trustedTypes&&trustedTypes.createPolicy&&!trustedTypes.defaultPolicy){trustedTypes.createPolicy('default',{createHTML:function(s){return s}})}";
+
 /// Generate JS that sets `document.body.innerHTML`, compatible with
 /// Chrome 146+ Trusted Types enforcement.
 ///
-/// Creates a one-time TrustedTypes policy to wrap the raw HTML string,
-/// falling back to direct assignment when Trusted Types is unavailable.
+/// Registers a `default` TrustedTypes policy (if needed) so that the
+/// plain innerHTML assignment is accepted by the browser.
 #[allow(dead_code)]
 pub fn set_body_html_js(html: &str) -> String {
-    // Escape for embedding in a JS single-quoted string
     let escaped = html
         .replace('\\', "\\\\")
         .replace('\'', "\\'")
         .replace('\n', "\\n")
         .replace('\r', "\\r");
     format!(
-        "(function(){{ var h='{}'; if(window.trustedTypes&&trustedTypes.createPolicy){{ if(!window.__abTestPolicy){{ window.__abTestPolicy=trustedTypes.createPolicy('ab-test',{{createHTML:function(s){{return s}}}}); }} document.body.innerHTML=window.__abTestPolicy.createHTML(h); }}else{{ document.body.innerHTML=h; }} }})()",
+        "(function(){{ {ENSURE_DEFAULT_POLICY_JS}; document.body.innerHTML='{}'; }})()",
         escaped
     )
 }
@@ -166,7 +186,7 @@ pub fn append_body_html_js(html: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r");
     format!(
-        "(function(){{ var h='{}'; var el=document.createElement('div'); if(window.trustedTypes&&trustedTypes.createPolicy){{ if(!window.__abTestPolicy){{ window.__abTestPolicy=trustedTypes.createPolicy('ab-test',{{createHTML:function(s){{return s}}}}); }} el.innerHTML=window.__abTestPolicy.createHTML(h); }}else{{ el.innerHTML=h; }} while(el.firstChild){{ document.body.appendChild(el.firstChild); }} }})()",
+        "(function(){{ {ENSURE_DEFAULT_POLICY_JS}; var el=document.createElement('div'); el.innerHTML='{}'; while(el.firstChild){{ document.body.appendChild(el.firstChild); }} }})()",
         escaped
     )
 }
