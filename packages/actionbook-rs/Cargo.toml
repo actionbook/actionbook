@@ -51,7 +51,6 @@ toml = "0.8"
 
 # Error handling
 thiserror = "2"
-anyhow = "1"
 
 # Terminal output
 colored = "3"
@@ -142,6 +141,9 @@ harness = false
 [[bench]]
 name = "serde_only"
 harness = false
+
+[package.metadata.cargo-machete]
+ignored = ["tower"]  # used in camoufox-server feature binary
 
 [profile.release]
 opt-level = "z"
