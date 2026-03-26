@@ -90,21 +90,21 @@ enum BrowserCmd {
     // =======================================================================
     /// Show session status
     Status {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
     },
 
     /// List tabs in a session
     ListTabs {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
     },
 
     /// List windows in a session
     ListWindows {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
     },
@@ -113,7 +113,7 @@ enum BrowserCmd {
     Open {
         /// URL to open
         url: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Open in a new window
@@ -123,14 +123,14 @@ enum BrowserCmd {
 
     /// Close a session and its browser
     Close {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
     },
 
     /// Close a specific tab
     CloseTab {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -145,7 +145,7 @@ enum BrowserCmd {
     Goto {
         /// URL to navigate to
         url: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -155,7 +155,7 @@ enum BrowserCmd {
 
     /// Navigate back in history
     Back {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -165,7 +165,7 @@ enum BrowserCmd {
 
     /// Navigate forward in history
     Forward {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -175,7 +175,7 @@ enum BrowserCmd {
 
     /// Reload the current page
     Reload {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -185,7 +185,7 @@ enum BrowserCmd {
 
     /// Capture an accessibility-tree snapshot
     Snapshot {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -203,7 +203,7 @@ enum BrowserCmd {
     Screenshot {
         /// Output file path
         path: PathBuf,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -215,7 +215,7 @@ enum BrowserCmd {
     Click {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -227,7 +227,7 @@ enum BrowserCmd {
     Type {
         /// Text to type
         text: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -243,7 +243,7 @@ enum BrowserCmd {
         selector: String,
         /// Value to fill
         text: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -255,7 +255,7 @@ enum BrowserCmd {
     Eval {
         /// JavaScript expression
         code: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -270,7 +270,7 @@ enum BrowserCmd {
     Pdf {
         /// Output file path
         path: PathBuf,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -280,7 +280,7 @@ enum BrowserCmd {
 
     /// Get the page title
     Title {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -290,7 +290,7 @@ enum BrowserCmd {
 
     /// Get the current page URL
     Url {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -302,7 +302,7 @@ enum BrowserCmd {
     Html {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -315,7 +315,7 @@ enum BrowserCmd {
     TextCmd {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -327,7 +327,7 @@ enum BrowserCmd {
     Value {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -341,7 +341,7 @@ enum BrowserCmd {
         selector: String,
         /// Attribute name
         name: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -353,7 +353,7 @@ enum BrowserCmd {
     Attrs {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -365,7 +365,7 @@ enum BrowserCmd {
     Describe {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -377,7 +377,7 @@ enum BrowserCmd {
     State {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -390,7 +390,7 @@ enum BrowserCmd {
     Box_ {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -402,7 +402,7 @@ enum BrowserCmd {
     Styles {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -412,7 +412,7 @@ enum BrowserCmd {
 
     /// Get the viewport dimensions
     Viewport {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -430,7 +430,7 @@ enum BrowserCmd {
         x: f64,
         /// Y coordinate
         y: f64,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -440,7 +440,7 @@ enum BrowserCmd {
 
     /// Get console log messages
     LogsConsole {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -450,7 +450,7 @@ enum BrowserCmd {
 
     /// Get error log messages
     LogsErrors {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -486,7 +486,7 @@ enum BrowserCmd {
         /// CSS selector of the <select> element
         #[arg(long)]
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -501,7 +501,7 @@ enum BrowserCmd {
     Hover {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -513,7 +513,7 @@ enum BrowserCmd {
     Focus {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -525,7 +525,7 @@ enum BrowserCmd {
     Press {
         /// Key or chord (e.g. "Enter", "Control+A", "Shift+Tab")
         key: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -539,7 +539,7 @@ enum BrowserCmd {
         from: String,
         /// Selector of the drop target
         to: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -554,7 +554,7 @@ enum BrowserCmd {
         /// CSS selector of the file input element
         #[arg(long)]
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -570,7 +570,7 @@ enum BrowserCmd {
     MouseMove {
         /// Coordinates as "x,y"
         coords: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -580,7 +580,7 @@ enum BrowserCmd {
 
     /// Get the current cursor position
     CursorPosition {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -600,7 +600,7 @@ enum BrowserCmd {
     // =======================================================================
     /// Restart a session (close + re-start with same profile/mode)
     Restart {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
     },

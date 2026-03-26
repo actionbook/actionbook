@@ -211,6 +211,7 @@ impl Router {
         }
 
         // Atomically check uniqueness and reserve a slot under a single lock.
+        let explicit_profile = profile.is_some();
         let profile_name = profile.unwrap_or_else(|| "default".into());
         let session_id = {
             let mut registry = self.registry.lock().await;
@@ -242,7 +243,7 @@ impl Router {
                 );
             }
 
-            // Determine session ID: reuse_id (restart) > set_session_id (caller) > auto-generate.
+            // Determine session ID: reuse_id (restart) > set_session_id (caller) > profile-derived > auto-generate.
             let id = if let Some(reuse) = reuse_id {
                 reuse
             } else if let Some(ref explicit_id) = set_session_id {
@@ -253,7 +254,7 @@ impl Router {
                         return ActionResult::fatal(
                             "invalid_session_id",
                             format!(
-                                "invalid session id '{explicit_id}': must match ^[a-z][a-z0-9-]{{0,63}}$"
+                                "invalid session id '{explicit_id}': must match ^[a-z][a-z0-9-]{{1,63}}$"
                             ),
                             "use lowercase letters, digits, and hyphens (e.g. 'research-google')",
                         );
@@ -268,7 +269,18 @@ impl Router {
                     );
                 }
                 validated
+            } else if explicit_profile {
+                // Profile-based ID: try "profile", then "profile-2", "profile-3", ...
+                let mut suffix = 0u32;
+                loop {
+                    let candidate = SessionId::from_profile(&profile_name, suffix);
+                    if !registry.contains(&candidate) {
+                        break candidate;
+                    }
+                    suffix += 1;
+                }
             } else {
+                // No explicit profile — use local-N auto-generation.
                 registry.next_session_id()
             };
 

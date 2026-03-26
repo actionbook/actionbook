@@ -309,3 +309,183 @@ fn lifecycle_double_close() {
     let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_failure(&out, "second close should fail");
 }
+
+// ---------------------------------------------------------------------------
+// 10. lifecycle_set_session_id_explicit
+// ---------------------------------------------------------------------------
+
+/// Start with --set-session-id → session uses the explicit ID → close
+#[test]
+fn lifecycle_set_session_id_explicit() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    // Start session with explicit ID
+    let out = headless(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "research-google",
+        ],
+        30,
+    );
+    assert_success(&out, "start with explicit session id");
+
+    // Status should work with the explicit ID
+    let out = headless(&["browser", "status", "-s", "research-google"], 10);
+    assert_success(&out, "status with explicit id");
+
+    // list-sessions should show the explicit ID
+    let out = headless(&["browser", "list-sessions"], 10);
+    assert_success(&out, "list-sessions");
+    assert!(
+        stdout_str(&out).contains("research-google"),
+        "list-sessions should contain research-google, got: {}",
+        stdout_str(&out)
+    );
+
+    // Close with explicit ID
+    let out = headless(&["browser", "close", "-s", "research-google"], 30);
+    assert_success(&out, "close");
+}
+
+// ---------------------------------------------------------------------------
+// 11. lifecycle_set_session_id_invalid
+// ---------------------------------------------------------------------------
+
+/// Start with invalid --set-session-id → should fail
+#[test]
+fn lifecycle_set_session_id_invalid() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    // Invalid: starts with number
+    let out = headless(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "1invalid",
+        ],
+        30,
+    );
+    assert_failure(&out, "start with invalid session id (starts with number)");
+
+    // Invalid: single character (min 2 chars)
+    let out = headless(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "a",
+        ],
+        30,
+    );
+    assert_failure(&out, "start with invalid session id (single char)");
+
+    // Invalid: uppercase
+    let out = headless(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "MySession",
+        ],
+        30,
+    );
+    assert_failure(&out, "start with invalid session id (uppercase)");
+}
+
+// ---------------------------------------------------------------------------
+// 12. lifecycle_set_session_id_conflict
+// ---------------------------------------------------------------------------
+
+/// Start two sessions with same --set-session-id → second should fail
+#[test]
+fn lifecycle_set_session_id_conflict() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    // Start first session with explicit ID
+    let out = headless(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "my-session",
+        ],
+        30,
+    );
+    assert_success(&out, "start first session");
+
+    // Start second session with same ID — should fail (conflict)
+    let out = headless(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "my-session",
+        ],
+        30,
+    );
+    assert_failure(&out, "start second session with same id should fail");
+
+    // Close
+    let out = headless(&["browser", "close", "-s", "my-session"], 30);
+    assert_success(&out, "close");
+}
+
+// ---------------------------------------------------------------------------
+// 13. lifecycle_profile_based_auto_id
+// ---------------------------------------------------------------------------
+
+/// Start without --set-session-id → auto-generates from profile name
+#[test]
+fn lifecycle_profile_based_auto_id() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    // Start with default profile (no --set-session-id)
+    let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
+    assert_success(&out, "start with default profile");
+
+    // list-sessions should show "local-1" as the auto-generated session ID
+    let out = headless(&["browser", "list-sessions"], 10);
+    assert_success(&out, "list-sessions");
+    assert!(
+        stdout_str(&out).contains("local-1"),
+        "auto-generated session id should be 'local-1', got: {}",
+        stdout_str(&out)
+    );
+
+    // Close
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
+    assert_success(&out, "close");
+}

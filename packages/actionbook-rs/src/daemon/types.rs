@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 
 /// Semantic session identifier (e.g. "local-1", "research-google").
 ///
-/// Validated against `^[a-z][a-z0-9-]{0,63}$` — lowercase alphanumeric
-/// with hyphens, 1–64 characters, starting with a letter.
+/// Validated against `^[a-z][a-z0-9-]{1,63}$` — lowercase alphanumeric
+/// with hyphens, 2–64 characters, starting with a letter.
 /// Auto-generated as "local-1", "local-2", ... when not explicitly set.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SessionId(pub String);
@@ -23,7 +23,7 @@ pub struct SessionId(pub String);
 impl SessionId {
     /// Create a new SessionId after validation.
     ///
-    /// Must match `^[a-z][a-z0-9-]{0,63}$`.
+    /// Must match `^[a-z][a-z0-9-]{1,63}$`.
     pub fn new(id: impl Into<String>) -> Result<Self, ParseIdError> {
         let id = id.into();
         if !Self::is_valid(&id) {
@@ -34,7 +34,7 @@ impl SessionId {
 
     /// Validate a session ID string.
     fn is_valid(id: &str) -> bool {
-        if id.is_empty() || id.len() > 64 {
+        if id.len() < 2 || id.len() > 64 {
             return false;
         }
         let bytes = id.as_bytes();
@@ -54,6 +54,16 @@ impl SessionId {
     /// Generate an auto-incremented session ID: local-1, local-2, ...
     pub fn auto_generate(n: u32) -> Self {
         SessionId(format!("local-{}", n + 1))
+    }
+
+    /// Generate a session ID from a profile name.
+    /// First attempt uses the profile name directly; collisions add -2, -3, etc.
+    pub fn from_profile(profile: &str, suffix: u32) -> Self {
+        if suffix == 0 {
+            SessionId(profile.to_string())
+        } else {
+            SessionId(format!("{}-{}", profile, suffix + 1))
+        }
     }
 
     /// Returns the string value.
@@ -279,7 +289,7 @@ impl fmt::Display for ParseIdError {
             ParseIdError::InvalidNumber(e) => write!(f, "invalid number: {e}"),
             ParseIdError::InvalidSessionId(id) => write!(
                 f,
-                "invalid session id '{id}': must match ^[a-z][a-z0-9-]{{0,63}}$"
+                "invalid session id '{id}': must match ^[a-z][a-z0-9-]{{1,63}}$"
             ),
         }
     }
@@ -325,7 +335,7 @@ mod tests {
     #[test]
     fn session_id_validation() {
         // Valid
-        assert!(SessionId::new("a").is_ok());
+        assert!(SessionId::new("a").is_err());
         assert!(SessionId::new("local-1").is_ok());
         assert!(SessionId::new("research-google").is_ok());
         assert!(SessionId::new("my-session-123").is_ok());

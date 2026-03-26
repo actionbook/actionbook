@@ -73,7 +73,17 @@ async fn start_daemon_with_mock_sessions(profiles: &[&str]) -> (TestDaemon, Vec<
     {
         let mut reg = daemon.registry.lock().await;
         for profile in profiles {
-            let id = reg.next_session_id();
+            // Profile-based ID: try "profile", then "profile-2", "profile-3", ...
+            let id = {
+                let mut suffix = 0u32;
+                loop {
+                    let candidate = SessionId::from_profile(profile, suffix);
+                    if !reg.contains(&candidate) {
+                        break candidate;
+                    }
+                    suffix += 1;
+                }
+            };
             let handle = spawn_mock_session(id.clone(), profile);
             reg.register(id.clone(), handle);
             ids.push(id);
@@ -625,7 +635,7 @@ async fn e2e_multi_mode_sessions() {
         },
     )
     .await;
-    assert_eq!(data["session_id"].as_str().unwrap(), "local-1");
+    assert_eq!(data["session_id"].as_str().unwrap(), "local-profile");
 
     // Start a cloud session simultaneously
     let data = send_ok(
@@ -641,20 +651,20 @@ async fn e2e_multi_mode_sessions() {
         },
     )
     .await;
-    assert_eq!(data["session_id"].as_str().unwrap(), "local-2");
+    assert_eq!(data["session_id"].as_str().unwrap(), "cloud-profile");
 
     // Verify both appear in list-sessions with correct modes
     let data = send_ok(&daemon, Action::ListSessions).await;
     let sessions = data["sessions"].as_array().expect("sessions array");
     assert_eq!(sessions.len(), 2);
 
-    assert_eq!(sessions[0]["id"], "local-1");
-    assert_eq!(sessions[0]["mode"], "local");
-    assert_eq!(sessions[0]["profile"], "local-profile");
+    assert_eq!(sessions[0]["id"], "cloud-profile");
+    assert_eq!(sessions[0]["mode"], "cloud");
+    assert_eq!(sessions[0]["profile"], "cloud-profile");
 
-    assert_eq!(sessions[1]["id"], "local-2");
-    assert_eq!(sessions[1]["mode"], "cloud");
-    assert_eq!(sessions[1]["profile"], "cloud-profile");
+    assert_eq!(sessions[1]["id"], "local-profile");
+    assert_eq!(sessions[1]["mode"], "local");
+    assert_eq!(sessions[1]["profile"], "local-profile");
 }
 
 #[tokio::test]
