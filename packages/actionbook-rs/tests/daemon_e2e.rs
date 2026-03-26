@@ -102,6 +102,7 @@ fn spawn_mock_session(id: SessionId, profile: &str) -> SessionHandle {
         tx,
         profile: profile.into(),
         mode: Mode::Local,
+        headless: false,
         state: SessionState::Ready,
         tab_count: 1,
         created_at: std::time::Instant::now(),

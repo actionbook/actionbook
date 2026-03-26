@@ -171,6 +171,7 @@ impl Router {
     }
 
     /// Inner implementation that optionally reuses a specific session ID (for restart).
+    #[allow(clippy::too_many_arguments)]
     async fn handle_start_session_inner(
         &self,
         mode: Mode,
