@@ -8,7 +8,7 @@
 //! handler based on the Action variant.
 
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 
 use super::action::Action;
 use super::action_result::ActionResult;
@@ -228,7 +228,9 @@ pub async fn handle_action(
         Action::LogsErrors { tab, .. } => handle_logs_errors(session_id, backend, regs, tab).await,
 
         // -- Data commands (session-level cookies) --
-        Action::CookiesList { .. } => handle_cookies_list(session_id, backend, regs).await,
+        Action::CookiesList { ref domain, .. } => {
+            handle_cookies_list(session_id, backend, regs, domain.as_deref()).await
+        }
         Action::CookiesGet { name, .. } => {
             handle_cookies_get(session_id, backend, regs, &name).await
         }
@@ -261,7 +263,9 @@ pub async fn handle_action(
         Action::CookiesDelete { name, .. } => {
             handle_cookies_delete(session_id, backend, regs, &name).await
         }
-        Action::CookiesClear { .. } => handle_cookies_clear(session_id, backend, regs).await,
+        Action::CookiesClear { ref domain, .. } => {
+            handle_cookies_clear(session_id, backend, regs, domain.as_deref()).await
+        }
 
         // -- Data commands (tab-level storage) --
         Action::StorageList { tab, kind, .. } => {
@@ -1519,6 +1523,7 @@ async fn handle_cookies_list(
     session_id: SessionId,
     backend: &mut dyn BackendSession,
     regs: &Registries,
+    domain: Option<&str>,
 ) -> ActionResult {
     let target_id = match resolve_any_tab(session_id, regs) {
         Ok(t) => t,
@@ -1529,8 +1534,14 @@ async fn handle_cookies_list(
     };
     match backend.exec(op).await {
         Ok(result) => {
-            let cookies = result.value.get("cookies").cloned().unwrap_or(json!([]));
-            ActionResult::ok(json!({"cookies": cookies}))
+            let cookies = result
+                .value
+                .get("cookies")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let items = filter_cookies_by_domain(cookies, domain);
+            ActionResult::ok(json!({"items": items}))
         }
         Err(e) => cdp_error_to_result(e),
     }
@@ -1561,11 +1572,8 @@ async fn handle_cookies_get(
                 .into_iter()
                 .filter(|c| c.get("name").and_then(|n| n.as_str()) == Some(name))
                 .collect();
-            if found.is_empty() {
-                ActionResult::ok(json!({"cookie": null, "name": name}))
-            } else {
-                ActionResult::ok(json!({"cookie": found[0], "name": name}))
-            }
+            let item = found.into_iter().next().unwrap_or(json!(null));
+            ActionResult::ok(json!({"item": item}))
         }
         Err(e) => cdp_error_to_result(e),
     }
@@ -1601,7 +1609,11 @@ async fn handle_cookies_set(
         expires,
     };
     match backend.exec(op).await {
-        Ok(_) => ActionResult::ok(json!({"set_cookie": name})),
+        Ok(_) => ActionResult::ok(json!({
+            "action": "set",
+            "affected": 1,
+            "domain": domain
+        })),
         Err(e) => cdp_error_to_result(e),
     }
 }
@@ -1623,7 +1635,10 @@ async fn handle_cookies_delete(
         path: None,
     };
     match backend.exec(op).await {
-        Ok(_) => ActionResult::ok(json!({"deleted_cookie": name})),
+        Ok(_) => ActionResult::ok(json!({
+            "action": "delete",
+            "affected": 1
+        })),
         Err(e) => cdp_error_to_result(e),
     }
 }
@@ -1632,6 +1647,7 @@ async fn handle_cookies_clear(
     session_id: SessionId,
     backend: &mut dyn BackendSession,
     regs: &Registries,
+    domain: Option<&str>,
 ) -> ActionResult {
     let target_id = match resolve_any_tab(session_id, regs) {
         Ok(t) => t,
@@ -1649,6 +1665,7 @@ async fn handle_cookies_clear(
             .unwrap_or_default(),
         Err(e) => return cdp_error_to_result(e),
     };
+    let cookies = filter_cookies_by_domain(cookies, domain);
     let mut deleted = 0;
     for cookie in &cookies {
         let cname = cookie.get("name").and_then(|n| n.as_str()).unwrap_or("");
@@ -1665,7 +1682,32 @@ async fn handle_cookies_clear(
         }
         deleted += 1;
     }
-    ActionResult::ok(json!({"cleared_cookies": deleted}))
+    ActionResult::ok(json!({
+        "action": "clear",
+        "affected": deleted,
+        "domain": domain
+    }))
+}
+
+fn normalize_cookie_domain(domain: &str) -> String {
+    domain.trim().trim_start_matches('.').to_ascii_lowercase()
+}
+
+fn cookie_matches_domain(cookie: &Value, domain: Option<&str>) -> bool {
+    let Some(domain) = domain else {
+        return true;
+    };
+    let Some(cookie_domain) = cookie.get("domain").and_then(|v| v.as_str()) else {
+        return false;
+    };
+    normalize_cookie_domain(cookie_domain) == normalize_cookie_domain(domain)
+}
+
+fn filter_cookies_by_domain(cookies: Vec<Value>, domain: Option<&str>) -> Vec<Value> {
+    cookies
+        .into_iter()
+        .filter(|cookie| cookie_matches_domain(cookie, domain))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -3383,6 +3425,112 @@ mod tests {
         match result {
             ActionResult::Fatal { code, .. } => assert_eq!(code, "invalid_dispatch"),
             _ => panic!("expected Fatal for global action"),
+        }
+    }
+
+    #[tokio::test]
+    async fn cookies_list_filters_by_domain_and_returns_items() {
+        let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(json!({
+            "cookies": [
+                {"name": "keep", "domain": ".example.com", "path": "/"},
+                {"name": "drop", "domain": ".other.com", "path": "/"}
+            ]
+        })))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId(0);
+
+        let result = handle_action(
+            sid,
+            &mut backend,
+            &mut regs,
+            Action::CookiesList {
+                session: sid,
+                domain: Some("example.com".into()),
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Ok { data } => {
+                let items = data["items"].as_array().unwrap();
+                assert_eq!(items.len(), 1);
+                assert_eq!(items[0]["name"], "keep");
+            }
+            other => panic!("expected Ok, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn cookies_get_returns_item_key() {
+        let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(json!({
+            "cookies": [
+                {"name": "session", "value": "abc123", "domain": ".example.com", "path": "/"}
+            ]
+        })))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId(0);
+
+        let result = handle_action(
+            sid,
+            &mut backend,
+            &mut regs,
+            Action::CookiesGet {
+                session: sid,
+                name: "session".into(),
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["item"]["name"], "session");
+                assert_eq!(data["item"]["value"], "abc123");
+            }
+            other => panic!("expected Ok, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn cookies_clear_filters_by_domain_and_reports_affected() {
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(json!({
+                "cookies": [
+                    {"name": "keep", "domain": ".other.com", "path": "/"},
+                    {"name": "clear", "domain": ".example.com", "path": "/"}
+                ]
+            }))),
+            Ok(OpResult::null()),
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId(0);
+
+        let result = handle_action(
+            sid,
+            &mut backend,
+            &mut regs,
+            Action::CookiesClear {
+                session: sid,
+                domain: Some("example.com".into()),
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["action"], "clear");
+                assert_eq!(data["affected"], 1);
+                assert_eq!(data["domain"], "example.com");
+            }
+            other => panic!("expected Ok, got {other:?}"),
+        }
+
+        assert_eq!(backend.ops().len(), 2);
+        match &backend.ops()[1] {
+            BackendOp::DeleteCookies { name, domain, .. } => {
+                assert_eq!(name, "clear");
+                assert_eq!(domain.as_deref(), Some(".example.com"));
+            }
+            other => panic!("expected DeleteCookies, got {other:?}"),
         }
     }
 

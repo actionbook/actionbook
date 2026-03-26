@@ -294,7 +294,11 @@ pub enum Action {
     // Data actions — Session-level (require session)
     // =======================================================================
     /// List all cookies for the session.
-    CookiesList { session: SessionId },
+    CookiesList {
+        session: SessionId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        domain: Option<String>,
+    },
 
     /// Get a specific cookie by name.
     CookiesGet { session: SessionId, name: String },
@@ -322,7 +326,11 @@ pub enum Action {
     CookiesDelete { session: SessionId, name: String },
 
     /// Clear all cookies for the session.
-    CookiesClear { session: SessionId },
+    CookiesClear {
+        session: SessionId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        domain: Option<String>,
+    },
 
     /// List all keys in web storage.
     StorageList {

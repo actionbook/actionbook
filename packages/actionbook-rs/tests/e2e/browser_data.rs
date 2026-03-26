@@ -3,7 +3,11 @@
 //! Covers api-reference §13 (Cookies) and §14 (Storage).
 //! Each test is self-contained: start → operate → close.
 
-use crate::harness::{assert_success, headless, skip, stdout_str};
+use crate::harness::{assert_success, headless, headless_json, skip, stdout_str};
+
+fn parse_json_output(out: &std::process::Output) -> serde_json::Value {
+    serde_json::from_str(&stdout_str(out)).expect("valid JSON output")
+}
 
 // ── Cookies ────────────────────────────────────────────────────────
 
@@ -29,33 +33,33 @@ fn cookies_set_get_delete() {
     assert_success(&out, "start");
 
     // Set cookie
-    let out = headless(
+    let out = headless_json(
         &["browser", "cookies", "set", "test", "val", "-s", "s0"],
         10,
     );
     assert_success(&out, "cookies set");
+    let json = parse_json_output(&out);
+    assert_eq!(json["data"]["action"], "set");
+    assert_eq!(json["data"]["affected"], 1);
 
     // Get cookie — should contain "val"
-    let out = headless(&["browser", "cookies", "get", "test", "-s", "s0"], 10);
+    let out = headless_json(&["browser", "cookies", "get", "test", "-s", "s0"], 10);
     assert_success(&out, "cookies get after set");
-    assert!(
-        stdout_str(&out).contains("val"),
-        "cookies get should contain 'val', got: {}",
-        stdout_str(&out)
-    );
+    let json = parse_json_output(&out);
+    assert_eq!(json["data"]["item"]["name"], "test");
+    assert_eq!(json["data"]["item"]["value"], "val");
 
     // Delete cookie
-    let out = headless(&["browser", "cookies", "delete", "test", "-s", "s0"], 10);
+    let out = headless_json(&["browser", "cookies", "delete", "test", "-s", "s0"], 10);
     assert_success(&out, "cookies delete");
+    let json = parse_json_output(&out);
+    assert_eq!(json["data"]["action"], "delete");
+    assert_eq!(json["data"]["affected"], 1);
 
     // Get cookie after delete — should not contain "val"
-    let out = headless(&["browser", "cookies", "get", "test", "-s", "s0"], 10);
-    let get_output = stdout_str(&out);
-    assert!(
-        !get_output.contains("val"),
-        "cookies get after delete should not contain 'val', got: {}",
-        get_output
-    );
+    let out = headless_json(&["browser", "cookies", "get", "test", "-s", "s0"], 10);
+    let json = parse_json_output(&out);
+    assert!(json["data"]["item"].is_null(), "cookie should be deleted");
 
     // Close session
     let out = headless(&["browser", "close", "-s", "s0"], 30);
@@ -84,27 +88,79 @@ fn cookies_list_and_clear() {
     assert_success(&out, "start");
 
     // Set a cookie
-    let out = headless(&["browser", "cookies", "set", "x", "y", "-s", "s0"], 10);
+    let out = headless(
+        &[
+            "browser",
+            "cookies",
+            "set",
+            "x",
+            "y",
+            "-s",
+            "s0",
+            "--domain",
+            "example.com",
+        ],
+        10,
+    );
     assert_success(&out, "cookies set");
 
-    // List cookies — should contain our cookie
-    let out = headless(&["browser", "cookies", "list", "-s", "s0"], 10);
+    // List cookies by domain — should contain our cookie
+    let out = headless_json(
+        &[
+            "browser",
+            "cookies",
+            "list",
+            "-s",
+            "s0",
+            "--domain",
+            "example.com",
+        ],
+        10,
+    );
     assert_success(&out, "cookies list");
-    let list_output = stdout_str(&out);
+    let json = parse_json_output(&out);
+    let list_output = json["data"]["items"].to_string();
     assert!(
         list_output.contains("x"),
         "cookies list should contain 'x', got: {}",
         list_output
     );
 
-    // Clear all cookies
-    let out = headless(&["browser", "cookies", "clear", "-s", "s0"], 10);
+    // Clear filtered cookies
+    let out = headless_json(
+        &[
+            "browser",
+            "cookies",
+            "clear",
+            "-s",
+            "s0",
+            "--domain",
+            "example.com",
+        ],
+        10,
+    );
     assert_success(&out, "cookies clear");
+    let json = parse_json_output(&out);
+    assert_eq!(json["data"]["action"], "clear");
+    assert!(json["data"]["affected"].as_u64().unwrap_or(0) >= 1);
+    assert_eq!(json["data"]["domain"], "example.com");
 
     // List after clear — should be empty (no cookie names)
-    let out = headless(&["browser", "cookies", "list", "-s", "s0"], 10);
+    let out = headless_json(
+        &[
+            "browser",
+            "cookies",
+            "list",
+            "-s",
+            "s0",
+            "--domain",
+            "example.com",
+        ],
+        10,
+    );
     assert_success(&out, "cookies list after clear");
-    let list_output = stdout_str(&out);
+    let json = parse_json_output(&out);
+    let list_output = json["data"]["items"].to_string();
     assert!(
         !list_output.contains("x"),
         "cookies list after clear should not contain 'x', got: {}",
@@ -157,7 +213,7 @@ fn cookies_s1t2_shared() {
     assert_success(&out, "open second tab");
 
     // Set cookie on the session
-    let out = headless(
+    let out = headless_json(
         &[
             "browser",
             "cookies",
@@ -170,15 +226,14 @@ fn cookies_s1t2_shared() {
         10,
     );
     assert_success(&out, "cookies set");
+    let json = parse_json_output(&out);
+    assert_eq!(json["data"]["action"], "set");
 
     // Get cookie — cookies are session-level so should be visible
-    let out = headless(&["browser", "cookies", "get", "shared", "-s", "s0"], 10);
+    let out = headless_json(&["browser", "cookies", "get", "shared", "-s", "s0"], 10);
     assert_success(&out, "cookies get");
-    assert!(
-        stdout_str(&out).contains("cookieval"),
-        "cookies should be shared across tabs in same session, got: {}",
-        stdout_str(&out)
-    );
+    let json = parse_json_output(&out);
+    assert_eq!(json["data"]["item"]["value"], "cookieval");
 
     // Close session
     let out = headless(&["browser", "close", "-s", "s0"], 30);
