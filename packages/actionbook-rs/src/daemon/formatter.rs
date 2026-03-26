@@ -270,12 +270,12 @@ fn format_lifecycle_text(action: &Action, result: &ActionResult) -> Option<Strin
 
     Some(match result {
         ActionResult::Ok { data } => match action {
-            Action::StartSession { mode, open_url, .. } => {
+            Action::StartSession { mode, .. } => {
                 let session_id = data
                     .get("session_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
-                let mut out = prefixed_header(session_id, Some("t0"), open_url.as_deref());
+                let mut out = prefixed_header(session_id, None, None);
                 out.push_str(&format!("\nok {command}\n"));
                 out.push_str(&format!("mode: {mode}\n"));
                 out.push_str("status: running");
@@ -291,7 +291,7 @@ fn format_lifecycle_text(action: &Action, result: &ActionResult) -> Option<Strin
                 out
             }
             Action::RestartSession { session } => {
-                let mut out = prefixed_header(&session.to_string(), Some("t0"), None);
+                let mut out = prefixed_header(&session.to_string(), None, None);
                 out.push_str(&format!("\nok {command}\n"));
                 out.push_str("status: running");
                 out
@@ -316,7 +316,7 @@ fn format_lifecycle_text(action: &Action, result: &ActionResult) -> Option<Strin
 fn lifecycle_context(action: &Action, result: &ActionResult) -> Option<Value> {
     match action {
         Action::ListSessions => None,
-        Action::StartSession { open_url, .. } => {
+        Action::StartSession { .. } => {
             let data = match result {
                 ActionResult::Ok { data } => data,
                 _ => return None,
@@ -324,8 +324,8 @@ fn lifecycle_context(action: &Action, result: &ActionResult) -> Option<Value> {
             let session_id = data.get("session_id")?.as_str()?;
             Some(serde_json::json!({
                 "session_id": session_id,
-                "tab_id": "t0",
-                "url": open_url.as_deref(),
+                "tab_id": null,
+                "url": null,
                 "title": null
             }))
         }
@@ -549,8 +549,8 @@ mod tests {
         assert_eq!(decoded["ok"], true);
         assert_eq!(decoded["command"], "browser.start");
         assert_eq!(decoded["context"]["session_id"], "s0");
-        assert_eq!(decoded["context"]["tab_id"], "t0");
-        assert_eq!(decoded["context"]["url"], "https://example.com");
+        assert_eq!(decoded["context"]["tab_id"], Value::Null);
+        assert_eq!(decoded["context"]["url"], Value::Null);
         assert_eq!(decoded["data"]["session_id"], "s0");
         assert_eq!(decoded["meta"]["duration_ms"], 42);
     }
@@ -586,6 +586,42 @@ mod tests {
         assert!(out.contains("status: running"));
         assert!(out.contains("tabs: 2"));
         assert!(out.contains("windows: 1"));
+    }
+
+    #[test]
+    fn lifecycle_text_start_uses_session_prefix_only() {
+        let action = Action::StartSession {
+            mode: Mode::Local,
+            profile: None,
+            headless: true,
+            open_url: Some("https://example.com".into()),
+            cdp_endpoint: None,
+            ws_headers: None,
+        };
+        let result = ActionResult::ok(json!({
+            "session_id": "s0",
+            "tab_ids": ["native-tab-1"]
+        }));
+        let out = format_cli_result(&action, &result);
+        assert!(out.starts_with("[s0]\n"));
+        assert!(!out.contains("[s0 t0]"));
+        assert!(out.contains("ok browser.start"));
+        assert!(out.contains("mode: local"));
+    }
+
+    #[test]
+    fn lifecycle_text_restart_uses_session_prefix_only() {
+        let action = Action::RestartSession {
+            session: SessionId(0),
+        };
+        let result = ActionResult::ok(json!({
+            "session_id": "s0",
+            "tab_ids": ["native-tab-1"]
+        }));
+        let out = format_cli_result(&action, &result);
+        assert!(out.starts_with("[s0]\n"));
+        assert!(!out.contains("[s0 t0]"));
+        assert!(out.contains("ok browser.restart"));
     }
 
     #[test]
