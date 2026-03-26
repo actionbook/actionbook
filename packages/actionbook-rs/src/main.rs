@@ -40,12 +40,24 @@ async fn main() -> Result<()> {
         .init();
 
     // Route browser commands through the daemon.
-    // The daemon CLI parser only recognises `browser` subcommands, so non-browser
-    // commands (search, get, config, etc.) will fail parsing and fall through.
+    // If args contain "browser", always use the daemon CLI — never fall through
+    // to the legacy CLI (which no longer has a browser subcommand).
     {
         use clap::Parser as _;
-        if let Ok(cli_v2) = daemon::cli_v2::CliV2::try_parse() {
-            cli_v2.run().await; // -> ! (exits process)
+        let has_browser_arg = args.iter().any(|a| a == "browser" || a == "b");
+        match daemon::cli_v2::CliV2::try_parse() {
+            Ok(cli_v2) => {
+                cli_v2.run().await;
+            }
+            Err(e) if has_browser_arg => {
+                // User intended a browser command but it failed to parse.
+                // Show the daemon CLI error (e.g. missing --session), not the
+                // legacy CLI's "unrecognized subcommand" error.
+                e.exit();
+            }
+            Err(_) => {
+                // Not a browser command — fall through to legacy CLI.
+            }
         }
     }
 
