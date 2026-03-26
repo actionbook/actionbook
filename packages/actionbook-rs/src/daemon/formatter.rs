@@ -960,20 +960,20 @@ mod tests {
         };
         let result = ActionResult::fatal(
             "session_not_found",
-            "session s5 does not exist",
+            "session local-5 does not exist",
             "run list-sessions",
         );
         let out = format_cli_result(&action, &result);
         assert_eq!(
             out,
-            "[s5]\nerror SESSION_NOT_FOUND: session s5 does not exist"
+            "[local-5]\nerror SESSION_NOT_FOUND: session local-5 does not exist"
         );
     }
 
     #[test]
     fn non_lifecycle_json_errors_use_prd_envelope() {
         let action = Action::Click {
-            session: SessionId(0),
+            session: SessionId::new_unchecked("local-1"),
             tab: crate::daemon::types::TabId(0),
             selector: "#missing".into(),
             button: None,
@@ -988,7 +988,7 @@ mod tests {
         let decoded: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(decoded["ok"], false);
         assert_eq!(decoded["command"], "browser.click");
-        assert_eq!(decoded["context"]["session_id"], "s0");
+        assert_eq!(decoded["context"]["session_id"], "local-1");
         assert_eq!(decoded["context"]["tab_id"], "t0");
         assert_eq!(decoded["data"], Value::Null);
         assert_eq!(decoded["error"]["code"], "ELEMENT_NOT_FOUND");
@@ -999,7 +999,7 @@ mod tests {
     #[test]
     fn non_lifecycle_retryable_errors_map_to_timeout() {
         let action = Action::WaitCondition {
-            session: SessionId(0),
+            session: SessionId::new_unchecked("local-1"),
             tab: crate::daemon::types::TabId(0),
             expression: "window.ready".into(),
             timeout_ms: Some(5000),
@@ -1017,7 +1017,7 @@ mod tests {
     #[test]
     fn cli_side_artifact_errors_use_prd_envelope() {
         let action = Action::Screenshot {
-            session: SessionId(0),
+            session: SessionId::new_unchecked("local-1"),
             tab: crate::daemon::types::TabId(0),
             full_page: false,
         };
@@ -1030,7 +1030,7 @@ mod tests {
         );
         let decoded: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(decoded["command"], "browser.screenshot");
-        assert_eq!(decoded["context"]["session_id"], "s0");
+        assert_eq!(decoded["context"]["session_id"], "local-1");
         assert_eq!(decoded["context"]["tab_id"], "t0");
         assert_eq!(decoded["error"]["code"], "ARTIFACT_WRITE_FAILED");
         assert_eq!(decoded["error"]["details"]["path"], "/tmp/out.png");
@@ -1039,7 +1039,7 @@ mod tests {
     #[test]
     fn cli_side_artifact_errors_use_text_contract() {
         let action = Action::Screenshot {
-            session: SessionId(0),
+            session: SessionId::new_unchecked("local-1"),
             tab: crate::daemon::types::TabId(0),
             full_page: false,
         };
@@ -1050,7 +1050,7 @@ mod tests {
         );
         assert_eq!(
             out,
-            "[s0 t0]\nerror ARTIFACT_WRITE_FAILED: failed to write screenshot to /tmp/out.png: permission denied"
+            "[local-1 t0]\nerror ARTIFACT_WRITE_FAILED: failed to write screenshot to /tmp/out.png: permission denied"
         );
     }
 
@@ -1096,7 +1096,7 @@ mod tests {
     fn command_names_follow_prd_namespace() {
         assert_eq!(
             command_name(&Action::WaitElement {
-                session: SessionId(0),
+                session: SessionId::new_unchecked("local-1"),
                 tab: crate::daemon::types::TabId(0),
                 selector: "#ready".into(),
                 timeout_ms: Some(1000),
@@ -1105,21 +1105,21 @@ mod tests {
         );
         assert_eq!(
             command_name(&Action::LogsConsole {
-                session: SessionId(0),
+                session: SessionId::new_unchecked("local-1"),
                 tab: crate::daemon::types::TabId(0),
             }),
             "browser.logs.console"
         );
         assert_eq!(
             command_name(&Action::CookiesList {
-                session: SessionId(0),
+                session: SessionId::new_unchecked("local-1"),
                 domain: None,
             }),
             "browser.cookies.list"
         );
         assert_eq!(
             command_name(&Action::StorageList {
-                session: SessionId(0),
+                session: SessionId::new_unchecked("local-1"),
                 tab: crate::daemon::types::TabId(0),
                 kind: crate::daemon::types::StorageKind::Local,
             }),
@@ -1127,7 +1127,7 @@ mod tests {
         );
         assert_eq!(
             command_name(&Action::WaitNetworkIdle {
-                session: SessionId(0),
+                session: SessionId::new_unchecked("local-1"),
                 tab: crate::daemon::types::TabId(0),
                 idle_time_ms: Some(500),
                 timeout_ms: Some(5000),
