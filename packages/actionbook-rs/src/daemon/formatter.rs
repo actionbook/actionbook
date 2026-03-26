@@ -27,6 +27,16 @@ pub fn format_result(result: &ActionResult) -> String {
     }
 }
 
+/// Format an [`ActionResult`] for `--json` CLI output.
+///
+/// This preserves the full typed result envelope so machine consumers receive
+/// `status` plus command-specific `data` or structured error metadata.
+pub fn format_result_json(result: &ActionResult) -> String {
+    serde_json::to_string(result).unwrap_or_else(|_| {
+        r#"{"status":"Fatal","code":"serialization_failed","message":"failed to serialize result","hint":"retry the command"}"#.to_string()
+    })
+}
+
 /// Returns true if the result is an error (non-Ok), used for exit code.
 pub fn is_error(result: &ActionResult) -> bool {
     !result.is_ok()
@@ -106,6 +116,25 @@ mod tests {
         let out = format_result(&r);
         assert!(out.contains("title"));
         assert!(out.contains("Example"));
+    }
+
+    #[test]
+    fn json_output_preserves_ok_envelope() {
+        let r = ActionResult::ok(json!({"title": "Example"}));
+        let out = format_result_json(&r);
+        let decoded: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(decoded["status"], "Ok");
+        assert_eq!(decoded["data"]["title"], "Example");
+    }
+
+    #[test]
+    fn json_output_preserves_fatal_envelope() {
+        let r = ActionResult::fatal("session_not_found", "missing session", "list sessions");
+        let out = format_result_json(&r);
+        let decoded: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(decoded["status"], "Fatal");
+        assert_eq!(decoded["code"], "session_not_found");
+        assert_eq!(decoded["message"], "missing session");
     }
 
     #[test]

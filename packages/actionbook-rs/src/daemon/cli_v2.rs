@@ -1318,7 +1318,11 @@ impl CliV2 {
                                     eprintln!("error: failed to write screenshot: {e}");
                                     process::exit(1);
                                 }
-                                println!("screenshot saved to {}", path.display());
+                                if self.json {
+                                    println!("{}", formatter::format_result_json(&result));
+                                } else {
+                                    println!("screenshot saved to {}", path.display());
+                                }
                                 process::exit(0);
                             }
                             Err(e) => {
@@ -1331,7 +1335,11 @@ impl CliV2 {
             }
         }
 
-        let output = formatter::format_result(&result);
+        let output = if self.json {
+            formatter::format_result_json(&result)
+        } else {
+            formatter::format_result(&result)
+        };
         if !output.is_empty() {
             println!("{output}");
         }
