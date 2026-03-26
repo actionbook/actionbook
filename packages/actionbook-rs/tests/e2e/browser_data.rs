@@ -1,0 +1,312 @@
+//! Browser data E2E tests: cookies and storage operations.
+//!
+//! Covers api-reference §13 (Cookies) and §14 (Storage).
+//! Each test is self-contained: start → operate → close.
+
+use crate::harness::{assert_success, headless, skip, stdout_str};
+
+// ── Cookies ────────────────────────────────────────────────────────
+
+#[test]
+fn cookies_set_get_delete() {
+    if skip() {
+        return;
+    }
+
+    // Start session
+    let out = headless(
+        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        30,
+    );
+    assert_success(&out, "start");
+
+    // Set cookie
+    let out = headless(&["browser", "cookies", "set", "test", "val", "-s", "s0"], 10);
+    assert_success(&out, "cookies set");
+
+    // Get cookie — should contain "val"
+    let out = headless(&["browser", "cookies", "get", "test", "-s", "s0"], 10);
+    assert_success(&out, "cookies get after set");
+    assert!(
+        stdout_str(&out).contains("val"),
+        "cookies get should contain 'val', got: {}",
+        stdout_str(&out)
+    );
+
+    // Delete cookie
+    let out = headless(&["browser", "cookies", "delete", "test", "-s", "s0"], 10);
+    assert_success(&out, "cookies delete");
+
+    // Get cookie after delete — should not contain "val"
+    let out = headless(&["browser", "cookies", "get", "test", "-s", "s0"], 10);
+    let get_output = stdout_str(&out);
+    assert!(
+        !get_output.contains("val"),
+        "cookies get after delete should not contain 'val', got: {}",
+        get_output
+    );
+
+    // Close session
+    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    assert_success(&out, "close");
+}
+
+#[test]
+fn cookies_list_and_clear() {
+    if skip() {
+        return;
+    }
+
+    // Start session
+    let out = headless(
+        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        30,
+    );
+    assert_success(&out, "start");
+
+    // Set a cookie
+    let out = headless(&["browser", "cookies", "set", "x", "y", "-s", "s0"], 10);
+    assert_success(&out, "cookies set");
+
+    // List cookies — should contain our cookie
+    let out = headless(&["browser", "cookies", "list", "-s", "s0"], 10);
+    assert_success(&out, "cookies list");
+    let list_output = stdout_str(&out);
+    assert!(
+        list_output.contains("x"),
+        "cookies list should contain 'x', got: {}",
+        list_output
+    );
+
+    // Clear all cookies
+    let out = headless(&["browser", "cookies", "clear", "-s", "s0"], 10);
+    assert_success(&out, "cookies clear");
+
+    // List after clear — should be empty (no cookie names)
+    let out = headless(&["browser", "cookies", "list", "-s", "s0"], 10);
+    assert_success(&out, "cookies list after clear");
+    let list_output = stdout_str(&out);
+    assert!(
+        !list_output.contains("x"),
+        "cookies list after clear should not contain 'x', got: {}",
+        list_output
+    );
+
+    // Close session
+    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    assert_success(&out, "close");
+}
+
+#[test]
+fn cookies_s1t2_shared() {
+    if skip() {
+        return;
+    }
+
+    // Start session with first tab
+    let out = headless(
+        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        30,
+    );
+    assert_success(&out, "start");
+
+    // Open a second tab (same origin)
+    let out = headless(
+        &["browser", "goto", "https://example.com/page2", "-s", "s0", "-t", "t1"],
+        30,
+    );
+    assert_success(&out, "open second tab");
+
+    // Set cookie on the session
+    let out = headless(&["browser", "cookies", "set", "shared", "cookieval", "-s", "s0"], 10);
+    assert_success(&out, "cookies set");
+
+    // Get cookie — cookies are session-level so should be visible
+    let out = headless(&["browser", "cookies", "get", "shared", "-s", "s0"], 10);
+    assert_success(&out, "cookies get");
+    assert!(
+        stdout_str(&out).contains("cookieval"),
+        "cookies should be shared across tabs in same session, got: {}",
+        stdout_str(&out)
+    );
+
+    // Close session
+    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    assert_success(&out, "close");
+}
+
+// ── Local Storage ──────────────────────────────────────────────────
+
+#[test]
+fn storage_local_set_get() {
+    if skip() {
+        return;
+    }
+
+    // Start session
+    let out = headless(
+        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        30,
+    );
+    assert_success(&out, "start");
+
+    // Set local storage key
+    let out = headless(
+        &["browser", "local-storage", "set", "mykey", "myval", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "local-storage set");
+
+    // Get local storage key
+    let out = headless(
+        &["browser", "local-storage", "get", "mykey", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "local-storage get");
+    assert!(
+        stdout_str(&out).contains("myval"),
+        "local-storage get should contain 'myval', got: {}",
+        stdout_str(&out)
+    );
+
+    // Close session
+    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    assert_success(&out, "close");
+}
+
+#[test]
+fn storage_local_list_delete_clear() {
+    if skip() {
+        return;
+    }
+
+    // Start session
+    let out = headless(
+        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        30,
+    );
+    assert_success(&out, "start");
+
+    // Set a key
+    let out = headless(
+        &["browser", "local-storage", "set", "lskey", "lsval", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "local-storage set");
+
+    // List — should contain our key
+    let out = headless(
+        &["browser", "local-storage", "list", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "local-storage list");
+    assert!(
+        stdout_str(&out).contains("lskey"),
+        "local-storage list should contain 'lskey', got: {}",
+        stdout_str(&out)
+    );
+
+    // Delete the key
+    let out = headless(
+        &["browser", "local-storage", "delete", "lskey", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "local-storage delete");
+
+    // List after delete — should not contain the key
+    let out = headless(
+        &["browser", "local-storage", "list", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "local-storage list after delete");
+    assert!(
+        !stdout_str(&out).contains("lskey"),
+        "local-storage list after delete should not contain 'lskey', got: {}",
+        stdout_str(&out)
+    );
+
+    // Close session
+    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    assert_success(&out, "close");
+}
+
+// ── Session Storage ────────────────────────────────────────────────
+
+#[test]
+fn storage_session_roundtrip() {
+    if skip() {
+        return;
+    }
+
+    // Start session
+    let out = headless(
+        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        30,
+    );
+    assert_success(&out, "start");
+
+    // Set session storage key
+    let out = headless(
+        &["browser", "session-storage", "set", "sk", "sv", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "session-storage set");
+
+    // Get session storage key
+    let out = headless(
+        &["browser", "session-storage", "get", "sk", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "session-storage get");
+    assert!(
+        stdout_str(&out).contains("sv"),
+        "session-storage get should contain 'sv', got: {}",
+        stdout_str(&out)
+    );
+
+    // Close session
+    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    assert_success(&out, "close");
+}
+
+// ── Cross-tab Storage ──────────────────────────────────────────────
+
+#[test]
+fn storage_s1t2_isolation() {
+    if skip() {
+        return;
+    }
+
+    // Start session with first tab
+    let out = headless(
+        &["browser", "start", "--mode", "local", "--headless", "--open-url", "https://example.com"],
+        30,
+    );
+    assert_success(&out, "start");
+
+    // Open a second tab
+    let out = headless(
+        &["browser", "goto", "https://example.com/page2", "-s", "s0", "-t", "t1"],
+        30,
+    );
+    assert_success(&out, "open second tab");
+
+    // Set local-storage on t0
+    let out = headless(
+        &["browser", "local-storage", "set", "crosskey", "crossval", "-s", "s0", "-t", "t0"],
+        10,
+    );
+    assert_success(&out, "local-storage set on t0");
+
+    // Get local-storage on t1 — same origin so may or may not be shared
+    // depending on implementation. We just verify the command succeeds.
+    let out = headless(
+        &["browser", "local-storage", "get", "crosskey", "-s", "s0", "-t", "t1"],
+        10,
+    );
+    assert_success(&out, "local-storage get on t1");
+
+    // Close session
+    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    assert_success(&out, "close");
+}

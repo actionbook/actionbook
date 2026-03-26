@@ -11,3 +11,11 @@
 
 mod harness;
 mod browser_basic;
+mod browser_lifecycle;
+mod browser_tab;
+mod browser_navigation;
+mod browser_observation;
+mod browser_interaction;
+mod browser_waiting;
+mod browser_data;
+mod browser_errors;
