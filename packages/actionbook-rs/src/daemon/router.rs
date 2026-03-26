@@ -142,6 +142,10 @@ impl Router {
     }
 
     /// Handle `StartSession` — create a backend, spawn actor, register in registry.
+    ///
+    /// Uses a placeholder reservation to prevent TOCTOU races: a `Starting`
+    /// entry is inserted under the registry lock before any await, so
+    /// concurrent StartSession requests see the reservation and fail.
     async fn handle_start_session(
         &self,
         mode: Mode,
@@ -162,41 +166,6 @@ impl Router {
             }
         };
 
-        // For Local mode, enforce 1-profile-1-session constraint.
-        let profile_name = profile.unwrap_or_else(|| "default".into());
-        if mode == Mode::Local {
-            let registry = self.registry.lock().await;
-            let existing = registry.list_sessions();
-            if existing
-                .iter()
-                .any(|s| s.profile == profile_name && s.state != SessionState::Closed)
-            {
-                return ActionResult::fatal(
-                    "session_exists",
-                    format!(
-                        "a session with profile '{profile_name}' already exists"
-                    ),
-                    "close the existing session first, or use a different profile",
-                );
-            }
-        }
-
-        // Extension mode: 1 extension = 1 session (v1.0 product constraint).
-        if mode == Mode::Extension {
-            let registry = self.registry.lock().await;
-            let existing = registry.list_sessions();
-            if existing
-                .iter()
-                .any(|s| s.mode == Mode::Extension && s.state != SessionState::Closed)
-            {
-                return ActionResult::fatal(
-                    "extension_session_exists",
-                    "an extension session already exists (limit: 1)",
-                    "close the existing extension session first",
-                );
-            }
-        }
-
         // Cloud mode requires a CDP endpoint.
         if mode == Mode::Cloud && cdp_endpoint.is_none() {
             return ActionResult::fatal(
@@ -205,6 +174,53 @@ impl Router {
                 "pass --cdp-endpoint wss://... when using --mode cloud",
             );
         }
+
+        // Atomically check uniqueness and reserve a slot under a single lock.
+        let profile_name = profile.unwrap_or_else(|| "default".into());
+        let session_id = {
+            let mut registry = self.registry.lock().await;
+            let existing = registry.list_sessions();
+
+            // For Local mode, enforce 1-profile-1-session constraint.
+            if mode == Mode::Local
+                && existing
+                    .iter()
+                    .any(|s| s.profile == profile_name && s.state != SessionState::Closed)
+            {
+                return ActionResult::fatal(
+                    "session_exists",
+                    format!("a session with profile '{profile_name}' already exists"),
+                    "close the existing session first, or use a different profile",
+                );
+            }
+
+            // Extension mode: 1 extension = 1 session (v1.0 product constraint).
+            if mode == Mode::Extension
+                && existing
+                    .iter()
+                    .any(|s| s.mode == Mode::Extension && s.state != SessionState::Closed)
+            {
+                return ActionResult::fatal(
+                    "extension_session_exists",
+                    "an extension session already exists (limit: 1)",
+                    "close the existing extension session first",
+                );
+            }
+
+            // Reserve a slot with state=Starting so concurrent requests see it.
+            let id = registry.next_session_id();
+            let (placeholder_tx, _placeholder_rx) = tokio::sync::mpsc::channel(1);
+            let placeholder = SessionHandle {
+                tx: placeholder_tx,
+                profile: profile_name.clone(),
+                mode,
+                state: SessionState::Starting,
+                tab_count: 0,
+                created_at: std::time::Instant::now(),
+            };
+            registry.register(id, placeholder);
+            id
+        }; // lock released — backend start can proceed without holding it.
 
         // Create backend session based on mode.
         let backend = match mode {
@@ -218,6 +234,7 @@ impl Router {
                 match factory.start(spec).await {
                     Ok(b) => b,
                     Err(e) => {
+                        self.registry.lock().await.remove(session_id);
                         return ActionResult::fatal(
                             "backend_start_failed",
                             format!("failed to start browser: {e}"),
@@ -234,6 +251,7 @@ impl Router {
                 match factory.attach(spec).await {
                     Ok(b) => b,
                     Err(e) => {
+                        self.registry.lock().await.remove(session_id);
                         return ActionResult::fatal(
                             "backend_attach_failed",
                             format!("failed to connect to extension: {e}"),
@@ -247,6 +265,7 @@ impl Router {
                 let ws_url = match cdp_endpoint {
                     Some(ep) => ep,
                     None => {
+                        self.registry.lock().await.remove(session_id);
                         return ActionResult::fatal(
                             "missing_cdp_endpoint",
                             "cloud mode requires a CDP endpoint (internal error: should have been caught earlier)",
@@ -261,6 +280,7 @@ impl Router {
                 match factory.attach(spec).await {
                     Ok(b) => b,
                     Err(e) => {
+                        self.registry.lock().await.remove(session_id);
                         return ActionResult::fatal(
                             "backend_attach_failed",
                             format!("failed to connect to cloud browser: {e}"),
@@ -280,11 +300,10 @@ impl Router {
             .map(|t| t.target_id.clone())
             .collect();
 
-        let mut registry = self.registry.lock().await;
-        let session_id = registry.next_session_id();
-
         let (tx, _join_handle) = SessionActor::spawn(session_id, backend, targets);
 
+        // Upgrade the placeholder to a real session handle.
+        let mut registry = self.registry.lock().await;
         let handle = SessionHandle {
             tx,
             profile: profile_name,

@@ -789,8 +789,18 @@ impl From<CliSameSite> for SameSite {
 // Action construction — pure mapping, no logic
 // ---------------------------------------------------------------------------
 
-fn build_action(cmd: BrowserCmd) -> Result<Action, String> {
-    Ok(match cmd {
+/// Build an Action from a CLI command.
+///
+/// Returns (Action, Option<PathBuf>) where the optional path is the local file
+/// to write when the daemon returns binary data (e.g. screenshot PNG).
+fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
+    // Extract the screenshot output path before converting to Action.
+    let screenshot_path = match &cmd {
+        BrowserCmd::Screenshot { path, .. } => Some(path.clone()),
+        _ => None,
+    };
+
+    let action = match cmd {
         // Global
         BrowserCmd::Start {
             mode,
@@ -864,6 +874,7 @@ fn build_action(cmd: BrowserCmd) -> Result<Action, String> {
             tab,
             full_page: false,
         },
+        // NOTE: screenshot_path is extracted above and returned alongside the action.
         BrowserCmd::Click {
             selector,
             session,
@@ -1075,7 +1086,9 @@ fn build_action(cmd: BrowserCmd) -> Result<Action, String> {
 
         // Session management
         BrowserCmd::Restart { session } => Action::RestartSession { session },
-    })
+    };
+
+    Ok((action, screenshot_path))
 }
 
 // ---------------------------------------------------------------------------
@@ -1154,8 +1167,8 @@ impl CliV2 {
         let socket_path = self.socket.unwrap_or_else(client::default_socket_path);
 
         let TopLevel::Browser { cmd } = self.command;
-        let action = match build_action(cmd) {
-            Ok(a) => a,
+        let (action, screenshot_path) = match build_action(cmd) {
+            Ok(pair) => pair,
             Err(e) => {
                 eprintln!("error: {e}");
                 process::exit(1);
@@ -1184,6 +1197,31 @@ impl CliV2 {
             }
         };
 
+        // If this was a screenshot command, decode the base64 PNG and write to disk.
+        if let Some(path) = screenshot_path {
+            if result.is_ok() {
+                if let super::action_result::ActionResult::Ok { ref data } = result {
+                    if let Some(b64) = data.get("data").and_then(|v| v.as_str()) {
+                        use base64::Engine;
+                        match base64::engine::general_purpose::STANDARD.decode(b64) {
+                            Ok(bytes) => {
+                                if let Err(e) = std::fs::write(&path, &bytes) {
+                                    eprintln!("error: failed to write screenshot: {e}");
+                                    process::exit(1);
+                                }
+                                println!("screenshot saved to {}", path.display());
+                                process::exit(0);
+                            }
+                            Err(e) => {
+                                eprintln!("error: failed to decode screenshot data: {e}");
+                                process::exit(1);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let output = formatter::format_result(&result);
         if !output.is_empty() {
             println!("{output}");
@@ -1206,7 +1244,7 @@ mod tests {
 
     #[test]
     fn build_start_action_local() {
-        let action = build_action(BrowserCmd::Start {
+        let (action, _) = build_action(BrowserCmd::Start {
             mode: CliMode::Local,
             profile: Some("test".into()),
             headless: true,
@@ -1233,7 +1271,7 @@ mod tests {
 
     #[test]
     fn build_start_action_cloud_with_endpoint() {
-        let action = build_action(BrowserCmd::Start {
+        let (action, _) = build_action(BrowserCmd::Start {
             mode: CliMode::Cloud,
             profile: None,
             headless: false,
@@ -1272,7 +1310,7 @@ mod tests {
 
     #[test]
     fn build_start_action_extension() {
-        let action = build_action(BrowserCmd::Start {
+        let (action, _) = build_action(BrowserCmd::Start {
             mode: CliMode::Extension,
             profile: None,
             headless: false,
@@ -1290,13 +1328,13 @@ mod tests {
 
     #[test]
     fn build_list_sessions() {
-        let action = build_action(BrowserCmd::ListSessions).unwrap();
+        let (action, _) = build_action(BrowserCmd::ListSessions).unwrap();
         assert!(matches!(action, Action::ListSessions));
     }
 
     #[test]
     fn build_goto_action() {
-        let action = build_action(BrowserCmd::Goto {
+        let (action, _) = build_action(BrowserCmd::Goto {
             url: "https://example.com".into(),
             session: SessionId(0),
             tab: TabId(1),
@@ -1316,7 +1354,7 @@ mod tests {
 
     #[test]
     fn build_snapshot_action() {
-        let action = build_action(BrowserCmd::Snapshot {
+        let (action, _) = build_action(BrowserCmd::Snapshot {
             session: SessionId(0),
             tab: TabId(0),
             interactive: true,
@@ -1338,7 +1376,7 @@ mod tests {
 
     #[test]
     fn build_close_session() {
-        let action = build_action(BrowserCmd::Close {
+        let (action, _) = build_action(BrowserCmd::Close {
             session: SessionId(3),
         })
         .unwrap();
@@ -1350,7 +1388,7 @@ mod tests {
 
     #[test]
     fn build_click_action() {
-        let action = build_action(BrowserCmd::Click {
+        let (action, _) = build_action(BrowserCmd::Click {
             selector: "#btn".into(),
             session: SessionId(0),
             tab: TabId(0),
@@ -1373,7 +1411,7 @@ mod tests {
 
     #[test]
     fn build_eval_action() {
-        let action = build_action(BrowserCmd::Eval {
+        let (action, _) = build_action(BrowserCmd::Eval {
             code: "document.title".into(),
             session: SessionId(1),
             tab: TabId(2),

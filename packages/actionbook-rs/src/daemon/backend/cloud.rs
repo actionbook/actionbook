@@ -466,7 +466,7 @@ async fn connect_wss_and_monitor(
                             read_single_response(&mut probe_ws, 1),
                         )
                         .await
-                        .is_ok()
+                        .is_ok_and(|r| r.is_ok())
                     }
                 }
                 Err(_) => false,
@@ -554,7 +554,7 @@ async fn attempt_reconnect_probe(
                     read_single_response(&mut probe_ws, 1),
                 )
                 .await
-                .is_ok()
+                .is_ok_and(|r| r.is_ok())
             {
                 tracing::info!(attempt, "Cloud backend reconnect probe succeeded");
                 return true;
