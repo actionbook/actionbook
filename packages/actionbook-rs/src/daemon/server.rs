@@ -371,14 +371,17 @@ impl WsState {
             return Err("Daemon WS writer channel closed".to_string());
         }
 
-        // Wait for response with timeout
-        match tokio::time::timeout(Duration::from_secs(30), resp_rx).await {
+        // Wait for response with timeout.
+        // Screenshot and PDF commands produce large payloads (PNG/PDF encoding +
+        // base64 + WS transfer) and routinely exceed the default 30s on heavy pages.
+        let timeout_secs = cdp_timeout_secs(method);
+        match tokio::time::timeout(Duration::from_secs(timeout_secs), resp_rx).await {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(_)) => Err("Response channel dropped".to_string()),
             Err(_) => {
                 // Clean up pending entry
                 self.pending.lock().await.remove(&ws_id);
-                Err("CDP command timed out after 30s".to_string())
+                Err(format!("CDP command timed out after {}s", timeout_secs))
             }
         }
     }
@@ -743,6 +746,19 @@ fn is_browser_level_method(method: &str) -> bool {
             | "Browser.getVersion"
             | "Browser.close"
     )
+}
+
+/// Returns the CDP command timeout in seconds based on the method name.
+///
+/// Most CDP commands complete well within 30s. However, commands that produce
+/// large binary payloads (screenshot PNG, PDF) require Chrome to render, encode,
+/// base64-encode, and transfer the data over WS — which can exceed 30s on
+/// heavy pages or slow machines.
+fn cdp_timeout_secs(method: &str) -> u64 {
+    match method {
+        "Page.captureScreenshot" | "Page.printToPDF" => 120,
+        _ => 30,
+    }
 }
 
 /// Persistent WS connection loop with auto-reconnect.
@@ -1372,6 +1388,17 @@ mod tests {
         assert!(!is_browser_level_method("Page.navigate"));
         assert!(!is_browser_level_method("Input.dispatchMouseEvent"));
         assert!(!is_browser_level_method("Accessibility.getFullAXTree"));
+    }
+
+    #[test]
+    fn cdp_timeout_is_extended_for_large_payload_methods() {
+        assert_eq!(cdp_timeout_secs("Page.captureScreenshot"), 120);
+        assert_eq!(cdp_timeout_secs("Page.printToPDF"), 120);
+        // All other methods use the default 30s
+        assert_eq!(cdp_timeout_secs("Runtime.evaluate"), 30);
+        assert_eq!(cdp_timeout_secs("Page.navigate"), 30);
+        assert_eq!(cdp_timeout_secs("DOM.getDocument"), 30);
+        assert_eq!(cdp_timeout_secs("Input.dispatchMouseEvent"), 30);
     }
 
     #[test]
