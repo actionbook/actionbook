@@ -1695,10 +1695,10 @@ mod tests {
 
     #[test]
     fn build_cookies_list_with_domain() {
-        let (action, _) = build_action(BrowserCmd::CookiesList {
+        let (action, _) = build_action(BrowserCmd::Cookies(CookiesCmd::List {
             session: SessionId(2),
             domain: Some("example.com".into()),
-        })
+        }))
         .unwrap();
         match action {
             Action::CookiesList { session, domain } => {
@@ -1711,10 +1711,10 @@ mod tests {
 
     #[test]
     fn build_cookies_clear_with_domain() {
-        let (action, _) = build_action(BrowserCmd::CookiesClear {
+        let (action, _) = build_action(BrowserCmd::Cookies(CookiesCmd::Clear {
             session: SessionId(3),
             domain: Some(".example.com".into()),
-        })
+        }))
         .unwrap();
         match action {
             Action::CookiesClear { session, domain } => {
