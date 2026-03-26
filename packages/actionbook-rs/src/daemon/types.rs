@@ -64,17 +64,25 @@ impl SessionId {
     ///
     /// First attempt uses the sanitized name; collisions add -2, -3, etc.
     pub fn from_profile(profile: &str, suffix: u32) -> Self {
-        let sanitized = Self::sanitize_profile(profile);
+        let mut sanitized = Self::sanitize_profile(profile);
+        // Truncate sanitized base to leave room for the suffix.
+        let max_base = if suffix == 0 {
+            64
+        } else {
+            let suffix_str = format!("-{}", suffix + 1);
+            64 - suffix_str.len()
+        };
+        if sanitized.len() > max_base {
+            sanitized.truncate(max_base);
+            // Don't leave a trailing hyphen after truncation.
+            while sanitized.ends_with('-') {
+                sanitized.pop();
+            }
+        }
         let base = if suffix == 0 {
             sanitized
         } else {
             format!("{}-{}", sanitized, suffix + 1)
-        };
-        // Truncate to 64 chars max.
-        let base = if base.len() > 64 {
-            base[..64].trim_end_matches('-').to_string()
-        } else {
-            base
         };
         if Self::is_valid(&base) {
             SessionId(base)
@@ -514,5 +522,26 @@ mod tests {
         assert_eq!(SessionId::from_profile("", 0).as_str(), "local-1");
         // All special chars → empty after sanitization → fallback
         assert_eq!(SessionId::from_profile("!!!", 0).as_str(), "local-1");
+    }
+
+    #[test]
+    fn from_profile_long_name_reserves_room_for_suffix() {
+        // 64 'a's — suffix 0 uses first 64 chars
+        let long_name = "a".repeat(64);
+        let id0 = SessionId::from_profile(&long_name, 0);
+        assert_eq!(id0.as_str().len(), 64);
+
+        // suffix 1 → must produce a distinct ID ending with "-2"
+        let id1 = SessionId::from_profile(&long_name, 1);
+        assert!(id1.as_str().ends_with("-2"), "got: {}", id1.as_str());
+        assert!(id1.as_str().len() <= 64);
+
+        // suffix 0 and suffix 1 must be different
+        assert_ne!(id0.as_str(), id1.as_str());
+
+        // suffix 2 → ends with "-3", also distinct
+        let id2 = SessionId::from_profile(&long_name, 2);
+        assert!(id2.as_str().ends_with("-3"), "got: {}", id2.as_str());
+        assert_ne!(id1.as_str(), id2.as_str());
     }
 }
