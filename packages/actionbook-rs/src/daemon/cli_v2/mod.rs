@@ -18,11 +18,11 @@ use super::action::Action;
 use super::client::{self, DaemonClient};
 use super::daemon_main::DaemonConfig;
 use super::formatter;
-use super::types::{Mode, QueryCardinality, QueryMode, SessionId, StorageKind, TabId};
+use super::types::{Mode, QueryCardinality, SessionId, StorageKind, TabId};
 
 use commands::{
-    CliMode, CliSameSite, CookiesCmd, LocalStorageCmd, QueryCmd, ScrollCmd, SessionStorageCmd,
-    StorageSubCmd, WaitCmd,
+    CliMode, CookiesCmd, LocalStorageCmd, QueryCmd, ScrollCmd, SessionStorageCmd, StorageSubCmd,
+    WaitCmd,
 };
 
 /// Actionbook CLI v2 — browser automation via daemon
