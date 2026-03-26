@@ -223,12 +223,14 @@ jobs:
         if: needs.unit-tests.result == 'failure' || needs.e2e-tests.result == 'failure'
         run: exit 1
 
-  test-report:
-    name: Test Report
+  allure-report:
+    name: Allure Report
     runs-on: ubuntu-latest
     needs: [unit-tests, e2e-tests]
     if: always()
     timeout-minutes: 5
+    permissions:
+      contents: write
 
     steps:
       - name: Download all test results
@@ -236,33 +238,56 @@ jobs:
         with:
           path: test-results
 
-      - name: Prepare JUnit XML
+      - name: Prepare Allure results
         run: |
-          mkdir -p junit-results
-          find test-results/unit-test-results -name "junit.xml" -exec cp {} junit-results/unit-tests.xml \;
-          find test-results/e2e-test-results -name "junit.xml" -exec cp {} junit-results/e2e-tests.xml \;
-          echo "JUnit results:"
-          ls -la junit-results/
+          mkdir -p allure-results
+          find test-results/unit-test-results -name "junit.xml" -exec cp {} allure-results/unit-tests-junit.xml \;
+          find test-results/e2e-test-results -name "junit.xml" -exec cp {} allure-results/e2e-tests-junit.xml \;
+          echo "Allure results:"
+          ls -la allure-results/
 
-      - name: Install xunit-viewer
-        run: npm install -g xunit-viewer
-
-      - name: Generate HTML report
+      - name: Load Allure history
+        uses: actions/checkout@v4
         if: always()
-        run: |
-          xunit-viewer -r junit-results -o test-report.html -t "Actionbook Test Report"
-
-      - name: Upload test report
-        uses: actions/upload-artifact@v4
-        if: always()
+        continue-on-error: true
         with:
-          name: test-report
-          path: test-report.html
-          retention-days: 30
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Set up Java
+        if: always()
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install Allure CLI
+        if: always()
+        run: |
+          curl -sL https://github.com/allure-framework/allure2/releases/download/2.32.0/allure-2.32.0.tgz | tar -xz
+          echo "$PWD/allure-2.32.0/bin" >> $GITHUB_PATH
+
+      - name: Build Allure Report
+        if: always()
+        run: |
+          # Copy previous history if available
+          if [ -d gh-pages/test-report/history ]; then
+            cp -r gh-pages/test-report/history allure-results/history
+          fi
+          allure generate allure-results -o allure-report --clean
+
+      - name: Deploy to GitHub Pages
+        if: always() && github.event_name == 'push'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: allure-report
+          publish_branch: gh-pages
+          destination_dir: test-report
 
       - name: Report summary
         if: always()
         run: |
-          echo "## Test Report" >> $GITHUB_STEP_SUMMARY
+          echo "## Allure Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Download **test-report** artifact, open \`test-report.html\` directly in browser." >> $GITHUB_STEP_SUMMARY
+          echo "[View Allure Report](https://actionbook.github.io/actionbook/test-report/)" >> $GITHUB_STEP_SUMMARY
