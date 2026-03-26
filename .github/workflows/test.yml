@@ -294,12 +294,13 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: allure-history
           publish_branch: gh-pages
+          destination_dir: test-report
 
       - name: Report URL
         if: always()
         run: |
           echo "## Allure Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📊 **[View Allure Report](https://actionbook.github.io/actionbook/)** (available after GitHub Pages is enabled)" >> $GITHUB_STEP_SUMMARY
+          echo "📊 **[View Allure Report](https://actionbook.github.io/actionbook/test-report/)** (available after GitHub Pages is enabled)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "💾 Or download the report artifact from this run's Artifacts section" >> $GITHUB_STEP_SUMMARY
