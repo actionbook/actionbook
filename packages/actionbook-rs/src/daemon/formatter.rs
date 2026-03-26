@@ -600,20 +600,21 @@ fn normalize_error_code(code: &str) -> String {
     match normalized.as_str() {
         "session_not_found" | "session_dead" => "SESSION_NOT_FOUND".to_string(),
         "tab_not_found" | "no_tabs" => "TAB_NOT_FOUND".to_string(),
+        "frame_not_found" => "FRAME_NOT_FOUND".to_string(),
         "element_not_found" => "ELEMENT_NOT_FOUND".to_string(),
+        "multiple_matches" => "MULTIPLE_MATCHES".to_string(),
+        "index_out_of_range" => "INDEX_OUT_OF_RANGE".to_string(),
+        "navigation_failed" => "NAVIGATION_FAILED".to_string(),
         "eval_error" => "EVAL_FAILED".to_string(),
         "pdf_write_error" | "pdf_decode_error" | "artifact_write_failed" => {
             "ARTIFACT_WRITE_FAILED".to_string()
         }
         "cdp_timeout" | "backend_disconnected" | "timeout" => "TIMEOUT".to_string(),
+        "unsupported_operation" => "UNSUPPORTED_OPERATION".to_string(),
         code if code.starts_with("invalid_")
             || matches!(
                 code,
-                "missing_cdp_endpoint"
-                    | "session_exists"
-                    | "extension_session_exists"
-                    | "multiple_matches"
-                    | "index_out_of_range"
+                "missing_cdp_endpoint" | "session_exists" | "extension_session_exists"
             ) =>
         {
             "INVALID_ARGUMENT".to_string()
@@ -635,11 +636,16 @@ fn default_error_message(code: &str) -> &'static str {
     match code {
         "SESSION_NOT_FOUND" => "Session not found",
         "TAB_NOT_FOUND" => "Tab not found",
+        "FRAME_NOT_FOUND" => "Frame not found",
         "ELEMENT_NOT_FOUND" => "Element not found",
+        "MULTIPLE_MATCHES" => "Multiple matches found",
+        "INDEX_OUT_OF_RANGE" => "Index out of range",
+        "NAVIGATION_FAILED" => "Navigation failed",
         "EVAL_FAILED" => "JavaScript evaluation failed",
         "ARTIFACT_WRITE_FAILED" => "Failed to write artifact",
         "INVALID_ARGUMENT" => "Invalid argument",
         "TIMEOUT" => "Operation timed out",
+        "UNSUPPORTED_OPERATION" => "Unsupported operation",
         _ => "Internal error",
     }
 }
@@ -944,7 +950,10 @@ mod tests {
             "run list-sessions",
         );
         let out = format_cli_result(&action, &result);
-        assert_eq!(out, "[s5]\nerror SESSION_NOT_FOUND: session s5 does not exist");
+        assert_eq!(
+            out,
+            "[s5]\nerror SESSION_NOT_FOUND: session s5 does not exist"
+        );
     }
 
     #[test]
@@ -1011,5 +1020,43 @@ mod tests {
         assert_eq!(decoded["context"]["tab_id"], "t0");
         assert_eq!(decoded["error"]["code"], "ARTIFACT_WRITE_FAILED");
         assert_eq!(decoded["error"]["details"]["path"], "/tmp/out.png");
+    }
+
+    #[test]
+    fn normalize_error_code_maps_prd_table() {
+        assert_eq!(
+            normalize_error_code("session_not_found"),
+            "SESSION_NOT_FOUND"
+        );
+        assert_eq!(normalize_error_code("tab_not_found"), "TAB_NOT_FOUND");
+        assert_eq!(normalize_error_code("frame_not_found"), "FRAME_NOT_FOUND");
+        assert_eq!(
+            normalize_error_code("element_not_found"),
+            "ELEMENT_NOT_FOUND"
+        );
+        assert_eq!(normalize_error_code("multiple_matches"), "MULTIPLE_MATCHES");
+        assert_eq!(
+            normalize_error_code("index_out_of_range"),
+            "INDEX_OUT_OF_RANGE"
+        );
+        assert_eq!(
+            normalize_error_code("navigation_failed"),
+            "NAVIGATION_FAILED"
+        );
+        assert_eq!(normalize_error_code("eval_error"), "EVAL_FAILED");
+        assert_eq!(
+            normalize_error_code("pdf_write_error"),
+            "ARTIFACT_WRITE_FAILED"
+        );
+        assert_eq!(normalize_error_code("cdp_timeout"), "TIMEOUT");
+        assert_eq!(
+            normalize_error_code("unsupported_operation"),
+            "UNSUPPORTED_OPERATION"
+        );
+        assert_eq!(
+            normalize_error_code("invalid_selector_mode"),
+            "INVALID_ARGUMENT"
+        );
+        assert_eq!(normalize_error_code("something_else"), "INTERNAL_ERROR");
     }
 }
