@@ -341,6 +341,23 @@ mod tests {
         assert!(!is_process_alive(4_000_000_000));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn local_session_with_reused_non_chrome_pid_marks_lost() {
+        let session = local_session(7, std::process::id());
+        let plan = plan_recovery(&[session]);
+        assert_eq!(plan.actions.len(), 1);
+        match &plan.actions[0].action {
+            RecoveryAction::MarkLost { reason } => {
+                assert!(
+                    reason.contains("not a Chrome process"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected MarkLost, got {other:?}"),
+        }
+    }
+
     #[test]
     fn current_process_is_not_chrome() {
         let pid = std::process::id();

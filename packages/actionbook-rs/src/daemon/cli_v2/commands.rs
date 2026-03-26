@@ -366,3 +366,38 @@ pub(crate) enum WaitCmd {
         timeout: Option<u64>,
     },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_mode_maps_to_protocol_mode() {
+        assert_eq!(Mode::from(CliMode::Local), Mode::Local);
+        assert_eq!(Mode::from(CliMode::Extension), Mode::Extension);
+        assert_eq!(Mode::from(CliMode::Cloud), Mode::Cloud);
+    }
+
+    #[test]
+    fn cli_query_mode_maps_to_protocol_query_mode() {
+        assert_eq!(QueryMode::from(CliQueryMode::Css), QueryMode::Css);
+        assert_eq!(QueryMode::from(CliQueryMode::Xpath), QueryMode::Xpath);
+        assert_eq!(QueryMode::from(CliQueryMode::Text), QueryMode::Text);
+    }
+
+    #[test]
+    fn cli_storage_kind_maps_to_protocol_storage_kind() {
+        assert_eq!(StorageKind::from(CliStorageKind::Local), StorageKind::Local);
+        assert_eq!(
+            StorageKind::from(CliStorageKind::Session),
+            StorageKind::Session
+        );
+    }
+
+    #[test]
+    fn cli_same_site_maps_to_protocol_same_site() {
+        assert_eq!(SameSite::from(CliSameSite::Strict), SameSite::Strict);
+        assert_eq!(SameSite::from(CliSameSite::Lax), SameSite::Lax);
+        assert_eq!(SameSite::from(CliSameSite::None), SameSite::None);
+    }
+}

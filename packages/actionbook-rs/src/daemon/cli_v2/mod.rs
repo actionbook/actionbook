@@ -1379,7 +1379,9 @@ impl CliV2 {
 
 #[cfg(test)]
 mod tests {
+    use super::commands::CliQueryMode;
     use super::*;
+    use crate::daemon::types::QueryMode;
 
     #[test]
     fn build_start_action_local() {
@@ -1603,5 +1605,587 @@ mod tests {
         assert_eq!(Mode::from(CliMode::Local), Mode::Local);
         assert_eq!(Mode::from(CliMode::Extension), Mode::Extension);
         assert_eq!(Mode::from(CliMode::Cloud), Mode::Cloud);
+    }
+
+    #[test]
+    fn build_session_and_navigation_variants() {
+        let session = SessionId::new_unchecked("local-1");
+
+        let (action, _) = build_action(BrowserCmd::Status {
+            session: session.clone(),
+        })
+        .unwrap();
+        assert!(matches!(action, Action::SessionStatus { session: s } if s == session));
+
+        let (action, _) = build_action(BrowserCmd::ListTabs {
+            session: session.clone(),
+        })
+        .unwrap();
+        assert!(matches!(action, Action::ListTabs { session: s } if s == session));
+
+        let (action, _) = build_action(BrowserCmd::ListWindows {
+            session: session.clone(),
+        })
+        .unwrap();
+        assert!(matches!(action, Action::ListWindows { session: s } if s == session));
+
+        let (action, _) = build_action(BrowserCmd::NewTab {
+            url: "https://example.com".into(),
+            session: session.clone(),
+            new_window: true,
+            window: None,
+        })
+        .unwrap();
+        assert!(matches!(
+            action,
+            Action::NewTab {
+                session: s,
+                url,
+                new_window: true,
+                window: None
+            } if s == session && url == "https://example.com"
+        ));
+
+        let (action, _) = build_action(BrowserCmd::CloseTab {
+            session: session.clone(),
+            tab: TabId(2),
+        })
+        .unwrap();
+        assert!(matches!(
+            action,
+            Action::CloseTab {
+                session: s,
+                tab: TabId(2)
+            } if s == session
+        ));
+
+        let (action, _) = build_action(BrowserCmd::Back {
+            session: session.clone(),
+            tab: TabId(0),
+        })
+        .unwrap();
+        assert!(matches!(action, Action::Back { session: s, tab: TabId(0) } if s == session));
+
+        let (action, _) = build_action(BrowserCmd::Forward {
+            session: session.clone(),
+            tab: TabId(0),
+        })
+        .unwrap();
+        assert!(matches!(action, Action::Forward { session: s, tab: TabId(0) } if s == session));
+
+        let (action, _) = build_action(BrowserCmd::Reload {
+            session: session.clone(),
+            tab: TabId(0),
+        })
+        .unwrap();
+        assert!(matches!(action, Action::Reload { session: s, tab: TabId(0) } if s == session));
+
+        let (action, _) = build_action(BrowserCmd::Restart { session }).unwrap();
+        assert!(matches!(action, Action::RestartSession { .. }));
+    }
+
+    #[test]
+    fn build_observation_variants() {
+        let session = SessionId::new_unchecked("local-1");
+        let tab = TabId(3);
+
+        let (action, path) = build_action(BrowserCmd::Screenshot {
+            path: PathBuf::from("/tmp/out.png"),
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert_eq!(path.as_deref(), Some(Path::new("/tmp/out.png")));
+        assert!(matches!(
+            action,
+            Action::Screenshot {
+                session: s,
+                tab: TabId(3),
+                full_page: false
+            } if s == session
+        ));
+
+        let (action, _) = build_action(BrowserCmd::Pdf {
+            path: PathBuf::from("/tmp/out.pdf"),
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(matches!(
+            action,
+            Action::Pdf {
+                session: s,
+                tab: TabId(3),
+                path
+            } if s == session && path == "/tmp/out.pdf"
+        ));
+
+        for (cmd, expected) in [
+            (
+                BrowserCmd::Title {
+                    session: session.clone(),
+                    tab,
+                },
+                "title",
+            ),
+            (
+                BrowserCmd::Url {
+                    session: session.clone(),
+                    tab,
+                },
+                "url",
+            ),
+            (
+                BrowserCmd::Viewport {
+                    session: session.clone(),
+                    tab,
+                },
+                "viewport",
+            ),
+        ] {
+            let (action, _) = build_action(cmd).unwrap();
+            match (expected, action) {
+                (
+                    "title",
+                    Action::Title {
+                        session: s,
+                        tab: TabId(3),
+                    },
+                ) => assert_eq!(s, session),
+                (
+                    "url",
+                    Action::Url {
+                        session: s,
+                        tab: TabId(3),
+                    },
+                ) => assert_eq!(s, session),
+                (
+                    "viewport",
+                    Action::Viewport {
+                        session: s,
+                        tab: TabId(3),
+                    },
+                ) => {
+                    assert_eq!(s, session)
+                }
+                _ => panic!("unexpected observation mapping"),
+            }
+        }
+
+        let (action, _) = build_action(BrowserCmd::Html {
+            selector: "#root".into(),
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(matches!(action, Action::Html { selector: Some(sel), .. } if sel == "#root"));
+
+        let (action, _) = build_action(BrowserCmd::TextCmd {
+            selector: "#copy".into(),
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(matches!(action, Action::Text { selector: Some(sel), .. } if sel == "#copy"));
+
+        let (action, _) = build_action(BrowserCmd::Value {
+            selector: "#field".into(),
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(matches!(action, Action::Value { selector, .. } if selector == "#field"));
+
+        let (action, _) = build_action(BrowserCmd::Attr {
+            selector: "#field".into(),
+            name: "aria-label".into(),
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(
+            matches!(action, Action::Attr { selector, name, .. } if selector == "#field" && name == "aria-label")
+        );
+
+        let (action, _) = build_action(BrowserCmd::Attrs {
+            selector: "#field".into(),
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(matches!(action, Action::Attrs { selector, .. } if selector == "#field"));
+
+        let (action, _) = build_action(BrowserCmd::Describe {
+            selector: "#field".into(),
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(matches!(action, Action::Describe { selector, .. } if selector == "#field"));
+
+        let (action, _) = build_action(BrowserCmd::State {
+            selector: "#field".into(),
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(matches!(action, Action::State { selector, .. } if selector == "#field"));
+
+        let (action, _) = build_action(BrowserCmd::Box_ {
+            selector: "#field".into(),
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(matches!(action, Action::Box_ { selector, .. } if selector == "#field"));
+
+        let (action, _) = build_action(BrowserCmd::Styles {
+            selector: "#field".into(),
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(matches!(action, Action::Styles { selector, .. } if selector == "#field"));
+
+        let (action, _) = build_action(BrowserCmd::InspectPoint {
+            x: 10.5,
+            y: 20.25,
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(matches!(action, Action::InspectPoint { x, y, .. } if x == 10.5 && y == 20.25));
+
+        let (action, _) = build_action(BrowserCmd::LogsConsole {
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(matches!(
+            action,
+            Action::LogsConsole {
+                session: s,
+                tab: TabId(3)
+            } if s == session
+        ));
+
+        let (action, _) = build_action(BrowserCmd::LogsErrors { session, tab }).unwrap();
+        assert!(matches!(action, Action::LogsErrors { tab: TabId(3), .. }));
+    }
+
+    #[test]
+    fn build_query_variants() {
+        let session = SessionId::new_unchecked("local-1");
+        let tab = TabId(0);
+
+        let (action, _) = build_action(BrowserCmd::Query(QueryCmd::One {
+            selector: "#one".into(),
+            session: session.clone(),
+            tab,
+            mode: CliQueryMode::Text,
+        }))
+        .unwrap();
+        assert!(matches!(
+            action,
+            Action::Query {
+                selector,
+                mode: QueryMode::Text,
+                cardinality: QueryCardinality::One,
+                nth_index: None,
+                ..
+            } if selector == "#one"
+        ));
+
+        let (action, _) = build_action(BrowserCmd::Query(QueryCmd::All {
+            selector: "//button".into(),
+            session: session.clone(),
+            tab,
+            mode: CliQueryMode::Xpath,
+        }))
+        .unwrap();
+        assert!(matches!(
+            action,
+            Action::Query {
+                selector,
+                mode: QueryMode::Xpath,
+                cardinality: QueryCardinality::All,
+                nth_index: None,
+                ..
+            } if selector == "//button"
+        ));
+
+        let (action, _) = build_action(BrowserCmd::Query(QueryCmd::Count {
+            selector: ".count".into(),
+            session: session.clone(),
+            tab,
+            mode: CliQueryMode::Css,
+        }))
+        .unwrap();
+        assert!(matches!(
+            action,
+            Action::Query {
+                selector,
+                mode: QueryMode::Css,
+                cardinality: QueryCardinality::Count,
+                nth_index: None,
+                ..
+            } if selector == ".count"
+        ));
+
+        let (action, _) = build_action(BrowserCmd::Query(QueryCmd::Nth {
+            n: 4,
+            selector: ".item".into(),
+            session,
+            tab,
+            mode: CliQueryMode::Css,
+        }))
+        .unwrap();
+        assert!(matches!(
+            action,
+            Action::Query {
+                selector,
+                cardinality: QueryCardinality::Nth,
+                nth_index: Some(4),
+                ..
+            } if selector == ".item"
+        ));
+    }
+
+    #[test]
+    fn storage_subcommands_map_for_both_kinds() {
+        let session = SessionId::new_unchecked("local-1");
+        let tab = TabId(1);
+
+        let local_list = storage_cmd_to_action(
+            StorageSubCmd::List {
+                session: session.clone(),
+                tab,
+            },
+            StorageKind::Local,
+        );
+        assert!(matches!(
+            local_list,
+            Action::StorageList {
+                kind: StorageKind::Local,
+                ..
+            }
+        ));
+
+        let session_get = storage_cmd_to_action(
+            StorageSubCmd::Get {
+                key: "theme".into(),
+                session: session.clone(),
+                tab,
+            },
+            StorageKind::Session,
+        );
+        assert!(
+            matches!(session_get, Action::StorageGet { kind: StorageKind::Session, key, .. } if key == "theme")
+        );
+
+        let local_set = storage_cmd_to_action(
+            StorageSubCmd::Set {
+                key: "theme".into(),
+                value: "dark".into(),
+                session: session.clone(),
+                tab,
+            },
+            StorageKind::Local,
+        );
+        assert!(
+            matches!(local_set, Action::StorageSet { kind: StorageKind::Local, key, value, .. } if key == "theme" && value == "dark")
+        );
+
+        let session_delete = storage_cmd_to_action(
+            StorageSubCmd::Delete {
+                key: "theme".into(),
+                session: session.clone(),
+                tab,
+            },
+            StorageKind::Session,
+        );
+        assert!(
+            matches!(session_delete, Action::StorageDelete { kind: StorageKind::Session, key, .. } if key == "theme")
+        );
+
+        let local_clear = storage_cmd_to_action(
+            StorageSubCmd::Clear {
+                key: None,
+                session,
+                tab,
+            },
+            StorageKind::Local,
+        );
+        assert!(matches!(
+            local_clear,
+            Action::StorageClear {
+                kind: StorageKind::Local,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn build_interaction_and_wait_variants() {
+        let session = SessionId::new_unchecked("local-1");
+        let tab = TabId(2);
+
+        let (action, _) = build_action(BrowserCmd::Select {
+            value: "opt-1".into(),
+            selector: "#select".into(),
+            session: session.clone(),
+            tab,
+            by_text: true,
+        })
+        .unwrap();
+        assert!(
+            matches!(action, Action::Select { selector, value, by_text: true, .. } if selector == "#select" && value == "opt-1")
+        );
+
+        let (action, _) = build_action(BrowserCmd::Hover {
+            selector: "#hover".into(),
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(matches!(action, Action::Hover { selector, .. } if selector == "#hover"));
+
+        let (action, _) = build_action(BrowserCmd::Focus {
+            selector: "#focus".into(),
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(matches!(action, Action::Focus { selector, .. } if selector == "#focus"));
+
+        let (action, _) = build_action(BrowserCmd::Press {
+            key: "Shift+Tab".into(),
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(
+            matches!(action, Action::Press { key_or_chord, .. } if key_or_chord == "Shift+Tab")
+        );
+
+        let (action, _) = build_action(BrowserCmd::Drag {
+            from: "#from".into(),
+            to: "#to".into(),
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(
+            matches!(action, Action::Drag { from_selector, to_selector, .. } if from_selector == "#from" && to_selector == "#to")
+        );
+
+        let (action, _) = build_action(BrowserCmd::Upload {
+            files: vec!["/tmp/a.txt".into(), "/tmp/b.txt".into()],
+            selector: "#file".into(),
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(
+            matches!(action, Action::Upload { selector, files, .. } if selector == "#file" && files.len() == 2)
+        );
+
+        let (action, _) = build_action(BrowserCmd::Scroll(ScrollCmd::IntoView {
+            selector: "#target".into(),
+            session: session.clone(),
+            tab,
+        }))
+        .unwrap();
+        assert!(
+            matches!(action, Action::Scroll { direction, selector: Some(sel), amount: None, .. } if direction == "into-view" && sel == "#target")
+        );
+
+        let (action, _) = build_action(BrowserCmd::Scroll(ScrollCmd::Down {
+            amount: Some(240),
+            session: session.clone(),
+            tab,
+        }))
+        .unwrap();
+        assert!(
+            matches!(action, Action::Scroll { direction, amount: Some(240), selector: None, .. } if direction == "down")
+        );
+
+        let (action, _) = build_action(BrowserCmd::MouseMove {
+            coords: "10.5, 20.25".into(),
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(matches!(action, Action::MouseMove { x, y, .. } if x == 10.5 && y == 20.25));
+
+        let (action, _) = build_action(BrowserCmd::CursorPosition {
+            session: session.clone(),
+            tab,
+        })
+        .unwrap();
+        assert!(matches!(action, Action::CursorPosition { .. }));
+
+        let (action, _) = build_action(BrowserCmd::Wait(WaitCmd::Element {
+            selector: "#ready".into(),
+            session: session.clone(),
+            tab,
+            timeout: Some(5000),
+        }))
+        .unwrap();
+        assert!(
+            matches!(action, Action::WaitElement { selector, timeout_ms: Some(5000), .. } if selector == "#ready")
+        );
+
+        let (action, _) = build_action(BrowserCmd::Wait(WaitCmd::Navigation {
+            session: session.clone(),
+            tab,
+            timeout: Some(4000),
+        }))
+        .unwrap();
+        assert!(matches!(
+            action,
+            Action::WaitNavigation {
+                timeout_ms: Some(4000),
+                ..
+            }
+        ));
+
+        let (action, _) = build_action(BrowserCmd::Wait(WaitCmd::NetworkIdle {
+            session: session.clone(),
+            tab,
+            timeout: Some(9000),
+            idle_time: Some(800),
+        }))
+        .unwrap();
+        assert!(matches!(
+            action,
+            Action::WaitNetworkIdle {
+                timeout_ms: Some(9000),
+                idle_time_ms: Some(800),
+                ..
+            }
+        ));
+
+        let (action, _) = build_action(BrowserCmd::Wait(WaitCmd::Condition {
+            expression: "window.ready".into(),
+            session,
+            tab,
+            timeout: Some(7000),
+        }))
+        .unwrap();
+        assert!(
+            matches!(action, Action::WaitCondition { expression, timeout_ms: Some(7000), .. } if expression == "window.ready")
+        );
+    }
+
+    #[test]
+    fn mouse_move_rejects_invalid_coordinates() {
+        let err = build_action(BrowserCmd::MouseMove {
+            coords: "oops".into(),
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        })
+        .unwrap_err();
+        assert!(err.contains("expected format 'x,y'"));
     }
 }
