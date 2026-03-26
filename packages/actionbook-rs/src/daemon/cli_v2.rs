@@ -654,10 +654,8 @@ enum BrowserCmd {
     /// Drag an element to another element
     Drag {
         /// Selector of the element to drag
-        #[arg(long)]
         from: String,
         /// Selector of the drop target
-        #[arg(long)]
         to: String,
         /// Session ID (e.g. s0)
         #[arg(short = 's', long)]
