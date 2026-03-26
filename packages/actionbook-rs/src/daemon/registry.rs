@@ -414,4 +414,62 @@ mod tests {
         let id2 = reg.register_session(h2);
         assert_eq!(id2, sid("local-1"));
     }
+
+    #[test]
+    fn default_creates_empty_registry() {
+        let reg = SessionRegistry::default();
+        assert!(reg.is_empty());
+        assert_eq!(reg.len(), 0);
+    }
+
+    #[test]
+    fn session_handle_debug_format() {
+        let (handle, _rx) = make_handle("test-profile", Mode::Local);
+        let debug = format!("{handle:?}");
+        assert!(debug.contains("test-profile"));
+        assert!(debug.contains("Local"));
+        assert!(debug.contains("Ready"));
+    }
+
+    #[test]
+    fn remove_one_of_many_does_not_reset_id() {
+        let mut reg = SessionRegistry::new();
+        let (h1, _r1) = make_handle("a", Mode::Local);
+        let (h2, _r2) = make_handle("b", Mode::Local);
+        let id1 = reg.register_session(h1); // local-1
+        let _id2 = reg.register_session(h2); // local-2
+
+        reg.remove(&id1);
+        // Still has sessions, so next_id should NOT reset
+        assert_eq!(reg.len(), 1);
+        let (h3, _r3) = make_handle("c", Mode::Local);
+        let id3 = reg.register_session(h3);
+        assert_eq!(id3, sid("local-3")); // continues from 3, not 1
+    }
+
+    #[test]
+    fn session_state_all_variants_display() {
+        let all = [
+            (SessionState::Starting, "starting"),
+            (SessionState::Ready, "ready"),
+            (SessionState::Executing, "executing"),
+            (SessionState::Recovering, "recovering"),
+            (SessionState::Lost, "lost"),
+            (SessionState::Closed, "closed"),
+        ];
+        for (state, expected) in all {
+            assert_eq!(state.to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn list_sessions_includes_uptime() {
+        let mut reg = SessionRegistry::new();
+        let (handle, _rx) = make_handle("default", Mode::Local);
+        reg.register_session(handle);
+        let summaries = reg.list_sessions();
+        assert_eq!(summaries.len(), 1);
+        // Uptime should be 0 or very small since we just created it
+        assert!(summaries[0].uptime_secs < 2);
+    }
 }

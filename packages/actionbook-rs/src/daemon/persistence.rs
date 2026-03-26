@@ -344,4 +344,71 @@ mod tests {
         let state = DaemonStateFile::new();
         assert_eq!(state.version, DaemonStateFile::CURRENT_VERSION);
     }
+
+    #[test]
+    fn default_state_file() {
+        let state = DaemonStateFile::default();
+        assert_eq!(state.version, DaemonStateFile::CURRENT_VERSION);
+        assert!(state.sessions.is_empty());
+    }
+
+    #[test]
+    fn local_checkpoint_serde() {
+        let cp = BackendCheckpoint::Local(LocalCheckpoint {
+            pid: 42,
+            ws_url: "ws://localhost:9222/devtools/browser/xyz".into(),
+            user_data_dir: "/tmp/chrome".into(),
+        });
+        let json = serde_json::to_string(&cp).unwrap();
+        assert!(json.contains(r#""kind":"Local""#));
+        let decoded: BackendCheckpoint = serde_json::from_str(&json).unwrap();
+        assert_eq!(cp, decoded);
+    }
+
+    #[test]
+    fn persisted_tab_serde() {
+        let tab = PersistedTab {
+            id: TabId(3),
+            stable_target_key: "KEY".into(),
+            url: "https://test.com".into(),
+            title: "Test".into(),
+        };
+        let json = serde_json::to_string(&tab).unwrap();
+        let decoded: PersistedTab = serde_json::from_str(&json).unwrap();
+        assert_eq!(tab, decoded);
+    }
+
+    #[test]
+    fn save_state_overwrites_existing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon-state.json");
+
+        let state1 = sample_state();
+        save_state(&path, &state1).unwrap();
+
+        let state2 = DaemonStateFile::new();
+        save_state(&path, &state2).unwrap();
+
+        let loaded = load_state(&path).unwrap();
+        assert_eq!(loaded, state2);
+        assert!(loaded.sessions.is_empty());
+    }
+
+    #[test]
+    fn cloud_checkpoint_with_multiple_headers() {
+        let cp = BackendCheckpoint::Cloud(CloudCheckpoint {
+            wss_endpoint: "wss://cloud.example.com".into(),
+            auth_headers: HashMap::from([
+                ("Authorization".into(), "Bearer token".into()),
+                ("X-Custom".into(), "value".into()),
+            ]),
+            resume_token: Some("tok".into()),
+        });
+        let json = serde_json::to_string(&cp).unwrap();
+        let decoded: BackendCheckpoint = serde_json::from_str(&json).unwrap();
+        assert_eq!(cp, decoded);
+        if let BackendCheckpoint::Cloud(c) = decoded {
+            assert_eq!(c.auth_headers.len(), 2);
+        }
+    }
 }

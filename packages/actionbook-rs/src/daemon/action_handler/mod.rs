@@ -1356,4 +1356,1317 @@ mod tests {
             _ => panic!("expected Fatal for missing element"),
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Session handler tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn list_tabs_empty_registry() {
+        let mut backend = MockBackendSession::new(vec![]);
+        let mut regs = Registries::new();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::ListTabs { session: sid },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["tabs"].as_array().unwrap().len(), 0);
+                assert_eq!(data["total_tabs"], 0);
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn list_windows_returns_registry_content() {
+        let mut backend = MockBackendSession::new(vec![]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::ListWindows { session: sid },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                let windows = data["windows"].as_array().unwrap();
+                assert_eq!(windows.len(), 1);
+                assert_eq!(windows[0]["id"], "w0");
+                let tabs = windows[0]["tabs"].as_array().unwrap();
+                assert_eq!(tabs.len(), 1);
+                assert_eq!(tabs[0], "t0");
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn list_windows_empty_registry() {
+        let mut backend = MockBackendSession::new(vec![]);
+        let mut regs = Registries::new();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::ListWindows { session: sid },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["windows"].as_array().unwrap().len(), 0);
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn new_tab_with_new_window_creates_window() {
+        let mut backend =
+            MockBackendSession::new(vec![Ok(OpResult::new(json!({"targetId": "NEW_T"})))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        assert_eq!(regs.windows.len(), 1);
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::NewTab {
+                session: sid,
+                url: "https://new.com".into(),
+                new_window: true,
+                window: None,
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        assert_eq!(regs.windows.len(), 2);
+        assert_eq!(regs.tabs.len(), 2);
+        let new_tab = regs.tabs.get(&TabId(1)).unwrap();
+        assert_eq!(new_tab.window, WindowId(1));
+        match &backend.ops()[0] {
+            BackendOp::CreateTarget { new_window, .. } => assert!(new_window),
+            other => panic!("expected CreateTarget, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn new_tab_with_explicit_window() {
+        let mut backend =
+            MockBackendSession::new(vec![Ok(OpResult::new(json!({"targetId": "NEW_T2"})))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::NewTab {
+                session: sid,
+                url: "https://tab-in-w0.com".into(),
+                new_window: false,
+                window: Some(WindowId(0)),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        assert_eq!(regs.windows.len(), 1);
+        assert_eq!(regs.tabs.len(), 2);
+        let new_tab = regs.tabs.get(&TabId(1)).unwrap();
+        assert_eq!(new_tab.window, WindowId(0));
+        assert_eq!(regs.windows.get(&WindowId(0)).unwrap().tabs.len(), 2);
+        match &backend.ops()[0] {
+            BackendOp::CreateTarget { window_id, .. } => {
+                assert_eq!(*window_id, Some(0));
+            }
+            other => panic!("expected CreateTarget, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn new_tab_backend_missing_target_id() {
+        let mut backend =
+            MockBackendSession::new(vec![Ok(OpResult::new(json!({"other": "data"})))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::NewTab {
+                session: sid,
+                url: "https://fail.com".into(),
+                new_window: false,
+                window: None,
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "create_target_failed"),
+            _ => panic!("expected Fatal"),
+        }
+    }
+
+    #[tokio::test]
+    async fn new_tab_backend_error() {
+        let mut backend = MockBackendSession::new(vec![Err(ActionbookError::CdpError(
+            "cannot create target".into(),
+        ))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::NewTab {
+                session: sid,
+                url: "https://error.com".into(),
+                new_window: false,
+                window: None,
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "cdp_error"),
+            _ => panic!("expected Fatal"),
+        }
+    }
+
+    #[tokio::test]
+    async fn close_tab_not_found() {
+        let mut backend = MockBackendSession::new(vec![]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::CloseTab {
+                session: sid,
+                tab: TabId(99),
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "tab_not_found"),
+            _ => panic!("expected Fatal"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Navigation handler tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn back_sends_history_back() {
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(json!({}))),                 // history.back()
+            Ok(OpResult::new(json!("https://prev.com"))), // window.location.href
+            Ok(OpResult::new(json!("Previous Page"))),    // document.title
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Back {
+                session: sid,
+                tab: TabId(0),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["kind"], "back");
+                assert_eq!(data["to_url"], "https://prev.com");
+                assert_eq!(data["title"], "Previous Page");
+            }
+            _ => panic!("expected Ok"),
+        }
+        // Should have 3 ops: history.back(), location.href, document.title
+        assert_eq!(backend.ops().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn forward_sends_history_forward() {
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(json!({}))),                 // history.forward()
+            Ok(OpResult::new(json!("https://next.com"))), // window.location.href
+            Ok(OpResult::new(json!("Next Page"))),        // document.title
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Forward {
+                session: sid,
+                tab: TabId(0),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["kind"], "forward");
+                assert_eq!(data["to_url"], "https://next.com");
+                assert_eq!(data["title"], "Next Page");
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn reload_sends_location_reload() {
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(json!({}))),                    // location.reload()
+            Ok(OpResult::new(json!("https://example.com"))), // window.location.href
+            Ok(OpResult::new(json!("Reloaded"))),            // document.title
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Reload {
+                session: sid,
+                tab: TabId(0),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["kind"], "reload");
+                assert_eq!(data["title"], "Reloaded");
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn goto_updates_tab_url_and_title() {
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(json!({}))),          // Navigate
+            Ok(OpResult::new(json!("New Title"))), // document.title
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Goto {
+                session: sid,
+                tab: TabId(0),
+                url: "https://new-page.com".into(),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let tab = regs.tabs.get(&TabId(0)).unwrap();
+        assert_eq!(tab.url, "https://new-page.com");
+        assert_eq!(tab.title, "New Title");
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["title"], "New Title");
+                assert_eq!(data["from_url"], "https://example.com");
+                assert_eq!(data["to_url"], "https://new-page.com");
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn goto_title_fetch_failure_graceful() {
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(json!({}))),                         // Navigate
+            Err(ActionbookError::CdpError("eval failed".into())), // document.title fails
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Goto {
+                session: sid,
+                tab: TabId(0),
+                url: "https://new-page.com".into(),
+            },
+        )
+        .await;
+
+        // Should still succeed — title fetch is best-effort
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["title"], "");
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn back_tab_not_found() {
+        let mut backend = MockBackendSession::new(vec![]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Back {
+                session: sid,
+                tab: TabId(99),
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "tab_not_found"),
+            _ => panic!("expected Fatal"),
+        }
+    }
+
+    #[tokio::test]
+    async fn reload_tab_not_found() {
+        let mut backend = MockBackendSession::new(vec![]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Reload {
+                session: sid,
+                tab: TabId(99),
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "tab_not_found"),
+            _ => panic!("expected Fatal"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Interaction handler tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn hover_sends_mouse_moved() {
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(json!({
+                "result": {"type": "object", "value": {"x": 50.0, "y": 75.0}}
+            }))),
+            Ok(OpResult::null()),
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Hover {
+                session: sid,
+                tab: TabId(0),
+                selector: "#menu".into(),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["hovered"], "#menu");
+                assert_eq!(data["x"], 50.0);
+                assert_eq!(data["y"], 75.0);
+            }
+            _ => panic!("expected Ok"),
+        }
+        assert!(
+            matches!(&backend.ops()[1], BackendOp::DispatchMouseEvent { event_type, button, .. } if event_type == "mouseMoved" && button == "none")
+        );
+    }
+
+    #[tokio::test]
+    async fn focus_sends_evaluate() {
+        let mut backend =
+            MockBackendSession::new(vec![Ok(OpResult::new(json!({"result": {"value": true}})))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Focus {
+                session: sid,
+                tab: TabId(0),
+                selector: "input#email".into(),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["focused"], "input#email");
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn press_single_key() {
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::null()), // keyDown
+            Ok(OpResult::null()), // keyUp
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Press {
+                session: sid,
+                tab: TabId(0),
+                key_or_chord: "enter".into(),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        assert_eq!(backend.ops().len(), 2);
+        match &backend.ops()[0] {
+            BackendOp::DispatchKeyEvent {
+                event_type, key, ..
+            } => {
+                assert_eq!(event_type, "keyDown");
+                assert_eq!(key, "Enter");
+            }
+            other => panic!("expected DispatchKeyEvent, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn press_chord_with_modifier() {
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::null()), // Control keyDown
+            Ok(OpResult::null()), // A keyDown
+            Ok(OpResult::null()), // A keyUp
+            Ok(OpResult::null()), // Control keyUp
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Press {
+                session: sid,
+                tab: TabId(0),
+                key_or_chord: "Control+A".into(),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        assert_eq!(backend.ops().len(), 4);
+        // First op: Control down
+        match &backend.ops()[0] {
+            BackendOp::DispatchKeyEvent { key, .. } => assert_eq!(key, "Control"),
+            other => panic!("expected DispatchKeyEvent, got {other:?}"),
+        }
+        // Last op: Control up
+        match &backend.ops()[3] {
+            BackendOp::DispatchKeyEvent {
+                event_type, key, ..
+            } => {
+                assert_eq!(event_type, "keyUp");
+                assert_eq!(key, "Control");
+            }
+            other => panic!("expected DispatchKeyEvent, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn select_by_value() {
+        let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(
+            json!({"result": {"value": "opt2"}}),
+        ))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Select {
+                session: sid,
+                tab: TabId(0),
+                selector: "select#country".into(),
+                value: "opt2".into(),
+                by_text: false,
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["selected"], "opt2");
+                assert_eq!(data["selector"], "select#country");
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn select_element_not_found() {
+        let mut backend =
+            MockBackendSession::new(vec![Ok(OpResult::new(json!({"result": {"value": null}})))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Select {
+                session: sid,
+                tab: TabId(0),
+                selector: "#missing-select".into(),
+                value: "val".into(),
+                by_text: false,
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "element_not_found"),
+            _ => panic!("expected Fatal"),
+        }
+    }
+
+    #[tokio::test]
+    async fn mouse_move_dispatches_event() {
+        let mut backend = MockBackendSession::new(vec![Ok(OpResult::null())]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::MouseMove {
+                session: sid,
+                tab: TabId(0),
+                x: 120.0,
+                y: 240.0,
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match &backend.ops()[0] {
+            BackendOp::DispatchMouseEvent {
+                event_type,
+                x,
+                y,
+                button,
+                ..
+            } => {
+                assert_eq!(event_type, "mouseMoved");
+                assert_eq!(*x, 120.0);
+                assert_eq!(*y, 240.0);
+                assert_eq!(button, "none");
+            }
+            other => panic!("expected DispatchMouseEvent, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn cursor_position_returns_coordinates() {
+        let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(
+            json!({"result": {"value": {"x": 10, "y": 20}}}),
+        ))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::CursorPosition {
+                session: sid,
+                tab: TabId(0),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["cursor"]["x"], 10);
+                assert_eq!(data["cursor"]["y"], 20);
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn drag_moves_between_elements() {
+        let mut backend = MockBackendSession::new(vec![
+            // resolve from element
+            Ok(OpResult::new(json!({
+                "result": {"type": "object", "value": {"x": 10.0, "y": 20.0}}
+            }))),
+            // resolve to element
+            Ok(OpResult::new(json!({
+                "result": {"type": "object", "value": {"x": 100.0, "y": 200.0}}
+            }))),
+            Ok(OpResult::null()), // mouseMoved to source
+            Ok(OpResult::null()), // mousePressed
+            Ok(OpResult::null()), // mouseMoved to target
+            Ok(OpResult::null()), // mouseReleased
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Drag {
+                session: sid,
+                tab: TabId(0),
+                from_selector: "#source".into(),
+                to_selector: "#target".into(),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        assert_eq!(backend.ops().len(), 6);
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["from"]["x"], 10.0);
+                assert_eq!(data["to"]["x"], 100.0);
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn scroll_down_sends_evaluate() {
+        let mut backend =
+            MockBackendSession::new(vec![Ok(OpResult::new(json!({"result": {"value": true}})))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Scroll {
+                session: sid,
+                tab: TabId(0),
+                direction: "down".into(),
+                amount: Some(500),
+                selector: None,
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["scrolled"], "down");
+                assert_eq!(data["amount"], 500);
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn scroll_invalid_direction() {
+        let mut backend = MockBackendSession::new(vec![]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Scroll {
+                session: sid,
+                tab: TabId(0),
+                direction: "diagonal".into(),
+                amount: None,
+                selector: None,
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "invalid_direction"),
+            _ => panic!("expected Fatal"),
+        }
+    }
+
+    #[tokio::test]
+    async fn scroll_into_view_missing_selector() {
+        let mut backend = MockBackendSession::new(vec![]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Scroll {
+                session: sid,
+                tab: TabId(0),
+                direction: "into-view".into(),
+                amount: None,
+                selector: None,
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "missing_selector"),
+            _ => panic!("expected Fatal"),
+        }
+    }
+
+    #[tokio::test]
+    async fn upload_sends_set_file_input_files() {
+        let mut backend = MockBackendSession::new(vec![
+            // GetDocument
+            Ok(OpResult::new(json!({"root": {"nodeId": 1}}))),
+            // QuerySelector
+            Ok(OpResult::new(json!({"nodeId": 42}))),
+            // SetFileInputFiles
+            Ok(OpResult::null()),
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Upload {
+                session: sid,
+                tab: TabId(0),
+                selector: "input[type=file]".into(),
+                files: vec!["/tmp/test.txt".into()],
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["uploaded"], 1);
+            }
+            _ => panic!("expected Ok"),
+        }
+        assert_eq!(backend.ops().len(), 3);
+        assert!(matches!(
+            &backend.ops()[2],
+            BackendOp::SetFileInputFiles { files, .. } if files.len() == 1
+        ));
+    }
+
+    #[tokio::test]
+    async fn upload_node_not_found() {
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(json!({"root": {"nodeId": 1}}))),
+            Ok(OpResult::new(json!({"nodeId": 0}))), // node not found
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Upload {
+                session: sid,
+                tab: TabId(0),
+                selector: "input#missing".into(),
+                files: vec!["/tmp/test.txt".into()],
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "element_not_found"),
+            _ => panic!("expected Fatal"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Observation handler tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn title_returns_document_title() {
+        let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(
+            json!({"result": {"value": "My Page Title"}}),
+        ))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Title {
+                session: sid,
+                tab: TabId(0),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => assert_eq!(data["title"], "My Page Title"),
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn url_returns_location_href() {
+        let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(
+            json!({"result": {"value": "https://current.url/page"}}),
+        ))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Url {
+                session: sid,
+                tab: TabId(0),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => assert_eq!(data["url"], "https://current.url/page"),
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn eval_with_exception() {
+        let mut backend = MockBackendSession::new(vec![
+            // log capture init
+            Ok(OpResult::new(json!({"result": {"value": true}}))),
+            // eval with exception
+            Ok(OpResult::new(json!({
+                "exceptionDetails": {
+                    "exception": {"description": "ReferenceError: foo is not defined"},
+                    "text": "Uncaught"
+                }
+            }))),
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Eval {
+                session: sid,
+                tab: TabId(0),
+                expression: "foo.bar".into(),
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "eval_error"),
+            _ => panic!("expected Fatal"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Data handler tests — storage
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn storage_list_returns_keys() {
+        let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(
+            json!({"result": {"value": ["key1", "key2"]}}),
+        ))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::StorageList {
+                session: sid,
+                tab: TabId(0),
+                kind: StorageKind::Local,
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                let keys = data["keys"].as_array().unwrap();
+                assert_eq!(keys.len(), 2);
+                assert_eq!(data["kind"], "local");
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn storage_get_returns_value() {
+        let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(
+            json!({"result": {"value": "stored_val"}}),
+        ))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::StorageGet {
+                session: sid,
+                tab: TabId(0),
+                kind: StorageKind::Session,
+                key: "mykey".into(),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["key"], "mykey");
+                assert_eq!(data["value"], "stored_val");
+                assert_eq!(data["kind"], "session");
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn storage_set_sends_evaluate() {
+        let mut backend = MockBackendSession::new(vec![Ok(OpResult::null())]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::StorageSet {
+                session: sid,
+                tab: TabId(0),
+                kind: StorageKind::Local,
+                key: "token".into(),
+                value: "abc123".into(),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["set"], "token");
+                assert_eq!(data["kind"], "local");
+            }
+            _ => panic!("expected Ok"),
+        }
+        assert!(matches!(&backend.ops()[0], BackendOp::Evaluate { .. }));
+    }
+
+    #[tokio::test]
+    async fn storage_delete_sends_evaluate() {
+        let mut backend = MockBackendSession::new(vec![Ok(OpResult::null())]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::StorageDelete {
+                session: sid,
+                tab: TabId(0),
+                kind: StorageKind::Local,
+                key: "token".into(),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["deleted"], "token");
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn storage_clear_sends_evaluate() {
+        let mut backend = MockBackendSession::new(vec![Ok(OpResult::null())]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::StorageClear {
+                session: sid,
+                tab: TabId(0),
+                kind: StorageKind::Session,
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["cleared"], "session");
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Data handler tests — cookies additional
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn cookies_set_sends_set_cookie_op() {
+        let mut backend = MockBackendSession::new(vec![
+            // hostname eval
+            Ok(OpResult::new(json!({"result": {"value": "example.com"}}))),
+            // SetCookie
+            Ok(OpResult::null()),
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::CookiesSet {
+                session: sid,
+                name: "session".into(),
+                value: "xyz".into(),
+                domain: None,
+                path: None,
+                secure: Some(true),
+                http_only: None,
+                same_site: None,
+                expires: None,
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match &backend.ops()[1] {
+            BackendOp::SetCookie {
+                name,
+                value,
+                domain,
+                secure,
+                ..
+            } => {
+                assert_eq!(name, "session");
+                assert_eq!(value, "xyz");
+                assert_eq!(domain, ".example.com");
+                assert_eq!(*secure, Some(true));
+            }
+            other => panic!("expected SetCookie, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn cookies_delete_sends_delete_cookies_op() {
+        let mut backend = MockBackendSession::new(vec![
+            // hostname eval
+            Ok(OpResult::new(json!({"result": {"value": "site.com"}}))),
+            // DeleteCookies
+            Ok(OpResult::null()),
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::CookiesDelete {
+                session: sid,
+                name: "tracking".into(),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["action"], "delete");
+                assert_eq!(data["affected"], 1);
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn cookies_no_tabs_returns_error() {
+        let mut backend = MockBackendSession::new(vec![]);
+        let mut regs = Registries::new(); // empty — no tabs
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::CookiesList {
+                session: sid,
+                domain: None,
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "no_tabs"),
+            _ => panic!("expected Fatal"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Dispatch edge cases
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn close_session_returns_ok() {
+        let mut backend = MockBackendSession::new(vec![]);
+        let mut regs = Registries::new();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Close { session: sid },
+        )
+        .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn restart_session_returns_ok() {
+        let mut backend = MockBackendSession::new(vec![]);
+        let mut regs = Registries::new();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::RestartSession { session: sid },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => assert_eq!(data["restarting"], true),
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn open_alias_dispatches_to_new_tab() {
+        let mut backend =
+            MockBackendSession::new(vec![Ok(OpResult::new(json!({"targetId": "ALIAS_T"})))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Open {
+                session: sid,
+                tab: TabId(0),
+                url: "https://via-open.com".into(),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        assert_eq!(regs.tabs.len(), 2);
+    }
 }
