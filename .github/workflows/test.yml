@@ -1,0 +1,224 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, "release/**"]
+  pull_request:
+    branches: [main, "release/**"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/actionbook-rs/target
+          key: ${{ runner.os }}-cargo-ut-${{ hashFiles('packages/actionbook-rs/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-ut-
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Run all unit & integration tests
+        working-directory: packages/actionbook-rs
+        run: |
+          set -o pipefail
+          cargo nextest run --lib --test cli_test --test cdp_message_parsing --profile ci 2>&1 | tee unit-test-output.txt
+
+      - name: Test summary
+        if: always()
+        working-directory: packages/actionbook-rs
+        run: |
+          if [ -f target/nextest/ci/junit.xml ]; then
+            TESTS=$(grep -oP 'tests="\K[0-9]+' target/nextest/ci/junit.xml | head -1)
+            FAILURES=$(grep -oP 'failures="\K[0-9]+' target/nextest/ci/junit.xml | head -1)
+            ERRORS=$(grep -oP 'errors="\K[0-9]+' target/nextest/ci/junit.xml | head -1)
+            TIME=$(grep -oP 'time="\K[0-9.]+' target/nextest/ci/junit.xml | head -1)
+            PASSED=$((TESTS - FAILURES - ERRORS))
+
+            echo "## Unit Tests Report" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Total | $TESTS |" >> $GITHUB_STEP_SUMMARY
+            echo "| Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+            echo "| Failed | $FAILURES |" >> $GITHUB_STEP_SUMMARY
+            echo "| Errors | $ERRORS |" >> $GITHUB_STEP_SUMMARY
+            echo "| Time | ${TIME}s |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## Unit Tests Report" >> $GITHUB_STEP_SUMMARY
+            echo "No JUnit XML found." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results
+          path: |
+            packages/actionbook-rs/target/nextest/ci/junit.xml
+            packages/actionbook-rs/unit-test-output.txt
+
+      - name: Publish test report
+        uses: mikepenz/action-junit-report@v4
+        if: always()
+        with:
+          report_paths: packages/actionbook-rs/target/nextest/ci/junit.xml
+          check_name: Unit Test Report
+          include_passed: true
+
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/actionbook-rs/target
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('packages/actionbook-rs/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-e2e-
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Run E2E tests
+        working-directory: packages/actionbook-rs
+        env:
+          RUN_E2E_TESTS: "true"
+        run: |
+          set -o pipefail
+          cargo nextest run --test e2e --test-threads=1 --profile ci 2>&1 | tee e2e-test-output.txt
+
+      - name: Test summary
+        if: always()
+        working-directory: packages/actionbook-rs
+        run: |
+          if [ -f target/nextest/ci/junit.xml ]; then
+            TESTS=$(grep -oP 'tests="\K[0-9]+' target/nextest/ci/junit.xml | head -1)
+            FAILURES=$(grep -oP 'failures="\K[0-9]+' target/nextest/ci/junit.xml | head -1)
+            ERRORS=$(grep -oP 'errors="\K[0-9]+' target/nextest/ci/junit.xml | head -1)
+            TIME=$(grep -oP 'time="\K[0-9.]+' target/nextest/ci/junit.xml | head -1)
+            PASSED=$((TESTS - FAILURES - ERRORS))
+
+            echo "## E2E Tests Report" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Total | $TESTS |" >> $GITHUB_STEP_SUMMARY
+            echo "| Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+            echo "| Failed | $FAILURES |" >> $GITHUB_STEP_SUMMARY
+            echo "| Errors | $ERRORS |" >> $GITHUB_STEP_SUMMARY
+            echo "| Time | ${TIME}s |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## E2E Tests Report" >> $GITHUB_STEP_SUMMARY
+            echo "No JUnit XML found." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-test-results
+          path: |
+            packages/actionbook-rs/target/nextest/ci/junit.xml
+            packages/actionbook-rs/e2e-test-output.txt
+
+      - name: Publish test report
+        uses: mikepenz/action-junit-report@v4
+        if: always()
+        with:
+          report_paths: packages/actionbook-rs/target/nextest/ci/junit.xml
+          check_name: E2E Test Report
+          include_passed: true
+
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [unit-tests, e2e-tests]
+    if: always()
+
+    steps:
+      - name: Download all test results
+        uses: actions/download-artifact@v4
+        with:
+          path: test-results
+
+      - name: Summary
+        run: |
+          echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "| Suite | Status | Tests | Passed | Failed | Time |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|-------|--------|--------|------|" >> $GITHUB_STEP_SUMMARY
+
+          # Parse Unit Test JUnit XML
+          UT_STATUS="❌ Failed"
+          UT_TESTS="-" ; UT_PASSED="-" ; UT_FAILED="-" ; UT_TIME="-"
+          if [ "${{ needs.unit-tests.result }}" = "success" ]; then
+            UT_STATUS="✅ Passed"
+          fi
+          UT_XML="test-results/unit-test-results/junit.xml"
+          if [ -f "$UT_XML" ]; then
+            UT_TESTS=$(grep -oP 'tests="\K[0-9]+' "$UT_XML" | head -1)
+            UT_FAIL=$(grep -oP 'failures="\K[0-9]+' "$UT_XML" | head -1)
+            UT_ERR=$(grep -oP 'errors="\K[0-9]+' "$UT_XML" | head -1)
+            UT_TIME=$(grep -oP 'time="\K[0-9.]+' "$UT_XML" | head -1)
+            UT_PASSED=$((UT_TESTS - UT_FAIL - UT_ERR))
+            UT_FAILED=$((UT_FAIL + UT_ERR))
+            UT_TIME="${UT_TIME}s"
+          fi
+          echo "| Unit Tests | $UT_STATUS | $UT_TESTS | $UT_PASSED | $UT_FAILED | $UT_TIME |" >> $GITHUB_STEP_SUMMARY
+
+          # Parse E2E Test JUnit XML
+          E2E_STATUS="❌ Failed"
+          E2E_TESTS="-" ; E2E_PASSED="-" ; E2E_FAILED="-" ; E2E_TIME="-"
+          if [ "${{ needs.e2e-tests.result }}" = "success" ]; then
+            E2E_STATUS="✅ Passed"
+          fi
+          E2E_XML="test-results/e2e-test-results/junit.xml"
+          if [ -f "$E2E_XML" ]; then
+            E2E_TESTS=$(grep -oP 'tests="\K[0-9]+' "$E2E_XML" | head -1)
+            E2E_FAIL=$(grep -oP 'failures="\K[0-9]+' "$E2E_XML" | head -1)
+            E2E_ERR=$(grep -oP 'errors="\K[0-9]+' "$E2E_XML" | head -1)
+            E2E_TIME=$(grep -oP 'time="\K[0-9.]+' "$E2E_XML" | head -1)
+            E2E_PASSED=$((E2E_TESTS - E2E_FAIL - E2E_ERR))
+            E2E_FAILED=$((E2E_FAIL + E2E_ERR))
+            E2E_TIME="${E2E_TIME}s"
+          fi
+          echo "| E2E Tests | $E2E_STATUS | $E2E_TESTS | $E2E_PASSED | $E2E_FAILED | $E2E_TIME |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check results
+        if: needs.unit-tests.result == 'failure' || needs.e2e-tests.result == 'failure'
+        run: exit 1

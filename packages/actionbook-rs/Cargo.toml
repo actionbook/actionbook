@@ -104,6 +104,11 @@ predicates = "3"
 serial_test = "3"
 criterion = { version = "0.5", features = ["html_reports"] }
 
+# E2E test binary — single binary with all e2e test modules
+[[test]]
+name = "e2e"
+path = "tests/e2e/main.rs"
+
 # Examples that depend on Camoufox modules (not active in refactor/browser-extension branch)
 [[example]]
 name = "enhanced_stealth_demo"

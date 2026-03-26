@@ -9,4 +9,5 @@ pub mod error;
 mod api;
 pub mod commands;
 pub mod daemon;
+pub mod daemon_v2;
 mod update_notifier;

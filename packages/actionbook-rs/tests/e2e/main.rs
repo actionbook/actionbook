@@ -1,0 +1,13 @@
+//! E2E test suite for actionbook CLI.
+//!
+//! Single binary entry point — all test modules are compiled into one binary to
+//! avoid the per-file link overhead that Rust's default `tests/` layout incurs.
+//!
+//! Tests are gated by `RUN_E2E_TESTS=true`. Without this env var every test is
+//! skipped (returns immediately).
+//!
+//! Run with:
+//!   RUN_E2E_TESTS=true cargo test --test e2e -- --test-threads=1 --nocapture
+
+mod harness;
+mod browser_basic;
