@@ -67,11 +67,7 @@ fn contract_lifecycle_start_json_envelope() {
 
     // meta must have duration_ms as a non-negative integer
     let meta = &json["meta"];
-    assert!(
-        !meta.is_null(),
-        "meta must not be null, got: {}",
-        json
-    );
+    assert!(!meta.is_null(), "meta must not be null, got: {}", json);
     assert!(
         meta.get("duration_ms").and_then(|v| v.as_u64()).is_some(),
         "meta.duration_ms must be a non-negative integer, got meta: {}",
@@ -137,11 +133,7 @@ fn contract_lifecycle_list_sessions_json_envelope() {
 
     // meta present with duration_ms
     let meta = &json["meta"];
-    assert!(
-        !meta.is_null(),
-        "meta must not be null, got: {}",
-        json
-    );
+    assert!(!meta.is_null(), "meta must not be null, got: {}", json);
     assert!(
         meta.get("duration_ms").and_then(|v| v.as_u64()).is_some(),
         "meta.duration_ms must be a non-negative integer, got meta: {}",
@@ -208,11 +200,7 @@ fn contract_non_lifecycle_error_json_envelope() {
 
     // meta present with duration_ms
     let meta = &json["meta"];
-    assert!(
-        !meta.is_null(),
-        "meta must not be null, got: {}",
-        json
-    );
+    assert!(!meta.is_null(), "meta must not be null, got: {}", json);
     assert!(
         meta.get("duration_ms").and_then(|v| v.as_u64()).is_some(),
         "meta.duration_ms must be a non-negative integer, got meta: {}",
@@ -416,8 +404,7 @@ fn contract_session_id_explicit_set_session_id() {
     assert!(
         found,
         "session '{}' must appear in list-sessions, got sessions: {}",
-        explicit_id,
-        list_json["data"]["sessions"]
+        explicit_id, list_json["data"]["sessions"]
     );
 
     // Cleanup
