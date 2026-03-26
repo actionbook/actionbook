@@ -3,7 +3,9 @@
 //! Each test is self-contained: start → operate → assert → close.
 //! Uses daemon v2 CLI format with --session and --tab addressing.
 
-use crate::harness::{assert_failure, assert_success, headless, headless_json, skip, stdout_str};
+use crate::harness::{
+    assert_failure, assert_success, ensure_no_sessions, headless, headless_json, skip, stdout_str,
+};
 
 // ---------------------------------------------------------------------------
 // 1. lifecycle_open_and_close
@@ -14,12 +16,10 @@ fn lifecycle_open_and_close() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start a headless browser session
-    let out = headless(
-        &["browser", "start", "--mode", "local", "--headless"],
-        30,
-    );
+    let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start session");
 
     // Status should show session info
@@ -46,12 +46,10 @@ fn lifecycle_open_headless() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start headless — should succeed
-    let out = headless(
-        &["browser", "start", "--mode", "local", "--headless"],
-        30,
-    );
+    let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start headless");
 
     // Cleanup
@@ -68,12 +66,18 @@ fn lifecycle_open_with_url() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start session with a URL
     let out = headless(
         &[
-            "browser", "start", "--mode", "local", "--headless",
-            "--open-url", "https://example.com",
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
         ],
         30,
     );
@@ -81,7 +85,15 @@ fn lifecycle_open_with_url() {
 
     // Eval location.href should contain example.com
     let out = headless(
-        &["browser", "eval", "window.location.href", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "eval",
+            "window.location.href",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "eval location");
@@ -106,10 +118,7 @@ fn lifecycle_status_shows_info() {
         return;
     }
 
-    let out = headless(
-        &["browser", "start", "--mode", "local", "--headless"],
-        30,
-    );
+    let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start session");
 
     // Status should contain session info
@@ -137,10 +146,7 @@ fn lifecycle_list_sessions() {
         return;
     }
 
-    let out = headless(
-        &["browser", "start", "--mode", "local", "--headless"],
-        30,
-    );
+    let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start session");
 
     // list-sessions should show s0
@@ -167,10 +173,7 @@ fn lifecycle_restart() {
         return;
     }
 
-    let out = headless(
-        &["browser", "start", "--mode", "local", "--headless"],
-        30,
-    );
+    let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start session");
 
     // Restart the session
@@ -201,12 +204,18 @@ fn lifecycle_close_after_operations() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start session
     let out = headless(
         &[
-            "browser", "start", "--mode", "local", "--headless",
-            "--open-url", "https://example.com",
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
         ],
         30,
     );
@@ -214,16 +223,21 @@ fn lifecycle_close_after_operations() {
 
     // Goto example.com
     let out = headless(
-        &["browser", "goto", "https://example.com", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "goto",
+            "https://example.com",
+            "-s",
+            "s0",
+            "-t",
+            "t0",
+        ],
         30,
     );
     assert_success(&out, "goto");
 
     // Snapshot
-    let out = headless_json(
-        &["browser", "snapshot", "-s", "s0", "-t", "t0"],
-        30,
-    );
+    let out = headless_json(&["browser", "snapshot", "-s", "s0", "-t", "t0"], 30);
     assert_success(&out, "snapshot");
 
     // Close should still succeed after operations
@@ -240,22 +254,25 @@ fn lifecycle_close_s1t2_closes_all() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start session
     let out = headless(
         &[
-            "browser", "start", "--mode", "local", "--headless",
-            "--open-url", "https://example.com",
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://example.com",
         ],
         30,
     );
     assert_success(&out, "start session");
 
     // Open a second tab in the same session
-    let out = headless(
-        &["browser", "open", "https://example.com", "-s", "s0"],
-        30,
-    );
+    let out = headless(&["browser", "open", "https://example.com", "-s", "s0"], 30);
     assert_success(&out, "open second tab");
 
     // Close the session — should close everything (both tabs)
@@ -272,12 +289,10 @@ fn lifecycle_double_close() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start session
-    let out = headless(
-        &["browser", "start", "--mode", "local", "--headless"],
-        30,
-    );
+    let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start session");
 
     // First close should succeed

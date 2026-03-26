@@ -133,6 +133,36 @@ enum BrowserCmd {
         tab: TabId,
     },
 
+    /// Navigate back in history
+    Back {
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Navigate forward in history
+    Forward {
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Reload the current page
+    Reload {
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
     /// Capture an accessibility-tree snapshot
     Snapshot {
         /// Session ID (e.g. s0)
@@ -854,6 +884,9 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
 
         // Tab
         BrowserCmd::Goto { url, session, tab } => Action::Goto { session, tab, url },
+        BrowserCmd::Back { session, tab } => Action::Back { session, tab },
+        BrowserCmd::Forward { session, tab } => Action::Forward { session, tab },
+        BrowserCmd::Reload { session, tab } => Action::Reload { session, tab },
         BrowserCmd::Snapshot {
             session,
             tab,

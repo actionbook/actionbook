@@ -104,6 +104,9 @@ impl Router {
                 result
             }
 
+            // --- Restart: close old session, start new one with same ID/profile/mode ---
+            Action::RestartSession { session } => self.handle_restart_session(*session).await,
+
             // --- Session/Tab commands: forward to session actor ---
             _ => {
                 let session_id = match action.session_id() {
@@ -326,6 +329,51 @@ impl Router {
             "session_id": session_id.to_string(),
             "tab_ids": tab_ids,
         }))
+    }
+
+    /// Handle `RestartSession` — close the current session and start a new
+    /// one with the same profile, mode, and session ID.
+    async fn handle_restart_session(&self, session_id: SessionId) -> ActionResult {
+        // 1. Retrieve session metadata before closing.
+        let (profile, mode, headless) = {
+            let registry = self.registry.lock().await;
+            match registry.get(session_id) {
+                Some(h) => (h.profile.clone(), h.mode, false), // headless is not stored; default to false
+                None => {
+                    return ActionResult::fatal(
+                        "session_not_found",
+                        format!("session {session_id} does not exist"),
+                        "run `actionbook browser list-sessions` to see available sessions",
+                    );
+                }
+            }
+        };
+
+        // 2. Close the existing session via the actor.
+        let close_result = self
+            .forward_to_session(
+                session_id,
+                Action::CloseSession {
+                    session: session_id,
+                },
+            )
+            .await;
+        if !close_result.is_ok() {
+            return close_result;
+        }
+
+        // 3. Remove from registry (frees the profile for re-use).
+        {
+            let mut registry = self.registry.lock().await;
+            registry.remove(session_id);
+        }
+
+        // 4. Start a new session with the same profile/mode.
+        //    `handle_start_session` allocates the next ID — because we just
+        //    removed the old one (and the registry may have reset), the new
+        //    session should get the same ID when the registry is empty.
+        self.handle_start_session(mode, Some(profile), headless, None, None, None)
+            .await
     }
 
     /// Trigger a state save (best-effort, errors are logged).

@@ -168,8 +168,16 @@ impl SessionRegistry {
     }
 
     /// Remove a session from the registry, returning it if it existed.
+    ///
+    /// When the registry becomes empty, `next_id` resets to 0 so the next
+    /// session starts at `s0` again.  This keeps IDs predictable for agents
+    /// and test harnesses that expect deterministic numbering.
     pub fn remove(&mut self, id: SessionId) -> Option<SessionHandle> {
-        self.sessions.remove(&id)
+        let removed = self.sessions.remove(&id);
+        if self.sessions.is_empty() {
+            self.next_id = 0;
+        }
+        removed
     }
 
     /// List all sessions as lightweight summaries.

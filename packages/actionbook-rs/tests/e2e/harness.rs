@@ -86,6 +86,32 @@ pub fn headless_json(args: &[&str], timeout_secs: u64) -> Output {
         .expect("failed to execute command")
 }
 
+// ── Cleanup helpers ─────────────────────────────────────────────────
+
+/// Close all active sessions so the next test starts with a clean slate.
+///
+/// Reads `list-sessions` output to find active session IDs, then closes
+/// each one.  Errors are silently ignored (sessions may already be gone).
+#[allow(dead_code)]
+pub fn ensure_no_sessions() {
+    let out = headless_json(&["browser", "list-sessions"], 10);
+    if !out.status.success() {
+        return;
+    }
+    let text = stdout_str(&out);
+    let parsed: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    if let Some(sessions) = parsed.get("sessions").and_then(|s| s.as_array()) {
+        for s in sessions {
+            if let Some(id) = s.get("id").and_then(|v| v.as_str()) {
+                let _ = headless(&["browser", "close", "-s", id], 10);
+            }
+        }
+    }
+}
+
 // ── Assertions ──────────────────────────────────────────────────────
 
 pub fn stdout_str(output: &Output) -> String {
