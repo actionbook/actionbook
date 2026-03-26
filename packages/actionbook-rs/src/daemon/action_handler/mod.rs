@@ -2256,6 +2256,229 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn wait_navigation_returns_when_url_changes() {
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(
+                json!({"result": {"value": "https://before.test"}}),
+            )),
+            Ok(OpResult::new(json!({
+                "result": {"value": {"url": "https://after.test", "ready": "loading"}}
+            }))),
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::WaitNavigation {
+                session: sid,
+                tab: TabId(0),
+                timeout_ms: Some(50),
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["navigated"], true);
+                assert_eq!(data["url"], "https://after.test");
+            }
+            other => panic!("expected Ok, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn wait_navigation_returns_when_ready_state_is_complete() {
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(
+                json!({"result": {"value": "https://same.test"}}),
+            )),
+            Ok(OpResult::new(json!({
+                "result": {"value": {"url": "https://same.test", "ready": "complete"}}
+            }))),
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::WaitNavigation {
+                session: sid,
+                tab: TabId(0),
+                timeout_ms: Some(50),
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["readyState"], "complete");
+                assert_eq!(data["url"], "https://same.test");
+            }
+            other => panic!("expected Ok, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn wait_navigation_times_out_when_url_never_changes() {
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(
+                json!({"result": {"value": "https://same.test"}}),
+            )),
+            Ok(OpResult::new(json!({
+                "result": {"value": {"url": "https://same.test", "ready": "loading"}}
+            }))),
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::WaitNavigation {
+                session: sid,
+                tab: TabId(0),
+                timeout_ms: Some(0),
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Retryable { reason, hint } => {
+                assert_eq!(reason, "navigation_timeout");
+                assert!(hint.contains("0ms"));
+            }
+            other => panic!("expected Retryable, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn wait_network_idle_returns_when_pending_requests_drop_to_zero() {
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(
+                json!({"result": {"value": {"pending": 2, "now": 10}}}),
+            )),
+            Ok(OpResult::new(
+                json!({"result": {"value": {"pending": 0, "now": 20}}}),
+            )),
+        ]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::WaitNetworkIdle {
+                session: sid,
+                tab: TabId(0),
+                timeout_ms: Some(250),
+                idle_time_ms: Some(100),
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Ok { data } => assert_eq!(data["network_idle"], true),
+            other => panic!("expected Ok, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn wait_network_idle_times_out_when_pending_requests_remain() {
+        let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(
+            json!({"result": {"value": {"pending": 1, "now": 10}}}),
+        ))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::WaitNetworkIdle {
+                session: sid,
+                tab: TabId(0),
+                timeout_ms: Some(0),
+                idle_time_ms: Some(100),
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Retryable { reason, hint } => {
+                assert_eq!(reason, "network_idle_timeout");
+                assert!(hint.contains("0ms"));
+            }
+            other => panic!("expected Retryable, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn wait_condition_returns_value_for_truthy_expression() {
+        let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(
+            json!({"result": {"value": {"ready": true}}}),
+        ))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::WaitCondition {
+                session: sid,
+                tab: TabId(0),
+                expression: "window.__ready".into(),
+                timeout_ms: Some(50),
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["condition_met"], true);
+                assert_eq!(data["value"]["ready"], true);
+            }
+            other => panic!("expected Ok, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn wait_condition_times_out_for_falsy_value() {
+        let mut backend =
+            MockBackendSession::new(vec![Ok(OpResult::new(json!({"result": {"value": ""}})))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::WaitCondition {
+                session: sid,
+                tab: TabId(0),
+                expression: "window.__ready".into(),
+                timeout_ms: Some(0),
+            },
+        )
+        .await;
+
+        match result {
+            ActionResult::Retryable { reason, hint } => {
+                assert_eq!(reason, "condition_timeout");
+                assert!(hint.contains("window.__ready"));
+            }
+            other => panic!("expected Retryable, got {other:?}"),
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Observation handler tests
     // -----------------------------------------------------------------------

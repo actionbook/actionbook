@@ -862,6 +862,55 @@ mod tests {
     }
 
     #[test]
+    fn op_to_cdp_set_cookie_with_all_optional_fields() {
+        let op = BackendOp::SetCookie {
+            target_id: "T1".into(),
+            name: "session".into(),
+            value: "abc123".into(),
+            domain: ".example.com".into(),
+            path: "/".into(),
+            secure: Some(true),
+            http_only: Some(true),
+            same_site: Some("Lax".into()),
+            expires: Some(42.5),
+        };
+        let (_, params) = op_to_cdp(&op);
+        assert_eq!(params["secure"], true);
+        assert_eq!(params["httpOnly"], true);
+        assert_eq!(params["sameSite"], "Lax");
+        assert_eq!(params["expires"], 42.5);
+    }
+
+    #[test]
+    fn op_to_cdp_delete_cookies_with_filters() {
+        let op = BackendOp::DeleteCookies {
+            target_id: "T1".into(),
+            name: "session".into(),
+            domain: Some(".example.com".into()),
+            path: Some("/app".into()),
+        };
+        let (method, params) = op_to_cdp(&op);
+        assert_eq!(method, "Network.deleteCookies");
+        assert_eq!(params["name"], "session");
+        assert_eq!(params["domain"], ".example.com");
+        assert_eq!(params["path"], "/app");
+    }
+
+    #[test]
+    fn op_to_cdp_delete_cookies_without_optional_filters() {
+        let op = BackendOp::DeleteCookies {
+            target_id: "T1".into(),
+            name: "session".into(),
+            domain: None,
+            path: None,
+        };
+        let (_, params) = op_to_cdp(&op);
+        assert_eq!(params["name"], "session");
+        assert!(params.get("domain").is_none());
+        assert!(params.get("path").is_none());
+    }
+
+    #[test]
     fn op_to_cdp_print_pdf() {
         let op = BackendOp::PrintToPdf {
             target_id: "T1".into(),
@@ -888,6 +937,52 @@ mod tests {
         let (method, params) = op_to_cdp(&op);
         assert_eq!(method, "DOM.getBoxModel");
         assert_eq!(params["nodeId"], 42);
+    }
+
+    #[test]
+    fn op_to_cdp_get_node_for_location() {
+        let op = BackendOp::GetNodeForLocation {
+            target_id: "T1".into(),
+            x: 12,
+            y: 34,
+        };
+        let (method, params) = op_to_cdp(&op);
+        assert_eq!(method, "DOM.getNodeForLocation");
+        assert_eq!(params["x"], 12);
+        assert_eq!(params["y"], 34);
+    }
+
+    #[test]
+    fn op_to_cdp_dom_focus() {
+        let op = BackendOp::DomFocus {
+            target_id: "T1".into(),
+            node_id: 99,
+        };
+        let (method, params) = op_to_cdp(&op);
+        assert_eq!(method, "DOM.focus");
+        assert_eq!(params["nodeId"], 99);
+    }
+
+    #[test]
+    fn op_to_cdp_set_file_input_files() {
+        let op = BackendOp::SetFileInputFiles {
+            target_id: "T1".into(),
+            node_id: 7,
+            files: vec!["/tmp/a.txt".into(), "/tmp/b.txt".into()],
+        };
+        let (method, params) = op_to_cdp(&op);
+        assert_eq!(method, "DOM.setFileInputFiles");
+        assert_eq!(params["nodeId"], 7);
+        assert_eq!(params["files"][0], "/tmp/a.txt");
+        assert_eq!(params["files"][1], "/tmp/b.txt");
+    }
+
+    #[test]
+    fn extract_port_rejects_non_numeric_port() {
+        assert_eq!(
+            extract_port_from_ws_url("ws://127.0.0.1:not-a-port/devtools/browser/abc"),
+            None
+        );
     }
 
     #[test]

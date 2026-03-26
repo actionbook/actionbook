@@ -888,6 +888,143 @@ mod tests {
         assert_eq!(method, "Target.getTargets");
     }
 
+    #[test]
+    fn op_to_cdp_query_and_input_variants() {
+        let query = BackendOp::QuerySelector {
+            target_id: "T1".into(),
+            node_id: 7,
+            selector: "#submit".into(),
+        };
+        let (query_method, query_params) = op_to_cdp(&query);
+        assert_eq!(query_method, "DOM.querySelector");
+        assert_eq!(query_params["nodeId"], 7);
+        assert_eq!(query_params["selector"], "#submit");
+
+        let mouse = BackendOp::DispatchMouseEvent {
+            target_id: "T1".into(),
+            event_type: "mousePressed".into(),
+            x: 10.0,
+            y: 20.0,
+            button: "left".into(),
+            click_count: 2,
+        };
+        let (mouse_method, mouse_params) = op_to_cdp(&mouse);
+        assert_eq!(mouse_method, "Input.dispatchMouseEvent");
+        assert_eq!(mouse_params["clickCount"], 2);
+
+        let key = BackendOp::DispatchKeyEvent {
+            target_id: "T1".into(),
+            event_type: "keyDown".into(),
+            key: "Enter".into(),
+            text: "\r".into(),
+        };
+        let (key_method, key_params) = op_to_cdp(&key);
+        assert_eq!(key_method, "Input.dispatchKeyEvent");
+        assert_eq!(key_params["key"], "Enter");
+    }
+
+    #[test]
+    fn op_to_cdp_capture_and_cookie_variants() {
+        let pdf = BackendOp::PrintToPdf {
+            target_id: "T1".into(),
+        };
+        assert_eq!(op_to_cdp(&pdf).0, "Page.printToPDF");
+
+        let ax = BackendOp::GetAccessibilityTree {
+            target_id: "T1".into(),
+        };
+        assert_eq!(op_to_cdp(&ax).0, "Accessibility.getFullAXTree");
+
+        let cookies = BackendOp::GetCookies {
+            target_id: "T1".into(),
+        };
+        assert_eq!(op_to_cdp(&cookies).0, "Network.getCookies");
+
+        let set_cookie = BackendOp::SetCookie {
+            target_id: "T1".into(),
+            name: "session".into(),
+            value: "abc123".into(),
+            domain: ".example.com".into(),
+            path: "/".into(),
+            secure: Some(true),
+            http_only: Some(true),
+            same_site: Some("Lax".into()),
+            expires: Some(42.0),
+        };
+        let (set_method, set_params) = op_to_cdp(&set_cookie);
+        assert_eq!(set_method, "Network.setCookie");
+        assert_eq!(set_params["secure"], true);
+        assert_eq!(set_params["httpOnly"], true);
+        assert_eq!(set_params["sameSite"], "Lax");
+        assert_eq!(set_params["expires"], 42.0);
+
+        let delete = BackendOp::DeleteCookies {
+            target_id: "T1".into(),
+            name: "session".into(),
+            domain: Some(".example.com".into()),
+            path: Some("/".into()),
+        };
+        let (delete_method, delete_params) = op_to_cdp(&delete);
+        assert_eq!(delete_method, "Network.deleteCookies");
+        assert_eq!(delete_params["domain"], ".example.com");
+        assert_eq!(delete_params["path"], "/");
+    }
+
+    #[test]
+    fn op_to_cdp_target_and_dom_variants() {
+        let create = BackendOp::CreateTarget {
+            url: "about:blank".into(),
+            window_id: Some(42),
+            new_window: true,
+        };
+        let (create_method, create_params) = op_to_cdp(&create);
+        assert_eq!(create_method, "Target.createTarget");
+        assert_eq!(create_params["url"], "about:blank");
+        assert_eq!(create_params["newWindow"], true);
+
+        let close = BackendOp::CloseTarget {
+            target_id: "TARGET_1".into(),
+        };
+        let (close_method, close_params) = op_to_cdp(&close);
+        assert_eq!(close_method, "Target.closeTarget");
+        assert_eq!(close_params["targetId"], "TARGET_1");
+
+        let box_model = BackendOp::GetBoxModel {
+            target_id: "T1".into(),
+            node_id: 42,
+        };
+        let (box_method, box_params) = op_to_cdp(&box_model);
+        assert_eq!(box_method, "DOM.getBoxModel");
+        assert_eq!(box_params["nodeId"], 42);
+
+        let node = BackendOp::GetNodeForLocation {
+            target_id: "T1".into(),
+            x: 5,
+            y: 9,
+        };
+        let (node_method, node_params) = op_to_cdp(&node);
+        assert_eq!(node_method, "DOM.getNodeForLocation");
+        assert_eq!(node_params["x"], 5);
+        assert_eq!(node_params["y"], 9);
+
+        let focus = BackendOp::DomFocus {
+            target_id: "T1".into(),
+            node_id: 88,
+        };
+        let (focus_method, focus_params) = op_to_cdp(&focus);
+        assert_eq!(focus_method, "DOM.focus");
+        assert_eq!(focus_params["nodeId"], 88);
+
+        let files = BackendOp::SetFileInputFiles {
+            target_id: "T1".into(),
+            node_id: 9,
+            files: vec!["/tmp/demo.txt".into()],
+        };
+        let (files_method, files_params) = op_to_cdp(&files);
+        assert_eq!(files_method, "DOM.setFileInputFiles");
+        assert_eq!(files_params["files"][0], "/tmp/demo.txt");
+    }
+
     /// Integration test: WS round-trip with real tokio runtime.
     /// Simulates extension connecting to bridge and exchanging a message.
     #[tokio::test]
