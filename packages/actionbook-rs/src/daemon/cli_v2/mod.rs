@@ -8,7 +8,7 @@ mod commands;
 
 use std::path::{Path, PathBuf};
 use std::process;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
 use tokio::net::UnixStream;
@@ -1251,13 +1251,15 @@ impl CliV2 {
             }
         };
 
-        let result = match client.send_action(action).await {
+        let started_at = Instant::now();
+        let result = match client.send_action(action.clone()).await {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("{e}");
                 process::exit(1);
             }
         };
+        let duration_ms = started_at.elapsed().as_millis();
 
         // If this was a screenshot command, decode the base64 PNG and write to disk.
         if let Some(path) = screenshot_path {
@@ -1272,7 +1274,14 @@ impl CliV2 {
                                     process::exit(1);
                                 }
                                 if self.json {
-                                    println!("{}", formatter::format_result_json(&result));
+                                    println!(
+                                        "{}",
+                                        formatter::format_cli_result_json(
+                                            &action,
+                                            &result,
+                                            duration_ms
+                                        )
+                                    );
                                 } else {
                                     println!("screenshot saved to {}", path.display());
                                 }
@@ -1289,9 +1298,9 @@ impl CliV2 {
         }
 
         let output = if self.json {
-            formatter::format_result_json(&result)
+            formatter::format_cli_result_json(&action, &result, duration_ms)
         } else {
-            formatter::format_result(&result)
+            formatter::format_cli_result(&action, &result)
         };
         if !output.is_empty() {
             println!("{output}");
