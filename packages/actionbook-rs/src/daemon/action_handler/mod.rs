@@ -787,10 +787,10 @@ mod tests {
     async fn goto_sends_navigate_op() {
         let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(json!({})))]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::Goto {
@@ -816,10 +816,10 @@ mod tests {
     async fn goto_tab_not_found() {
         let mut backend = MockBackendSession::new(vec![]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::Goto {
@@ -845,10 +845,10 @@ mod tests {
         let tree = json!({"nodes": [{"role": "button", "name": "Submit"}]});
         let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(tree.clone()))]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::Snapshot {
@@ -873,10 +873,10 @@ mod tests {
         let mut backend =
             MockBackendSession::new(vec![Ok(OpResult::new(json!({"data": "base64data"})))]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::Screenshot {
@@ -905,10 +905,10 @@ mod tests {
             Ok(OpResult::null()),
         ]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::Click {
@@ -941,10 +941,10 @@ mod tests {
             json!({"result": {"type": "object", "value": null}}),
         ))]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::Click {
@@ -973,10 +973,10 @@ mod tests {
             Ok(OpResult::null()),
         ]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::Type {
@@ -1001,10 +1001,10 @@ mod tests {
         let mut backend =
             MockBackendSession::new(vec![Ok(OpResult::new(json!({"result": {"value": true}})))]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::Fill {
@@ -1034,10 +1034,10 @@ mod tests {
             )),
         ]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::Eval {
@@ -1059,10 +1059,10 @@ mod tests {
     async fn list_tabs_returns_registry_content() {
         let mut backend = MockBackendSession::new(vec![]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::ListTabs { session: sid },
@@ -1087,10 +1087,10 @@ mod tests {
         let mut backend =
             MockBackendSession::new(vec![Ok(OpResult::new(json!({"targetId": "NEW_TARGET_1"})))]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::NewTab {
@@ -1113,11 +1113,11 @@ mod tests {
     async fn close_tab_removes_from_registry() {
         let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(json!(true)))]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         assert_eq!(regs.tabs.len(), 1);
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::CloseTab {
@@ -1138,10 +1138,10 @@ mod tests {
             "WS closed".into(),
         ))]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::Goto {
@@ -1166,10 +1166,10 @@ mod tests {
             "CDP error: method not found".into(),
         ))]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::Goto {
@@ -1190,7 +1190,7 @@ mod tests {
     async fn global_action_returns_fatal() {
         let mut backend = MockBackendSession::new(vec![]);
         let mut regs = Registries::new();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(sid, &mut backend, &mut regs, Action::ListSessions).await;
 
@@ -1209,10 +1209,10 @@ mod tests {
             ]
         })))]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::CookiesList {
@@ -1240,10 +1240,10 @@ mod tests {
             ]
         })))]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::CookiesGet {
@@ -1274,10 +1274,10 @@ mod tests {
             Ok(OpResult::null()),
         ]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::CookiesClear {
@@ -1312,10 +1312,10 @@ mod tests {
             json!({"result": {"value": "<html><body>Hello</body></html>"}}),
         ))]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::Html {
@@ -1334,10 +1334,10 @@ mod tests {
         let mut backend =
             MockBackendSession::new(vec![Ok(OpResult::new(json!({"result": {"value": null}})))]);
         let mut regs = make_regs_with_tab();
-        let sid = SessionId(0);
+        let sid = SessionId::new_unchecked("local-1");
 
         let result = handle_action(
-            sid,
+            sid.clone(),
             &mut backend,
             &mut regs,
             Action::Text {

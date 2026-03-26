@@ -73,9 +73,19 @@ async fn start_daemon_with_mock_sessions(profiles: &[&str]) -> (TestDaemon, Vec<
     {
         let mut reg = daemon.registry.lock().await;
         for profile in profiles {
-            let id = reg.next_session_id();
-            let handle = spawn_mock_session(id, profile);
-            reg.register(id, handle);
+            // Profile-based ID: try "profile", then "profile-2", "profile-3", ...
+            let id = {
+                let mut suffix = 0u32;
+                loop {
+                    let candidate = SessionId::from_profile(profile, suffix);
+                    if !reg.contains(&candidate) {
+                        break candidate;
+                    }
+                    suffix += 1;
+                }
+            };
+            let handle = spawn_mock_session(id.clone(), profile);
+            reg.register(id.clone(), handle);
             ids.push(id);
         }
     }
@@ -364,8 +374,8 @@ async fn e2e_list_sessions_with_mock_sessions() {
     let data = send_ok(&daemon, Action::ListSessions).await;
     let sessions = data["sessions"].as_array().expect("sessions array");
     assert_eq!(sessions.len(), 2);
-    assert_eq!(sessions[0]["id"], ids[0].to_string());
-    assert_eq!(sessions[1]["id"], ids[1].to_string());
+    assert_eq!(sessions[0]["id"].as_str().unwrap(), ids[0].as_str());
+    assert_eq!(sessions[1]["id"].as_str().unwrap(), ids[1].as_str());
 }
 
 #[tokio::test]
@@ -375,7 +385,7 @@ async fn e2e_missing_session_returns_fatal() {
     send_fatal(
         &daemon,
         Action::Goto {
-            session: SessionId(99),
+            session: "nonexistent-session".parse::<SessionId>().unwrap(),
             tab: TabId(0),
             url: "https://example.com".into(),
         },
@@ -391,7 +401,7 @@ async fn e2e_missing_tab_returns_fatal() {
     send_fatal(
         &daemon,
         Action::Click {
-            session: ids[0],
+            session: ids[0].clone(),
             tab: TabId(99),
             selector: "#submit".into(),
             button: None,
@@ -406,7 +416,13 @@ async fn e2e_missing_tab_returns_fatal() {
 async fn e2e_list_tabs_via_router() {
     let (daemon, ids) = start_daemon_with_mock_sessions(&["default"]).await;
 
-    let data = send_ok(&daemon, Action::ListTabs { session: ids[0] }).await;
+    let data = send_ok(
+        &daemon,
+        Action::ListTabs {
+            session: ids[0].clone(),
+        },
+    )
+    .await;
 
     let tabs = data["tabs"].as_array().expect("tabs array");
     assert_eq!(tabs.len(), 1, "mock session should have 1 tab");
@@ -421,7 +437,7 @@ async fn e2e_goto_and_snapshot_stub() {
     let data = send_ok(
         &daemon,
         Action::Goto {
-            session: ids[0],
+            session: ids[0].clone(),
             tab: TabId(0),
             url: "https://example.com/page2".into(),
         },
@@ -433,7 +449,7 @@ async fn e2e_goto_and_snapshot_stub() {
     let data = send_ok(
         &daemon,
         Action::Snapshot {
-            session: ids[0],
+            session: ids[0].clone(),
             tab: TabId(0),
             interactive: false,
             compact: true,
@@ -451,8 +467,14 @@ async fn e2e_goto_and_snapshot_stub() {
 async fn e2e_close_session_stub() {
     let (daemon, ids) = start_daemon_with_mock_sessions(&["default"]).await;
 
-    let data = send_ok(&daemon, Action::CloseSession { session: ids[0] }).await;
-    assert_eq!(data["closed"], ids[0].to_string());
+    let data = send_ok(
+        &daemon,
+        Action::CloseSession {
+            session: ids[0].clone(),
+        },
+    )
+    .await;
+    assert_eq!(data["closed"].as_str().unwrap(), ids[0].as_str());
 }
 
 #[tokio::test]
@@ -463,7 +485,7 @@ async fn e2e_multi_tab_new_and_close() {
     let data = send_ok(
         &daemon,
         Action::NewTab {
-            session: ids[0],
+            session: ids[0].clone(),
             url: "https://second-tab.example.com".into(),
             new_window: false,
             window: None,
@@ -474,7 +496,13 @@ async fn e2e_multi_tab_new_and_close() {
     assert!(new_tab.starts_with('t'), "tab id should start with 't'");
 
     // List tabs -- should have 2.
-    let data = send_ok(&daemon, Action::ListTabs { session: ids[0] }).await;
+    let data = send_ok(
+        &daemon,
+        Action::ListTabs {
+            session: ids[0].clone(),
+        },
+    )
+    .await;
     let tabs = data["tabs"].as_array().expect("tabs array");
     assert_eq!(tabs.len(), 2, "should have 2 tabs after NewTab");
 
@@ -484,7 +512,7 @@ async fn e2e_multi_tab_new_and_close() {
     let data = send_ok(
         &daemon,
         Action::CloseTab {
-            session: ids[0],
+            session: ids[0].clone(),
             tab: new_tab_id,
         },
     )
@@ -492,7 +520,13 @@ async fn e2e_multi_tab_new_and_close() {
     assert_eq!(data["closed_tab"], new_tab.as_str());
 
     // List tabs -- should be back to 1.
-    let data = send_ok(&daemon, Action::ListTabs { session: ids[0] }).await;
+    let data = send_ok(
+        &daemon,
+        Action::ListTabs {
+            session: ids[0].clone(),
+        },
+    )
+    .await;
     let tabs = data["tabs"].as_array().expect("tabs array");
     assert_eq!(tabs.len(), 1, "should have 1 tab after CloseTab");
 }
@@ -521,18 +555,19 @@ async fn e2e_start_extension_session_mock() {
             open_url: None,
             cdp_endpoint: None,
             ws_headers: None,
+            set_session_id: None,
         },
     )
     .await;
 
     let session_id = data["session_id"].as_str().expect("session_id");
-    assert_eq!(session_id, "s0");
+    assert_eq!(session_id, "local-1");
 
     // Verify the session appears in list-sessions with Extension mode
     let data = send_ok(&daemon, Action::ListSessions).await;
     let sessions = data["sessions"].as_array().expect("sessions array");
     assert_eq!(sessions.len(), 1);
-    assert_eq!(sessions[0]["id"], "s0");
+    assert_eq!(sessions[0]["id"], "local-1");
     assert_eq!(sessions[0]["mode"], "extension");
 }
 
@@ -556,18 +591,19 @@ async fn e2e_start_cloud_session_mock() {
             open_url: None,
             cdp_endpoint: Some("wss://mock-cloud.example.com/browser".into()),
             ws_headers: None,
+            set_session_id: None,
         },
     )
     .await;
 
     let session_id = data["session_id"].as_str().expect("session_id");
-    assert_eq!(session_id, "s0");
+    assert_eq!(session_id, "local-1");
 
     // Verify the session appears in list-sessions with Cloud mode
     let data = send_ok(&daemon, Action::ListSessions).await;
     let sessions = data["sessions"].as_array().expect("sessions array");
     assert_eq!(sessions.len(), 1);
-    assert_eq!(sessions[0]["id"], "s0");
+    assert_eq!(sessions[0]["id"], "local-1");
     assert_eq!(sessions[0]["mode"], "cloud");
 }
 
@@ -595,10 +631,11 @@ async fn e2e_multi_mode_sessions() {
             open_url: None,
             cdp_endpoint: None,
             ws_headers: None,
+            set_session_id: None,
         },
     )
     .await;
-    assert_eq!(data["session_id"].as_str().unwrap(), "s0");
+    assert_eq!(data["session_id"].as_str().unwrap(), "local-profile");
 
     // Start a cloud session simultaneously
     let data = send_ok(
@@ -610,23 +647,24 @@ async fn e2e_multi_mode_sessions() {
             open_url: None,
             cdp_endpoint: Some("wss://mock.example.com/browser".into()),
             ws_headers: None,
+            set_session_id: None,
         },
     )
     .await;
-    assert_eq!(data["session_id"].as_str().unwrap(), "s1");
+    assert_eq!(data["session_id"].as_str().unwrap(), "cloud-profile");
 
     // Verify both appear in list-sessions with correct modes
     let data = send_ok(&daemon, Action::ListSessions).await;
     let sessions = data["sessions"].as_array().expect("sessions array");
     assert_eq!(sessions.len(), 2);
 
-    assert_eq!(sessions[0]["id"], "s0");
-    assert_eq!(sessions[0]["mode"], "local");
-    assert_eq!(sessions[0]["profile"], "local-profile");
+    assert_eq!(sessions[0]["id"], "cloud-profile");
+    assert_eq!(sessions[0]["mode"], "cloud");
+    assert_eq!(sessions[0]["profile"], "cloud-profile");
 
-    assert_eq!(sessions[1]["id"], "s1");
-    assert_eq!(sessions[1]["mode"], "cloud");
-    assert_eq!(sessions[1]["profile"], "cloud-profile");
+    assert_eq!(sessions[1]["id"], "local-profile");
+    assert_eq!(sessions[1]["mode"], "local");
+    assert_eq!(sessions[1]["profile"], "local-profile");
 }
 
 #[tokio::test]
@@ -649,6 +687,7 @@ async fn e2e_cloud_requires_endpoint() {
             open_url: None,
             cdp_endpoint: None,
             ws_headers: None,
+            set_session_id: None,
         },
         "missing_cdp_endpoint",
     )
@@ -675,10 +714,11 @@ async fn e2e_extension_single_session_constraint() {
             open_url: None,
             cdp_endpoint: None,
             ws_headers: None,
+            set_session_id: None,
         },
     )
     .await;
-    assert_eq!(data["session_id"].as_str().unwrap(), "s0");
+    assert_eq!(data["session_id"].as_str().unwrap(), "local-1");
 
     // Start second extension session -> should fail with extension_session_exists
     send_fatal(
@@ -690,6 +730,7 @@ async fn e2e_extension_single_session_constraint() {
             open_url: None,
             cdp_endpoint: None,
             ws_headers: None,
+            set_session_id: None,
         },
         "extension_session_exists",
     )
@@ -731,6 +772,7 @@ async fn e2e_start_goto_snapshot_close() {
             open_url: Some("https://example.com".into()),
             cdp_endpoint: None,
             ws_headers: None,
+            set_session_id: None,
         },
     )
     .await;

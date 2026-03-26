@@ -77,6 +77,9 @@ enum BrowserCmd {
         /// CDP WebSocket endpoint for cloud mode (e.g. wss://cloud.example.com/browser)
         #[arg(long)]
         cdp_endpoint: Option<String>,
+        /// Explicit session ID (e.g. "research-google"); daemon auto-assigns if omitted
+        #[arg(long)]
+        set_session_id: Option<String>,
     },
 
     /// List all active sessions
@@ -87,21 +90,21 @@ enum BrowserCmd {
     // =======================================================================
     /// Show session status
     Status {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
     },
 
     /// List tabs in a session
     ListTabs {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
     },
 
     /// List windows in a session
     ListWindows {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
     },
@@ -110,7 +113,7 @@ enum BrowserCmd {
     Open {
         /// URL to open
         url: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Open in a new window
@@ -120,14 +123,14 @@ enum BrowserCmd {
 
     /// Close a session and its browser
     Close {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
     },
 
     /// Close a specific tab
     CloseTab {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -142,7 +145,7 @@ enum BrowserCmd {
     Goto {
         /// URL to navigate to
         url: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -152,7 +155,7 @@ enum BrowserCmd {
 
     /// Navigate back in history
     Back {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -162,7 +165,7 @@ enum BrowserCmd {
 
     /// Navigate forward in history
     Forward {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -172,7 +175,7 @@ enum BrowserCmd {
 
     /// Reload the current page
     Reload {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -182,7 +185,7 @@ enum BrowserCmd {
 
     /// Capture an accessibility-tree snapshot
     Snapshot {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -200,7 +203,7 @@ enum BrowserCmd {
     Screenshot {
         /// Output file path
         path: PathBuf,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -212,7 +215,7 @@ enum BrowserCmd {
     Click {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -224,7 +227,7 @@ enum BrowserCmd {
     Type {
         /// Text to type
         text: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -240,7 +243,7 @@ enum BrowserCmd {
         selector: String,
         /// Value to fill
         text: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -252,7 +255,7 @@ enum BrowserCmd {
     Eval {
         /// JavaScript expression
         code: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -267,7 +270,7 @@ enum BrowserCmd {
     Pdf {
         /// Output file path
         path: PathBuf,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -277,7 +280,7 @@ enum BrowserCmd {
 
     /// Get the page title
     Title {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -287,7 +290,7 @@ enum BrowserCmd {
 
     /// Get the current page URL
     Url {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -299,7 +302,7 @@ enum BrowserCmd {
     Html {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -312,7 +315,7 @@ enum BrowserCmd {
     TextCmd {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -324,7 +327,7 @@ enum BrowserCmd {
     Value {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -338,7 +341,7 @@ enum BrowserCmd {
         selector: String,
         /// Attribute name
         name: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -350,7 +353,7 @@ enum BrowserCmd {
     Attrs {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -362,7 +365,7 @@ enum BrowserCmd {
     Describe {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -374,7 +377,7 @@ enum BrowserCmd {
     State {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -387,7 +390,7 @@ enum BrowserCmd {
     Box_ {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -399,7 +402,7 @@ enum BrowserCmd {
     Styles {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -409,7 +412,7 @@ enum BrowserCmd {
 
     /// Get the viewport dimensions
     Viewport {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -427,7 +430,7 @@ enum BrowserCmd {
         x: f64,
         /// Y coordinate
         y: f64,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -437,7 +440,7 @@ enum BrowserCmd {
 
     /// Get console log messages
     LogsConsole {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -447,7 +450,7 @@ enum BrowserCmd {
 
     /// Get error log messages
     LogsErrors {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -483,7 +486,7 @@ enum BrowserCmd {
         /// CSS selector of the <select> element
         #[arg(long)]
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -498,7 +501,7 @@ enum BrowserCmd {
     Hover {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -510,7 +513,7 @@ enum BrowserCmd {
     Focus {
         /// CSS selector
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -522,7 +525,7 @@ enum BrowserCmd {
     Press {
         /// Key or chord (e.g. "Enter", "Control+A", "Shift+Tab")
         key: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -536,7 +539,7 @@ enum BrowserCmd {
         from: String,
         /// Selector of the drop target
         to: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -551,7 +554,7 @@ enum BrowserCmd {
         /// CSS selector of the file input element
         #[arg(long)]
         selector: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -567,7 +570,7 @@ enum BrowserCmd {
     MouseMove {
         /// Coordinates as "x,y"
         coords: String,
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -577,7 +580,7 @@ enum BrowserCmd {
 
     /// Get the current cursor position
     CursorPosition {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
         /// Tab ID (e.g. t0)
@@ -597,7 +600,7 @@ enum BrowserCmd {
     // =======================================================================
     /// Restart a session (close + re-start with same profile/mode)
     Restart {
-        /// Session ID (e.g. s0)
+        /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
     },
@@ -626,6 +629,7 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             headless,
             open_url,
             cdp_endpoint,
+            set_session_id,
         } => {
             let mode: Mode = mode.into();
             // Cloud mode requires --cdp-endpoint.
@@ -642,6 +646,7 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
                 open_url,
                 cdp_endpoint,
                 ws_headers: None,
+                set_session_id,
             }
         }
         BrowserCmd::ListSessions => Action::ListSessions,
@@ -1379,6 +1384,7 @@ mod tests {
             headless: true,
             open_url: Some("https://example.com".into()),
             cdp_endpoint: None,
+            set_session_id: None,
         })
         .unwrap();
         match action {
@@ -1406,6 +1412,7 @@ mod tests {
             headless: false,
             open_url: None,
             cdp_endpoint: Some("wss://cloud.example.com/browser".into()),
+            set_session_id: None,
         })
         .unwrap();
         match action {
@@ -1430,6 +1437,7 @@ mod tests {
             headless: false,
             open_url: None,
             cdp_endpoint: None,
+            set_session_id: None,
         });
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("--cdp-endpoint"));
@@ -1443,6 +1451,7 @@ mod tests {
             headless: false,
             open_url: None,
             cdp_endpoint: None,
+            set_session_id: None,
         })
         .unwrap();
         match action {
@@ -1463,7 +1472,7 @@ mod tests {
     fn build_goto_action() {
         let (action, _) = build_action(BrowserCmd::Goto {
             url: "https://example.com".into(),
-            session: SessionId(0),
+            session: SessionId::new_unchecked("local-1"),
             tab: TabId(1),
         })
         .unwrap();
@@ -1471,7 +1480,7 @@ mod tests {
             Action::Goto {
                 session, tab, url, ..
             } => {
-                assert_eq!(session, SessionId(0));
+                assert_eq!(session, SessionId::new_unchecked("local-1"));
                 assert_eq!(tab, TabId(1));
                 assert_eq!(url, "https://example.com");
             }
@@ -1482,7 +1491,7 @@ mod tests {
     #[test]
     fn build_snapshot_action() {
         let (action, _) = build_action(BrowserCmd::Snapshot {
-            session: SessionId(0),
+            session: SessionId::new_unchecked("local-1"),
             tab: TabId(0),
             interactive: true,
             compact: false,
@@ -1504,11 +1513,13 @@ mod tests {
     #[test]
     fn build_close_session() {
         let (action, _) = build_action(BrowserCmd::Close {
-            session: SessionId(3),
+            session: SessionId::new_unchecked("local-4"),
         })
         .unwrap();
         match action {
-            Action::CloseSession { session } => assert_eq!(session, SessionId(3)),
+            Action::CloseSession { session } => {
+                assert_eq!(session, SessionId::new_unchecked("local-4"))
+            }
             _ => panic!("wrong variant"),
         }
     }
@@ -1517,7 +1528,7 @@ mod tests {
     fn build_click_action() {
         let (action, _) = build_action(BrowserCmd::Click {
             selector: "#btn".into(),
-            session: SessionId(0),
+            session: SessionId::new_unchecked("local-1"),
             tab: TabId(0),
         })
         .unwrap();
@@ -1540,7 +1551,7 @@ mod tests {
     fn build_eval_action() {
         let (action, _) = build_action(BrowserCmd::Eval {
             code: "document.title".into(),
-            session: SessionId(1),
+            session: SessionId::new_unchecked("local-2"),
             tab: TabId(2),
         })
         .unwrap();
@@ -1553,13 +1564,13 @@ mod tests {
     #[test]
     fn build_cookies_list_with_domain() {
         let (action, _) = build_action(BrowserCmd::Cookies(CookiesCmd::List {
-            session: SessionId(2),
+            session: SessionId::new_unchecked("local-3"),
             domain: Some("example.com".into()),
         }))
         .unwrap();
         match action {
             Action::CookiesList { session, domain } => {
-                assert_eq!(session, SessionId(2));
+                assert_eq!(session, SessionId::new_unchecked("local-3"));
                 assert_eq!(domain.as_deref(), Some("example.com"));
             }
             _ => panic!("wrong variant"),
@@ -1569,13 +1580,13 @@ mod tests {
     #[test]
     fn build_cookies_clear_with_domain() {
         let (action, _) = build_action(BrowserCmd::Cookies(CookiesCmd::Clear {
-            session: SessionId(3),
+            session: SessionId::new_unchecked("local-4"),
             domain: Some(".example.com".into()),
         }))
         .unwrap();
         match action {
             Action::CookiesClear { session, domain } => {
-                assert_eq!(session, SessionId(3));
+                assert_eq!(session, SessionId::new_unchecked("local-4"));
                 assert_eq!(domain.as_deref(), Some(".example.com"));
             }
             _ => panic!("wrong variant"),

@@ -45,6 +45,10 @@ pub enum Action {
         /// Optional WS auth headers (Cloud mode).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ws_headers: Option<std::collections::HashMap<String, String>>,
+        /// Optional explicit session ID (validated against `^[a-z][a-z0-9-]{0,63}$`).
+        /// When provided, the daemon uses this ID instead of auto-generating one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        set_session_id: Option<String>,
     },
 
     /// Close an existing session and its browser.
@@ -584,7 +588,7 @@ impl Action {
             | Action::WaitCondition { session, .. }
 
             // Session management
-            | Action::RestartSession { session, .. } => Some(*session),
+            | Action::RestartSession { session, .. } => Some(session.clone()),
         }
     }
 }
@@ -618,6 +622,7 @@ mod tests {
             open_url: Some("https://example.com".into()),
             cdp_endpoint: None,
             ws_headers: None,
+            set_session_id: None,
         };
         let json = serde_json::to_string(&action).unwrap();
         assert!(json.contains(r#""type":"StartSession""#));
@@ -640,7 +645,7 @@ mod tests {
     #[test]
     fn goto_round_trip() {
         let action = Action::Goto {
-            session: SessionId(0),
+            session: SessionId::new_unchecked("local-1"),
             tab: TabId(1),
             url: "https://example.com".into(),
         };
@@ -651,7 +656,7 @@ mod tests {
             Action::Goto {
                 session, tab, url, ..
             } => {
-                assert_eq!(session, SessionId(0));
+                assert_eq!(session, SessionId::new_unchecked("local-1"));
                 assert_eq!(tab, TabId(1));
                 assert_eq!(url, "https://example.com");
             }
@@ -662,7 +667,7 @@ mod tests {
     #[test]
     fn click_round_trip() {
         let action = Action::Click {
-            session: SessionId(2),
+            session: SessionId::new_unchecked("local-3"),
             tab: TabId(0),
             selector: "#submit".into(),
             button: Some("right".into()),
@@ -696,7 +701,7 @@ mod tests {
 
     #[test]
     fn snapshot_defaults() {
-        let json = r#"{"type":"Snapshot","session":0,"tab":0}"#;
+        let json = r#"{"type":"Snapshot","session":"local-1","tab":0}"#;
         let action: Action = serde_json::from_str(json).unwrap();
         match action {
             Action::Snapshot {
@@ -714,7 +719,7 @@ mod tests {
     #[test]
     fn eval_round_trip() {
         let action = Action::Eval {
-            session: SessionId(0),
+            session: SessionId::new_unchecked("local-1"),
             tab: TabId(0),
             expression: "document.title".into(),
         };
@@ -729,7 +734,7 @@ mod tests {
     #[test]
     fn type_action_round_trip() {
         let action = Action::Type {
-            session: SessionId(1),
+            session: SessionId::new_unchecked("local-2"),
             tab: TabId(2),
             selector: "input[name=q]".into(),
             text: "hello world".into(),
@@ -748,7 +753,7 @@ mod tests {
     #[test]
     fn wait_element_with_timeout() {
         let action = Action::WaitElement {
-            session: SessionId(0),
+            session: SessionId::new_unchecked("local-1"),
             tab: TabId(0),
             selector: ".loaded".into(),
             timeout_ms: Some(5000),

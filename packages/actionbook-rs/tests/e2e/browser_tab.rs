@@ -29,11 +29,14 @@ fn tab_open_creates_new_tab() {
     assert_success(&out, "start session");
 
     // Open a second tab
-    let out = headless(&["browser", "open", "https://example.org", "-s", "s0"], 30);
+    let out = headless(
+        &["browser", "open", "https://example.org", "-s", "local-1"],
+        30,
+    );
     assert_success(&out, "open second tab");
 
     // List tabs — should show 2
-    let out = headless(&["browser", "list-tabs", "-s", "s0"], 10);
+    let out = headless(&["browser", "list-tabs", "-s", "local-1"], 10);
     assert_success(&out, "list-tabs");
     let tabs_output = stdout_str(&out);
     assert!(
@@ -43,7 +46,7 @@ fn tab_open_creates_new_tab() {
     );
 
     // Close session
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -77,7 +80,7 @@ fn tab_open_navigates_to_url() {
             "eval",
             "window.location.href",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -92,7 +95,7 @@ fn tab_open_navigates_to_url() {
     );
 
     // Close session
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -120,7 +123,10 @@ fn tab_switch_changes_active() {
     assert_success(&out, "start session");
 
     // Open second tab with example.org
-    let out = headless(&["browser", "open", "https://example.org", "-s", "s0"], 30);
+    let out = headless(
+        &["browser", "open", "https://example.org", "-s", "local-1"],
+        30,
+    );
     assert_success(&out, "open second tab");
 
     // Explicitly navigate t1 to example.org (Chrome may open internal URLs)
@@ -130,7 +136,7 @@ fn tab_switch_changes_active() {
             "goto",
             "https://example.org",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t1",
         ],
@@ -146,7 +152,7 @@ fn tab_switch_changes_active() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t1",
             "--timeout",
@@ -163,7 +169,7 @@ fn tab_switch_changes_active() {
             "eval",
             "window.location.href",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -184,7 +190,7 @@ fn tab_switch_changes_active() {
             "eval",
             "window.location.href",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t1",
         ],
@@ -199,7 +205,7 @@ fn tab_switch_changes_active() {
     );
 
     // Close session
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -227,15 +233,18 @@ fn tab_close_removes_tab() {
     assert_success(&out, "start session");
 
     // Open second tab
-    let out = headless(&["browser", "open", "https://example.org", "-s", "s0"], 30);
+    let out = headless(
+        &["browser", "open", "https://example.org", "-s", "local-1"],
+        30,
+    );
     assert_success(&out, "open second tab");
 
     // Close tab t1
-    let out = headless(&["browser", "close-tab", "-s", "s0", "-t", "t1"], 30);
+    let out = headless(&["browser", "close-tab", "-s", "local-1", "-t", "t1"], 30);
     assert_success(&out, "close-tab t1");
 
     // List tabs — should only show t0
-    let out = headless(&["browser", "list-tabs", "-s", "s0"], 10);
+    let out = headless(&["browser", "list-tabs", "-s", "local-1"], 10);
     assert_success(&out, "list-tabs after close");
     let tabs_output = stdout_str(&out);
     assert!(
@@ -250,7 +259,7 @@ fn tab_close_removes_tab() {
     );
 
     // Close session
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -278,11 +287,14 @@ fn tab_close_preserves_other() {
     assert_success(&out, "start session");
 
     // Open second tab
-    let out = headless(&["browser", "open", "https://example.org", "-s", "s0"], 30);
+    let out = headless(
+        &["browser", "open", "https://example.org", "-s", "local-1"],
+        30,
+    );
     assert_success(&out, "open second tab");
 
     // Close tab t1
-    let out = headless(&["browser", "close-tab", "-s", "s0", "-t", "t1"], 30);
+    let out = headless(&["browser", "close-tab", "-s", "local-1", "-t", "t1"], 30);
     assert_success(&out, "close-tab t1");
 
     // Eval on t0 should still work
@@ -292,7 +304,7 @@ fn tab_close_preserves_other() {
             "eval",
             "window.location.href",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -307,7 +319,7 @@ fn tab_close_preserves_other() {
     );
 
     // Close session
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -335,11 +347,14 @@ fn tab_pages_lists_all() {
     assert_success(&out, "start session");
 
     // Open second tab with example.org
-    let out = headless(&["browser", "open", "https://example.org", "-s", "s0"], 30);
+    let out = headless(
+        &["browser", "open", "https://example.org", "-s", "local-1"],
+        30,
+    );
     assert_success(&out, "open second tab");
 
     // List tabs — should contain both URLs
-    let out = headless(&["browser", "list-tabs", "-s", "s0"], 10);
+    let out = headless(&["browser", "list-tabs", "-s", "local-1"], 10);
     assert_success(&out, "list-tabs");
     let tabs_output = stdout_str(&out);
     assert!(
@@ -354,7 +369,7 @@ fn tab_pages_lists_all() {
     );
 
     // Close session
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -382,18 +397,27 @@ fn tab_open_sequential_ids() {
     assert_success(&out, "start session");
 
     // Open second tab (t1)
-    let out = headless(&["browser", "open", "https://example.org", "-s", "s0"], 30);
+    let out = headless(
+        &["browser", "open", "https://example.org", "-s", "local-1"],
+        30,
+    );
     assert_success(&out, "open tab t1");
 
     // Open third tab (t2)
     let out = headless(
-        &["browser", "open", "https://example.com/page2", "-s", "s0"],
+        &[
+            "browser",
+            "open",
+            "https://example.com/page2",
+            "-s",
+            "local-1",
+        ],
         30,
     );
     assert_success(&out, "open tab t2");
 
     // List tabs — should show t0, t1, t2
-    let out = headless(&["browser", "list-tabs", "-s", "s0"], 10);
+    let out = headless(&["browser", "list-tabs", "-s", "local-1"], 10);
     assert_success(&out, "list-tabs");
     let tabs_output = stdout_str(&out);
     assert!(
@@ -413,6 +437,6 @@ fn tab_open_sequential_ids() {
     );
 
     // Close session
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }

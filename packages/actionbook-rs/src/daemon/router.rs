@@ -80,6 +80,7 @@ impl Router {
                 open_url,
                 cdp_endpoint,
                 ws_headers,
+                set_session_id,
             } => {
                 self.handle_start_session(
                     *mode,
@@ -88,24 +89,27 @@ impl Router {
                     open_url.clone(),
                     cdp_endpoint.clone(),
                     ws_headers.clone(),
+                    set_session_id.clone(),
                 )
                 .await
             }
 
             // --- Close commands: forward to actor, then remove from registry ---
             Action::Close { session } | Action::CloseSession { session } => {
-                let session_id = *session;
-                let result = self.forward_to_session(session_id, action).await;
+                let session_id = session.clone();
+                let result = self.forward_to_session(&session_id, action).await;
                 if result.is_ok() {
                     let mut registry = self.registry.lock().await;
-                    registry.remove(session_id);
+                    registry.remove(&session_id);
                     self.trigger_save(&registry);
                 }
                 result
             }
 
             // --- Restart: close old session, start new one with same ID/profile/mode ---
-            Action::RestartSession { session } => self.handle_restart_session(*session).await,
+            Action::RestartSession { session } => {
+                self.handle_restart_session(session.clone()).await
+            }
 
             // --- Session/Tab commands: forward to session actor ---
             _ => {
@@ -119,7 +123,7 @@ impl Router {
                         );
                     }
                 };
-                self.forward_to_session(session_id, action).await
+                self.forward_to_session(&session_id, action).await
             }
         }
     }
@@ -149,6 +153,7 @@ impl Router {
     /// Uses a placeholder reservation to prevent TOCTOU races: a `Starting`
     /// entry is inserted under the registry lock before any await, so
     /// concurrent StartSession requests see the reservation and fail.
+    #[allow(clippy::too_many_arguments)]
     async fn handle_start_session(
         &self,
         mode: Mode,
@@ -157,6 +162,7 @@ impl Router {
         open_url: Option<String>,
         cdp_endpoint: Option<String>,
         ws_headers: Option<HashMap<String, String>>,
+        set_session_id: Option<String>,
     ) -> ActionResult {
         self.handle_start_session_inner(
             mode,
@@ -166,11 +172,13 @@ impl Router {
             cdp_endpoint,
             ws_headers,
             None,
+            set_session_id,
         )
         .await
     }
 
-    /// Inner implementation that optionally reuses a specific session ID (for restart).
+    /// Inner implementation that optionally reuses a specific session ID (for restart)
+    /// or accepts an explicit `set_session_id` from the caller.
     #[allow(clippy::too_many_arguments)]
     async fn handle_start_session_inner(
         &self,
@@ -181,6 +189,7 @@ impl Router {
         cdp_endpoint: Option<String>,
         ws_headers: Option<HashMap<String, String>>,
         reuse_id: Option<SessionId>,
+        set_session_id: Option<String>,
     ) -> ActionResult {
         let factory = match self.factories.get(&mode) {
             Some(f) => Arc::clone(f),
@@ -203,13 +212,17 @@ impl Router {
         }
 
         // Atomically check uniqueness and reserve a slot under a single lock.
+        let explicit_profile = profile.is_some();
         let profile_name = profile.unwrap_or_else(|| "default".into());
         let session_id = {
             let mut registry = self.registry.lock().await;
             let existing = registry.list_sessions();
 
-            // For Local mode, enforce 1-profile-1-session constraint.
+            // For Local mode without explicit --profile, enforce 1-profile-1-session.
+            // With explicit --profile, allow multiple sessions via collision suffix
+            // (e.g. work, work-2, work-3).
             if mode == Mode::Local
+                && !explicit_profile
                 && existing
                     .iter()
                     .any(|s| s.profile == profile_name && s.state != SessionState::Closed)
@@ -234,8 +247,54 @@ impl Router {
                 );
             }
 
+            // Determine session ID: reuse_id (restart) > set_session_id (caller) > profile-derived > auto-generate.
+            let id = if let Some(reuse) = reuse_id {
+                reuse
+            } else if let Some(ref explicit_id) = set_session_id {
+                // Validate the caller-provided session ID.
+                let validated = match SessionId::new(explicit_id) {
+                    Ok(sid) => sid,
+                    Err(_) => {
+                        return ActionResult::fatal(
+                            "invalid_session_id",
+                            format!(
+                                "invalid session id '{explicit_id}': must match ^[a-z][a-z0-9-]{{1,63}}$"
+                            ),
+                            "use lowercase letters, digits, and hyphens (e.g. 'research-google')",
+                        );
+                    }
+                };
+                // Check for conflicts with existing sessions.
+                if registry.contains(&validated) {
+                    return ActionResult::fatal(
+                        "session_id_conflict",
+                        format!("session id '{explicit_id}' is already in use"),
+                        "choose a different --set-session-id or omit it to auto-generate",
+                    );
+                }
+                validated
+            } else if explicit_profile {
+                // Profile-based ID: try "profile", then "profile-2", "profile-3", ...
+                let mut suffix = 0u32;
+                loop {
+                    let candidate = SessionId::from_profile(&profile_name, suffix);
+                    if !registry.contains(&candidate) {
+                        break candidate;
+                    }
+                    suffix += 1;
+                }
+            } else {
+                // No explicit profile — use local-N auto-generation.
+                // Loop to skip IDs already taken (e.g. by --set-session-id local-1).
+                loop {
+                    let candidate = registry.next_session_id();
+                    if !registry.contains(&candidate) {
+                        break candidate;
+                    }
+                }
+            };
+
             // Reserve a slot with state=Starting so concurrent requests see it.
-            let id = reuse_id.unwrap_or_else(|| registry.next_session_id());
             let (placeholder_tx, _placeholder_rx) = tokio::sync::mpsc::channel(1);
             let placeholder = SessionHandle {
                 tx: placeholder_tx,
@@ -246,7 +305,7 @@ impl Router {
                 tab_count: 0,
                 created_at: std::time::Instant::now(),
             };
-            registry.register(id, placeholder);
+            registry.register(id.clone(), placeholder);
             id
         }; // lock released — backend start can proceed without holding it.
 
@@ -266,7 +325,7 @@ impl Router {
                 match factory.start(spec).await {
                     Ok(b) => b,
                     Err(e) => {
-                        self.registry.lock().await.remove(session_id);
+                        self.registry.lock().await.remove(&session_id);
                         return ActionResult::fatal(
                             "backend_start_failed",
                             format!("failed to start browser: {e}"),
@@ -283,7 +342,7 @@ impl Router {
                 match factory.attach(spec).await {
                     Ok(b) => b,
                     Err(e) => {
-                        self.registry.lock().await.remove(session_id);
+                        self.registry.lock().await.remove(&session_id);
                         return ActionResult::fatal(
                             "backend_attach_failed",
                             format!("failed to connect to extension: {e}"),
@@ -297,7 +356,7 @@ impl Router {
                 let ws_url = match cdp_endpoint {
                     Some(ep) => ep,
                     None => {
-                        self.registry.lock().await.remove(session_id);
+                        self.registry.lock().await.remove(&session_id);
                         return ActionResult::fatal(
                             "missing_cdp_endpoint",
                             "cloud mode requires a CDP endpoint (internal error: should have been caught earlier)",
@@ -312,7 +371,7 @@ impl Router {
                 match factory.attach(spec).await {
                     Ok(b) => b,
                     Err(e) => {
-                        self.registry.lock().await.remove(session_id);
+                        self.registry.lock().await.remove(&session_id);
                         return ActionResult::fatal(
                             "backend_attach_failed",
                             format!("failed to connect to cloud browser: {e}"),
@@ -332,7 +391,7 @@ impl Router {
             .map(|t| t.target_id.clone())
             .collect();
 
-        let (tx, _join_handle) = SessionActor::spawn(session_id, backend, targets);
+        let (tx, _join_handle) = SessionActor::spawn(session_id.clone(), backend, targets);
 
         // Upgrade the placeholder to a real session handle.
         let mut registry = self.registry.lock().await;
@@ -345,7 +404,7 @@ impl Router {
             tab_count: tab_ids.len(),
             created_at: std::time::Instant::now(),
         };
-        registry.register(session_id, handle);
+        registry.register(session_id.clone(), handle);
 
         info!(
             "started session {session_id} ({mode}) with {} tab(s)",
@@ -361,11 +420,11 @@ impl Router {
         // recorded the pre-navigation URL from target discovery.
         if let Some(ref url) = open_url_for_registry {
             let goto = Action::Goto {
-                session: session_id,
+                session: session_id.clone(),
                 tab: TabId(0),
                 url: url.clone(),
             };
-            let _ = self.forward_to_session(session_id, goto).await;
+            let _ = self.forward_to_session(&session_id, goto).await;
         }
 
         ActionResult::ok(serde_json::json!({
@@ -380,7 +439,7 @@ impl Router {
         // 1. Retrieve session metadata before closing.
         let (profile, mode, headless) = {
             let registry = self.registry.lock().await;
-            match registry.get(session_id) {
+            match registry.get(&session_id) {
                 Some(h) => (h.profile.clone(), h.mode, h.headless),
                 None => {
                     return ActionResult::fatal(
@@ -395,9 +454,9 @@ impl Router {
         // 2. Close the existing session via the actor.
         let close_result = self
             .forward_to_session(
-                session_id,
+                &session_id,
                 Action::CloseSession {
-                    session: session_id,
+                    session: session_id.clone(),
                 },
             )
             .await;
@@ -408,7 +467,7 @@ impl Router {
         // 3. Remove from registry (frees the profile for re-use).
         {
             let mut registry = self.registry.lock().await;
-            registry.remove(session_id);
+            registry.remove(&session_id);
         }
 
         // 4. Start a new session with the same profile/mode, reusing the original ID.
@@ -420,6 +479,7 @@ impl Router {
             None,
             None,
             Some(session_id),
+            None,
         )
         .await
     }
@@ -467,7 +527,7 @@ impl Router {
                         let mut rng = rand::thread_rng();
                         format!("{:016x}{:016x}", rng.gen::<u64>(), rng.gen::<u64>())
                     },
-                    id: s.id,
+                    id: s.id.clone(),
                     mode: s.mode,
                     profile: s.profile.clone(),
                     tabs: vec![], // Tab details require actor query — omitted for now.
@@ -482,7 +542,7 @@ impl Router {
     }
 
     /// Forward an action to the session actor via its channel.
-    async fn forward_to_session(&self, session_id: SessionId, action: Action) -> ActionResult {
+    async fn forward_to_session(&self, session_id: &SessionId, action: Action) -> ActionResult {
         // Clone the sender and release the lock immediately — never hold the
         // mutex across an await point (send can block if the channel is full).
         let tx = {
@@ -622,8 +682,8 @@ mod tests {
         let registry = Arc::new(Mutex::new(SessionRegistry::new()));
         {
             let mut reg = registry.lock().await;
-            let h1 = spawn_mock_session(SessionId(0));
-            let h2 = spawn_mock_session(SessionId(1));
+            let h1 = spawn_mock_session(SessionId::new_unchecked("local-1"));
+            let h2 = spawn_mock_session(SessionId::new_unchecked("local-2"));
             reg.register_session(h1);
             reg.register_session(h2);
         }
@@ -634,8 +694,8 @@ mod tests {
             ActionResult::Ok { data } => {
                 let sessions = data["sessions"].as_array().unwrap();
                 assert_eq!(sessions.len(), 2);
-                assert_eq!(sessions[0]["id"], "s0");
-                assert_eq!(sessions[1]["id"], "s1");
+                assert_eq!(sessions[0]["id"], "local-1");
+                assert_eq!(sessions[1]["id"], "local-2");
             }
             _ => panic!("expected Ok"),
         }
@@ -646,7 +706,7 @@ mod tests {
         let registry = Arc::new(Mutex::new(SessionRegistry::new()));
         let router = Router::new(registry);
         let action = Action::Goto {
-            session: SessionId(99),
+            session: SessionId::new_unchecked("nonexistent"),
             tab: TabId(0),
             url: "https://example.com".into(),
         };
@@ -665,13 +725,13 @@ mod tests {
         let registry = Arc::new(Mutex::new(SessionRegistry::new()));
         {
             let mut reg = registry.lock().await;
-            let handle = spawn_mock_session(SessionId(0));
+            let handle = spawn_mock_session(SessionId::new_unchecked("local-1"));
             reg.register_session(handle);
         }
         let router = Router::new(registry);
 
         let action = Action::ListTabs {
-            session: SessionId(0),
+            session: SessionId::new_unchecked("local-1"),
         };
         let result = router.route(action).await;
         assert!(result.is_ok());
@@ -706,7 +766,7 @@ mod tests {
         let router = Router::new(registry);
 
         let action = Action::ListTabs {
-            session: SessionId(0),
+            session: SessionId::new_unchecked("local-1"),
         };
         let result = router.route(action).await;
         match result {
@@ -787,12 +847,13 @@ mod tests {
                 open_url: None,
                 cdp_endpoint: None,
                 ws_headers: None,
+                set_session_id: None,
             })
             .await;
         assert!(result.is_ok(), "expected Ok, got: {result:?}");
         match result {
             ActionResult::Ok { data } => {
-                assert_eq!(data["session_id"], "s0");
+                assert_eq!(data["session_id"], "local-1");
             }
             _ => panic!("expected Ok"),
         }
@@ -809,12 +870,13 @@ mod tests {
                 open_url: None,
                 cdp_endpoint: None,
                 ws_headers: None,
+                set_session_id: None,
             })
             .await;
         assert!(result.is_ok(), "expected Ok, got: {result:?}");
         match result {
             ActionResult::Ok { data } => {
-                assert_eq!(data["session_id"], "s0");
+                assert_eq!(data["session_id"], "local-1");
             }
             _ => panic!("expected Ok"),
         }
@@ -831,12 +893,13 @@ mod tests {
                 open_url: None,
                 cdp_endpoint: Some("wss://cloud.example.com/browser".into()),
                 ws_headers: None,
+                set_session_id: None,
             })
             .await;
         assert!(result.is_ok(), "expected Ok, got: {result:?}");
         match result {
             ActionResult::Ok { data } => {
-                assert_eq!(data["session_id"], "s0");
+                assert_eq!(data["session_id"], "local-1");
             }
             _ => panic!("expected Ok"),
         }
@@ -853,6 +916,7 @@ mod tests {
                 open_url: None,
                 cdp_endpoint: None,
                 ws_headers: None,
+                set_session_id: None,
             })
             .await;
         match result {
@@ -876,6 +940,7 @@ mod tests {
                 open_url: None,
                 cdp_endpoint: None,
                 ws_headers: None,
+                set_session_id: None,
             })
             .await;
         match result {
@@ -883,6 +948,53 @@ mod tests {
                 assert_eq!(code, "no_backend_factory");
             }
             _ => panic!("expected Fatal, got: {result:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn auto_generate_skips_occupied_ids() {
+        let router = make_multi_factory_router();
+
+        // First: explicitly claim "local-1" via --set-session-id with an explicit profile
+        // to avoid the 1-profile-1-session constraint on the next auto-generate call.
+        let result = router
+            .route(Action::StartSession {
+                mode: Mode::Local,
+                profile: Some("custom".into()),
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+                ws_headers: None,
+                set_session_id: Some("local-1".into()),
+            })
+            .await;
+        assert!(
+            result.is_ok(),
+            "explicit local-1 should succeed: {result:?}"
+        );
+
+        // Second: auto-generate (no explicit profile, no set_session_id).
+        // Should skip "local-1" (already taken) and get "local-2".
+        let result = router
+            .route(Action::StartSession {
+                mode: Mode::Local,
+                profile: None,
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+                ws_headers: None,
+                set_session_id: None,
+            })
+            .await;
+        assert!(result.is_ok(), "auto-generate should succeed: {result:?}");
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(
+                    data["session_id"], "local-2",
+                    "auto-generate should skip occupied local-1 and use local-2"
+                );
+            }
+            _ => panic!("expected Ok"),
         }
     }
 }

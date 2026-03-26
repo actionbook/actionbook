@@ -312,7 +312,8 @@ mod tests {
                 url: "https://test.com".into(),
                 attached: false,
             }];
-            let (tx, _join) = SessionActor::spawn(SessionId(0), backend, targets);
+            let (tx, _join) =
+                SessionActor::spawn(SessionId::new_unchecked("local-1"), backend, targets);
             reg.register_session(SessionHandle {
                 tx,
                 profile: "test".into(),
@@ -367,7 +368,7 @@ mod tests {
         let req = Request::new(
             42,
             Action::ListTabs {
-                session: SessionId(0),
+                session: SessionId::new_unchecked("local-1"),
             },
         );
         let frame = wire::encode_frame(&req).unwrap();
@@ -402,7 +403,7 @@ mod tests {
         let req = Request::new(
             7,
             Action::ListTabs {
-                session: SessionId(99),
+                session: SessionId::new_unchecked("nonexistent-session"),
             },
         );
         let frame = wire::encode_frame(&req).unwrap();

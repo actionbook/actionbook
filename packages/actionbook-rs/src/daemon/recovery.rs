@@ -84,7 +84,7 @@ fn plan_single_session(session: &PersistedSession) -> SessionRecoveryAction {
         },
     };
     SessionRecoveryAction {
-        session_id: session.id,
+        session_id: session.id.clone(),
         action,
     }
 }
@@ -175,7 +175,7 @@ mod tests {
     fn local_session(id: u32, pid: u32) -> PersistedSession {
         PersistedSession {
             uuid: format!("uuid-local-{id}"),
-            id: SessionId(id),
+            id: SessionId::auto_generate(id),
             mode: Mode::Local,
             profile: "default".into(),
             tabs: vec![],
@@ -190,7 +190,7 @@ mod tests {
     fn extension_session(id: u32) -> PersistedSession {
         PersistedSession {
             uuid: format!("uuid-ext-{id}"),
-            id: SessionId(id),
+            id: SessionId::auto_generate(id),
             mode: Mode::Extension,
             profile: "ext".into(),
             tabs: vec![],
@@ -204,7 +204,7 @@ mod tests {
     fn cloud_session(id: u32) -> PersistedSession {
         PersistedSession {
             uuid: format!("uuid-cloud-{id}"),
-            id: SessionId(id),
+            id: SessionId::auto_generate(id),
             mode: Mode::Cloud,
             profile: "work".into(),
             tabs: vec![],
@@ -230,7 +230,7 @@ mod tests {
         let session = local_session(0, 999_999_999);
         let plan = plan_recovery(&[session]);
         assert_eq!(plan.actions.len(), 1);
-        assert_eq!(plan.actions[0].session_id, SessionId(0));
+        assert_eq!(plan.actions[0].session_id, SessionId::auto_generate(0));
         match &plan.actions[0].action {
             RecoveryAction::MarkLost { reason } => {
                 assert!(
@@ -308,7 +308,7 @@ mod tests {
         // Artificially create a mode/checkpoint mismatch.
         let bad = PersistedSession {
             uuid: "uuid-bad".into(),
-            id: SessionId(99),
+            id: SessionId::new_unchecked("mismatched-99"),
             mode: Mode::Local,
             profile: "default".into(),
             tabs: vec![],

@@ -38,7 +38,7 @@ fn nav_goto_and_verify_url() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -55,7 +55,7 @@ fn nav_goto_and_verify_url() {
             "goto",
             "https://example.org",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -70,7 +70,7 @@ fn nav_goto_and_verify_url() {
             "eval",
             "window.location.href",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -84,7 +84,7 @@ fn nav_goto_and_verify_url() {
     );
 
     // Close
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -120,7 +120,7 @@ fn nav_goto_seq_two_urls() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -137,7 +137,7 @@ fn nav_goto_seq_two_urls() {
             "goto",
             "https://example.org",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -151,7 +151,7 @@ fn nav_goto_seq_two_urls() {
             "eval",
             "window.location.href",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -171,7 +171,7 @@ fn nav_goto_seq_two_urls() {
             "goto",
             "https://httpbin.org",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -185,7 +185,7 @@ fn nav_goto_seq_two_urls() {
             "eval",
             "window.location.href",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -198,7 +198,7 @@ fn nav_goto_seq_two_urls() {
         stdout_str(&out)
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -236,7 +236,7 @@ fn nav_goto_s1t2_cross_tab() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -247,7 +247,10 @@ fn nav_goto_s1t2_cross_tab() {
     assert_success(&out, "wait for page load");
 
     // Open example.org in a new tab (t1)
-    let out = headless(&["browser", "open", "https://example.org", "-s", "s0"], 30);
+    let out = headless(
+        &["browser", "open", "https://example.org", "-s", "local-1"],
+        30,
+    );
     assert_success(&out, "open t1");
 
     // Navigate t1 to httpbin.org
@@ -257,7 +260,7 @@ fn nav_goto_s1t2_cross_tab() {
             "goto",
             "https://httpbin.org",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t1",
         ],
@@ -272,7 +275,7 @@ fn nav_goto_s1t2_cross_tab() {
             "eval",
             "window.location.href",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t1",
         ],
@@ -292,7 +295,7 @@ fn nav_goto_s1t2_cross_tab() {
             "eval",
             "window.location.href",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -305,7 +308,7 @@ fn nav_goto_s1t2_cross_tab() {
         stdout_str(&out)
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -342,7 +345,7 @@ fn nav_back_forward() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -359,7 +362,7 @@ fn nav_back_forward() {
             "goto",
             "https://example.org",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -374,7 +377,7 @@ fn nav_back_forward() {
             "goto",
             "https://httpbin.org",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -383,7 +386,7 @@ fn nav_back_forward() {
     assert_success(&out, "goto httpbin.org");
 
     // Back — should return to example.org
-    let out = headless(&["browser", "back", "-s", "s0", "-t", "t0"], 30);
+    let out = headless(&["browser", "back", "-s", "local-1", "-t", "t0"], 30);
     assert_success(&out, "back");
 
     let out = headless(
@@ -392,7 +395,7 @@ fn nav_back_forward() {
             "eval",
             "window.location.href",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -406,7 +409,7 @@ fn nav_back_forward() {
     );
 
     // Forward — should return to httpbin.org
-    let out = headless(&["browser", "forward", "-s", "s0", "-t", "t0"], 30);
+    let out = headless(&["browser", "forward", "-s", "local-1", "-t", "t0"], 30);
     assert_success(&out, "forward");
 
     let out = headless(
@@ -415,7 +418,7 @@ fn nav_back_forward() {
             "eval",
             "window.location.href",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -428,7 +431,7 @@ fn nav_back_forward() {
         stdout_str(&out)
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -464,7 +467,7 @@ fn nav_reload() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -481,7 +484,7 @@ fn nav_reload() {
             "goto",
             "https://example.org",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -496,7 +499,7 @@ fn nav_reload() {
             "eval",
             "window.__test_marker = 42",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -511,7 +514,7 @@ fn nav_reload() {
             "eval",
             "window.__test_marker",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -525,7 +528,7 @@ fn nav_reload() {
     );
 
     // Reload the page — marker should be cleared
-    let out = headless(&["browser", "reload", "-s", "s0", "-t", "t0"], 30);
+    let out = headless(&["browser", "reload", "-s", "local-1", "-t", "t0"], 30);
     assert_success(&out, "reload");
 
     // Verify marker is gone (should be undefined/null)
@@ -535,7 +538,7 @@ fn nav_reload() {
             "eval",
             "typeof window.__test_marker",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -549,6 +552,6 @@ fn nav_reload() {
         marker_output
     );
 
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }

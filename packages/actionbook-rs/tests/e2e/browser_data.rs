@@ -41,7 +41,7 @@ fn cookies_set_get_delete() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -53,7 +53,7 @@ fn cookies_set_get_delete() {
 
     // Set cookie
     let out = headless_json(
-        &["browser", "cookies", "set", "test", "val", "-s", "s0"],
+        &["browser", "cookies", "set", "test", "val", "-s", "local-1"],
         10,
     );
     assert_success(&out, "cookies set");
@@ -62,26 +62,29 @@ fn cookies_set_get_delete() {
     assert_eq!(json["data"]["affected"], 1);
 
     // Get cookie — should contain "val"
-    let out = headless_json(&["browser", "cookies", "get", "test", "-s", "s0"], 10);
+    let out = headless_json(&["browser", "cookies", "get", "test", "-s", "local-1"], 10);
     assert_success(&out, "cookies get after set");
     let json = parse_json_output(&out);
     assert_eq!(json["data"]["item"]["name"], "test");
     assert_eq!(json["data"]["item"]["value"], "val");
 
     // Delete cookie
-    let out = headless_json(&["browser", "cookies", "delete", "test", "-s", "s0"], 10);
+    let out = headless_json(
+        &["browser", "cookies", "delete", "test", "-s", "local-1"],
+        10,
+    );
     assert_success(&out, "cookies delete");
     let json = parse_json_output(&out);
     assert_eq!(json["data"]["action"], "delete");
     assert_eq!(json["data"]["affected"], 1);
 
     // Get cookie after delete — should not contain "val"
-    let out = headless_json(&["browser", "cookies", "get", "test", "-s", "s0"], 10);
+    let out = headless_json(&["browser", "cookies", "get", "test", "-s", "local-1"], 10);
     let json = parse_json_output(&out);
     assert!(json["data"]["item"].is_null(), "cookie should be deleted");
 
     // Close session
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -115,7 +118,7 @@ fn cookies_list_and_clear() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -134,7 +137,7 @@ fn cookies_list_and_clear() {
             "x",
             "y",
             "-s",
-            "s0",
+            "local-1",
             "--domain",
             "example.com",
         ],
@@ -149,7 +152,7 @@ fn cookies_list_and_clear() {
             "cookies",
             "list",
             "-s",
-            "s0",
+            "local-1",
             "--domain",
             "example.com",
         ],
@@ -171,7 +174,7 @@ fn cookies_list_and_clear() {
             "cookies",
             "clear",
             "-s",
-            "s0",
+            "local-1",
             "--domain",
             "example.com",
         ],
@@ -190,7 +193,7 @@ fn cookies_list_and_clear() {
             "cookies",
             "list",
             "-s",
-            "s0",
+            "local-1",
             "--domain",
             "example.com",
         ],
@@ -206,7 +209,7 @@ fn cookies_list_and_clear() {
     );
 
     // Close session
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -240,7 +243,7 @@ fn cookies_s1t2_shared() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -251,7 +254,10 @@ fn cookies_s1t2_shared() {
     assert_success(&out, "wait for page load");
 
     // Create a second tab by opening a URL on s0
-    let out = headless(&["browser", "open", "https://example.com", "-s", "s0"], 30);
+    let out = headless(
+        &["browser", "open", "https://example.com", "-s", "local-1"],
+        30,
+    );
     assert_success(&out, "create second tab");
 
     // Navigate second tab to a different page
@@ -261,7 +267,7 @@ fn cookies_s1t2_shared() {
             "goto",
             "https://example.com/page2",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t1",
         ],
@@ -278,7 +284,7 @@ fn cookies_s1t2_shared() {
             "shared",
             "cookieval",
             "-s",
-            "s0",
+            "local-1",
         ],
         10,
     );
@@ -287,13 +293,16 @@ fn cookies_s1t2_shared() {
     assert_eq!(json["data"]["action"], "set");
 
     // Get cookie — cookies are session-level so should be visible
-    let out = headless_json(&["browser", "cookies", "get", "shared", "-s", "s0"], 10);
+    let out = headless_json(
+        &["browser", "cookies", "get", "shared", "-s", "local-1"],
+        10,
+    );
     assert_success(&out, "cookies get");
     let json = parse_json_output(&out);
     assert_eq!(json["data"]["item"]["value"], "cookieval");
 
     // Close session
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -329,7 +338,7 @@ fn storage_local_set_get() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -348,7 +357,7 @@ fn storage_local_set_get() {
             "mykey",
             "myval",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -364,7 +373,7 @@ fn storage_local_set_get() {
             "get",
             "mykey",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -378,7 +387,7 @@ fn storage_local_set_get() {
     );
 
     // Close session
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -412,7 +421,7 @@ fn storage_local_list_delete_clear() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -431,7 +440,7 @@ fn storage_local_list_delete_clear() {
             "lskey",
             "lsval",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -441,7 +450,15 @@ fn storage_local_list_delete_clear() {
 
     // List — should contain our key
     let out = headless(
-        &["browser", "local-storage", "list", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "local-storage",
+            "list",
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "local-storage list");
@@ -459,7 +476,7 @@ fn storage_local_list_delete_clear() {
             "delete",
             "lskey",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -469,7 +486,15 @@ fn storage_local_list_delete_clear() {
 
     // List after delete — should not contain the key
     let out = headless(
-        &["browser", "local-storage", "list", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "local-storage",
+            "list",
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "local-storage list after delete");
@@ -488,7 +513,7 @@ fn storage_local_list_delete_clear() {
             "extra",
             "val",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -504,7 +529,7 @@ fn storage_local_list_delete_clear() {
             "clear",
             "extra",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -514,7 +539,15 @@ fn storage_local_list_delete_clear() {
 
     // Verify clear worked — list should not contain "extra"
     let out = headless(
-        &["browser", "local-storage", "list", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "local-storage",
+            "list",
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "local-storage list after clear");
@@ -525,7 +558,7 @@ fn storage_local_list_delete_clear() {
     );
 
     // Close session
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -561,7 +594,7 @@ fn storage_session_roundtrip() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -580,7 +613,7 @@ fn storage_session_roundtrip() {
             "sk",
             "sv",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -596,7 +629,7 @@ fn storage_session_roundtrip() {
             "get",
             "sk",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -610,7 +643,7 @@ fn storage_session_roundtrip() {
     );
 
     // Close session
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -644,7 +677,7 @@ fn storage_session_list_delete_clear() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -663,7 +696,7 @@ fn storage_session_list_delete_clear() {
             "sskey",
             "ssval",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -673,7 +706,15 @@ fn storage_session_list_delete_clear() {
 
     // List — should contain our key
     let out = headless(
-        &["browser", "session-storage", "list", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "session-storage",
+            "list",
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "session-storage list");
@@ -691,7 +732,7 @@ fn storage_session_list_delete_clear() {
             "delete",
             "sskey",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -701,7 +742,15 @@ fn storage_session_list_delete_clear() {
 
     // List after delete — should not contain the key
     let out = headless(
-        &["browser", "session-storage", "list", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "session-storage",
+            "list",
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "session-storage list after delete");
@@ -720,7 +769,7 @@ fn storage_session_list_delete_clear() {
             "ssextra",
             "ssval2",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -736,7 +785,7 @@ fn storage_session_list_delete_clear() {
             "clear",
             "extra",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -746,7 +795,15 @@ fn storage_session_list_delete_clear() {
 
     // Verify clear worked
     let out = headless(
-        &["browser", "session-storage", "list", "-s", "s0", "-t", "t0"],
+        &[
+            "browser",
+            "session-storage",
+            "list",
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
+        ],
         10,
     );
     assert_success(&out, "session-storage list after clear");
@@ -757,7 +814,7 @@ fn storage_session_list_delete_clear() {
     );
 
     // Close session
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
 
@@ -793,7 +850,7 @@ fn storage_s1t2_isolation() {
             "condition",
             "document.readyState === 'complete'",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
             "--timeout",
@@ -804,7 +861,10 @@ fn storage_s1t2_isolation() {
     assert_success(&out, "wait for page load");
 
     // Create a second tab by opening a URL on s0
-    let out = headless(&["browser", "open", "https://example.com", "-s", "s0"], 30);
+    let out = headless(
+        &["browser", "open", "https://example.com", "-s", "local-1"],
+        30,
+    );
     assert_success(&out, "create second tab");
 
     // Navigate second tab to a different page
@@ -814,7 +874,7 @@ fn storage_s1t2_isolation() {
             "goto",
             "https://example.com/page2",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t1",
         ],
@@ -831,7 +891,7 @@ fn storage_s1t2_isolation() {
             "crosskey",
             "crossval",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t0",
         ],
@@ -848,7 +908,7 @@ fn storage_s1t2_isolation() {
             "get",
             "crosskey",
             "-s",
-            "s0",
+            "local-1",
             "-t",
             "t1",
         ],
@@ -863,6 +923,6 @@ fn storage_s1t2_isolation() {
     );
 
     // Close session
-    let out = headless(&["browser", "close", "-s", "s0"], 30);
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
     assert_success(&out, "close");
 }
