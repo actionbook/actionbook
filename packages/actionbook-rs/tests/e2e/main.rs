@@ -18,4 +18,5 @@ mod browser_navigation;
 mod browser_observation;
 mod browser_tab;
 mod browser_waiting;
+mod contract;
 mod harness;
