@@ -152,6 +152,7 @@ mod tests {
                 headless: false,
                 open_url: None,
                 cdp_endpoint: None,
+                ws_headers: None,
             },
         );
         let frame = encode_frame(&req).unwrap();

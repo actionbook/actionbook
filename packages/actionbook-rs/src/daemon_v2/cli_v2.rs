@@ -813,6 +813,7 @@ fn build_action(cmd: BrowserCmd) -> Result<Action, String> {
                 headless,
                 open_url,
                 cdp_endpoint,
+                ws_headers: None,
             }
         }
         BrowserCmd::ListSessions => Action::ListSessions,

@@ -90,7 +90,9 @@ impl BrowserBackendFactory for LocalBackendFactory {
                     target_id: page_target.target_id.clone(),
                     url: url.clone(),
                 };
-                let _ = session.exec(op).await;
+                if let Err(e) = session.exec(op).await {
+                    tracing::warn!(url, "failed to navigate to open_url: {e}");
+                }
             }
         }
 
@@ -272,15 +274,24 @@ impl BackendSession for LocalBackendSession {
             .unwrap_or_else(|_| reqwest::Client::new());
 
         match client.get(&url).send().await {
-            Ok(resp) => {
-                let info: serde_json::Value = resp.json().await.unwrap_or_default();
-                let version = info["Browser"].as_str().map(|s| s.to_string());
-                Ok(Health {
-                    connected: true,
-                    browser_version: version,
-                    uptime_secs: None,
-                })
-            }
+            Ok(resp) => match resp.json::<serde_json::Value>().await {
+                Ok(info) => {
+                    let version = info["Browser"].as_str().map(|s| s.to_string());
+                    Ok(Health {
+                        connected: true,
+                        browser_version: version,
+                        uptime_secs: None,
+                    })
+                }
+                Err(e) => {
+                    tracing::debug!("health check: failed to parse JSON: {e}");
+                    Ok(Health {
+                        connected: false,
+                        browser_version: None,
+                        uptime_secs: None,
+                    })
+                }
+            },
             Err(_) => Ok(Health {
                 connected: false,
                 browser_version: None,

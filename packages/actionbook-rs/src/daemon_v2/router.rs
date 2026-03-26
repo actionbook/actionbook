@@ -79,6 +79,7 @@ impl Router {
                 headless,
                 open_url,
                 cdp_endpoint,
+                ws_headers,
             } => {
                 self.handle_start_session(
                     *mode,
@@ -86,6 +87,7 @@ impl Router {
                     *headless,
                     open_url.clone(),
                     cdp_endpoint.clone(),
+                    ws_headers.clone(),
                 )
                 .await
             }
@@ -147,6 +149,7 @@ impl Router {
         headless: bool,
         open_url: Option<String>,
         cdp_endpoint: Option<String>,
+        ws_headers: Option<HashMap<String, String>>,
     ) -> ActionResult {
         let factory = match self.factories.get(&mode) {
             Some(f) => Arc::clone(f),
@@ -240,9 +243,20 @@ impl Router {
                 }
             }
             Mode::Cloud => {
+                // cdp_endpoint is validated above; use expect for clarity.
+                let ws_url = match cdp_endpoint {
+                    Some(ep) => ep,
+                    None => {
+                        return ActionResult::fatal(
+                            "missing_cdp_endpoint",
+                            "cloud mode requires a CDP endpoint (internal error: should have been caught earlier)",
+                            "pass --cdp-endpoint wss://... when using --mode cloud",
+                        );
+                    }
+                };
                 let spec = AttachSpec {
-                    ws_url: cdp_endpoint.unwrap(), // validated above
-                    headers: None, // TODO: support auth headers via CLI/action
+                    ws_url,
+                    headers: ws_headers,
                 };
                 match factory.attach(spec).await {
                     Ok(b) => b,
@@ -312,21 +326,35 @@ impl Router {
         let summaries = registry.list_sessions();
         let sessions: Vec<PersistedSession> = summaries
             .iter()
-            .map(|s| PersistedSession {
-                uuid: {
-                    use rand::Rng;
-                    let mut rng = rand::thread_rng();
-                    format!("{:016x}{:016x}", rng.gen::<u64>(), rng.gen::<u64>())
-                },
-                id: s.id,
-                mode: s.mode,
-                profile: s.profile.clone(),
-                tabs: vec![], // Tab details require actor query — omitted for now.
-                checkpoint: BackendCheckpoint::Local(LocalCheckpoint {
-                    pid: 0,
-                    ws_url: String::new(),
-                    user_data_dir: String::new(),
-                }),
+            .map(|s| {
+                let checkpoint = match s.mode {
+                    Mode::Local => BackendCheckpoint::Local(LocalCheckpoint {
+                        pid: 0,
+                        ws_url: String::new(),
+                        user_data_dir: String::new(),
+                    }),
+                    Mode::Extension => BackendCheckpoint::Extension(ExtensionCheckpoint {
+                        bridge_port: 0,
+                        extension_id: String::new(),
+                    }),
+                    Mode::Cloud => BackendCheckpoint::Cloud(CloudCheckpoint {
+                        wss_endpoint: String::new(),
+                        auth_headers: HashMap::new(),
+                        resume_token: None,
+                    }),
+                };
+                PersistedSession {
+                    uuid: {
+                        use rand::Rng;
+                        let mut rng = rand::thread_rng();
+                        format!("{:016x}{:016x}", rng.gen::<u64>(), rng.gen::<u64>())
+                    },
+                    id: s.id,
+                    mode: s.mode,
+                    profile: s.profile.clone(),
+                    tabs: vec![], // Tab details require actor query — omitted for now.
+                    checkpoint,
+                }
             })
             .collect();
         DaemonStateFile {
@@ -644,6 +672,7 @@ mod tests {
                 headless: false,
                 open_url: None,
                 cdp_endpoint: None,
+                ws_headers: None,
             })
             .await;
         assert!(result.is_ok(), "expected Ok, got: {result:?}");
@@ -665,6 +694,7 @@ mod tests {
                 headless: false,
                 open_url: None,
                 cdp_endpoint: None,
+                ws_headers: None,
             })
             .await;
         assert!(result.is_ok(), "expected Ok, got: {result:?}");
@@ -686,6 +716,7 @@ mod tests {
                 headless: false,
                 open_url: None,
                 cdp_endpoint: Some("wss://cloud.example.com/browser".into()),
+                ws_headers: None,
             })
             .await;
         assert!(result.is_ok(), "expected Ok, got: {result:?}");
@@ -707,6 +738,7 @@ mod tests {
                 headless: false,
                 open_url: None,
                 cdp_endpoint: None,
+                ws_headers: None,
             })
             .await;
         match result {
@@ -729,6 +761,7 @@ mod tests {
                 headless: false,
                 open_url: None,
                 cdp_endpoint: None,
+                ws_headers: None,
             })
             .await;
         match result {

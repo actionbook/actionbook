@@ -238,7 +238,11 @@ async fn wait_for_extension_connect(
                         let reject = tokio_tungstenite::tungstenite::http::Response::builder()
                             .status(tokio_tungstenite::tungstenite::http::StatusCode::UNAUTHORIZED)
                             .body(Some("Invalid token".to_string()))
-                            .unwrap();
+                            .unwrap_or_else(|_| {
+                                tokio_tungstenite::tungstenite::http::Response::new(
+                                    Some("Invalid token".to_string()),
+                                )
+                            });
                         Err(reject)
                     }
                 },

@@ -541,6 +541,7 @@ async fn e2e_start_extension_session_mock() {
             headless: false,
             open_url: None,
             cdp_endpoint: None,
+            ws_headers: None,
         },
     )
     .await;
@@ -575,6 +576,7 @@ async fn e2e_start_cloud_session_mock() {
             headless: false,
             open_url: None,
             cdp_endpoint: Some("wss://mock-cloud.example.com/browser".into()),
+            ws_headers: None,
         },
     )
     .await;
@@ -613,6 +615,7 @@ async fn e2e_multi_mode_sessions() {
             headless: true,
             open_url: None,
             cdp_endpoint: None,
+            ws_headers: None,
         },
     )
     .await;
@@ -627,6 +630,7 @@ async fn e2e_multi_mode_sessions() {
             headless: false,
             open_url: None,
             cdp_endpoint: Some("wss://mock.example.com/browser".into()),
+            ws_headers: None,
         },
     )
     .await;
@@ -665,6 +669,7 @@ async fn e2e_cloud_requires_endpoint() {
             headless: false,
             open_url: None,
             cdp_endpoint: None,
+            ws_headers: None,
         },
         "missing_cdp_endpoint",
     )
@@ -690,6 +695,7 @@ async fn e2e_extension_single_session_constraint() {
             headless: false,
             open_url: None,
             cdp_endpoint: None,
+            ws_headers: None,
         },
     )
     .await;
@@ -704,6 +710,7 @@ async fn e2e_extension_single_session_constraint() {
             headless: false,
             open_url: None,
             cdp_endpoint: None,
+            ws_headers: None,
         },
         "extension_session_exists",
     )
@@ -744,6 +751,7 @@ async fn e2e_start_goto_snapshot_close() {
             headless: true,
             open_url: Some("https://example.com".into()),
             cdp_endpoint: None,
+            ws_headers: None,
         },
     )
     .await;

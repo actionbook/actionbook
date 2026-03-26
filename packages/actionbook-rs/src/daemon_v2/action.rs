@@ -40,6 +40,9 @@ pub enum Action {
         /// CDP endpoint for Cloud mode.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cdp_endpoint: Option<String>,
+        /// Optional WS auth headers (Cloud mode).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ws_headers: Option<std::collections::HashMap<String, String>>,
     },
 
     /// Close an existing session and its browser.
@@ -646,6 +649,7 @@ mod tests {
             headless: true,
             open_url: Some("https://example.com".into()),
             cdp_endpoint: None,
+            ws_headers: None,
         };
         let json = serde_json::to_string(&action).unwrap();
         assert!(json.contains(r#""type":"StartSession""#));
