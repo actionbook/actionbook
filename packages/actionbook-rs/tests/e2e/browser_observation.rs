@@ -386,6 +386,7 @@ fn obs_pdf_produces_file() {
     }
     let _guard = SessionGuard::new();
 
+    // Use about:blank to avoid network dependency
     let out = headless(
         &[
             "browser",
@@ -394,29 +395,26 @@ fn obs_pdf_produces_file() {
             "local",
             "--headless",
             "--open-url",
-            "https://example.com",
+            "about:blank",
         ],
         30,
     );
     assert_success(&out, "start");
 
-    // Wait for page to fully load
+    // Inject minimal HTML so PDF has content to render
     let out = headless(
         &[
             "browser",
-            "wait",
-            "condition",
-            "document.readyState === 'complete'",
+            "eval",
+            &set_body_html_js("<h1>PDF Test</h1><p>Content for PDF generation test.</p>"),
             "-s",
             "s0",
             "-t",
             "t0",
-            "--timeout",
-            "5000",
         ],
-        30,
+        10,
     );
-    assert_success(&out, "wait for page load");
+    assert_success(&out, "inject PDF content");
 
     let tmp = tempfile::Builder::new()
         .suffix(".pdf")
@@ -673,6 +671,7 @@ fn obs_eval_dom() {
     }
     let _guard = SessionGuard::new();
 
+    // Use about:blank to avoid network dependency
     let out = headless(
         &[
             "browser",
@@ -681,29 +680,26 @@ fn obs_eval_dom() {
             "local",
             "--headless",
             "--open-url",
-            "https://example.com",
+            "about:blank",
         ],
         30,
     );
     assert_success(&out, "start");
 
-    // Wait for page to fully load
+    // Set a known title via eval
     let out = headless(
         &[
             "browser",
-            "wait",
-            "condition",
-            "document.readyState === 'complete'",
+            "eval",
+            "document.title = 'Test Title'",
             "-s",
             "s0",
             "-t",
             "t0",
-            "--timeout",
-            "5000",
         ],
-        30,
+        10,
     );
-    assert_success(&out, "wait for page load");
+    assert_success(&out, "eval set title");
 
     let out = headless(
         &["browser", "eval", "document.title", "-s", "s0", "-t", "t0"],
@@ -711,8 +707,8 @@ fn obs_eval_dom() {
     );
     assert_success(&out, "eval document.title");
     assert!(
-        stdout_str(&out).contains("Example Domain"),
-        "eval document.title should contain 'Example Domain', got: {}",
+        stdout_str(&out).contains("Test Title"),
+        "eval document.title should contain 'Test Title', got: {}",
         stdout_str(&out)
     );
 
@@ -1620,6 +1616,7 @@ fn obs_console_logs() {
     }
     let _guard = SessionGuard::new();
 
+    // Use about:blank — no network needed for console log testing
     let out = headless(
         &[
             "browser",
@@ -1628,29 +1625,11 @@ fn obs_console_logs() {
             "local",
             "--headless",
             "--open-url",
-            "https://example.com",
+            "about:blank",
         ],
         30,
     );
     assert_success(&out, "start");
-
-    // Wait for page to fully load
-    let out = headless(
-        &[
-            "browser",
-            "wait",
-            "condition",
-            "document.readyState === 'complete'",
-            "-s",
-            "s0",
-            "-t",
-            "t0",
-            "--timeout",
-            "5000",
-        ],
-        30,
-    );
-    assert_success(&out, "wait for page load");
 
     // Emit a console.log message
     let out = headless(
@@ -1667,13 +1646,19 @@ fn obs_console_logs() {
     );
     assert_success(&out, "eval console.log");
 
-    // Brief delay to let the browser process the console message
-    std::thread::sleep(std::time::Duration::from_millis(1000));
-
-    // Retrieve console logs
-    let out = headless(&["browser", "logs-console", "-s", "s0", "-t", "t0"], 10);
-    assert_success(&out, "logs console");
-    let logs = stdout_str(&out);
+    // Poll for console logs (up to 3s) instead of fixed sleep
+    let mut logs = String::new();
+    for attempt in 0..6 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        let out = headless(&["browser", "logs-console", "-s", "s0", "-t", "t0"], 10);
+        assert_success(&out, "logs console");
+        logs = stdout_str(&out);
+        if logs.contains("actionbook-test-log-marker") {
+            break;
+        }
+    }
     assert!(
         logs.contains("actionbook-test-log-marker"),
         "console logs should contain the logged message, got: {}",
@@ -1695,6 +1680,7 @@ fn obs_error_logs() {
     }
     let _guard = SessionGuard::new();
 
+    // Use about:blank — no network needed for error log testing
     let out = headless(
         &[
             "browser",
@@ -1703,29 +1689,11 @@ fn obs_error_logs() {
             "local",
             "--headless",
             "--open-url",
-            "https://example.com",
+            "about:blank",
         ],
         30,
     );
     assert_success(&out, "start");
-
-    // Wait for page to fully load
-    let out = headless(
-        &[
-            "browser",
-            "wait",
-            "condition",
-            "document.readyState === 'complete'",
-            "-s",
-            "s0",
-            "-t",
-            "t0",
-            "--timeout",
-            "5000",
-        ],
-        30,
-    );
-    assert_success(&out, "wait for page load");
 
     // Emit a console.error message
     let out = headless(
@@ -1742,13 +1710,19 @@ fn obs_error_logs() {
     );
     assert_success(&out, "eval console.error");
 
-    // Brief delay to let the browser process the console message
-    std::thread::sleep(std::time::Duration::from_millis(1000));
-
-    // Retrieve error logs
-    let out = headless(&["browser", "logs-errors", "-s", "s0", "-t", "t0"], 10);
-    assert_success(&out, "logs errors");
-    let logs = stdout_str(&out);
+    // Poll for error logs (up to 3s) instead of fixed sleep
+    let mut logs = String::new();
+    for attempt in 0..6 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        let out = headless(&["browser", "logs-errors", "-s", "s0", "-t", "t0"], 10);
+        assert_success(&out, "logs errors");
+        logs = stdout_str(&out);
+        if logs.contains("actionbook-test-error-marker") {
+            break;
+        }
+    }
     assert!(
         logs.contains("actionbook-test-error-marker"),
         "error logs should contain the error message, got: {}",
