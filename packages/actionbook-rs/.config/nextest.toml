@@ -1,6 +1,6 @@
 [profile.ci]
-# Fail fast on CI
-fail-fast = true
+# Run all tests even if some fail, so JUnit XML has full results
+fail-fast = false
 
 [profile.ci.junit]
 # Output JUnit XML for CI test reporting

@@ -38,6 +38,7 @@ jobs:
       - name: Run all unit & integration tests
         working-directory: packages/actionbook-rs
         run: |
+          set -o pipefail
           cargo nextest run --lib --test cli_test --test cdp_message_parsing --profile ci 2>&1 | tee unit-test-output.txt
 
       - name: Test summary
@@ -117,6 +118,7 @@ jobs:
         env:
           RUN_E2E_TESTS: "true"
         run: |
+          set -o pipefail
           cargo nextest run --test e2e --test-threads=1 --profile ci 2>&1 | tee e2e-test-output.txt
 
       - name: Test summary
