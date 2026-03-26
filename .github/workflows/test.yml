@@ -85,6 +85,7 @@ jobs:
 
   e2e-tests:
     name: E2E Tests
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -227,7 +228,7 @@ jobs:
     name: Allure Report
     runs-on: ubuntu-latest
     needs: [unit-tests, e2e-tests]
-    if: always()
+    if: always() && github.event_name == 'push'
     timeout-minutes: 5
     permissions:
       contents: write
