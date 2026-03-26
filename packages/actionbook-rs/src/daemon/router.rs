@@ -153,6 +153,7 @@ impl Router {
     /// Uses a placeholder reservation to prevent TOCTOU races: a `Starting`
     /// entry is inserted under the registry lock before any await, so
     /// concurrent StartSession requests see the reservation and fail.
+    #[allow(clippy::too_many_arguments)]
     async fn handle_start_session(
         &self,
         mode: Mode,
