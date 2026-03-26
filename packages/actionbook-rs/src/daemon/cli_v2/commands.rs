@@ -96,6 +96,9 @@ pub(crate) enum QueryCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// Query mode: css, xpath, or text
+        #[arg(long, value_enum, default_value = "css")]
+        mode: CliQueryMode,
     },
     /// Query all matching elements
     All {
@@ -105,6 +108,9 @@ pub(crate) enum QueryCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// Query mode: css, xpath, or text
+        #[arg(long, value_enum, default_value = "css")]
+        mode: CliQueryMode,
     },
     /// Count matching elements
     Count {
@@ -114,6 +120,9 @@ pub(crate) enum QueryCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// Query mode: css, xpath, or text
+        #[arg(long, value_enum, default_value = "css")]
+        mode: CliQueryMode,
     },
     /// Query the nth matching element (1-based)
     Nth {
@@ -125,6 +134,9 @@ pub(crate) enum QueryCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// Query mode: css, xpath, or text
+        #[arg(long, value_enum, default_value = "css")]
+        mode: CliQueryMode,
     },
 }
 
