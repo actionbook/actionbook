@@ -257,15 +257,37 @@ jobs:
           ref: gh-pages
           path: gh-pages
 
+      - name: Set up Java
+        if: always()
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install Allure CLI
+        if: always()
+        run: |
+          curl -sL https://github.com/allure-framework/allure2/releases/download/2.32.0/allure-2.32.0.tgz | tar -xz
+          echo "$PWD/allure-2.32.0/bin" >> $GITHUB_PATH
+
       - name: Build Allure Report
-        uses: simple-elf/allure-report-action@v1.9
+        if: always()
+        run: |
+          # Copy previous history if available
+          if [ -d gh-pages/history ]; then
+            cp -r gh-pages/history allure-results/history
+          fi
+          allure generate allure-results -o allure-report --clean
+          # Prepare publish directory with history
+          mkdir -p allure-history
+          cp -r allure-report/* allure-history/
+
+      - name: Upload Allure Report
+        uses: actions/upload-artifact@v4
         if: always()
         with:
-          allure_results: allure-results
-          allure_report: allure-report
-          gh_pages: gh-pages
-          allure_history: allure-history
-          keep_reports: 20
+          name: allure-report
+          path: allure-report
 
       - name: Deploy to GitHub Pages
         if: always() && github.event_name == 'push'
@@ -280,4 +302,6 @@ jobs:
         run: |
           echo "## Allure Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📊 [View Allure Report](https://actionbook.github.io/actionbook/)" >> $GITHUB_STEP_SUMMARY
+          echo "📊 **[View Allure Report](https://actionbook.github.io/actionbook/)** (available after GitHub Pages is enabled)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "💾 Or download the report artifact from this run's Artifacts section" >> $GITHUB_STEP_SUMMARY
