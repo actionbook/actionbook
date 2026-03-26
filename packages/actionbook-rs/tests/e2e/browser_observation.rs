@@ -5,7 +5,9 @@
 //! Uses daemon v2 CLI format with --session and --tab addressing.
 //! Each test is self-contained: start -> operate -> assert -> close.
 
-use crate::harness::{assert_success, headless, headless_json, skip, stdout_str};
+use crate::harness::{
+    assert_success, ensure_no_sessions, headless, headless_json, skip, stdout_str,
+};
 
 /// Extract the snapshot content from the JSON output, stripping envelope
 /// metadata (tab_id, url, etc.) so that two snapshots can be compared by
@@ -35,6 +37,7 @@ fn obs_snapshot_has_content() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -72,6 +75,7 @@ fn obs_snapshot_interactive() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -121,6 +125,7 @@ fn obs_snapshot_s1t2_different() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Start with example.com on t0
     let out = headless(
@@ -173,6 +178,7 @@ fn obs_snapshot_seq_reflects_goto() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -235,6 +241,7 @@ fn obs_screenshot_file() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -287,6 +294,7 @@ fn obs_pdf_produces_file() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -331,6 +339,7 @@ fn obs_title() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -368,6 +377,7 @@ fn obs_url() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -405,6 +415,7 @@ fn obs_viewport() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -443,6 +454,7 @@ fn obs_eval_arithmetic() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -479,6 +491,7 @@ fn obs_eval_dom() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -518,6 +531,7 @@ fn obs_html_element() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -555,6 +569,7 @@ fn obs_text_element() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -592,6 +607,7 @@ fn obs_value_input() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     // Use a page that has an input element; inject one via eval on example.com
     let out = headless(
@@ -664,6 +680,7 @@ fn obs_attr_single() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -705,6 +722,7 @@ fn obs_attrs_all() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -760,6 +778,7 @@ fn obs_box_position() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -798,6 +817,7 @@ fn obs_styles_computed() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -835,6 +855,7 @@ fn obs_describe_element() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -873,6 +894,7 @@ fn obs_state_element() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -911,6 +933,7 @@ fn obs_inspect_point() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -965,6 +988,7 @@ fn obs_query_one() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -1006,6 +1030,7 @@ fn obs_query_all() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -1047,6 +1072,7 @@ fn obs_query_count() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -1097,6 +1123,7 @@ fn obs_query_nth() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -1140,6 +1167,7 @@ fn obs_console_logs() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
@@ -1193,6 +1221,7 @@ fn obs_error_logs() {
     if skip() {
         return;
     }
+    ensure_no_sessions();
 
     let out = headless(
         &[
