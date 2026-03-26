@@ -229,6 +229,8 @@ enum BrowserCmd {
 
     /// Fill an input field (set value directly)
     Fill {
+        /// CSS selector of target element
+        selector: String,
         /// Value to fill
         text: String,
         /// Session ID (e.g. s0)
@@ -237,8 +239,6 @@ enum BrowserCmd {
         /// Tab ID (e.g. t0)
         #[arg(short = 't', long)]
         tab: TabId,
-        /// CSS selector of target element
-        selector: Option<String>,
     },
 
     /// Evaluate JavaScript in the page context
@@ -288,6 +288,31 @@ enum BrowserCmd {
         tab: TabId,
     },
 
+    /// Get the outer HTML of an element
+    Html {
+        /// CSS selector
+        selector: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
+    /// Get the inner text of an element
+    #[command(name = "text")]
+    TextCmd {
+        /// CSS selector
+        selector: String,
+        /// Session ID (e.g. s0)
+        #[arg(short = 's', long)]
+        session: SessionId,
+        /// Tab ID (e.g. t0)
+        #[arg(short = 't', long)]
+        tab: TabId,
+    },
+
     /// Get the value of an input element
     Value {
         /// CSS selector
@@ -305,7 +330,6 @@ enum BrowserCmd {
         /// CSS selector
         selector: String,
         /// Attribute name
-        #[arg(long)]
         name: String,
         /// Session ID (e.g. s0)
         #[arg(short = 's', long)]
@@ -980,14 +1004,14 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             text,
         },
         BrowserCmd::Fill {
+            selector,
             text,
             session,
             tab,
-            selector,
         } => Action::Fill {
             session,
             tab,
-            selector: selector.unwrap_or_default(),
+            selector,
             value: text,
         },
         BrowserCmd::Eval { code, session, tab } => Action::Eval {
@@ -1004,6 +1028,24 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
         },
         BrowserCmd::Title { session, tab } => Action::Title { session, tab },
         BrowserCmd::Url { session, tab } => Action::Url { session, tab },
+        BrowserCmd::Html {
+            selector,
+            session,
+            tab,
+        } => Action::Html {
+            session,
+            tab,
+            selector: Some(selector),
+        },
+        BrowserCmd::TextCmd {
+            selector,
+            session,
+            tab,
+        } => Action::Text {
+            session,
+            tab,
+            selector: Some(selector),
+        },
         BrowserCmd::Value {
             selector,
             session,
