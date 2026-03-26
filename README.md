@@ -21,13 +21,10 @@ so your agent operates any website instantly without guessing.
 ## Table of Contents
 
 - [Why Actionbook?](#why-actionbook)
-- [Featured Skill](#featured-skill-active-research)
 - [Quick Start](#quick-start)
 - [Example Use Cases](#example-use-cases)
 - [Integration Options](#integration-options)
 - [Follow the Build](#follow-the-build)
-- [Contributing](#contributing)
-- [License](#license)
 
 ## Why Actionbook?
 
@@ -53,26 +50,6 @@ See how Actionbook enables an agent to complete an Airbnb search task 10x faster
 
 https://github.com/user-attachments/assets/9f896fe7-296a-44b3-8592-931a099612de
 
-## Featured Skill: `active-research`
-
-For X/Twitter research workflows, the most representative Actionbook skill is [`active-research`](./skills/active-research/SKILL.md).
-
-It combines verified selectors, real browser automation, and structured report generation to research a live topic end to end.
-
-### Demo: Analyze an X/Twitter Timeline
-
-You can use Claude Code with Actionbook to operate the browser on X/Twitter, collect timeline activity and engagement signals, and turn the result into a structured summary.
-
-https://github.com/user-attachments/assets/4705364e-02bc-48b2-956c-c806df746ad1
-
-Example prompt:
-
-```text
-Use active-research to analyze today's X timeline activity around a topic and summarize the main themes.
-```
-
-By starting from Actionbook's verified selectors and action manuals instead of guessing the DOM, the agent can complete this workflow more accurately and reliably.
-
 ## Quick Start
 
 Get started with Actionbook in under 2 minutes:
@@ -91,7 +68,14 @@ curl -fsSL https://actionbook.dev/install.sh | bash
 irm https://actionbook.dev/install.ps1 | iex
 ```
 
-### 2. Add one or more skills to your agent
+### 2. Try it with your agent
+
+Ask your agent to use Actionbook:
+```text
+Use Actionbook CLI to open arXiv Advanced Search, search "browser automation agent" in Abstract for the past 3 months, then summarize the first 3 results with title, authors, date, link, and a short abstract-based summary.
+```
+
+### 3. Add one or more skills to your agent
 
 ```bash
 npx skills add actionbook/actionbook
@@ -99,13 +83,19 @@ npx skills add actionbook/actionbook
 
 Skill support list:
 
-- `actionbook`: the core browser-operation workflow. Best for browsing posts on X/Twitter and Reddit, collecting post and comment data, filling email flows and complex forms, and handling general page operations with less selector guesswork.
-- `active-research`: a deep research workflow for multi-source browsing, structured collection, and long-form report generation.
-- `extract`: a data extraction workflow that uses Actionbook selectors first, then generates a reusable Playwright script and structured output such as JSON or CSV.
+- `actionbook`: core skill for browser automation, complex page extraction, and form filling.
+- `active-research`: research skill for multi-source browsing, structured collection, and long-form reporting.
+- `extract`: extraction skill for selector-first workflows, reusable Playwright scripts, and JSON/CSV output.
 
 ## Example Use Cases
 
-Actionbook playgrounds in this repo:
+### Demo: Analyze an X/Twitter Timeline
+
+Use Actionbook with Claude Code to operate X/Twitter, collect timeline activity and engagement signals, and turn the results into a structured summary. This works well for tracking a topic, reviewing an account, or understanding what happened on a live timeline.
+
+https://github.com/user-attachments/assets/e5e74e77-9669-4710-870c-06e9a84a5492
+
+### Other Use Cases:
 
 - [`arxiv-viewer`](./playground/arxiv-viewer): search, read, and analyze arXiv papers with a hybrid API + browser workflow
 - [`lib-rs-scraper`](./playground/lib-rs-scraper): scrape lib.rs using Actionbook-verified selectors
