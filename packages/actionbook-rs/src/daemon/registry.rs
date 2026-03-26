@@ -69,6 +69,8 @@ pub struct SessionHandle {
     pub profile: String,
     /// Backend mode (Local/Extension/Cloud).
     pub mode: Mode,
+    /// Whether this session was started in headless mode.
+    pub headless: bool,
     /// Current lifecycle state.
     pub state: SessionState,
     /// Number of tabs in this session (updated by the actor via callback).
@@ -232,6 +234,7 @@ mod tests {
             tx,
             profile: profile.into(),
             mode,
+            headless: false,
             state: SessionState::Ready,
             tab_count: 0,
             created_at: Instant::now(),

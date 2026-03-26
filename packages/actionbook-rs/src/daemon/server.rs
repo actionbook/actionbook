@@ -317,6 +317,7 @@ mod tests {
                 tx,
                 profile: "test".into(),
                 mode: Mode::Local,
+                headless: false,
                 state: SessionState::Ready,
                 tab_count: 1,
                 created_at: Instant::now(),

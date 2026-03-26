@@ -394,6 +394,12 @@ async fn handle_goto(
         Err(r) => return r,
     };
 
+    let from_url = regs
+        .tabs
+        .get(&tab)
+        .map(|e| e.url.clone())
+        .unwrap_or_default();
+
     let op = BackendOp::Navigate {
         target_id: target_id.to_string(),
         url: url.to_string(),
@@ -405,7 +411,12 @@ async fn handle_goto(
             if let Some(entry) = regs.tabs.get_mut(&tab) {
                 entry.url = url.to_string();
             }
-            ActionResult::ok(json!({"navigated": url}))
+            ActionResult::ok(json!({
+                "kind": "goto",
+                "requested_url": url,
+                "from_url": from_url,
+                "to_url": url,
+            }))
         }
         Err(e) => cdp_error_to_result(e),
     }
@@ -413,7 +424,7 @@ async fn handle_goto(
 
 async fn handle_history(
     backend: &mut dyn BackendSession,
-    regs: &Registries,
+    regs: &mut Registries,
     session_id: SessionId,
     tab: TabId,
     direction: &str,
@@ -423,6 +434,12 @@ async fn handle_history(
         Err(r) => return r,
     };
 
+    let from_url = regs
+        .tabs
+        .get(&tab)
+        .map(|e| e.url.clone())
+        .unwrap_or_default();
+
     let op = BackendOp::Evaluate {
         target_id: target_id.to_string(),
         expression: format!("history.{direction}()"),
@@ -430,7 +447,28 @@ async fn handle_history(
     };
 
     match backend.exec(op).await {
-        Ok(_) => ActionResult::ok(json!({"navigated": direction})),
+        Ok(_) => {
+            // Update the tab registry URL after navigation.
+            let mut to_url = from_url.clone();
+            let url_op = BackendOp::Evaluate {
+                target_id: target_id.to_string(),
+                expression: "window.location.href".to_string(),
+                return_by_value: true,
+            };
+            if let Ok(url_val) = backend.exec(url_op).await {
+                if let Some(url) = url_val.value.as_str() {
+                    to_url = url.to_string();
+                    if let Some(entry) = regs.tabs.get_mut(&tab) {
+                        entry.url = url.to_string();
+                    }
+                }
+            }
+            ActionResult::ok(json!({
+                "kind": direction,
+                "from_url": from_url,
+                "to_url": to_url,
+            }))
+        }
         Err(e) => cdp_error_to_result(e),
     }
 }
@@ -438,13 +476,19 @@ async fn handle_history(
 async fn handle_reload(
     session_id: SessionId,
     backend: &mut dyn BackendSession,
-    regs: &Registries,
+    regs: &mut Registries,
     tab: TabId,
 ) -> ActionResult {
     let target_id = match resolve_tab(session_id, regs, tab) {
         Ok(t) => t,
         Err(r) => return r,
     };
+
+    let from_url = regs
+        .tabs
+        .get(&tab)
+        .map(|e| e.url.clone())
+        .unwrap_or_default();
 
     let op = BackendOp::Evaluate {
         target_id: target_id.to_string(),
@@ -453,7 +497,28 @@ async fn handle_reload(
     };
 
     match backend.exec(op).await {
-        Ok(_) => ActionResult::ok(json!({"reloaded": true})),
+        Ok(_) => {
+            // Update the tab registry URL after reload (URL may have changed due to redirects).
+            let mut to_url = from_url.clone();
+            let url_op = BackendOp::Evaluate {
+                target_id: target_id.to_string(),
+                expression: "window.location.href".to_string(),
+                return_by_value: true,
+            };
+            if let Ok(url_val) = backend.exec(url_op).await {
+                if let Some(url) = url_val.value.as_str() {
+                    to_url = url.to_string();
+                    if let Some(entry) = regs.tabs.get_mut(&tab) {
+                        entry.url = url.to_string();
+                    }
+                }
+            }
+            ActionResult::ok(json!({
+                "kind": "reload",
+                "from_url": from_url,
+                "to_url": to_url,
+            }))
+        }
         Err(e) => cdp_error_to_result(e),
     }
 }
@@ -1885,16 +1950,15 @@ fn handle_list_tabs(regs: &Registries) -> ActionResult {
         .values()
         .map(|t| {
             json!({
-                "id": t.id.to_string(),
-                "target_id": t.target_id,
-                "window": t.window.to_string(),
+                "tab_id": t.id.to_string(),
                 "url": t.url,
                 "title": t.title,
             })
         })
         .collect();
-    tabs.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
-    ActionResult::ok(json!({"tabs": tabs}))
+    tabs.sort_by(|a, b| a["tab_id"].as_str().cmp(&b["tab_id"].as_str()));
+    let total_tabs = tabs.len();
+    ActionResult::ok(json!({"total_tabs": total_tabs, "tabs": tabs}))
 }
 
 fn handle_list_windows(regs: &Registries) -> ActionResult {
@@ -2022,7 +2086,7 @@ async fn handle_close_tab(
                     win.tabs.retain(|t| *t != tab);
                 }
             }
-            ActionResult::ok(json!({"closed_tab": tab.to_string()}))
+            ActionResult::ok(json!({"closed_tab_id": tab.to_string()}))
         }
         Err(e) => cdp_error_to_result(e),
     }
@@ -3309,8 +3373,9 @@ mod tests {
             ActionResult::Ok { data } => {
                 let tabs = data["tabs"].as_array().unwrap();
                 assert_eq!(tabs.len(), 1);
-                assert_eq!(tabs[0]["id"], "t0");
+                assert_eq!(tabs[0]["tab_id"], "t0");
                 assert_eq!(tabs[0]["url"], "https://example.com");
+                assert_eq!(data["total_tabs"], 1);
             }
             _ => panic!("expected Ok"),
         }
