@@ -1,5 +1,71 @@
 use super::*;
 
+const ENSURE_LOG_CAPTURE_JS: &str = r#"(function() {
+    if (!window.__ab_console_logs) {
+        window.__ab_console_logs = [];
+        const orig = {
+            log: console.log,
+            warn: console.warn,
+            info: console.info,
+            debug: console.debug,
+            error: console.error
+        };
+        for (const [level, fn] of Object.entries(orig)) {
+            console[level] = function(...args) {
+                window.__ab_console_logs.push({
+                    level,
+                    message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '),
+                    timestamp: Date.now()
+                });
+                fn.apply(console, args);
+            };
+        }
+    }
+    if (!window.__ab_error_logs) {
+        window.__ab_error_logs = [];
+        const origError = console.error;
+        console.error = function(...args) {
+            window.__ab_error_logs.push({
+                message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '),
+                timestamp: Date.now()
+            });
+            origError.apply(console, args);
+        };
+        window.addEventListener('error', function(e) {
+            window.__ab_error_logs.push({
+                message: e.message,
+                source: e.filename,
+                line: e.lineno,
+                col: e.colno,
+                timestamp: Date.now()
+            });
+        });
+        window.addEventListener('unhandledrejection', function(e) {
+            window.__ab_error_logs.push({
+                message: 'Unhandled rejection: ' + String(e.reason),
+                timestamp: Date.now()
+            });
+        });
+    }
+    return true;
+})()"#;
+
+async fn ensure_log_capture_initialized(
+    backend: &mut dyn BackendSession,
+    target_id: &str,
+) -> Result<(), ActionResult> {
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: ENSURE_LOG_CAPTURE_JS.to_string(),
+        return_by_value: true,
+    };
+
+    match backend.exec(op).await {
+        Ok(_) => Ok(()),
+        Err(e) => Err(cdp_error_to_result(e)),
+    }
+}
+
 pub(super) async fn handle_snapshot(
     session_id: SessionId,
     backend: &mut dyn BackendSession,
@@ -164,6 +230,10 @@ pub(super) async fn handle_eval(
         Ok(t) => t,
         Err(r) => return r,
     };
+
+    if let Err(result) = ensure_log_capture_initialized(backend, target_id).await {
+        return result;
+    }
 
     let op = BackendOp::Evaluate {
         target_id: target_id.to_string(),
@@ -893,7 +963,11 @@ pub(super) async fn handle_logs_console(
         Err(r) => return r,
     };
 
-    let js = r#"(function() { if (!window.__ab_console_logs) { window.__ab_console_logs = []; const orig = { log: console.log, warn: console.warn, info: console.info, debug: console.debug, error: console.error }; for (const [level, fn] of Object.entries(orig)) { console[level] = function(...args) { window.__ab_console_logs.push({ level, message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '), timestamp: Date.now() }); fn.apply(console, args); }; } } const logs = window.__ab_console_logs.slice(-200); window.__ab_console_logs = []; return logs; })()"#;
+    if let Err(result) = ensure_log_capture_initialized(backend, target_id).await {
+        return result;
+    }
+
+    let js = r#"(function() { if (!window.__ab_console_logs) { return []; } const logs = window.__ab_console_logs.slice(-200); window.__ab_console_logs = []; return logs; })()"#;
 
     let op = BackendOp::Evaluate {
         target_id: target_id.to_string(),
@@ -920,7 +994,11 @@ pub(super) async fn handle_logs_errors(
         Err(r) => return r,
     };
 
-    let js = r#"(function() { if (!window.__ab_error_logs) { window.__ab_error_logs = []; const origError = console.error; console.error = function(...args) { window.__ab_error_logs.push({ message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '), timestamp: Date.now() }); origError.apply(console, args); }; window.addEventListener('error', function(e) { window.__ab_error_logs.push({ message: e.message, source: e.filename, line: e.lineno, col: e.colno, timestamp: Date.now() }); }); window.addEventListener('unhandledrejection', function(e) { window.__ab_error_logs.push({ message: 'Unhandled rejection: ' + String(e.reason), timestamp: Date.now() }); }); } const errors = window.__ab_error_logs.slice(-200); window.__ab_error_logs = []; return errors; })()"#;
+    if let Err(result) = ensure_log_capture_initialized(backend, target_id).await {
+        return result;
+    }
+
+    let js = r#"(function() { if (!window.__ab_error_logs) { return []; } const errors = window.__ab_error_logs.slice(-200); window.__ab_error_logs = []; return errors; })()"#;
 
     let op = BackendOp::Evaluate {
         target_id: target_id.to_string(),
