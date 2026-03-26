@@ -6,7 +6,8 @@
 //! Each test is self-contained: start -> operate -> assert -> close.
 
 use crate::harness::{
-    append_body_html_js, assert_success, headless, headless_json, skip, stdout_str, SessionGuard,
+    append_body_html_js, assert_success, headless, headless_json, set_body_html_js, skip, stdout_str,
+    SessionGuard,
 };
 
 /// Extract the snapshot content from the JSON output, stripping envelope
