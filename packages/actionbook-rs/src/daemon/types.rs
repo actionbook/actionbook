@@ -544,4 +544,45 @@ mod tests {
         assert!(id2.as_str().ends_with("-3"), "got: {}", id2.as_str());
         assert_ne!(id1.as_str(), id2.as_str());
     }
+
+    #[test]
+    fn query_mode_and_cardinality_display() {
+        assert_eq!(QueryMode::Css.to_string(), "css");
+        assert_eq!(QueryMode::Xpath.to_string(), "xpath");
+        assert_eq!(QueryMode::Text.to_string(), "text");
+
+        assert_eq!(QueryCardinality::One.to_string(), "one");
+        assert_eq!(QueryCardinality::All.to_string(), "all");
+        assert_eq!(QueryCardinality::Count.to_string(), "count");
+        assert_eq!(QueryCardinality::Nth.to_string(), "nth");
+    }
+
+    #[test]
+    fn storage_kind_and_same_site_display() {
+        assert_eq!(StorageKind::Local.to_string(), "local");
+        assert_eq!(StorageKind::Session.to_string(), "session");
+        assert_eq!(SameSite::Strict.to_string(), "Strict");
+        assert_eq!(SameSite::Lax.to_string(), "Lax");
+        assert_eq!(SameSite::None.to_string(), "None");
+    }
+
+    #[test]
+    fn parse_errors_display_expected_messages() {
+        let missing_tab_prefix = "x3".parse::<TabId>().unwrap_err();
+        assert_eq!(missing_tab_prefix.to_string(), "expected prefix 't'");
+
+        let invalid_tab_number = "tab".parse::<TabId>().unwrap_err();
+        assert!(invalid_tab_number
+            .to_string()
+            .starts_with("invalid number:"));
+
+        let missing_window_prefix = "q1".parse::<WindowId>().unwrap_err();
+        assert_eq!(missing_window_prefix.to_string(), "expected prefix 'w'");
+
+        let invalid_session = SessionId::new("bad session").unwrap_err();
+        assert_eq!(
+            invalid_session.to_string(),
+            "invalid session id 'bad session': must match ^[a-z][a-z0-9-]{1,63}$"
+        );
+    }
 }

@@ -827,6 +827,68 @@ mod tests {
         }
     }
 
+    struct FailingFactory {
+        mode: Mode,
+        start_error: Option<&'static str>,
+        attach_error: Option<&'static str>,
+    }
+
+    impl FailingFactory {
+        fn local_start(error: &'static str) -> Self {
+            Self {
+                mode: Mode::Local,
+                start_error: Some(error),
+                attach_error: None,
+            }
+        }
+
+        fn attach(mode: Mode, error: &'static str) -> Self {
+            Self {
+                mode,
+                start_error: None,
+                attach_error: Some(error),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl BrowserBackendFactory for FailingFactory {
+        fn kind(&self) -> BackendKind {
+            match self.mode {
+                Mode::Local => BackendKind::Local,
+                Mode::Extension => BackendKind::Extension,
+                Mode::Cloud => BackendKind::Cloud,
+            }
+        }
+
+        fn capabilities(&self) -> Capabilities {
+            Capabilities {
+                can_launch: self.mode == Mode::Local,
+                can_attach: true,
+                can_resume: self.mode != Mode::Extension,
+                supports_headless: self.mode != Mode::Extension,
+            }
+        }
+
+        async fn start(&self, _spec: StartSpec) -> crate::error::Result<Box<dyn BackendSession>> {
+            match self.start_error {
+                Some(message) => Err(crate::error::ActionbookError::Other(message.into())),
+                None => Ok(Box::new(MockBackend)),
+            }
+        }
+
+        async fn attach(&self, _spec: AttachSpec) -> crate::error::Result<Box<dyn BackendSession>> {
+            match self.attach_error {
+                Some(message) => Err(crate::error::ActionbookError::Other(message.into())),
+                None => Ok(Box::new(MockBackend)),
+            }
+        }
+
+        async fn resume(&self, _cp: Checkpoint) -> crate::error::Result<Box<dyn BackendSession>> {
+            Ok(Box::new(MockBackend))
+        }
+    }
+
     fn make_multi_factory_router() -> Router {
         let registry = Arc::new(Mutex::new(SessionRegistry::new()));
         let mut factories: HashMap<Mode, Arc<dyn BrowserBackendFactory>> = HashMap::new();
@@ -857,6 +919,15 @@ mod tests {
             }
             _ => panic!("expected Ok"),
         }
+    }
+
+    #[test]
+    fn with_factory_registers_local_backend() {
+        let registry = Arc::new(Mutex::new(SessionRegistry::new()));
+        let router = Router::with_factory(registry, Arc::new(MockFactory::new(Mode::Local)));
+        assert!(router.factories.contains_key(&Mode::Local));
+        assert!(!router.factories.contains_key(&Mode::Extension));
+        assert!(!router.factories.contains_key(&Mode::Cloud));
     }
 
     #[tokio::test]
@@ -996,5 +1067,304 @@ mod tests {
             }
             _ => panic!("expected Ok"),
         }
+    }
+
+    #[tokio::test]
+    async fn close_session_removes_registry_entry() {
+        let registry = Arc::new(Mutex::new(SessionRegistry::new()));
+        {
+            let mut reg = registry.lock().await;
+            reg.register_session(spawn_mock_session(SessionId::new_unchecked("local-1")));
+        }
+        let router = Router::new(registry.clone());
+        let result = router
+            .route(Action::CloseSession {
+                session: SessionId::new_unchecked("local-1"),
+            })
+            .await;
+        assert!(result.is_ok(), "close should succeed: {result:?}");
+        let reg = registry.lock().await;
+        assert!(reg.get(&SessionId::new_unchecked("local-1")).is_none());
+    }
+
+    #[tokio::test]
+    async fn restart_session_reuses_same_id() {
+        let router = make_multi_factory_router();
+        {
+            let mut reg = router.registry.lock().await;
+            reg.register_session(spawn_mock_session(SessionId::new_unchecked("local-1")));
+        }
+        let result = router
+            .route(Action::RestartSession {
+                session: SessionId::new_unchecked("local-1"),
+            })
+            .await;
+        match result {
+            ActionResult::Ok { data } => assert_eq!(data["session_id"], "local-1"),
+            _ => panic!("expected Ok, got: {result:?}"),
+        }
+        let reg = router.registry.lock().await;
+        let handle = reg
+            .get(&SessionId::new_unchecked("local-1"))
+            .expect("session should be recreated");
+        assert_eq!(handle.profile, "default");
+        assert_eq!(handle.mode, Mode::Local);
+    }
+
+    #[tokio::test]
+    async fn restart_session_missing_returns_fatal() {
+        let router = make_multi_factory_router();
+        let result = router
+            .route(Action::RestartSession {
+                session: SessionId::new_unchecked("local-1"),
+            })
+            .await;
+        match result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "session_not_found"),
+            _ => panic!("expected Fatal, got: {result:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn local_default_profile_rejects_second_session() {
+        let router = make_multi_factory_router();
+        let first = router
+            .route(Action::StartSession {
+                mode: Mode::Local,
+                profile: None,
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+                ws_headers: None,
+                set_session_id: None,
+            })
+            .await;
+        assert!(first.is_ok(), "first start should succeed: {first:?}");
+
+        let second = router
+            .route(Action::StartSession {
+                mode: Mode::Local,
+                profile: None,
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+                ws_headers: None,
+                set_session_id: None,
+            })
+            .await;
+        match second {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "session_exists"),
+            _ => panic!("expected Fatal, got: {second:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_profile_uses_collision_suffixes() {
+        let router = make_multi_factory_router();
+
+        let first = router
+            .route(Action::StartSession {
+                mode: Mode::Local,
+                profile: Some("work".into()),
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+                ws_headers: None,
+                set_session_id: None,
+            })
+            .await;
+        let second = router
+            .route(Action::StartSession {
+                mode: Mode::Local,
+                profile: Some("work".into()),
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+                ws_headers: None,
+                set_session_id: None,
+            })
+            .await;
+
+        match first {
+            ActionResult::Ok { data } => assert_eq!(data["session_id"], "work"),
+            _ => panic!("expected Ok, got: {first:?}"),
+        }
+        match second {
+            ActionResult::Ok { data } => assert_eq!(data["session_id"], "work-2"),
+            _ => panic!("expected Ok, got: {second:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn extension_mode_rejects_second_session() {
+        let router = make_multi_factory_router();
+        let first = router
+            .route(Action::StartSession {
+                mode: Mode::Extension,
+                profile: None,
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+                ws_headers: None,
+                set_session_id: None,
+            })
+            .await;
+        assert!(
+            first.is_ok(),
+            "first extension start should succeed: {first:?}"
+        );
+
+        let second = router
+            .route(Action::StartSession {
+                mode: Mode::Extension,
+                profile: None,
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+                ws_headers: None,
+                set_session_id: None,
+            })
+            .await;
+        match second {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "extension_session_exists"),
+            _ => panic!("expected Fatal, got: {second:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_session_id_must_be_valid() {
+        let router = make_multi_factory_router();
+        let result = router
+            .route(Action::StartSession {
+                mode: Mode::Local,
+                profile: Some("custom".into()),
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+                ws_headers: None,
+                set_session_id: Some("bad id".into()),
+            })
+            .await;
+        match result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "invalid_session_id"),
+            _ => panic!("expected Fatal, got: {result:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_session_id_rejects_conflicts() {
+        let router = make_multi_factory_router();
+        let first = router
+            .route(Action::StartSession {
+                mode: Mode::Local,
+                profile: Some("custom".into()),
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+                ws_headers: None,
+                set_session_id: Some("local-7".into()),
+            })
+            .await;
+        assert!(first.is_ok(), "first explicit id should succeed: {first:?}");
+
+        let second = router
+            .route(Action::StartSession {
+                mode: Mode::Local,
+                profile: Some("other".into()),
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+                ws_headers: None,
+                set_session_id: Some("local-7".into()),
+            })
+            .await;
+        match second {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "session_id_conflict"),
+            _ => panic!("expected Fatal, got: {second:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn local_start_failure_removes_placeholder() {
+        let registry = Arc::new(Mutex::new(SessionRegistry::new()));
+        let mut factories: HashMap<Mode, Arc<dyn BrowserBackendFactory>> = HashMap::new();
+        factories.insert(Mode::Local, Arc::new(FailingFactory::local_start("boom")));
+        let router = Router::with_factories(registry.clone(), factories);
+
+        let result = router
+            .route(Action::StartSession {
+                mode: Mode::Local,
+                profile: None,
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+                ws_headers: None,
+                set_session_id: None,
+            })
+            .await;
+        match result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "backend_start_failed"),
+            _ => panic!("expected Fatal, got: {result:?}"),
+        }
+        let reg = registry.lock().await;
+        assert!(reg.list_sessions().is_empty());
+    }
+
+    #[tokio::test]
+    async fn extension_attach_failure_removes_placeholder() {
+        let registry = Arc::new(Mutex::new(SessionRegistry::new()));
+        let mut factories: HashMap<Mode, Arc<dyn BrowserBackendFactory>> = HashMap::new();
+        factories.insert(
+            Mode::Extension,
+            Arc::new(FailingFactory::attach(Mode::Extension, "bridge down")),
+        );
+        let router = Router::with_factories(registry.clone(), factories);
+
+        let result = router
+            .route(Action::StartSession {
+                mode: Mode::Extension,
+                profile: None,
+                headless: false,
+                open_url: None,
+                cdp_endpoint: None,
+                ws_headers: None,
+                set_session_id: None,
+            })
+            .await;
+        match result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "backend_attach_failed"),
+            _ => panic!("expected Fatal, got: {result:?}"),
+        }
+        let reg = registry.lock().await;
+        assert!(reg.list_sessions().is_empty());
+    }
+
+    #[tokio::test]
+    async fn cloud_attach_failure_removes_placeholder() {
+        let registry = Arc::new(Mutex::new(SessionRegistry::new()));
+        let mut factories: HashMap<Mode, Arc<dyn BrowserBackendFactory>> = HashMap::new();
+        factories.insert(
+            Mode::Cloud,
+            Arc::new(FailingFactory::attach(Mode::Cloud, "cloud down")),
+        );
+        let router = Router::with_factories(registry.clone(), factories);
+
+        let result = router
+            .route(Action::StartSession {
+                mode: Mode::Cloud,
+                profile: None,
+                headless: false,
+                open_url: None,
+                cdp_endpoint: Some("wss://cloud.example.com/browser".into()),
+                ws_headers: None,
+                set_session_id: None,
+            })
+            .await;
+        match result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "backend_attach_failed"),
+            _ => panic!("expected Fatal, got: {result:?}"),
+        }
+        let reg = registry.lock().await;
+        assert!(reg.list_sessions().is_empty());
     }
 }

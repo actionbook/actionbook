@@ -758,11 +758,58 @@ mod tests {
     }
 
     #[test]
+    fn ok_scalar_values_use_plain_text() {
+        assert_eq!(format_result(&ActionResult::ok(json!(true))), "true");
+        assert_eq!(format_result(&ActionResult::ok(json!(42))), "42");
+    }
+
+    #[test]
     fn ok_object_pretty_printed() {
         let r = ActionResult::ok(json!({"title": "Example", "url": "https://example.com"}));
         let out = format_result(&r);
         assert!(out.contains("title"));
         assert!(out.contains("Example"));
+    }
+
+    #[test]
+    fn query_results_follow_text_contract() {
+        let count = format_result(&ActionResult::ok(json!({
+            "mode": "count",
+            "count": 3
+        })));
+        assert_eq!(count, "3");
+
+        let one = format_result(&ActionResult::ok(json!({
+            "mode": "one",
+            "count": 1,
+            "item": {
+                "selector": "#ready",
+                "text": "Ready",
+                "tag": "button"
+            }
+        })));
+        assert_eq!(one, "1 match\nselector: #ready\ntext: Ready\ntag: button");
+
+        let all = format_result(&ActionResult::ok(json!({
+            "mode": "all",
+            "count": 2,
+            "items": [
+                {"selector": "#first", "text": "First"},
+                {"selector": "#second", "text": ""}
+            ]
+        })));
+        assert_eq!(all, "2 matches\n1. #first\n   First\n2. #second");
+
+        let nth = format_result(&ActionResult::ok(json!({
+            "mode": "nth",
+            "count": 4,
+            "index": 2,
+            "item": {
+                "selector": "#picked",
+                "text": "Picked"
+            }
+        })));
+        assert_eq!(nth, "match 2/4\nselector: #picked\ntext: Picked");
     }
 
     #[test]
@@ -1095,6 +1142,48 @@ mod tests {
     #[test]
     fn command_names_follow_prd_namespace() {
         assert_eq!(
+            command_name(&Action::StartSession {
+                mode: Mode::Local,
+                profile: None,
+                headless: true,
+                open_url: None,
+                cdp_endpoint: None,
+                ws_headers: None,
+                set_session_id: None,
+            }),
+            "browser.start"
+        );
+        assert_eq!(
+            command_name(&Action::ListTabs {
+                session: SessionId::new_unchecked("local-1"),
+            }),
+            "browser.list-tabs"
+        );
+        assert_eq!(
+            command_name(&Action::CloseTab {
+                session: SessionId::new_unchecked("local-1"),
+                tab: crate::daemon::types::TabId(0),
+            }),
+            "browser.close-tab"
+        );
+        assert_eq!(
+            command_name(&Action::Open {
+                session: SessionId::new_unchecked("local-1"),
+                tab: crate::daemon::types::TabId(0),
+                url: "https://example.com".into(),
+            }),
+            "browser.open"
+        );
+        assert_eq!(
+            command_name(&Action::Snapshot {
+                session: SessionId::new_unchecked("local-1"),
+                tab: crate::daemon::types::TabId(0),
+                interactive: true,
+                compact: false,
+            }),
+            "browser.snapshot"
+        );
+        assert_eq!(
             command_name(&Action::WaitElement {
                 session: SessionId::new_unchecked("local-1"),
                 tab: crate::daemon::types::TabId(0),
@@ -1134,5 +1223,53 @@ mod tests {
             }),
             "browser.wait.network-idle"
         );
+        assert_eq!(
+            command_name(&Action::MouseMove {
+                session: SessionId::new_unchecked("local-1"),
+                tab: crate::daemon::types::TabId(0),
+                x: 10.0,
+                y: 20.0,
+            }),
+            "browser.mouse-move"
+        );
+        assert_eq!(
+            command_name(&Action::CursorPosition {
+                session: SessionId::new_unchecked("local-1"),
+                tab: crate::daemon::types::TabId(0),
+            }),
+            "browser.cursor-position"
+        );
+        assert_eq!(
+            command_name(&Action::WaitNavigation {
+                session: SessionId::new_unchecked("local-1"),
+                tab: crate::daemon::types::TabId(0),
+                timeout_ms: Some(1000),
+            }),
+            "browser.wait.navigation"
+        );
+    }
+
+    #[test]
+    fn prefix_for_action_uses_session_and_tab_when_available() {
+        let session_action = Action::ListTabs {
+            session: SessionId::new_unchecked("local-1"),
+        };
+        assert_eq!(
+            prefix_for_action(&session_action).as_deref(),
+            Some("[local-1]")
+        );
+
+        let tab_action = Action::MouseMove {
+            session: SessionId::new_unchecked("local-1"),
+            tab: crate::daemon::types::TabId(2),
+            x: 1.5,
+            y: 3.5,
+        };
+        assert_eq!(
+            prefix_for_action(&tab_action).as_deref(),
+            Some("[local-1 t2]")
+        );
+
+        assert_eq!(prefix_for_action(&Action::ListSessions), None);
     }
 }
