@@ -1014,15 +1014,11 @@ fn format_tab_nav_text(action: &Action, result: &ActionResult) -> Option<String>
             | Action::Forward { tab, .. }
             | Action::Reload { tab, .. } => {
                 let to_url = data.get("to_url").and_then(|v| v.as_str()).unwrap_or("");
-                let from_url = data.get("from_url").and_then(|v| v.as_str()).unwrap_or("");
                 let title = data.get("title").and_then(|v| v.as_str()).unwrap_or("");
                 let mut out = prefixed_header(&session_id, Some(&tab.to_string()), Some(to_url));
                 out.push_str(&format!("\nok {command}"));
                 if !title.is_empty() {
                     out.push_str(&format!("\ntitle: {title}"));
-                }
-                if from_url != to_url {
-                    out.push_str(&format!("\n{from_url} \u{2192} {to_url}"));
                 }
                 out
             }
@@ -2945,7 +2941,10 @@ mod tests {
         let out = format_cli_result(&action, &result);
         assert!(out.starts_with("[local-1 t0] https://actionbook.dev/new"));
         assert!(out.contains("ok browser.goto"));
-        assert!(out.contains("https://actionbook.dev \u{2192} https://actionbook.dev/new"));
+        assert!(
+            !out.contains('\u{2192}'),
+            "PRD text output must not contain arrow line"
+        );
     }
 
     #[test]
@@ -3000,7 +2999,10 @@ mod tests {
         let out = format_cli_result(&action, &result);
         assert!(out.starts_with("[local-1 t0] https://actionbook.dev/page1"));
         assert!(out.contains("ok browser.back"));
-        assert!(out.contains("https://actionbook.dev/page2 \u{2192} https://actionbook.dev/page1"));
+        assert!(
+            !out.contains('\u{2192}'),
+            "PRD text output must not contain arrow line"
+        );
     }
 
     #[test]
@@ -3089,7 +3091,13 @@ mod tests {
             "to_url": "https://actionbook.dev/new"
         }));
         let out = format_cli_result(&action, &result);
-        assert!(out.contains("https://actionbook.dev/old \u{2192} https://actionbook.dev/new"));
+        // PRD §9.4 text output has no arrow line even when from/to URLs differ.
+        assert!(out.contains("[local-1 t0] https://actionbook.dev/new"));
+        assert!(out.contains("ok browser.reload"));
+        assert!(
+            !out.contains('\u{2192}'),
+            "PRD text output must not contain arrow line"
+        );
     }
 
     #[test]
