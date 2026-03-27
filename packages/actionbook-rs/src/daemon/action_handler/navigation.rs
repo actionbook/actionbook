@@ -26,7 +26,8 @@ pub(super) async fn handle_goto(
     match backend.exec(op).await {
         Ok(_) => {
             // Wait for page load to complete before fetching title
-            let post_load_url = wait_for_page_load(backend, &target_id, url.to_string()).await;
+            let post_load_url =
+                wait_for_page_load(backend, &target_id, from_url.clone(), true).await;
 
             // Update the tab registry with the post-load URL
             if let Some(entry) = regs.tabs.get_mut(&tab) {
@@ -80,7 +81,7 @@ pub(super) async fn handle_history(
     match backend.exec(op).await {
         Ok(_) => {
             // Wait for navigation to complete, then get post-load URL
-            let to_url = wait_for_page_load(backend, &target_id, from_url.clone()).await;
+            let to_url = wait_for_page_load(backend, &target_id, from_url.clone(), true).await;
 
             if let Some(entry) = regs.tabs.get_mut(&tab) {
                 entry.url = to_url.clone();
@@ -131,7 +132,7 @@ pub(super) async fn handle_reload(
     match backend.exec(op).await {
         Ok(_) => {
             // Wait for reload to complete, then get post-load URL
-            let to_url = wait_for_page_load(backend, &target_id, from_url.clone()).await;
+            let to_url = wait_for_page_load(backend, &target_id, from_url.clone(), false).await;
 
             if let Some(entry) = regs.tabs.get_mut(&tab) {
                 entry.url = to_url.clone();
@@ -158,17 +159,19 @@ pub(super) async fn handle_reload(
 
 /// Wait until the page finishes loading (up to 10s).
 ///
-/// Guards against the old-page race: after a navigation, the old document may
-/// still answer `Runtime.evaluate`, so we only accept `readyState === "complete"`
-/// once the URL has changed from `fallback_url` (which is the pre-navigation URL).
-/// Reload is the exception — URL stays the same — so for reload the condition
-/// degenerates to just waiting for `readyState === "complete"`.
+/// When `url_change_required` is true (goto/back/forward), only accepts
+/// `readyState === "complete"` after the URL has changed from `fallback_url`,
+/// guarding against seeing the old document's readyState before navigation commits.
 ///
-/// On timeout, returns the last URL observed during polling (not `fallback_url`).
+/// When `url_change_required` is false (reload), accepts `readyState === "complete"`
+/// regardless of URL change, since reload keeps the same URL.
+///
+/// On timeout, returns the last URL observed during polling.
 async fn wait_for_page_load(
     backend: &mut dyn BackendSession,
     target_id: &str,
     fallback_url: String,
+    url_change_required: bool,
 ) -> String {
     let poll_interval = std::time::Duration::from_millis(150);
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -198,16 +201,20 @@ async fn wait_for_page_load(
                 }
             }
 
-            // Accept "complete" only after the URL has changed from the pre-nav URL
-            // (prevents old-page race on goto/back/forward). For reload, URL stays
-            // the same, so `last_seen_url == fallback_url` acts as the fallback gate.
-            if ready == "complete" && (url_has_changed || last_seen_url == fallback_url) {
+            let ready_to_return = if url_change_required {
+                // For goto/back/forward: require URL change first to avoid seeing old page
+                ready == "complete" && url_has_changed
+            } else {
+                // For reload: URL stays same, just wait for complete
+                ready == "complete"
+            };
+
+            if ready_to_return {
                 return last_seen_url;
             }
         }
 
         if tokio::time::Instant::now() >= deadline {
-            // P2 fix: return last-observed URL, not the stale pre-navigation fallback
             return last_seen_url;
         }
 
