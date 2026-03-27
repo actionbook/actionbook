@@ -3,7 +3,7 @@ use serde_json::json;
 use crate::action::Action;
 use crate::action_result::ActionResult;
 use crate::error::CliError;
-use crate::types::{SessionId, TabId};
+use crate::types::TabId;
 
 use super::browser;
 use super::registry::{SessionEntry, SharedRegistry, TabEntry};
@@ -418,7 +418,7 @@ async fn handle_new_tab(
 
 /// Resolve WebSocket URL for a tab, releasing the lock.
 fn resolve_tab_ws_url(
-    session_id: &str,
+    _session_id: &str,
     tab_id: &str,
     entry: &super::registry::SessionEntry,
 ) -> Result<String, ActionResult> {
