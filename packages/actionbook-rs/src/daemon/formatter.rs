@@ -3135,7 +3135,7 @@ mod tests {
         }));
         let out = format_cli_result(&action, &result);
         // PRD §9.4 text output has no arrow line even when from/to URLs differ.
-        assert!(out.contains("[local-1 t0] https://actionbook.dev/new"));
+        assert!(out.contains("[local-1 t1] https://actionbook.dev/new"));
         assert!(out.contains("ok browser.reload"));
         assert!(
             !out.contains('\u{2192}'),
