@@ -868,8 +868,11 @@ mod tests {
     #[tokio::test]
     async fn goto_sends_navigate_op() {
         let mut backend = MockBackendSession::new(vec![
-            Ok(OpResult::new(json!({}))),
-            Ok(OpResult::new(json!("Rust"))),
+            Ok(OpResult::new(json!({}))), // Navigate
+            Ok(OpResult::new(
+                json!({"url": "https://rust-lang.org", "ready": "complete"}),
+            )), // wait_for_page_load
+            Ok(OpResult::new(json!("Rust"))), // document.title
         ]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId::new_unchecked("local-1");
@@ -887,7 +890,7 @@ mod tests {
         .await;
 
         assert!(result.is_ok());
-        assert_eq!(backend.ops().len(), 2);
+        assert_eq!(backend.ops().len(), 3);
         match &backend.ops()[0] {
             BackendOp::Navigate { target_id, url } => {
                 assert_eq!(target_id, "TARGET_0");
@@ -1711,9 +1714,11 @@ mod tests {
     #[tokio::test]
     async fn back_sends_history_back() {
         let mut backend = MockBackendSession::new(vec![
-            Ok(OpResult::new(json!({}))),                 // history.back()
-            Ok(OpResult::new(json!("https://prev.com"))), // window.location.href
-            Ok(OpResult::new(json!("Previous Page"))),    // document.title
+            Ok(OpResult::new(json!({}))), // history.back()
+            Ok(OpResult::new(
+                json!({"url": "https://prev.com", "ready": "complete"}),
+            )), // wait_for_page_load
+            Ok(OpResult::new(json!("Previous Page"))), // document.title
         ]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId::new_unchecked("local-1");
@@ -1738,16 +1743,18 @@ mod tests {
             }
             _ => panic!("expected Ok"),
         }
-        // Should have 3 ops: history.back(), location.href, document.title
+        // Should have 3 ops: history.back(), wait_for_page_load eval, document.title
         assert_eq!(backend.ops().len(), 3);
     }
 
     #[tokio::test]
     async fn forward_sends_history_forward() {
         let mut backend = MockBackendSession::new(vec![
-            Ok(OpResult::new(json!({}))),                 // history.forward()
-            Ok(OpResult::new(json!("https://next.com"))), // window.location.href
-            Ok(OpResult::new(json!("Next Page"))),        // document.title
+            Ok(OpResult::new(json!({}))), // history.forward()
+            Ok(OpResult::new(
+                json!({"url": "https://next.com", "ready": "complete"}),
+            )), // wait_for_page_load
+            Ok(OpResult::new(json!("Next Page"))), // document.title
         ]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId::new_unchecked("local-1");
@@ -1777,9 +1784,11 @@ mod tests {
     #[tokio::test]
     async fn reload_sends_location_reload() {
         let mut backend = MockBackendSession::new(vec![
-            Ok(OpResult::new(json!({}))),                    // location.reload()
-            Ok(OpResult::new(json!("https://example.com"))), // window.location.href
-            Ok(OpResult::new(json!("Reloaded"))),            // document.title
+            Ok(OpResult::new(json!({}))), // location.reload()
+            Ok(OpResult::new(
+                json!({"url": "https://example.com", "ready": "complete"}),
+            )), // wait_for_page_load
+            Ok(OpResult::new(json!("Reloaded"))), // document.title
         ]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId::new_unchecked("local-1");
@@ -1808,7 +1817,10 @@ mod tests {
     #[tokio::test]
     async fn goto_updates_tab_url_and_title() {
         let mut backend = MockBackendSession::new(vec![
-            Ok(OpResult::new(json!({}))),          // Navigate
+            Ok(OpResult::new(json!({}))), // Navigate
+            Ok(OpResult::new(
+                json!({"url": "https://new-page.com", "ready": "complete"}),
+            )), // wait_for_page_load
             Ok(OpResult::new(json!("New Title"))), // document.title
         ]);
         let mut regs = make_regs_with_tab();
@@ -1843,7 +1855,10 @@ mod tests {
     #[tokio::test]
     async fn goto_title_fetch_failure_graceful() {
         let mut backend = MockBackendSession::new(vec![
-            Ok(OpResult::new(json!({}))),                         // Navigate
+            Ok(OpResult::new(json!({}))), // Navigate
+            Ok(OpResult::new(
+                json!({"url": "https://new-page.com", "ready": "complete"}),
+            )), // wait_for_page_load
             Err(ActionbookError::CdpError("eval failed".into())), // document.title fails
         ]);
         let mut regs = make_regs_with_tab();
