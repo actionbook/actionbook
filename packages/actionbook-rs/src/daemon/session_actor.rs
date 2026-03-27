@@ -131,22 +131,39 @@ impl SessionActor {
             // SessionStatus also handled here since it needs actor state.
             let result = match req.action {
                 Action::Close { .. } | Action::CloseSession { .. } => {
+                    let live_tab_count = self.registries.tabs.len();
                     self.state = SessionState::Closed;
                     // Shut down the backend (browser process / WS connection).
                     let _ = self.backend.shutdown(ShutdownPolicy::Graceful).await;
-                    let result = ActionResult::ok(
-                        serde_json::json!({"closed": self.session_id.to_string()}),
-                    );
+                    let result = ActionResult::ok(serde_json::json!({
+                        "closed": self.session_id.to_string(),
+                        "tab_count": live_tab_count,
+                    }));
                     // Send response before breaking so the caller gets the result.
                     let _ = req.response_tx.send(result);
                     break;
                 }
-                Action::SessionStatus { .. } => ActionResult::ok(serde_json::json!({
-                    "session": self.session_id.to_string(),
-                    "state": self.state.to_string(),
-                    "tab_count": self.registries.tabs.len(),
-                    "window_count": self.registries.windows.len(),
-                })),
+                Action::SessionStatus { .. } => {
+                    let tabs: Vec<serde_json::Value> = self
+                        .registries
+                        .tabs
+                        .iter()
+                        .map(|(id, entry)| {
+                            serde_json::json!({
+                                "tab_id": format!("{id}"),
+                                "url": entry.url,
+                                "title": entry.title,
+                            })
+                        })
+                        .collect();
+                    ActionResult::ok(serde_json::json!({
+                        "session": self.session_id.to_string(),
+                        "state": self.state.to_string(),
+                        "tab_count": self.registries.tabs.len(),
+                        "window_count": self.registries.windows.len(),
+                        "tabs": tabs,
+                    }))
+                }
                 action => {
                     action_handler::handle_action(
                         self.session_id.clone(),

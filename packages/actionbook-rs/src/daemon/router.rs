@@ -96,16 +96,16 @@ impl Router {
                 .await
             }
 
+            // --- Status: forward to actor, enrich with registry metadata ---
+            Action::SessionStatus { session } => {
+                let session_id = session.clone();
+                self.handle_session_status(session_id, action).await
+            }
+
             // --- Close commands: forward to actor, then remove from registry ---
             Action::Close { session } | Action::CloseSession { session } => {
                 let session_id = session.clone();
-                let result = self.forward_to_session(&session_id, action).await;
-                if result.is_ok() {
-                    let mut registry = self.registry.lock().await;
-                    registry.remove(&session_id);
-                    self.trigger_save(&registry);
-                }
-                result
+                self.handle_close_session(session_id, action).await
             }
 
             // --- Restart: close old session, start new one with same ID/profile/mode ---
@@ -552,17 +552,124 @@ impl Router {
         }
 
         // 4. Start a new session with the same profile/mode, reusing the original ID.
-        self.handle_start_session_inner(
-            mode,
-            Some(profile),
-            headless,
-            None,
-            None,
-            None,
-            Some(session_id),
-            None,
-        )
-        .await
+        let start_result = self
+            .handle_start_session_inner(
+                mode,
+                Some(profile),
+                headless,
+                None,
+                None,
+                None,
+                Some(session_id),
+                None,
+            )
+            .await;
+
+        // 5. Reshape into PRD 7.5 restart response: {session, reopened}.
+        // Read live tab_count from the newly-registered session handle.
+        let session_id_ref = match &start_result {
+            ActionResult::Ok { data } => data
+                .get("session")
+                .and_then(|s| s.get("session_id"))
+                .and_then(|v| v.as_str())
+                .map(SessionId::new_unchecked),
+            _ => None,
+        };
+        let live_tabs_count = if let Some(ref sid) = session_id_ref {
+            let registry = self.registry.lock().await;
+            registry.get(sid).map(|h| h.tab_count as u64).unwrap_or(0)
+        } else {
+            0
+        };
+
+        match start_result {
+            ActionResult::Ok { data } => {
+                let session_obj = data
+                    .get("session")
+                    .cloned()
+                    .unwrap_or(serde_json::json!(null));
+                let mut session_map = session_obj.as_object().cloned().unwrap_or_default();
+                session_map.insert("tabs_count".into(), serde_json::json!(live_tabs_count));
+                ActionResult::ok(serde_json::json!({
+                    "session": session_map,
+                    "reopened": true,
+                }))
+            }
+            err => err,
+        }
+    }
+
+    /// Handle `SessionStatus` — forward to actor, enrich with registry metadata.
+    async fn handle_session_status(&self, session_id: SessionId, action: Action) -> ActionResult {
+        let (mode, headless) = {
+            let registry = self.registry.lock().await;
+            match registry.get(&session_id) {
+                Some(h) => (h.mode, h.headless),
+                None => {
+                    return ActionResult::fatal(
+                        "session_not_found",
+                        format!("session {session_id} does not exist"),
+                        "run `actionbook browser list-sessions` to see available sessions",
+                    );
+                }
+            }
+        };
+
+        let actor_result = self.forward_to_session(&session_id, action).await;
+
+        match actor_result {
+            ActionResult::Ok { data } => {
+                let status = data
+                    .get("state")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let tabs = data
+                    .get("tabs")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let tabs_count = tabs.len() as u64;
+
+                ActionResult::ok(serde_json::json!({
+                    "session": {
+                        "session_id": session_id.to_string(),
+                        "mode": format!("{mode}"),
+                        "status": super::formatter::display_lifecycle_status(status),
+                        "headless": headless,
+                        "tabs_count": tabs_count,
+                    },
+                    "tabs": tabs,
+                    "capabilities": {
+                        "snapshot": true,
+                        "pdf": true,
+                        "upload": true,
+                    },
+                }))
+            }
+            err => err,
+        }
+    }
+
+    /// Handle `Close`/`CloseSession` — forward to actor, reshape to PRD 7.4.
+    async fn handle_close_session(&self, session_id: SessionId, action: Action) -> ActionResult {
+        let result = self.forward_to_session(&session_id, action).await;
+        match result {
+            ActionResult::Ok { data } => {
+                // Use live tab count from actor (accurate even after new-tab/close-tab).
+                let closed_tabs = data.get("tab_count").and_then(|v| v.as_u64()).unwrap_or(0);
+
+                let mut registry = self.registry.lock().await;
+                registry.remove(&session_id);
+                self.trigger_save(&registry);
+
+                ActionResult::ok(serde_json::json!({
+                    "session_id": session_id.to_string(),
+                    "status": "closed",
+                    "closed_tabs": closed_tabs,
+                }))
+            }
+            err => err,
+        }
     }
 
     /// Trigger a state save (best-effort, errors are logged).
