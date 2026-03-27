@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Cloud backend: connect to a remote browser via `wss://` with auth headers.
 //!
 //! Uses `tokio-tungstenite` with TLS for secure WebSocket communication.

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 /// HTTP-first content fetching (I2: tiered degradation).
 ///
 /// For static pages (Wikipedia, blogs, docs) we can skip launching a browser

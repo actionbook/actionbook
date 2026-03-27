@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Core newtypes and enums for the v2 daemon protocol.
 //!
 //! Provides [`SessionId`], [`TabId`], [`WindowId`] newtypes with short-format

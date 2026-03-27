@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Electron application discovery across platforms.
 //!
 //! Detects commonly installed Electron apps by searching platform-specific

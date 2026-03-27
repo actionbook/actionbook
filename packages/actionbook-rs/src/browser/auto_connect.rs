@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Auto-discover and connect to a running Chrome/Chromium instance.
 //!
 //! Discovery strategy (first match wins):

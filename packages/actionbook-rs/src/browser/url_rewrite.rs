@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 /// Privacy-frontend URL rewriting.
 ///
 /// Rewrites URLs to use privacy-friendly frontends that are less likely

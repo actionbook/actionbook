@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Human-like mouse movement and typing simulation (borrowed from pinchtab/human.go)
 //!
 //! Generates bezier-curve mouse paths and natural typing patterns

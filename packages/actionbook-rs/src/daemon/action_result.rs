@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Structured result type for daemon responses to client Actions.
 //!
 //! Results are classified by recovery strategy so that AI agents and CLI

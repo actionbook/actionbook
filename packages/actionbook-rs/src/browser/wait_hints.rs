@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 /// Domain-aware wait strategies for browser navigation.
 ///
 /// Different websites have vastly different JS rendering times.

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! CDP Accessibility Tree snapshot (borrowed from pinchtab's approach)
 //!
 //! Uses `Accessibility.getFullAXTree` to get the real browser accessibility tree,

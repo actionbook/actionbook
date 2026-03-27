@@ -449,6 +449,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn detect_install_channel_uses_env_var() {
         std::env::set_var("ACTIONBOOK_INSTALL_CHANNEL", "brew");
         assert_eq!(detect_install_channel(), InstallChannel::Brew);

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Request Router — dispatches Actions to global handlers or session actors.
 //!
 //! The router is the daemon's front door. It receives [`Action`]s from the UDS

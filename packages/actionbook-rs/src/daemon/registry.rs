@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! In-memory session registry — maps [`SessionId`] to live session handles.
 //!
 //! The registry is owned by the daemon's request router. It tracks all active

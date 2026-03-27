@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Types for the BrowserBackend trait layer.
 //!
 //! These types define the contract between the daemon's session actor and

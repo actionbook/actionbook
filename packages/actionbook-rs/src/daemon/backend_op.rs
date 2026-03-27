@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! CDP-level backend operations (Layer 2 — daemon-internal).
 //!
 //! [`BackendOp`] represents the primitives that the daemon's Action Handler

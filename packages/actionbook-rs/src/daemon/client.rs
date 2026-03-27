@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! RPC client for communicating with the actionbook daemon over UDS.
 //!
 //! The [`DaemonClient`] connects to the daemon's Unix Domain Socket,

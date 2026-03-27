@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};

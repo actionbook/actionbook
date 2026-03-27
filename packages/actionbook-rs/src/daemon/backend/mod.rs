@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Browser backend abstraction layer.
 //!
 //! Defines the [`BrowserBackendFactory`] and [`BackendSession`] traits that

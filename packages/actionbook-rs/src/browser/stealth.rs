@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Stealth browser automation support using chaser-oxide.
 //!
 //! Enable with `--features stealth` for:

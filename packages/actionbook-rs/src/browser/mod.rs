@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 pub mod app_discovery; // Electron app discovery
 pub mod auto_connect; // Auto-discover running Chrome instances
 mod backend;
@@ -29,6 +30,7 @@ pub use app_discovery::{discover_electron_apps, ElectronAppInfo};
 pub use backend::BrowserBackend;
 #[allow(unused_imports)]
 pub use discovery::{discover_all_browsers, BrowserInfo, BrowserType};
+#[allow(unused_imports)]
 pub use stealth::{build_stealth_profile, stealth_status};
 
 // Re-export stealth page application for external use

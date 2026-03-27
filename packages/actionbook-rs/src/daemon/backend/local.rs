@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Local backend: launch and control a Chrome process via CDP over `ws://`.
 //!
 //! Uses the existing [`BrowserLauncher`] for process management and

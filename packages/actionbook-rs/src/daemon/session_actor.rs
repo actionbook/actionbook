@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Per-session async actor task.
 //!
 //! Each session runs as an independent tokio task that owns a

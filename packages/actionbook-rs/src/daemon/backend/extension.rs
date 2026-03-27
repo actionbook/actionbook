@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Extension backend: connect to the user's Chrome via extension bridge.
 //!
 //! Implements the two-phase connection model:

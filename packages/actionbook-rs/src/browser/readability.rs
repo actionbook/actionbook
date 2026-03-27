@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 /// Readability extraction JavaScript (borrowed from pinchtab/readability.js)
 ///
 /// Extracts meaningful text content from a page, stripping navigation,

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Wire protocol types and length-prefix framing helpers (Layer 3).
 //!
 //! Transport: UDS (Unix) / Named Pipe (Windows)
