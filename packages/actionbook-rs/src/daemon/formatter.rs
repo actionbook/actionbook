@@ -3404,6 +3404,8 @@ mod tests {
             direction: "down".into(),
             amount: Some(300),
             selector: None,
+            container: None,
+            align: None,
         };
         let result = ActionResult::ok(json!({"scrolled": "down", "amount": 300}));
         let out = format_cli_result_json(&action, &result, 2);
@@ -3424,6 +3426,8 @@ mod tests {
             direction: "into-view".into(),
             amount: None,
             selector: Some("#footer".into()),
+            container: None,
+            align: None,
         };
         let result = ActionResult::ok(json!({"scrolled": "into-view", "selector": "#footer"}));
         let out = format_cli_result(&action, &result);

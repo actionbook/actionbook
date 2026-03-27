@@ -2461,6 +2461,7 @@ mod tests {
             amount: Some(100),
             session: session.clone(),
             tab,
+            container: None,
         }))
         .unwrap();
         assert!(
@@ -2471,6 +2472,7 @@ mod tests {
             amount: None,
             session: session.clone(),
             tab,
+            container: None,
         }))
         .unwrap();
         assert!(
@@ -2481,6 +2483,7 @@ mod tests {
             amount: None,
             session: session.clone(),
             tab,
+            container: None,
         }))
         .unwrap();
         assert!(
@@ -2490,6 +2493,7 @@ mod tests {
         let (action, _) = build_action(BrowserCmd::Scroll(ScrollCmd::Top {
             session: session.clone(),
             tab,
+            container: None,
         }))
         .unwrap();
         assert!(
@@ -2497,7 +2501,7 @@ mod tests {
         );
 
         let (action, _) =
-            build_action(BrowserCmd::Scroll(ScrollCmd::Bottom { session, tab })).unwrap();
+            build_action(BrowserCmd::Scroll(ScrollCmd::Bottom { session, tab, container: None })).unwrap();
         assert!(
             matches!(action, Action::Scroll { direction, amount: None, .. } if direction == "bottom")
         );
