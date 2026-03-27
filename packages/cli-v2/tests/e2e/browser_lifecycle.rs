@@ -765,6 +765,19 @@ fn lifecycle_concurrent_parallel_operations() {
     );
     assert_success(&out, "start beta");
 
+    // Ensure navigation completes before parallel eval
+    let out = headless(
+        &["browser", "goto", "https://example.com", "--session", "alpha-session", "--tab", "t1"],
+        30,
+    );
+    assert_success(&out, "goto alpha");
+    let out = headless(
+        &["browser", "goto", "https://example.org", "--session", "beta-session", "--tab", "t1"],
+        30,
+    );
+    assert_success(&out, "goto beta");
+
+    // Parallel eval on different sessions
     let t1 = std::thread::spawn(|| {
         headless_json(
             &[

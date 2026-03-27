@@ -97,38 +97,40 @@ impl Drop for SessionGuard {
 
 /// Close all active sessions so the next test starts clean.
 pub fn ensure_no_sessions() {
-    for attempt in 0..3 {
-        if attempt > 0 {
-            std::thread::sleep(Duration::from_millis(500));
+    // Kill the daemon entirely between tests for clean state.
+    // The daemon auto-starts on next CLI command.
+    kill_daemon();
+    std::thread::sleep(Duration::from_millis(500));
+}
+
+/// Kill the daemon process and clean up socket/PID files.
+fn kill_daemon() {
+    let env = shared_env();
+    let data_dir = &env.data_home;
+    let dir = std::path::Path::new(data_dir).join("actionbook");
+
+    // Read PID and kill
+    let pid_path = dir.join("daemon.pid");
+    if let Ok(pid_str) = std::fs::read_to_string(&pid_path) {
+        if let Ok(pid) = pid_str.trim().parse::<u32>() {
+            let _ = std::process::Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .output();
         }
-        let out = headless_json(&["browser", "list-sessions"], 10);
-        if !out.status.success() {
-            return;
-        }
-        let text = stdout_str(&out);
-        let parsed: serde_json::Value = match serde_json::from_str(&text) {
-            Ok(v) => v,
-            Err(_) => return,
-        };
-        let sessions = parsed
-            .get("data")
-            .and_then(|d| d.get("sessions"))
-            .and_then(|s| s.as_array())
-            .cloned()
-            .unwrap_or_default();
-        if sessions.is_empty() {
-            return;
-        }
-        if attempt < 2 {
-            for s in &sessions {
-                if let Some(id) = s.get("session_id").and_then(|v| v.as_str()) {
-                    let _ = headless(&["browser", "close", "--session", id], 10);
-                }
-            }
-        } else {
-            let _ = headless(&["daemon", "stop"], 10);
-            std::thread::sleep(Duration::from_secs(1));
-        }
+    }
+
+    // Clean up files
+    let _ = std::fs::remove_file(dir.join("daemon.sock"));
+    let _ = std::fs::remove_file(dir.join("daemon.ready"));
+    let _ = std::fs::remove_file(dir.join("daemon.pid"));
+
+    // Also kill any Chrome processes spawned in this data dir
+    let profiles_dir = dir.join("profiles");
+    if profiles_dir.exists() {
+        // Kill chrome processes using this user-data-dir
+        let _ = std::process::Command::new("pkill")
+            .args(["-f", &format!("--user-data-dir={}", profiles_dir.display())])
+            .output();
     }
 }
 
