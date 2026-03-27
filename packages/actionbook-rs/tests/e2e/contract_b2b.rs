@@ -24,6 +24,16 @@ fn assert_envelope(v: &Value, expected_command: &str) {
         "command should be {expected_command}, got: {}",
         v["command"]
     );
+    assert!(
+        v["context"]["session_id"].as_str().is_some(),
+        "context.session_id should be present, got: {}",
+        v["context"]
+    );
+    assert!(
+        v["context"]["tab_id"].as_str().is_some(),
+        "context.tab_id should be present, got: {}",
+        v["context"]
+    );
     assert!(v["error"].is_null(), "error should be null, got: {}", v);
     assert!(
         v["meta"]["duration_ms"].as_u64().is_some(),
@@ -659,6 +669,11 @@ fn contract_b2b_waits_json_and_text() {
     assert_envelope(&json, "browser.wait.element");
     assert_eq!(json["data"]["kind"], "element");
     assert_eq!(json["data"]["satisfied"], true);
+    assert!(
+        json["data"]["elapsed_ms"].as_u64().is_some(),
+        "wait element elapsed_ms should be present, got: {}",
+        json["data"]
+    );
     assert_eq!(json["data"]["observed_value"]["selector"], "#ready");
 
     let out = headless(
@@ -702,6 +717,11 @@ fn contract_b2b_waits_json_and_text() {
     assert_envelope(&json, "browser.wait.navigation");
     assert_eq!(json["data"]["kind"], "navigation");
     assert_eq!(json["data"]["satisfied"], true);
+    assert!(
+        json["data"]["elapsed_ms"].as_u64().is_some(),
+        "wait navigation elapsed_ms should be present, got: {}",
+        json["data"]
+    );
     assert!(
         json["data"]["observed_value"]["url"].as_str().is_some(),
         "navigation observed_value.url should be a string, got: {}",
