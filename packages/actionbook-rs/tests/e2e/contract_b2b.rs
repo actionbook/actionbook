@@ -90,9 +90,9 @@ fn contract_b2b_type_fill_json() {
     let (sid, tid) = start_session();
     inject_html(&sid, &tid, r#"<input id="name" type="text" />"#);
 
-    // Type
+    // Type: CLI shape is `type <TEXT> [SELECTOR] -s -t`
     let type_out = headless_json(
-        &["browser", "type", "-s", &sid, "-t", &tid, "#name", "hello"],
+        &["browser", "type", "-s", &sid, "-t", &tid, "hello", "#name"],
         15,
     );
     assert_success(&type_out, "type --json");
@@ -103,7 +103,7 @@ fn contract_b2b_type_fill_json() {
     assert_eq!(type_json["data"]["text"], "hello");
     assert_eq!(type_json["data"]["target"]["selector"], "#name");
 
-    // Fill (clears + types)
+    // Fill: CLI shape is `fill <SELECTOR> <TEXT> -s -t`
     let fill_out = headless_json(
         &["browser", "fill", "-s", &sid, "-t", &tid, "#name", "world"],
         15,
@@ -176,10 +176,9 @@ fn contract_b2b_scroll_json() {
     let _guard = SessionGuard::new();
     let (sid, tid) = start_session();
 
+    // CLI shape: `scroll down [AMOUNT] -s -t` (subcommand)
     let out = headless_json(
-        &[
-            "browser", "scroll", "-s", &sid, "-t", &tid, "down", "--amount", "300",
-        ],
+        &["browser", "scroll", "down", "-s", &sid, "-t", &tid, "300"],
         15,
     );
     assert_success(&out, "scroll --json");
@@ -232,18 +231,9 @@ fn contract_b2b_mouse_move_cursor_json() {
     let _guard = SessionGuard::new();
     let (sid, tid) = start_session();
 
-    // Mouse-move
+    // Mouse-move: CLI shape is `mouse-move <COORDS> -s -t` where COORDS = "x,y"
     let move_out = headless_json(
-        &[
-            "browser",
-            "mouse-move",
-            "-s",
-            &sid,
-            "-t",
-            &tid,
-            "100",
-            "200",
-        ],
+        &["browser", "mouse-move", "-s", &sid, "-t", &tid, "100,200"],
         15,
     );
     assert_success(&move_out, "mouse-move --json");
