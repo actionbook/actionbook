@@ -697,6 +697,12 @@ pub enum BrowserCommands {
         #[command(subcommand)]
         command: DialogCommands,
     },
+
+    /// Interact with React component tree (via React DevTools hook)
+    React {
+        #[command(subcommand)]
+        command: ReactCommands,
+    },
 }
 
 #[derive(Subcommand, Clone)]
@@ -723,6 +729,32 @@ pub enum DialogCommands {
     Dismiss,
     /// Check if a JavaScript dialog is currently open
     Status,
+}
+
+#[derive(Subcommand, Clone)]
+pub enum ReactCommands {
+    /// Read the React component tree, or a specific component's props/state by selector
+    Read {
+        /// CSS selector to find a specific component's host element (reads full tree if omitted)
+        selector: Option<String>,
+        /// Maximum depth to traverse the component tree
+        #[arg(long, default_value = "5")]
+        depth: u32,
+    },
+    /// Set state on a React component found by CSS selector
+    SetState {
+        /// CSS selector for the element rendered by the target component
+        selector: String,
+        /// JSON value to merge into the component's state
+        state: String,
+    },
+    /// Evaluate an expression with a React component's fiber as context
+    Eval {
+        /// CSS selector for the element rendered by the target component
+        selector: String,
+        /// JavaScript expression (the component fiber is available as `fiber`, its state as `fiber.memoizedState`, its props as `fiber.memoizedProps`)
+        expression: String,
+    },
 }
 
 #[derive(Subcommand, Clone)]

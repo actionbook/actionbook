@@ -16,7 +16,7 @@ use crate::browser::{
 };
 use crate::cli::{
     BrowserCommands, BrowserMode, Cli, CookiesCommands, DialogCommands, FingerprintCommands,
-    SessionCommands, StorageCommands, TabCommands,
+    ReactCommands, SessionCommands, StorageCommands, TabCommands,
 };
 use crate::config::{Config, DEFAULT_EXTENSION_PORT};
 use crate::error::{ActionbookError, Result};
@@ -1059,6 +1059,7 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
         BrowserCommands::SwitchFrame { target } => switch_frame(cli, &config, target).await,
         BrowserCommands::Session { command } => session_command(cli, &config, command).await,
         BrowserCommands::Dialog { command } => dialog_command(cli, &config, command).await,
+        BrowserCommands::React { command } => react_command(cli, &config, command).await,
     }
 }
 
@@ -5659,6 +5660,248 @@ async fn dialog_command(cli: &Cli, config: &Config, cmd: &DialogCommands) -> Res
                 println!("{}", serde_json::to_string_pretty(&result).unwrap_or_default());
             } else {
                 println!("{} Dialog dismissed", "✓".green());
+            }
+            Ok(())
+        }
+    }
+}
+
+async fn react_command(cli: &Cli, config: &Config, cmd: &ReactCommands) -> Result<()> {
+    match cmd {
+        ReactCommands::Read { selector, depth } => {
+            let js = match selector {
+                Some(sel) => format!(
+                    r#"(function() {{
+  var el = document.querySelector('{}');
+  if (!el) return {{ error: 'Element not found: {}' }};
+  var hook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+  if (!hook) return {{ error: 'React DevTools hook not found. Is this a React app?' }};
+  function getFiber(el) {{
+    var keys = Object.keys(el);
+    for (var i = 0; i < keys.length; i++) {{
+      if (keys[i].startsWith('__reactFiber$') || keys[i].startsWith('__reactInternalInstance$')) {{
+        return el[keys[i]];
+      }}
+    }}
+    return null;
+  }}
+  var fiber = getFiber(el);
+  if (!fiber) return {{ error: 'No React fiber found on element' }};
+  function serialize(f, d) {{
+    if (!f || d <= 0) return null;
+    var name = f.type ? (f.type.displayName || f.type.name || (typeof f.type === 'string' ? f.type : 'Anonymous')) : 'Unknown';
+    var result = {{ name: name }};
+    if (f.memoizedProps) {{
+      try {{ JSON.stringify(f.memoizedProps); result.props = f.memoizedProps; }} catch(e) {{ result.props = '[unserializable]'; }}
+    }}
+    if (f.memoizedState !== null && f.memoizedState !== undefined) {{
+      try {{ JSON.stringify(f.memoizedState); result.state = f.memoizedState; }} catch(e) {{ result.state = '[unserializable]'; }}
+    }}
+    if (f.child) {{
+      var children = [];
+      var c = f.child;
+      while (c) {{ var s = serialize(c, d - 1); if (s) children.push(s); c = c.sibling; }}
+      if (children.length > 0) result.children = children;
+    }}
+    return result;
+  }}
+  return serialize(fiber, {});
+}})()"#,
+                    escape_js_string(sel),
+                    escape_js_string(sel),
+                    depth,
+                ),
+                None => format!(
+                    r#"(function() {{
+  var hook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+  if (!hook) return {{ error: 'React DevTools hook not found. Is this a React app?' }};
+  var roots = [];
+  if (hook.getFiberRoots) {{
+    hook.getFiberRoots(1).forEach(function(root) {{ roots.push(root); }});
+  }}
+  if (roots.length === 0 && hook._fiberRoots) {{
+    hook._fiberRoots.forEach(function(root) {{ roots.push(root); }});
+  }}
+  if (roots.length === 0) return {{ error: 'No React roots found' }};
+  function serialize(f, d) {{
+    if (!f || d <= 0) return null;
+    var name = f.type ? (f.type.displayName || f.type.name || (typeof f.type === 'string' ? f.type : 'Anonymous')) : 'Unknown';
+    var result = {{ name: name }};
+    if (f.memoizedProps) {{
+      try {{ JSON.stringify(f.memoizedProps); result.props = f.memoizedProps; }} catch(e) {{ result.props = '[unserializable]'; }}
+    }}
+    if (f.memoizedState !== null && f.memoizedState !== undefined) {{
+      try {{ JSON.stringify(f.memoizedState); result.state = f.memoizedState; }} catch(e) {{ result.state = '[unserializable]'; }}
+    }}
+    if (f.child) {{
+      var children = [];
+      var c = f.child;
+      while (c) {{ var s = serialize(c, d - 1); if (s) children.push(s); c = c.sibling; }}
+      if (children.length > 0) result.children = children;
+    }}
+    return result;
+  }}
+  var trees = roots.map(function(root) {{
+    return serialize(root.current, {});
+  }});
+  return trees.length === 1 ? trees[0] : trees;
+}})()"#,
+                    depth,
+                ),
+            };
+
+            let result = if cli.extension {
+                extension_eval(cli, &js).await?
+            } else {
+                let session_manager = create_session_manager(cli, config);
+                session_manager
+                    .eval_on_page(effective_profile_arg(cli, config), &js)
+                    .await?
+            };
+
+            if let Some(err) = result.get("error").and_then(|e| e.as_str()) {
+                if cli.json {
+                    println!("{}", serde_json::json!({ "error": err }));
+                } else {
+                    println!("{} {}", "✗".red(), err);
+                }
+                return Ok(());
+            }
+
+            println!("{}", serde_json::to_string_pretty(&result)?);
+            Ok(())
+        }
+        ReactCommands::SetState { selector, state } => {
+            let state_json: serde_json::Value = serde_json::from_str(state).map_err(|e| {
+                ActionbookError::InvalidOperation(format!("Invalid JSON for state: {}", e))
+            })?;
+            let state_str = serde_json::to_string(&state_json)?;
+
+            let js = format!(
+                r#"(function() {{
+  var el = document.querySelector('{}');
+  if (!el) return {{ error: 'Element not found: {}' }};
+  function getFiber(el) {{
+    var keys = Object.keys(el);
+    for (var i = 0; i < keys.length; i++) {{
+      if (keys[i].startsWith('__reactFiber$') || keys[i].startsWith('__reactInternalInstance$')) {{
+        return el[keys[i]];
+      }}
+    }}
+    return null;
+  }}
+  var fiber = getFiber(el);
+  if (!fiber) return {{ error: 'No React fiber found on element' }};
+  // Walk up to find the nearest class component with setState
+  var current = fiber;
+  while (current) {{
+    if (current.stateNode && typeof current.stateNode.setState === 'function') {{
+      current.stateNode.setState({});
+      return {{ success: true, component: current.type ? (current.type.displayName || current.type.name || 'Anonymous') : 'Unknown' }};
+    }}
+    current = current.return;
+  }}
+  // For function components, try to trigger re-render by updating hook state
+  current = fiber;
+  while (current) {{
+    if (current.memoizedState && current.memoizedState.queue) {{
+      var queue = current.memoizedState.queue;
+      var newState = Object.assign({{}}, current.memoizedState.memoizedState, {});
+      if (typeof queue.dispatch === 'function') {{
+        queue.dispatch(newState);
+        return {{ success: true, component: current.type ? (current.type.displayName || current.type.name || 'Anonymous') : 'Unknown', note: 'dispatched to hook state' }};
+      }}
+    }}
+    current = current.return;
+  }}
+  return {{ error: 'No stateful React component found at this element. Only class components with setState or function components with useState are supported.' }};
+}})()"#,
+                escape_js_string(selector),
+                escape_js_string(selector),
+                state_str,
+                state_str,
+            );
+
+            let result = if cli.extension {
+                extension_eval(cli, &js).await?
+            } else {
+                let session_manager = create_session_manager(cli, config);
+                session_manager
+                    .eval_on_page(effective_profile_arg(cli, config), &js)
+                    .await?
+            };
+
+            if let Some(err) = result.get("error").and_then(|e| e.as_str()) {
+                if cli.json {
+                    println!("{}", serde_json::json!({ "error": err }));
+                } else {
+                    println!("{} {}", "✗".red(), err);
+                }
+                return Ok(());
+            }
+
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                let comp = result
+                    .get("component")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown");
+                println!("{} State updated on <{}>", "✓".green(), comp);
+            }
+            Ok(())
+        }
+        ReactCommands::Eval { selector, expression } => {
+            let js = format!(
+                r#"(function() {{
+  var el = document.querySelector('{}');
+  if (!el) return {{ error: 'Element not found: {}' }};
+  function getFiber(el) {{
+    var keys = Object.keys(el);
+    for (var i = 0; i < keys.length; i++) {{
+      if (keys[i].startsWith('__reactFiber$') || keys[i].startsWith('__reactInternalInstance$')) {{
+        return el[keys[i]];
+      }}
+    }}
+    return null;
+  }}
+  var fiber = getFiber(el);
+  if (!fiber) return {{ error: 'No React fiber found on element' }};
+  try {{
+    var result = (function(fiber) {{ return {}; }})(fiber);
+    return {{ value: result }};
+  }} catch(e) {{
+    return {{ error: 'Eval error: ' + e.message }};
+  }}
+}})()"#,
+                escape_js_string(selector),
+                escape_js_string(selector),
+                expression,
+            );
+
+            let result = if cli.extension {
+                extension_eval(cli, &js).await?
+            } else {
+                let session_manager = create_session_manager(cli, config);
+                session_manager
+                    .eval_on_page(effective_profile_arg(cli, config), &js)
+                    .await?
+            };
+
+            if let Some(err) = result.get("error").and_then(|e| e.as_str()) {
+                if cli.json {
+                    println!("{}", serde_json::json!({ "error": err }));
+                } else {
+                    println!("{} {}", "✗".red(), err);
+                }
+                return Ok(());
+            }
+
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                let value = result.get("value").unwrap_or(&serde_json::Value::Null);
+                println!("{}", serde_json::to_string_pretty(value)?);
             }
             Ok(())
         }
