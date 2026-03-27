@@ -5,7 +5,6 @@
 /// `browser fetch` and other one-shot commands wait just long enough.
 ///
 /// Wait hint categories with associated millisecond durations.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum WaitHint {

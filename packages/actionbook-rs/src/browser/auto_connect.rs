@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 /// Result of auto-discovery: the CDP WebSocket URL and the port it was found on.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct DiscoveredBrowser {

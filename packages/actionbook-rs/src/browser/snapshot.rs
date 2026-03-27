@@ -14,7 +14,6 @@ use crate::error::Result;
 // ============================================================================
 
 /// CDP Accessibility.getFullAXTree response envelope
-#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 #[allow(dead_code)]
 pub struct AxTreeResponse {
@@ -22,7 +21,6 @@ pub struct AxTreeResponse {
 }
 
 /// Single node in the CDP accessibility tree
-#[allow(dead_code)]
 #[derive(Deserialize, Debug, Clone)]
 #[allow(dead_code)]
 pub struct AxNode {
@@ -47,7 +45,6 @@ pub struct AxNode {
 }
 
 /// CDP AXValue structure: { type: "...", value: "..." }
-#[allow(dead_code)]
 #[derive(Deserialize, Debug, Clone)]
 #[allow(dead_code)]
 pub struct AxValue {
@@ -86,7 +83,6 @@ impl AxValue {
 }
 
 /// CDP AXProperty structure
-#[allow(dead_code)]
 #[derive(Deserialize, Debug, Clone)]
 #[allow(dead_code)]
 pub struct AxProperty {
@@ -95,7 +91,6 @@ pub struct AxProperty {
 }
 
 /// A single node in the accessibility tree
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct A11yNode {
@@ -141,7 +136,6 @@ pub struct A11yNode {
 }
 
 /// Cached ref→backendNodeId mapping for action resolution
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct RefCache {
@@ -155,7 +149,6 @@ pub struct RefCache {
 }
 
 /// Snapshot filter options
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum SnapshotFilter {
@@ -164,7 +157,6 @@ pub enum SnapshotFilter {
 }
 
 /// Snapshot output format
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum SnapshotFormat {
@@ -844,7 +836,6 @@ pub fn compact_tree_nodes(nodes: &[A11yNode]) -> Vec<A11yNode> {
 }
 
 /// A cursor-interactive element detected via DOM inspection
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct CursorElement {

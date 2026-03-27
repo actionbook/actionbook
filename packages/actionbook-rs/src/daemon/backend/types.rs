@@ -37,7 +37,6 @@ impl std::fmt::Display for BackendKind {
 // ---------------------------------------------------------------------------
 
 /// Declares what a backend can and cannot do.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct Capabilities {
@@ -89,7 +88,6 @@ pub struct AttachSpec {
 ///
 /// Each backend produces its own checkpoint; the daemon persists it and
 /// hands it back via `BackendFactory::resume()` after a restart.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct Checkpoint {
@@ -195,7 +193,6 @@ pub struct TargetInfo {
 // ---------------------------------------------------------------------------
 
 /// Health status returned by `BackendSession::health()`.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct Health {
