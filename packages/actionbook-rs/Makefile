@@ -1,4 +1,20 @@
-.PHONY: coverage
+.PHONY: check build test lint e2e coverage
+
+check:
+	cargo check --all-targets
+
+build:
+	cargo build --release
+
+test:
+	cargo test --lib
+
+lint:
+	cargo clippy --all-targets -- -D warnings -A dead_code -A unused-imports -A deprecated
+	cargo fmt --check
+
+e2e:
+	cargo test --test '*' -- --test-threads=1
 
 coverage:
 	mkdir -p target/llvm-cov
