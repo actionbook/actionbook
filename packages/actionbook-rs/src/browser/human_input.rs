@@ -177,7 +177,7 @@ mod tests {
     fn pre_click_delay_ms_within_range() {
         for _ in 0..20 {
             let delay = pre_click_delay_ms();
-            assert!(delay >= 50 && delay < 200, "delay out of range: {delay}");
+            assert!((50..200).contains(&delay), "delay out of range: {delay}");
         }
     }
 
@@ -185,7 +185,7 @@ mod tests {
     fn click_hold_ms_within_range() {
         for _ in 0..20 {
             let hold = click_hold_ms();
-            assert!(hold >= 30 && hold < 120, "hold out of range: {hold}");
+            assert!((30..120).contains(&hold), "hold out of range: {hold}");
         }
     }
 

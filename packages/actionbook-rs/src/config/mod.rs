@@ -515,8 +515,10 @@ mod tests {
     #[test]
     fn get_profile_returns_named_profile() {
         let mut config = Config::default();
-        let mut profile = ProfileConfig::default();
-        profile.headless = true;
+        let profile = ProfileConfig {
+            headless: true,
+            ..Default::default()
+        };
         config.set_profile("custom", profile);
         let result = config.get_profile("custom").unwrap();
         assert!(result.headless);
