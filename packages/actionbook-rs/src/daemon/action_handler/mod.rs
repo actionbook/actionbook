@@ -134,8 +134,13 @@ pub async fn handle_action(
         Action::Open { url, .. } => {
             session::handle_new_tab(session_id, backend, regs, &url, false, None).await
         }
-        Action::Snapshot { tab, .. } => {
-            observation::handle_snapshot(session_id, backend, regs, tab).await
+        Action::Snapshot {
+            tab,
+            interactive,
+            compact,
+            ..
+        } => {
+            observation::handle_snapshot(session_id, backend, regs, tab, interactive, compact).await
         }
         Action::Screenshot { tab, full_page, .. } => {
             observation::handle_screenshot(session_id, backend, regs, tab, full_page).await

@@ -71,6 +71,8 @@ pub(super) async fn handle_snapshot(
     backend: &mut dyn BackendSession,
     regs: &Registries,
     tab: TabId,
+    interactive: bool,
+    compact: bool,
 ) -> ActionResult {
     let target_id = match resolve_tab(session_id, regs, tab) {
         Ok(t) => t,
@@ -82,7 +84,60 @@ pub(super) async fn handle_snapshot(
     };
 
     match backend.exec(op).await {
-        Ok(result) => ActionResult::ok(result.value),
+        Ok(result) => {
+            if !interactive && !compact {
+                return ActionResult::ok(result.value);
+            }
+
+            // Extract the string content from the JSON value for filtering.
+            let text = match result.value {
+                serde_json::Value::String(ref s) => s.clone(),
+                ref other => other.to_string(),
+            };
+
+            let mut output = text;
+
+            if interactive {
+                // Filter to only lines that contain interactive element annotations
+                // (roles like button, link, textbox, checkbox, etc.)
+                let interactive_roles = [
+                    "button",
+                    "link",
+                    "textbox",
+                    "checkbox",
+                    "radio",
+                    "combobox",
+                    "menuitem",
+                    "tab",
+                    "switch",
+                    "slider",
+                    "spinbutton",
+                    "searchbox",
+                    "option",
+                    "menuitemcheckbox",
+                    "menuitemradio",
+                ];
+                let filtered: Vec<&str> = output
+                    .lines()
+                    .filter(|line| {
+                        let lower = line.to_lowercase();
+                        interactive_roles.iter().any(|role| lower.contains(role))
+                    })
+                    .collect();
+                output = filtered.join("\n");
+            }
+
+            if compact {
+                // Strip empty lines and collapse excessive whitespace
+                let compacted: Vec<&str> = output
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .collect();
+                output = compacted.join("\n");
+            }
+
+            ActionResult::ok(serde_json::Value::String(output))
+        }
         Err(e) => cdp_error_to_result(e),
     }
 }
