@@ -234,10 +234,21 @@ enum BrowserCmd {
         /// Tab ID (e.g. t0)
         #[arg(short = 't', long)]
         tab: TabId,
+        /// Mouse button: left (default), right, middle
+        #[arg(long)]
+        button: Option<String>,
+        /// Number of clicks (1 = single, 2 = double)
+        #[arg(long)]
+        count: Option<u32>,
+        /// Open the link in a new tab
+        #[arg(long)]
+        new_tab: bool,
     },
 
     /// Type text (character by character with key events)
     Type {
+        /// CSS selector of target element
+        selector: String,
         /// Text to type
         text: String,
         /// Session ID (e.g. local-1)
@@ -246,8 +257,6 @@ enum BrowserCmd {
         /// Tab ID (e.g. t0)
         #[arg(short = 't', long)]
         tab: TabId,
-        /// CSS selector of target element
-        selector: Option<String>,
     },
 
     /// Fill an input field (set value directly)
@@ -539,11 +548,10 @@ enum BrowserCmd {
     // =======================================================================
     /// Select a value from a dropdown element
     Select {
+        /// CSS selector of the <select> element
+        selector: String,
         /// Value to select
         value: String,
-        /// CSS selector of the <select> element
-        #[arg(long)]
-        selector: String,
         /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
@@ -603,15 +611,17 @@ enum BrowserCmd {
         /// Tab ID (e.g. t0)
         #[arg(short = 't', long)]
         tab: TabId,
+        /// Mouse button: left (default), right, middle
+        #[arg(long)]
+        button: Option<String>,
     },
 
     /// Upload files to a file input element
     Upload {
+        /// CSS selector of the file input element
+        selector: String,
         /// Absolute file paths to upload
         files: Vec<String>,
-        /// CSS selector of the file input element
-        #[arg(long)]
-        selector: String,
         /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
@@ -807,22 +817,25 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             selector,
             session,
             tab,
+            button,
+            count,
+            new_tab: _, // TODO: handler support for new_tab
         } => Action::Click {
             session,
             tab,
             selector,
-            button: None,
-            count: None,
+            button,
+            count,
         },
         BrowserCmd::Type {
+            selector,
             text,
             session,
             tab,
-            selector,
         } => Action::Type {
             session,
             tab,
-            selector: selector.unwrap_or_default(),
+            selector,
             text,
         },
         BrowserCmd::Fill {
@@ -1184,11 +1197,13 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             to,
             session,
             tab,
+            button,
         } => Action::Drag {
             session,
             tab,
             from_selector: from,
             to_selector: to,
+            button,
         },
         BrowserCmd::Upload {
             files,
@@ -1756,6 +1771,9 @@ mod tests {
             selector: "#btn".into(),
             session: SessionId::new_unchecked("local-1"),
             tab: TabId(0),
+            button: None,
+            count: None,
+            new_tab: false,
         })
         .unwrap();
         match action {
@@ -2310,6 +2328,7 @@ mod tests {
             to: "#to".into(),
             session: session.clone(),
             tab,
+            button: None,
         })
         .unwrap();
         assert!(

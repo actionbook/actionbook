@@ -697,7 +697,7 @@ fn int_type_text() {
     // Type text into the input
     let out = headless(
         &[
-            "browser", "type", "world", "#test", "-s", "local-1", "-t", "t0",
+            "browser", "type", "#test", "world", "-s", "local-1", "-t", "t0",
         ],
         30,
     );
@@ -790,15 +790,7 @@ fn int_select_dropdown() {
     // Select opt2
     let out = headless(
         &[
-            "browser",
-            "select",
-            "opt2",
-            "--selector",
-            "#sel",
-            "-s",
-            "local-1",
-            "-t",
-            "t0",
+            "browser", "select", "#sel", "opt2", "-s", "local-1", "-t", "t0",
         ],
         30,
     );
@@ -1155,14 +1147,13 @@ fn int_upload() {
     );
     assert_success(&out, "inject file input");
 
-    // Upload file (files are positional, selector is a named --selector flag)
+    // Upload file (selector is first positional, then file paths)
     let out = headless(
         &[
             "browser",
             "upload",
-            &file_path,
-            "--selector",
             "#file-upload",
+            &file_path,
             "-s",
             "local-1",
             "-t",

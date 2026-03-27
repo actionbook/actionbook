@@ -479,6 +479,9 @@ pub enum Action {
         from_selector: String,
         /// Selector of the element to drop onto.
         to_selector: String,
+        /// Mouse button: "left" (default), "right", "middle".
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        button: Option<String>,
     },
 
     /// Upload files to a file input element.

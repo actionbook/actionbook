@@ -412,10 +412,19 @@ pub async fn handle_action(
             tab,
             from_selector,
             to_selector,
+            button,
             ..
         } => {
-            interaction::handle_drag(session_id, backend, regs, tab, &from_selector, &to_selector)
-                .await
+            interaction::handle_drag(
+                session_id,
+                backend,
+                regs,
+                tab,
+                &from_selector,
+                &to_selector,
+                button.as_deref(),
+            )
+            .await
         }
         Action::Upload {
             tab,
@@ -2150,6 +2159,7 @@ mod tests {
                 tab: TabId(0),
                 from_selector: "#source".into(),
                 to_selector: "#target".into(),
+                button: None,
             },
         )
         .await;

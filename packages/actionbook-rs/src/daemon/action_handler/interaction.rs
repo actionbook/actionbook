@@ -410,6 +410,7 @@ pub(super) async fn handle_drag(
     tab: TabId,
     from_selector: &str,
     to_selector: &str,
+    button: Option<&str>,
 ) -> ActionResult {
     let target_id = match resolve_tab(session_id, regs, tab) {
         Ok(t) => t,
@@ -427,18 +428,19 @@ pub(super) async fn handle_drag(
     };
 
     // Move to source, press, move to target, release
-    for (event_type, x, y, button, cc) in [
-        ("mouseMoved", from_x, from_y, "left", 0),
-        ("mousePressed", from_x, from_y, "left", 1),
-        ("mouseMoved", to_x, to_y, "left", 0),
-        ("mouseReleased", to_x, to_y, "left", 1),
+    let btn = button.unwrap_or("left");
+    for (event_type, x, y, mouse_btn, cc) in [
+        ("mouseMoved", from_x, from_y, btn, 0),
+        ("mousePressed", from_x, from_y, btn, 1),
+        ("mouseMoved", to_x, to_y, btn, 0),
+        ("mouseReleased", to_x, to_y, btn, 1),
     ] {
         let op = BackendOp::DispatchMouseEvent {
             target_id: target_id.to_string(),
             event_type: event_type.to_string(),
             x,
             y,
-            button: button.to_string(),
+            button: mouse_btn.to_string(),
             click_count: cc,
         };
         if let Err(e) = backend.exec(op).await {
