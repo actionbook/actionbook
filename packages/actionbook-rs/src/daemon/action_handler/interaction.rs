@@ -145,7 +145,10 @@ return null;
             _ => {
                 return ActionResult::fatal(
                     "no_navigable_url",
-                    format!("element '{}' has no navigable URL (no href found)", selector),
+                    format!(
+                        "element '{}' has no navigable URL (no href found)",
+                        selector
+                    ),
                     "use --new-tab only on elements with href attributes (links, anchors)",
                 )
             }
