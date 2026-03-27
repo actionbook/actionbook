@@ -723,6 +723,15 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
         _ => None,
     };
 
+    /// Auto-prepend `https://` when the URL has no scheme.
+    fn ensure_scheme(url: String) -> String {
+        if url.contains("://") {
+            url
+        } else {
+            format!("https://{url}")
+        }
+    }
+
     let action = match cmd {
         // Global
         BrowserCmd::Start {
@@ -745,7 +754,7 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
                 mode,
                 profile,
                 headless,
-                open_url,
+                open_url: open_url.map(ensure_scheme),
                 cdp_endpoint,
                 ws_headers: None,
                 set_session_id,
@@ -764,7 +773,7 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             window,
         } => Action::NewTab {
             session,
-            url,
+            url: ensure_scheme(url),
             new_window,
             window,
         },
@@ -772,7 +781,11 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
         BrowserCmd::CloseTab { session, tab } => Action::CloseTab { session, tab },
 
         // Tab
-        BrowserCmd::Goto { url, session, tab } => Action::Goto { session, tab, url },
+        BrowserCmd::Goto { url, session, tab } => Action::Goto {
+            session,
+            tab,
+            url: ensure_scheme(url),
+        },
         BrowserCmd::Back { session, tab } => Action::Back { session, tab },
         BrowserCmd::Forward { session, tab } => Action::Forward { session, tab },
         BrowserCmd::Reload { session, tab } => Action::Reload { session, tab },
@@ -1707,6 +1720,63 @@ mod tests {
                 assert_eq!(tab, TabId(1));
                 assert_eq!(url, "https://example.com");
             }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn goto_auto_prepends_https_scheme() {
+        let (action, _) = build_action(BrowserCmd::Goto {
+            url: "arxiv.org".into(),
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        })
+        .unwrap();
+        match action {
+            Action::Goto { url, .. } => assert_eq!(url, "https://arxiv.org"),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn goto_preserves_explicit_http_scheme() {
+        let (action, _) = build_action(BrowserCmd::Goto {
+            url: "http://example.com".into(),
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        })
+        .unwrap();
+        match action {
+            Action::Goto { url, .. } => assert_eq!(url, "http://example.com"),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn goto_preserves_explicit_https_scheme() {
+        let (action, _) = build_action(BrowserCmd::Goto {
+            url: "https://google.com".into(),
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        })
+        .unwrap();
+        match action {
+            Action::Goto { url, .. } => assert_eq!(url, "https://google.com"),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn new_tab_auto_prepends_https_scheme() {
+        let (action, _) = build_action(BrowserCmd::NewTab {
+            url: "example.com".into(),
+            session: SessionId::new_unchecked("local-1"),
+            new_window: false,
+            window: None,
+        })
+        .unwrap();
+        match action {
+            Action::NewTab { url, .. } => assert_eq!(url, "https://example.com"),
             _ => panic!("wrong variant"),
         }
     }
