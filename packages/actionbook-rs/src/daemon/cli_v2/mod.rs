@@ -813,8 +813,9 @@ pub enum LogsCmd {
         level: Option<String>,
         #[arg(long)]
         tail: Option<u32>,
+        /// Return entries after this log id (e.g. "log-3")
         #[arg(long)]
-        since: Option<u64>,
+        since: Option<String>,
         #[arg(long)]
         clear: bool,
         #[arg(long)]
@@ -832,8 +833,9 @@ pub enum LogsCmd {
         source: Option<String>,
         #[arg(long)]
         tail: Option<u32>,
+        /// Return entries after this error id (e.g. "err-3")
         #[arg(long)]
-        since: Option<u64>,
+        since: Option<String>,
         #[arg(long)]
         clear: bool,
         #[arg(long)]
@@ -1239,7 +1241,7 @@ fn build_action_with_timeout(
                     tab,
                     level,
                     tail,
-                    since: since.map(|n| n.to_string()),
+                    since,
                     clear,
                 }
             }
@@ -1263,7 +1265,7 @@ fn build_action_with_timeout(
                     tab,
                     source,
                     tail,
-                    since: since.map(|n| n.to_string()),
+                    since,
                     clear,
                 }
             }
@@ -3229,7 +3231,7 @@ mod tests {
             tab: tab.to_string(),
             level: Some("error".into()),
             tail: Some(10),
-            since: Some(100),
+            since: Some("log-100".into()),
             clear: false,
             source: None,
             json: false,
