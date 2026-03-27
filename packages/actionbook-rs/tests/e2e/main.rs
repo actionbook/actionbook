@@ -23,5 +23,6 @@ mod contract;
 mod contract_b2a;
 mod contract_b2b;
 mod contract_nav_title;
+mod contract_read;
 mod contract_snapshot_storage;
 mod harness;

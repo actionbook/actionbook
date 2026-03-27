@@ -1,4 +1,5 @@
 use super::*;
+use crate::browser::readability::READABILITY_JS;
 use crate::browser::snapshot::{
     format_compact, parse_ax_tree, remove_empty_leaves, SnapshotFilter,
 };
@@ -88,6 +89,70 @@ async fn ensure_log_capture_initialized(
         Ok(_) => Ok(()),
         Err(e) => Err(cdp_error_to_result(e)),
     }
+}
+
+fn fallback_tab_context(regs: &Registries, tab: TabId) -> (Option<String>, Option<String>) {
+    regs.find_tab(tab)
+        .map(|entry| (Some(entry.url.clone()), Some(entry.title.clone())))
+        .unwrap_or((None, None))
+}
+
+async fn live_tab_context(
+    backend: &mut dyn BackendSession,
+    target_id: &str,
+    regs: &Registries,
+    tab: TabId,
+) -> (Option<String>, Option<String>) {
+    let fallback = fallback_tab_context(regs, tab);
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: "(() => ({ url: location.href, title: document.title || '' }))()".to_string(),
+        return_by_value: true,
+    };
+
+    match backend.exec(op).await {
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            let url = val
+                .get("url")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .or(fallback.0);
+            let title = match val.get("title").and_then(|v| v.as_str()) {
+                Some(title) => Some(title.to_string()),
+                None => fallback.1,
+            };
+            (url, title)
+        }
+        Err(_) => fallback,
+    }
+}
+
+async fn ok_with_tab_context(
+    backend: &mut dyn BackendSession,
+    target_id: &str,
+    regs: &Registries,
+    tab: TabId,
+    data: Value,
+) -> ActionResult {
+    let (url, title) = live_tab_context(backend, target_id, regs, tab).await;
+    let mut object = match data {
+        Value::Object(map) => map,
+        other => {
+            let mut map = serde_json::Map::new();
+            map.insert("value".to_string(), other);
+            map
+        }
+    };
+    object.insert(
+        "__ctx_url".to_string(),
+        url.map(Value::String).unwrap_or(Value::Null),
+    );
+    object.insert(
+        "__ctx_title".to_string(),
+        title.map(Value::String).unwrap_or(Value::Null),
+    );
+    ActionResult::ok(Value::Object(object))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -546,7 +611,7 @@ return el ? el.outerHTML : null;
             if let Some(sel) = selector.filter(|_| val.is_null()) {
                 element_not_found(sel)
             } else {
-                ActionResult::ok(json!({"html": val}))
+                ok_with_tab_context(backend, target_id, regs, tab, json!({"html": val})).await
             }
         }
         Err(e) => cdp_error_to_result(e),
@@ -559,14 +624,42 @@ pub(super) async fn handle_text(
     regs: &Registries,
     tab: TabId,
     selector: Option<&str>,
+    mode: Option<&str>,
 ) -> ActionResult {
     let target_id = match resolve_tab(session_id, regs, tab) {
         Ok(t) => t,
         Err(r) => return r,
     };
 
-    let js = match selector {
-        Some(sel) => {
+    let js = match (selector, mode) {
+        (Some(sel), Some("readability")) => {
+            let sel_json = match serde_json::to_string(sel) {
+                Ok(s) => s,
+                Err(e) => {
+                    return ActionResult::fatal(
+                        "invalid_selector",
+                        e.to_string(),
+                        "check selector syntax",
+                    )
+                }
+            };
+            format!(
+                r#"(function() {{
+{FIND_ELEMENT_JS}
+const el = __findElement({sel_json});
+if (!el) return null;
+const root = el.cloneNode(true);
+const removeSelectors = ['nav','footer','aside','header','script','style','noscript','template','svg','[hidden]','[aria-hidden="true"]','[style*="display:none"]','[style*="display: none"]'];
+for (const selector of removeSelectors) {{
+  root.querySelectorAll(selector).forEach(node => node.remove());
+}}
+const text = root.innerText || root.textContent || '';
+return text.replace(/\n{{3,}}/g, '\n\n').replace(/[ \t]+/g, ' ').trim();
+}})()"#
+            )
+        }
+        (None, Some("readability")) => READABILITY_JS.to_string(),
+        (Some(sel), _) => {
             let sel_json = match serde_json::to_string(sel) {
                 Ok(s) => s,
                 Err(e) => {
@@ -585,7 +678,7 @@ return el ? el.innerText : null;
 }})()"#
             )
         }
-        None => "document.body.innerText".to_string(),
+        (None, _) => "document.body.innerText".to_string(),
     };
 
     let op = BackendOp::Evaluate {
@@ -600,7 +693,7 @@ return el ? el.innerText : null;
             if let Some(sel) = selector.filter(|_| val.is_null()) {
                 element_not_found(sel)
             } else {
-                ActionResult::ok(json!({"text": val}))
+                ok_with_tab_context(backend, target_id, regs, tab, json!({"text": val})).await
             }
         }
         Err(e) => cdp_error_to_result(e),
@@ -710,7 +803,14 @@ return el.value;
             if val.is_null() {
                 element_not_found(selector)
             } else {
-                ActionResult::ok(json!({"value": val, "selector": selector}))
+                ok_with_tab_context(
+                    backend,
+                    target_id,
+                    regs,
+                    tab,
+                    json!({"value": val, "selector": selector}),
+                )
+                .await
             }
         }
         Err(e) => cdp_error_to_result(e),
@@ -762,7 +862,14 @@ return el.getAttribute({attr_json});
             if val.get("__notfound").is_some() {
                 element_not_found(selector)
             } else {
-                ActionResult::ok(json!({"attr": attr_name, "value": val, "selector": selector}))
+                ok_with_tab_context(
+                    backend,
+                    target_id,
+                    regs,
+                    tab,
+                    json!({"attr": attr_name, "value": val, "selector": selector}),
+                )
+                .await
             }
         }
         Err(e) => cdp_error_to_result(e),
@@ -809,7 +916,14 @@ return attrs;
             if val.is_null() {
                 element_not_found(selector)
             } else {
-                ActionResult::ok(json!({"attributes": val, "selector": selector}))
+                ok_with_tab_context(
+                    backend,
+                    target_id,
+                    regs,
+                    tab,
+                    json!({"attributes": val, "selector": selector}),
+                )
+                .await
             }
         }
         Err(e) => cdp_error_to_result(e),
@@ -887,7 +1001,8 @@ const el = __findElement({selector_json});
 if (!el) return null;
 const rect = el.getBoundingClientRect();
 const style = window.getComputedStyle(el);
-return {{ visible: rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none', enabled: !el.disabled, checked: !!el.checked, selected: !!el.selected, focused: document.activeElement === el, required: !!el.required, readOnly: !!el.readOnly }};
+const editable = !el.disabled && !el.readOnly && (typeof el.value !== 'undefined' || el.isContentEditable);
+return {{ visible: rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none', enabled: !el.disabled, checked: !!el.checked, focused: document.activeElement === el, editable, selected: !!el.selected }};
 }})()"#
     );
 
@@ -902,7 +1017,14 @@ return {{ visible: rect.width > 0 && rect.height > 0 && style.visibility !== 'hi
             if val.is_null() {
                 element_not_found(selector)
             } else {
-                ActionResult::ok(json!({"state": val, "selector": selector}))
+                ok_with_tab_context(
+                    backend,
+                    target_id,
+                    regs,
+                    tab,
+                    json!({"state": val, "selector": selector}),
+                )
+                .await
             }
         }
         Err(e) => cdp_error_to_result(e),
@@ -948,7 +1070,14 @@ return {{ x: rect.left, y: rect.top, width: rect.width, height: rect.height, rig
             if val.is_null() {
                 element_not_found(selector)
             } else {
-                ActionResult::ok(json!({"box": val, "selector": selector}))
+                ok_with_tab_context(
+                    backend,
+                    target_id,
+                    regs,
+                    tab,
+                    json!({"box": val, "selector": selector}),
+                )
+                .await
             }
         }
         Err(e) => cdp_error_to_result(e),
@@ -1005,7 +1134,14 @@ return result;
             if val.is_null() {
                 element_not_found(selector)
             } else {
-                ActionResult::ok(json!({"styles": val, "selector": selector}))
+                ok_with_tab_context(
+                    backend,
+                    target_id,
+                    regs,
+                    tab,
+                    json!({"styles": val, "selector": selector}),
+                )
+                .await
             }
         }
         Err(e) => cdp_error_to_result(e),

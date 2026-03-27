@@ -1192,16 +1192,11 @@ fn normalize_observation_data(action: &Action, data: &Value) -> Value {
                 "value": value
             })
         }
-        Action::Attr { selector, name, .. } => {
+        Action::Attr { selector, .. } => {
             // Handler returns {"attr": attr_name, "value": val, "selector": selector}
             let value = data.get("value").cloned().unwrap_or(Value::Null);
-            let attribute = data
-                .get("attr")
-                .cloned()
-                .unwrap_or_else(|| Value::String(name.clone()));
             serde_json::json!({
                 "target": { "selector": selector },
-                "attribute": attribute,
                 "value": value
             })
         }
@@ -1263,10 +1258,10 @@ fn normalize_observation_data(action: &Action, data: &Value) -> Value {
         }
         Action::State { selector, .. } => {
             // Handler returns {"state": val, "selector": selector}
-            let flags = data.get("state").cloned().unwrap_or_else(|| data.clone());
+            let state = data.get("state").cloned().unwrap_or_else(|| data.clone());
             serde_json::json!({
                 "target": { "selector": selector },
-                "flags": flags
+                "state": state
             })
         }
         Action::InspectPoint { x, y, .. } => {
@@ -1324,7 +1319,11 @@ fn format_observation_text(action: &Action, result: &ActionResult) -> Option<Str
 
     Some(match result {
         ActionResult::Ok { data } => {
-            let prefix = prefixed_header(&session_id, Some(&tab_id), None);
+            let prefix = prefixed_header(
+                &session_id,
+                Some(&tab_id),
+                data.get("__ctx_url").and_then(|v| v.as_str()),
+            );
             match action {
                 Action::Snapshot { .. } => {
                     // PRD 10.1: text output = "[session tab] url\n<tree content>"
@@ -1360,31 +1359,35 @@ fn format_observation_text(action: &Action, result: &ActionResult) -> Option<Str
                 }
                 Action::Html { .. } => {
                     // Handler returns {"html": val}
-                    data.get("html")
+                    let value = data
+                        .get("html")
                         .and_then(|v| v.as_str())
-                        .unwrap_or_else(|| data.as_str().unwrap_or(""))
-                        .to_string()
+                        .unwrap_or_else(|| data.as_str().unwrap_or(""));
+                    format!("{prefix}\n{value}")
                 }
                 Action::Value { .. } => {
                     // Handler returns {"value": val, "selector": selector}
-                    data.get("value")
+                    let value = data
+                        .get("value")
                         .and_then(|v| v.as_str())
-                        .unwrap_or_else(|| data.as_str().unwrap_or(""))
-                        .to_string()
+                        .unwrap_or_else(|| data.as_str().unwrap_or(""));
+                    format!("{prefix}\n{value}")
                 }
                 Action::Attr { .. } => {
                     // Handler returns {"attr": attr_name, "value": val, "selector": selector}
-                    data.get("value")
+                    let value = data
+                        .get("value")
                         .and_then(|v| v.as_str())
-                        .unwrap_or_else(|| data.as_str().unwrap_or(""))
-                        .to_string()
+                        .unwrap_or_else(|| data.as_str().unwrap_or(""));
+                    format!("{prefix}\n{value}")
                 }
                 Action::Text { .. } => {
                     // Handler returns {"text": val}
-                    data.get("text")
+                    let value = data
+                        .get("text")
                         .and_then(|v| v.as_str())
-                        .unwrap_or_else(|| data.as_str().unwrap_or(""))
-                        .to_string()
+                        .unwrap_or_else(|| data.as_str().unwrap_or(""));
+                    format!("{prefix}\n{value}")
                 }
                 Action::Viewport { .. } => {
                     // Handler returns {"viewport": {width, height, ...}}

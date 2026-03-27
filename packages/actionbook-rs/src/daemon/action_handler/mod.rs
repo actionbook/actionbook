@@ -208,8 +208,21 @@ pub async fn handle_action(
         Action::Html { tab, selector, .. } => {
             observation::handle_html(session_id, backend, regs, tab, selector.as_deref()).await
         }
-        Action::Text { tab, selector, .. } => {
-            observation::handle_text(session_id, backend, regs, tab, selector.as_deref()).await
+        Action::Text {
+            tab,
+            selector,
+            mode,
+            ..
+        } => {
+            observation::handle_text(
+                session_id,
+                backend,
+                regs,
+                tab,
+                selector.as_deref(),
+                mode.as_deref(),
+            )
+            .await
         }
 
         // -- Session-level commands --
