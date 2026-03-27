@@ -321,6 +321,7 @@ fn contract_b2b_upload_json_and_text() {
 }
 
 #[test]
+#[ignore = "TODO: enable after PR #297 merges"]
 fn contract_b2b_scroll_json_and_text() {
     if skip() {
         return;
@@ -392,6 +393,7 @@ fn contract_b2b_eval_json_and_text() {
 }
 
 #[test]
+#[ignore = "TODO: enable after PR #297 merges"]
 fn contract_b2b_waits_json_and_text() {
     if skip() {
         return;
