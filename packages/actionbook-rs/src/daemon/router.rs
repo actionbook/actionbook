@@ -96,16 +96,16 @@ impl Router {
                 .await
             }
 
+            // --- Status: forward to actor, enrich with registry metadata ---
+            Action::SessionStatus { session } => {
+                let session_id = session.clone();
+                self.handle_session_status(session_id, action).await
+            }
+
             // --- Close commands: forward to actor, then remove from registry ---
             Action::Close { session } | Action::CloseSession { session } => {
                 let session_id = session.clone();
-                let result = self.forward_to_session(&session_id, action).await;
-                if result.is_ok() {
-                    let mut registry = self.registry.lock().await;
-                    registry.remove(&session_id);
-                    self.trigger_save(&registry);
-                }
-                result
+                self.handle_close_session(session_id, action).await
             }
 
             // --- Restart: close old session, start new one with same ID/profile/mode ---
@@ -534,17 +534,116 @@ impl Router {
         }
 
         // 4. Start a new session with the same profile/mode, reusing the original ID.
-        self.handle_start_session_inner(
-            mode,
-            Some(profile),
-            headless,
-            None,
-            None,
-            None,
-            Some(session_id),
-            None,
-        )
-        .await
+        let start_result = self
+            .handle_start_session_inner(
+                mode,
+                Some(profile),
+                headless,
+                None,
+                None,
+                None,
+                Some(session_id),
+                None,
+            )
+            .await;
+
+        // 5. Reshape into PRD 7.5 restart response: {session, reopened}.
+        match start_result {
+            ActionResult::Ok { data } => {
+                let tabs_count = data
+                    .get("tab")
+                    .map(|t| if t.is_null() { 0u64 } else { 1 })
+                    .unwrap_or(0);
+                let session_obj = data
+                    .get("session")
+                    .cloned()
+                    .unwrap_or(serde_json::json!(null));
+                let mut session_map = session_obj.as_object().cloned().unwrap_or_default();
+                session_map.insert("tabs_count".into(), serde_json::json!(tabs_count));
+                ActionResult::ok(serde_json::json!({
+                    "session": session_map,
+                    "reopened": true,
+                }))
+            }
+            err => err,
+        }
+    }
+
+    /// Handle `SessionStatus` — forward to actor, enrich with registry metadata.
+    async fn handle_session_status(&self, session_id: SessionId, action: Action) -> ActionResult {
+        let (mode, headless) = {
+            let registry = self.registry.lock().await;
+            match registry.get(&session_id) {
+                Some(h) => (h.mode, h.headless),
+                None => {
+                    return ActionResult::fatal(
+                        "session_not_found",
+                        format!("session {session_id} does not exist"),
+                        "run `actionbook browser list-sessions` to see available sessions",
+                    );
+                }
+            }
+        };
+
+        let actor_result = self.forward_to_session(&session_id, action).await;
+
+        match actor_result {
+            ActionResult::Ok { data } => {
+                let status = data
+                    .get("state")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let tabs = data
+                    .get("tabs")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let tabs_count = tabs.len() as u64;
+
+                ActionResult::ok(serde_json::json!({
+                    "session": {
+                        "session_id": session_id.to_string(),
+                        "mode": format!("{mode}"),
+                        "status": super::formatter::display_lifecycle_status(status),
+                        "headless": headless,
+                        "tabs_count": tabs_count,
+                    },
+                    "tabs": tabs,
+                    "capabilities": {
+                        "snapshot": true,
+                        "pdf": true,
+                        "upload": true,
+                    },
+                }))
+            }
+            err => err,
+        }
+    }
+
+    /// Handle `Close`/`CloseSession` — forward to actor, reshape to PRD 7.4.
+    async fn handle_close_session(&self, session_id: SessionId, action: Action) -> ActionResult {
+        let tab_count = {
+            let registry = self.registry.lock().await;
+            match registry.get(&session_id) {
+                Some(h) => h.tab_count,
+                None => 0,
+            }
+        };
+
+        let result = self.forward_to_session(&session_id, action).await;
+        if result.is_ok() {
+            let mut registry = self.registry.lock().await;
+            registry.remove(&session_id);
+            self.trigger_save(&registry);
+
+            ActionResult::ok(serde_json::json!({
+                "session_id": session_id.to_string(),
+                "status": "closed",
+                "closed_tabs": tab_count,
+            }))
+        } else {
+            result
+        }
     }
 
     /// Trigger a state save (best-effort, errors are logged).

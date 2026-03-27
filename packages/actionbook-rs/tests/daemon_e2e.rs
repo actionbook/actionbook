@@ -479,7 +479,8 @@ async fn e2e_close_session_stub() {
         },
     )
     .await;
-    assert_eq!(data["closed"].as_str().unwrap(), ids[0].as_str());
+    assert_eq!(data["session_id"].as_str().unwrap(), ids[0].as_str());
+    assert_eq!(data["status"], "closed");
 }
 
 #[tokio::test]

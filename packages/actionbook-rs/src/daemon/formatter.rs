@@ -558,12 +558,20 @@ fn format_lifecycle_text(action: &Action, result: &ActionResult) -> Option<Strin
                 format_session_status_text(&session.to_string(), data)
             }
             Action::CloseSession { session } => {
+                let closed_tabs = first_u64(data, &["closed_tabs"]).unwrap_or(0);
                 let mut out = prefixed_header(&session.to_string(), None, None);
-                out.push_str(&format!("\nok {command}"));
+                out.push_str(&format!("\nok {command}\n"));
+                out.push_str(&format!("closed_tabs: {closed_tabs}"));
                 out
             }
             Action::RestartSession { session } => {
-                let mut out = prefixed_header(&session.to_string(), None, None);
+                let tab_id = data
+                    .get("session")
+                    .and_then(|s| s.get("tabs_count"))
+                    .and_then(|v| v.as_u64())
+                    .filter(|&c| c > 0)
+                    .map(|_| "t0");
+                let mut out = prefixed_header(&session.to_string(), tab_id, None);
                 out.push_str(&format!("\nok {command}\n"));
                 out.push_str("status: running");
                 out
@@ -764,11 +772,23 @@ fn format_list_sessions_text(data: &Value) -> String {
 }
 
 fn format_session_status_text(session_id: &str, data: &Value) -> String {
-    let status = first_str(data, &["status", "state"]).unwrap_or("unknown");
-    let tabs = first_u64(data, &["tabs_count", "tab_count"]).unwrap_or(0);
-    let windows = first_u64(data, &["windows_count", "window_count"]).unwrap_or(0);
+    let session = data.get("session");
+    let status = session
+        .and_then(|s| s.get("status"))
+        .and_then(|v| v.as_str())
+        .or_else(|| first_str(data, &["status", "state"]))
+        .unwrap_or("unknown");
+    let mode = session
+        .and_then(|s| s.get("mode"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let tabs = session
+        .and_then(|s| s.get("tabs_count"))
+        .and_then(|v| v.as_u64())
+        .or_else(|| first_u64(data, &["tabs_count", "tab_count"]))
+        .unwrap_or(0);
     format!(
-        "[{session_id}]\nstatus: {}\ntabs: {tabs}\nwindows: {windows}",
+        "[{session_id}]\nstatus: {}\nmode: {mode}\ntabs: {tabs}",
         display_lifecycle_status(status)
     )
 }
@@ -783,7 +803,7 @@ fn first_u64(value: &Value, keys: &[&str]) -> Option<u64> {
         .find_map(|key| value.get(key).and_then(|v| v.as_u64()))
 }
 
-fn display_lifecycle_status(status: &str) -> &str {
+pub(super) fn display_lifecycle_status(status: &str) -> &str {
     match status {
         "ready" | "executing" | "recovering" => "running",
         other => other,
@@ -2166,17 +2186,24 @@ mod tests {
         let action = Action::SessionStatus {
             session: SessionId::new_unchecked("local-1"),
         };
+        // Data now comes from the router in PRD 7.3 shape.
         let result = ActionResult::ok(json!({
-            "session": "local-1",
-            "state": "running",
-            "tab_count": 2,
-            "window_count": 1
+            "session": {
+                "session_id": "local-1",
+                "mode": "local",
+                "status": "running",
+                "headless": false,
+                "tabs_count": 2
+            },
+            "tabs": [],
+            "capabilities": { "snapshot": true, "pdf": true, "upload": true }
         }));
         let out = format_cli_result(&action, &result);
         assert!(out.starts_with("[local-1]"));
         assert!(out.contains("status: running"));
+        assert!(out.contains("mode: local"));
         assert!(out.contains("tabs: 2"));
-        assert!(out.contains("windows: 1"));
+        assert!(!out.contains("windows:"));
     }
 
     #[test]

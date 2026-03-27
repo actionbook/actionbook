@@ -141,12 +141,27 @@ impl SessionActor {
                     let _ = req.response_tx.send(result);
                     break;
                 }
-                Action::SessionStatus { .. } => ActionResult::ok(serde_json::json!({
-                    "session": self.session_id.to_string(),
-                    "state": self.state.to_string(),
-                    "tab_count": self.registries.tabs.len(),
-                    "window_count": self.registries.windows.len(),
-                })),
+                Action::SessionStatus { .. } => {
+                    let tabs: Vec<serde_json::Value> = self
+                        .registries
+                        .tabs
+                        .iter()
+                        .map(|(id, entry)| {
+                            serde_json::json!({
+                                "tab_id": format!("{id}"),
+                                "url": entry.url,
+                                "title": entry.title,
+                            })
+                        })
+                        .collect();
+                    ActionResult::ok(serde_json::json!({
+                        "session": self.session_id.to_string(),
+                        "state": self.state.to_string(),
+                        "tab_count": self.registries.tabs.len(),
+                        "window_count": self.registries.windows.len(),
+                        "tabs": tabs,
+                    }))
+                }
                 action => {
                     action_handler::handle_action(
                         self.session_id.clone(),
