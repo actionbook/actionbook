@@ -531,14 +531,26 @@ fn format_lifecycle_text(action: &Action, result: &ActionResult) -> Option<Strin
     Some(match result {
         ActionResult::Ok { data } => match action {
             Action::StartSession { mode, .. } => {
-                let session_id = data
-                    .get("session_id")
+                let session_obj = data.get("session");
+                let tab_obj = data.get("tab");
+                let session_id = session_obj
+                    .and_then(|s| s.get("session_id"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
-                let mut out = prefixed_header(session_id, None, None);
+                let tab_id = tab_obj
+                    .and_then(|t| t.get("tab_id"))
+                    .and_then(|v| v.as_str());
+                let url = tab_obj.and_then(|t| t.get("url")).and_then(|v| v.as_str());
+                let title = tab_obj
+                    .and_then(|t| t.get("title"))
+                    .and_then(|v| v.as_str());
+                let mut out = prefixed_header(session_id, tab_id, url);
                 out.push_str(&format!("\nok {command}\n"));
                 out.push_str(&format!("mode: {mode}\n"));
                 out.push_str("status: running");
+                if let Some(title) = title.filter(|t| !t.is_empty()) {
+                    out.push_str(&format!("\ntitle: {title}"));
+                }
                 out
             }
             Action::ListSessions => format_list_sessions_text(data),
@@ -573,12 +585,27 @@ fn lifecycle_context(action: &Action, result: &ActionResult) -> Option<Value> {
                 ActionResult::Ok { data } => data,
                 _ => return None,
             };
-            let session_id = data.get("session_id")?.as_str()?;
+            let session_id = data
+                .get("session")
+                .and_then(|s| s.get("session_id"))
+                .and_then(|v| v.as_str())?;
+            let tab_id = data
+                .get("tab")
+                .and_then(|t| t.get("tab_id"))
+                .and_then(|v| v.as_str());
+            let url = data
+                .get("tab")
+                .and_then(|t| t.get("url"))
+                .and_then(|v| v.as_str());
+            let title = data
+                .get("tab")
+                .and_then(|t| t.get("title"))
+                .and_then(|v| v.as_str());
             Some(serde_json::json!({
                 "session_id": session_id,
-                "tab_id": null,
-                "url": null,
-                "title": null
+                "tab_id": tab_id,
+                "url": url,
+                "title": title
             }))
         }
         Action::SessionStatus { session }
@@ -2092,17 +2119,30 @@ mod tests {
             set_session_id: None,
         };
         let result = ActionResult::ok(json!({
-            "session_id": "local-1",
-            "tab_ids": ["native-tab-1"]
+            "session": {
+                "session_id": "local-1",
+                "mode": "local",
+                "status": "running",
+                "headless": true,
+                "cdp_endpoint": null
+            },
+            "tab": {
+                "tab_id": "t0",
+                "url": "https://example.com",
+                "title": "Example"
+            },
+            "reused": false
         }));
         let out = format_cli_result_json(&action, &result, 42);
         let decoded: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(decoded["ok"], true);
         assert_eq!(decoded["command"], "browser.start");
         assert_eq!(decoded["context"]["session_id"], "local-1");
-        assert_eq!(decoded["context"]["tab_id"], Value::Null);
-        assert_eq!(decoded["context"]["url"], Value::Null);
-        assert_eq!(decoded["data"]["session_id"], "local-1");
+        assert_eq!(decoded["context"]["tab_id"], "t0");
+        assert_eq!(decoded["context"]["url"], "https://example.com");
+        assert_eq!(decoded["data"]["session"]["session_id"], "local-1");
+        assert_eq!(decoded["data"]["tab"]["tab_id"], "t0");
+        assert_eq!(decoded["data"]["reused"], false);
         assert_eq!(decoded["meta"]["duration_ms"], 42);
     }
 
@@ -2140,7 +2180,7 @@ mod tests {
     }
 
     #[test]
-    fn lifecycle_text_start_uses_session_prefix_only() {
+    fn lifecycle_text_start_includes_tab_and_url() {
         let action = Action::StartSession {
             mode: Mode::Local,
             profile: None,
@@ -2151,14 +2191,28 @@ mod tests {
             set_session_id: None,
         };
         let result = ActionResult::ok(json!({
-            "session_id": "local-1",
-            "tab_ids": ["native-tab-1"]
+            "session": {
+                "session_id": "local-1",
+                "mode": "local",
+                "status": "running",
+                "headless": true,
+                "cdp_endpoint": null
+            },
+            "tab": {
+                "tab_id": "t0",
+                "url": "https://example.com",
+                "title": "Example"
+            },
+            "reused": false
         }));
         let out = format_cli_result(&action, &result);
-        assert!(out.starts_with("[local-1]\n"));
-        assert!(!out.contains("[s0 t0]"));
+        assert!(
+            out.starts_with("[local-1 t0] https://example.com"),
+            "expected [session tab] url prefix, got: {out}"
+        );
         assert!(out.contains("ok browser.start"));
         assert!(out.contains("mode: local"));
+        assert!(out.contains("title: Example"));
     }
 
     #[test]
@@ -3717,5 +3771,104 @@ mod tests {
         let out = format_cli_result(&action, &result);
         assert!(out.contains("ELEMENT_NOT_FOUND"));
         assert!(out.contains("#missing"));
+    }
+
+    #[test]
+    fn lifecycle_json_start_context_extracts_tab_info() {
+        let action = Action::StartSession {
+            mode: Mode::Local,
+            profile: None,
+            headless: false,
+            open_url: None,
+            cdp_endpoint: None,
+            ws_headers: None,
+            set_session_id: None,
+        };
+        let result = ActionResult::ok(json!({
+            "session": {
+                "session_id": "research",
+                "mode": "local",
+                "status": "running",
+                "headless": false,
+                "cdp_endpoint": null
+            },
+            "tab": {
+                "tab_id": "t0",
+                "url": "https://actionbook.dev",
+                "title": "Actionbook"
+            },
+            "reused": false
+        }));
+        let out = format_cli_result_json(&action, &result, 10);
+        let decoded: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(decoded["context"]["session_id"], "research");
+        assert_eq!(decoded["context"]["tab_id"], "t0");
+        assert_eq!(decoded["context"]["url"], "https://actionbook.dev");
+        assert_eq!(decoded["context"]["title"], "Actionbook");
+    }
+
+    #[test]
+    fn lifecycle_text_start_no_tab_falls_back_to_session_only() {
+        let action = Action::StartSession {
+            mode: Mode::Local,
+            profile: None,
+            headless: true,
+            open_url: None,
+            cdp_endpoint: None,
+            ws_headers: None,
+            set_session_id: None,
+        };
+        let result = ActionResult::ok(json!({
+            "session": {
+                "session_id": "local-1",
+                "mode": "local",
+                "status": "running",
+                "headless": true,
+                "cdp_endpoint": null
+            },
+            "tab": null,
+            "reused": false
+        }));
+        let out = format_cli_result(&action, &result);
+        assert!(
+            out.starts_with("[local-1]\n"),
+            "with null tab, should show session-only prefix, got: {out}"
+        );
+        assert!(out.contains("ok browser.start"));
+        assert!(!out.contains("title:"));
+    }
+
+    #[test]
+    fn lifecycle_json_start_data_preserves_prd_structure() {
+        let action = Action::StartSession {
+            mode: Mode::Local,
+            profile: None,
+            headless: false,
+            open_url: None,
+            cdp_endpoint: None,
+            ws_headers: None,
+            set_session_id: None,
+        };
+        let result = ActionResult::ok(json!({
+            "session": {
+                "session_id": "local-1",
+                "mode": "local",
+                "status": "running",
+                "headless": false,
+                "cdp_endpoint": null
+            },
+            "tab": {
+                "tab_id": "t0",
+                "url": "about:blank",
+                "title": ""
+            },
+            "reused": false
+        }));
+        let out = format_cli_result_json(&action, &result, 5);
+        let decoded: Value = serde_json::from_str(&out).unwrap();
+        // data must preserve session/tab/reused top-level keys
+        assert!(decoded["data"]["session"].is_object());
+        assert!(decoded["data"]["tab"].is_object());
+        assert_eq!(decoded["data"]["reused"], false);
     }
 }
