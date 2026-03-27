@@ -430,18 +430,33 @@ impl Router {
         self.trigger_save(&registry);
         drop(registry); // release lock before sending Goto
 
-        // If open_url was specified, send a Goto to update the tab registry URL.
-        // The backend already navigated during start, but the tab registry
-        // recorded the pre-navigation URL from target discovery.
+        // If open_url was specified, send a Goto to update the tab registry URL,
+        // then wait for the page to finish loading before fetching the title.
+        // BackendOp::Navigate only sends Page.navigate without waiting for load,
+        // so fetch_title in the Goto handler may return a stale title.
         let goto_title = if let Some(ref url) = open_url_for_registry {
             let goto = Action::Goto {
                 session: session_id.clone(),
                 tab: TabId(0),
                 url: url.clone(),
             };
-            let goto_result = self.forward_to_session(&session_id, goto).await;
-            // Extract title from Goto result (handler fetches it post-navigation).
-            match &goto_result {
+            let _goto_result = self.forward_to_session(&session_id, goto).await;
+
+            // Wait for navigation to complete (readyState === "complete").
+            let wait = Action::WaitNavigation {
+                session: session_id.clone(),
+                tab: TabId(0),
+                timeout_ms: Some(10_000),
+            };
+            let _ = self.forward_to_session(&session_id, wait).await;
+
+            // Now fetch the title after the page has fully loaded.
+            let title_action = Action::Title {
+                session: session_id.clone(),
+                tab: TabId(0),
+            };
+            let title_result = self.forward_to_session(&session_id, title_action).await;
+            match &title_result {
                 ActionResult::Ok { data } => data
                     .get("title")
                     .and_then(|v| v.as_str())

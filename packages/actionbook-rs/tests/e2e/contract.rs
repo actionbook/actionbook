@@ -557,3 +557,60 @@ fn contract_start_prd_text_output() {
         }
     }
 }
+
+/// Verify that `browser start --open-url` returns the post-navigation title,
+/// not a stale "New Tab" or empty string.
+#[test]
+fn contract_start_open_url_returns_post_nav_title() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://actionbook.dev/",
+        ],
+        30,
+    );
+    assert_success(&out, "start --open-url --json");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout_str(&out)).expect("valid JSON from browser start");
+
+    let data = &json["data"];
+
+    // tab.url must reflect the navigated URL
+    let tab_url = data["tab"]["url"].as_str().unwrap_or_default();
+    assert!(
+        tab_url.contains("actionbook.dev"),
+        "data.tab.url must contain 'actionbook.dev', got: {}",
+        tab_url
+    );
+
+    // tab.title must NOT be empty or "New Tab" — it should be the actual page title
+    let tab_title = data["tab"]["title"].as_str().unwrap_or_default();
+    assert!(
+        !tab_title.is_empty() && tab_title != "New Tab" && tab_title != "about:blank",
+        "data.tab.title must be the post-navigation title, got: '{}'",
+        tab_title
+    );
+
+    // context.title must match data.tab.title
+    let ctx_title = json["context"]["title"].as_str().unwrap_or_default();
+    assert_eq!(
+        ctx_title, tab_title,
+        "context.title must match data.tab.title, got context='{}' vs data='{}'",
+        ctx_title, tab_title
+    );
+
+    // Cleanup
+    let session_id = data["session"]["session_id"].as_str().unwrap();
+    let _ = headless(&["browser", "close", "-s", session_id], 30);
+}
