@@ -1327,8 +1327,11 @@ fn format_observation_text(action: &Action, result: &ActionResult) -> Option<Str
             let prefix = prefixed_header(&session_id, Some(&tab_id), None);
             match action {
                 Action::Snapshot { .. } => {
-                    // Handler returns PRD shape with "content" field containing tree text.
-                    data.get("content")
+                    // PRD 10.1: text output = "[session tab] url\n<tree content>"
+                    let url = data.get("__ctx_url").and_then(|v| v.as_str());
+                    let header = prefixed_header(&session_id, Some(&tab_id), url);
+                    let content = data
+                        .get("content")
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| {
@@ -1338,7 +1341,8 @@ fn format_observation_text(action: &Action, result: &ActionResult) -> Option<Str
                                 serde_json::to_string_pretty(data)
                                     .unwrap_or_else(|_| data.to_string())
                             }
-                        })
+                        });
+                    format!("{header}\n{content}")
                 }
                 Action::Title { .. } => {
                     // Handler returns {"title": val}

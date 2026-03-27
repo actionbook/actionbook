@@ -1053,12 +1053,41 @@ fn contract_snapshot_prd_real_nodes() {
         nodes.len()
     );
 
-    // interactive_count must be <= node_count
-    assert!(
-        interactive_count <= node_count,
-        "stats.interactive_count ({}) must be <= node_count ({})",
-        interactive_count,
-        node_count
+    // Derive expected interactive_count from the actual nodes' roles
+    let interactive_roles: std::collections::HashSet<&str> = [
+        "button",
+        "link",
+        "textbox",
+        "checkbox",
+        "radio",
+        "combobox",
+        "menuitem",
+        "tab",
+        "switch",
+        "slider",
+        "spinbutton",
+        "searchbox",
+        "option",
+        "menuitemcheckbox",
+        "menuitemradio",
+    ]
+    .into_iter()
+    .collect();
+
+    let expected_interactive: u64 = nodes
+        .iter()
+        .filter(|n| {
+            n.get("role")
+                .and_then(|v| v.as_str())
+                .map(|r| interactive_roles.contains(r))
+                .unwrap_or(false)
+        })
+        .count() as u64;
+
+    assert_eq!(
+        interactive_count, expected_interactive,
+        "stats.interactive_count ({}) must exactly match count derived from nodes roles ({})",
+        interactive_count, expected_interactive
     );
 
     // A real page like actionbook.dev should have at least 1 interactive element
@@ -1106,6 +1135,22 @@ fn contract_snapshot_prd_text_output() {
     let out = headless(&["browser", "snapshot", "-s", session_id, "-t", tab_id], 30);
     assert_success(&out, "snapshot text");
     let text = stdout_str(&out);
+
+    // PRD 10.1: text output must start with "[session tab] url" header
+    let header_pattern = format!("[{session_id} {tab_id}]");
+    assert!(
+        text.starts_with(&header_pattern),
+        "text output must start with PRD header '[session tab] url', got:\n{}",
+        &text[..text.len().min(500)]
+    );
+
+    // Header line should contain the URL
+    let first_line = text.lines().next().unwrap_or("");
+    assert!(
+        first_line.contains("actionbook.dev"),
+        "header line must contain the page URL, got: {}",
+        first_line
+    );
 
     // Text output must contain tree content with ref patterns
     assert!(
