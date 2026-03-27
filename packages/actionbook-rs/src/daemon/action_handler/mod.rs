@@ -428,6 +428,8 @@ pub async fn handle_action(
             direction,
             amount,
             selector,
+            container,
+            align,
             ..
         } => {
             interaction::handle_scroll(
@@ -438,6 +440,8 @@ pub async fn handle_action(
                 &direction,
                 amount,
                 selector.as_deref(),
+                container.as_deref(),
+                align.as_deref(),
             )
             .await
         }
@@ -2182,6 +2186,8 @@ mod tests {
                 direction: "down".into(),
                 amount: Some(500),
                 selector: None,
+                container: None,
+                align: None,
             },
         )
         .await;
@@ -2212,6 +2218,8 @@ mod tests {
                 direction: "diagonal".into(),
                 amount: None,
                 selector: None,
+                container: None,
+                align: None,
             },
         )
         .await;
@@ -2238,6 +2246,8 @@ mod tests {
                 direction: "into-view".into(),
                 amount: None,
                 selector: None,
+                container: None,
+                align: None,
             },
         )
         .await;
@@ -2245,6 +2255,72 @@ mod tests {
         match result {
             ActionResult::Fatal { code, .. } => assert_eq!(code, "missing_selector"),
             _ => panic!("expected Fatal"),
+        }
+    }
+
+    #[tokio::test]
+    async fn scroll_with_container_field_builds_correctly() {
+        let mut backend =
+            MockBackendSession::new(vec![Ok(OpResult::new(json!({"result": {"value": true}})))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Scroll {
+                session: sid,
+                tab: TabId(0),
+                direction: "down".into(),
+                amount: Some(200),
+                selector: None,
+                container: Some("#scroll-container".into()),
+                align: None,
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["scrolled"], "down");
+                assert_eq!(data["amount"], 200);
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn scroll_into_view_with_align_field() {
+        let mut backend =
+            MockBackendSession::new(vec![Ok(OpResult::new(json!({"result": {"value": true}})))]);
+        let mut regs = make_regs_with_tab();
+        let sid = SessionId::new_unchecked("local-1");
+
+        let result = handle_action(
+            sid.clone(),
+            &mut backend,
+            &mut regs,
+            Action::Scroll {
+                session: sid,
+                tab: TabId(0),
+                direction: "into-view".into(),
+                amount: None,
+                selector: Some("#hero".into()),
+                container: None,
+                align: Some("start".into()),
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["scrolled"], "into-view");
+                assert_eq!(data["selector"], "#hero");
+            }
+            _ => panic!("expected Ok"),
         }
     }
 

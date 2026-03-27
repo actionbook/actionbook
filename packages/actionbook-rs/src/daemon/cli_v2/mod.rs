@@ -1206,70 +1206,97 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
                 amount,
                 session,
                 tab,
+                container,
             } => Action::Scroll {
                 session,
                 tab,
                 direction: "up".to_string(),
                 amount,
                 selector: None,
+                container,
+                align: None,
             },
             ScrollCmd::Down {
                 amount,
                 session,
                 tab,
+                container,
             } => Action::Scroll {
                 session,
                 tab,
                 direction: "down".to_string(),
                 amount,
                 selector: None,
+                container,
+                align: None,
             },
             ScrollCmd::Left {
                 amount,
                 session,
                 tab,
+                container,
             } => Action::Scroll {
                 session,
                 tab,
                 direction: "left".to_string(),
                 amount,
                 selector: None,
+                container,
+                align: None,
             },
             ScrollCmd::Right {
                 amount,
                 session,
                 tab,
+                container,
             } => Action::Scroll {
                 session,
                 tab,
                 direction: "right".to_string(),
                 amount,
                 selector: None,
+                container,
+                align: None,
             },
-            ScrollCmd::Top { session, tab } => Action::Scroll {
+            ScrollCmd::Top {
+                session,
+                tab,
+                container,
+            } => Action::Scroll {
                 session,
                 tab,
                 direction: "top".to_string(),
                 amount: None,
                 selector: None,
+                container,
+                align: None,
             },
-            ScrollCmd::Bottom { session, tab } => Action::Scroll {
+            ScrollCmd::Bottom {
+                session,
+                tab,
+                container,
+            } => Action::Scroll {
                 session,
                 tab,
                 direction: "bottom".to_string(),
                 amount: None,
                 selector: None,
+                container,
+                align: None,
             },
             ScrollCmd::IntoView {
                 selector,
                 session,
                 tab,
+                align,
             } => Action::Scroll {
                 session,
                 tab,
                 direction: "into-view".to_string(),
                 amount: None,
                 selector: Some(selector),
+                container: None,
+                align,
             },
         },
         BrowserCmd::MouseMove {
@@ -1305,7 +1332,7 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
                 session,
                 tab,
                 selector,
-                timeout_ms: timeout,
+                timeout_ms: Some(timeout),
             },
             WaitCmd::Navigation {
                 session,
@@ -1314,18 +1341,17 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             } => Action::WaitNavigation {
                 session,
                 tab,
-                timeout_ms: timeout,
+                timeout_ms: Some(timeout),
             },
             WaitCmd::NetworkIdle {
                 session,
                 tab,
                 timeout,
-                idle_time,
             } => Action::WaitNetworkIdle {
                 session,
                 tab,
-                timeout_ms: timeout,
-                idle_time_ms: idle_time,
+                timeout_ms: Some(timeout),
+                idle_time_ms: None,
             },
             WaitCmd::Condition {
                 expression,
@@ -1336,7 +1362,7 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
                 session,
                 tab,
                 expression,
-                timeout_ms: timeout,
+                timeout_ms: Some(timeout),
             },
         },
 
@@ -2331,6 +2357,7 @@ mod tests {
             selector: "#target".into(),
             session: session.clone(),
             tab,
+            align: None,
         }))
         .unwrap();
         assert!(
@@ -2341,6 +2368,7 @@ mod tests {
             amount: Some(240),
             session: session.clone(),
             tab,
+            container: None,
         }))
         .unwrap();
         assert!(
@@ -2366,7 +2394,7 @@ mod tests {
             selector: "#ready".into(),
             session: session.clone(),
             tab,
-            timeout: Some(5000),
+            timeout: 5000,
         }))
         .unwrap();
         assert!(
@@ -2376,7 +2404,7 @@ mod tests {
         let (action, _) = build_action(BrowserCmd::Wait(WaitCmd::Navigation {
             session: session.clone(),
             tab,
-            timeout: Some(4000),
+            timeout: 4000,
         }))
         .unwrap();
         assert!(matches!(
@@ -2390,15 +2418,13 @@ mod tests {
         let (action, _) = build_action(BrowserCmd::Wait(WaitCmd::NetworkIdle {
             session: session.clone(),
             tab,
-            timeout: Some(9000),
-            idle_time: Some(800),
+            timeout: 9000,
         }))
         .unwrap();
         assert!(matches!(
             action,
             Action::WaitNetworkIdle {
                 timeout_ms: Some(9000),
-                idle_time_ms: Some(800),
                 ..
             }
         ));
@@ -2407,7 +2433,7 @@ mod tests {
             expression: "window.ready".into(),
             session,
             tab,
-            timeout: Some(7000),
+            timeout: 7000,
         }))
         .unwrap();
         assert!(
@@ -2435,6 +2461,7 @@ mod tests {
             amount: Some(100),
             session: session.clone(),
             tab,
+            container: None,
         }))
         .unwrap();
         assert!(
@@ -2445,6 +2472,7 @@ mod tests {
             amount: None,
             session: session.clone(),
             tab,
+            container: None,
         }))
         .unwrap();
         assert!(
@@ -2455,6 +2483,7 @@ mod tests {
             amount: None,
             session: session.clone(),
             tab,
+            container: None,
         }))
         .unwrap();
         assert!(
@@ -2464,14 +2493,19 @@ mod tests {
         let (action, _) = build_action(BrowserCmd::Scroll(ScrollCmd::Top {
             session: session.clone(),
             tab,
+            container: None,
         }))
         .unwrap();
         assert!(
             matches!(action, Action::Scroll { direction, amount: None, .. } if direction == "top")
         );
 
-        let (action, _) =
-            build_action(BrowserCmd::Scroll(ScrollCmd::Bottom { session, tab })).unwrap();
+        let (action, _) = build_action(BrowserCmd::Scroll(ScrollCmd::Bottom {
+            session,
+            tab,
+            container: None,
+        }))
+        .unwrap();
         assert!(
             matches!(action, Action::Scroll { direction, amount: None, .. } if direction == "bottom")
         );

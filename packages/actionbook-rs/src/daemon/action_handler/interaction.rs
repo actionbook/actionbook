@@ -513,6 +513,7 @@ pub(super) async fn handle_upload(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn handle_scroll(
     session_id: SessionId,
     backend: &mut dyn BackendSession,
@@ -521,6 +522,8 @@ pub(super) async fn handle_scroll(
     direction: &str,
     amount: Option<i32>,
     selector: Option<&str>,
+    container: Option<&str>,
+    align: Option<&str>,
 ) -> ActionResult {
     let target_id = match resolve_tab(session_id, regs, tab) {
         Ok(t) => t,
@@ -532,12 +535,35 @@ pub(super) async fn handle_scroll(
     // Handle special directions: top, bottom, into-view
     match dir.as_str() {
         "top" | "bottom" => {
-            let scroll_y = if dir == "top" {
-                "0"
+            let js = if let Some(cont) = container {
+                let cont_json = match serde_json::to_string(cont) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return ActionResult::fatal(
+                            "invalid_selector",
+                            e.to_string(),
+                            "check container selector syntax",
+                        )
+                    }
+                };
+                let scroll_prop = if dir == "top" { "0" } else { "el.scrollHeight" };
+                format!(
+                    r#"(function() {{
+{FIND_ELEMENT_JS}
+const el = __findElement({cont_json});
+if (!el) return false;
+el.scrollTop = {scroll_prop};
+return true;
+}})()"#
+                )
             } else {
-                "document.body.scrollHeight"
+                let scroll_y = if dir == "top" {
+                    "0"
+                } else {
+                    "document.body.scrollHeight"
+                };
+                format!("(function() {{ window.scrollTo(0, {scroll_y}); return true; }})()")
             };
-            let js = format!("(function() {{ window.scrollTo(0, {scroll_y}); return true; }})()");
             let op = BackendOp::Evaluate {
                 target_id: target_id.to_string(),
                 expression: js,
@@ -569,12 +595,13 @@ pub(super) async fn handle_scroll(
                     )
                 }
             };
+            let block_align = align.unwrap_or("center");
             let js = format!(
                 r#"(function() {{
 {FIND_ELEMENT_JS}
 const el = __findElement({sel_json});
 if (!el) return false;
-el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+el.scrollIntoView({{ behavior: 'instant', block: '{block_align}' }});
 return true;
 }})()"#
             );
@@ -613,7 +640,10 @@ return true;
         }
     };
 
-    let js = match selector {
+    // Use container if provided, otherwise fall back to legacy selector
+    let effective_selector = container.or(selector);
+
+    let js = match effective_selector {
         Some(sel) => {
             let sel_json = match serde_json::to_string(sel) {
                 Ok(s) => s,
@@ -649,7 +679,7 @@ return true;
             let val = extract_eval_value(&result.value);
             if val.as_bool() == Some(true) {
                 ActionResult::ok(json!({"scrolled": direction, "amount": px}))
-            } else if let Some(sel) = selector {
+            } else if let Some(sel) = effective_selector {
                 element_not_found(sel)
             } else {
                 ActionResult::ok(json!({"scrolled": direction, "amount": px}))

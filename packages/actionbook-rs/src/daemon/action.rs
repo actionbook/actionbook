@@ -502,6 +502,12 @@ pub enum Action {
         /// Optional selector to scroll within (defaults to page).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         selector: Option<String>,
+        /// Optional CSS selector of the container element to scroll within.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        container: Option<String>,
+        /// Alignment for into-view scrolling: start, center, end, nearest.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        align: Option<String>,
     },
 
     /// Move the mouse to absolute coordinates.
@@ -1109,6 +1115,8 @@ mod tests {
                 direction: "down".into(),
                 amount: None,
                 selector: None,
+                container: None,
+                align: None,
             },
             Action::MouseMove {
                 session: s.clone(),
@@ -1202,6 +1210,70 @@ mod tests {
                 assert_eq!(name, "my_cookie");
                 assert_eq!(value, "my_value");
                 assert_eq!(secure, Some(true));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn scroll_with_container_round_trip() {
+        let action = Action::Scroll {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            direction: "down".into(),
+            amount: Some(300),
+            selector: None,
+            container: Some("#sidebar".into()),
+            align: None,
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        assert!(json.contains("\"container\":\"#sidebar\""));
+        assert!(!json.contains("align"));
+        let decoded: Action = serde_json::from_str(&json).unwrap();
+        match decoded {
+            Action::Scroll {
+                direction,
+                amount,
+                container,
+                align,
+                ..
+            } => {
+                assert_eq!(direction, "down");
+                assert_eq!(amount, Some(300));
+                assert_eq!(container.as_deref(), Some("#sidebar"));
+                assert!(align.is_none());
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn scroll_into_view_with_align_round_trip() {
+        let action = Action::Scroll {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            direction: "into-view".into(),
+            amount: None,
+            selector: Some("#banner".into()),
+            container: None,
+            align: Some("start".into()),
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        assert!(json.contains(r#""align":"start""#));
+        assert!(!json.contains("container"));
+        let decoded: Action = serde_json::from_str(&json).unwrap();
+        match decoded {
+            Action::Scroll {
+                direction,
+                selector,
+                align,
+                container,
+                ..
+            } => {
+                assert_eq!(direction, "into-view");
+                assert_eq!(selector.as_deref(), Some("#banner"));
+                assert_eq!(align.as_deref(), Some("start"));
+                assert!(container.is_none());
             }
             _ => panic!("wrong variant"),
         }

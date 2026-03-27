@@ -151,6 +151,9 @@ pub(crate) enum ScrollCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// CSS selector of the element to scroll within (defaults to page)
+        #[arg(long)]
+        container: Option<String>,
     },
     /// Scroll down
     Down {
@@ -160,6 +163,9 @@ pub(crate) enum ScrollCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// CSS selector of the element to scroll within (defaults to page)
+        #[arg(long)]
+        container: Option<String>,
     },
     /// Scroll left
     Left {
@@ -169,6 +175,9 @@ pub(crate) enum ScrollCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// CSS selector of the element to scroll within (defaults to page)
+        #[arg(long)]
+        container: Option<String>,
     },
     /// Scroll right
     Right {
@@ -178,6 +187,9 @@ pub(crate) enum ScrollCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// CSS selector of the element to scroll within (defaults to page)
+        #[arg(long)]
+        container: Option<String>,
     },
     /// Scroll to top of page
     Top {
@@ -185,6 +197,9 @@ pub(crate) enum ScrollCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// CSS selector of the element to scroll within (defaults to page)
+        #[arg(long)]
+        container: Option<String>,
     },
     /// Scroll to bottom of page
     Bottom {
@@ -192,6 +207,9 @@ pub(crate) enum ScrollCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// CSS selector of the element to scroll within (defaults to page)
+        #[arg(long)]
+        container: Option<String>,
     },
     /// Scroll an element into view
     IntoView {
@@ -201,6 +219,9 @@ pub(crate) enum ScrollCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// Alignment for scrollIntoView: start, center, end, nearest
+        #[arg(long, value_parser = ["start", "center", "end", "nearest"])]
+        align: Option<String>,
     },
 }
 
@@ -327,8 +348,8 @@ pub(crate) enum WaitCmd {
         #[arg(short = 't', long)]
         tab: TabId,
         /// Timeout in milliseconds (default: 30000)
-        #[arg(long)]
-        timeout: Option<u64>,
+        #[arg(long, default_value = "30000")]
+        timeout: u64,
     },
     /// Wait for a navigation to complete
     Navigation {
@@ -337,8 +358,8 @@ pub(crate) enum WaitCmd {
         #[arg(short = 't', long)]
         tab: TabId,
         /// Timeout in milliseconds (default: 30000)
-        #[arg(long)]
-        timeout: Option<u64>,
+        #[arg(long, default_value = "30000")]
+        timeout: u64,
     },
     /// Wait for network to become idle
     NetworkIdle {
@@ -347,11 +368,8 @@ pub(crate) enum WaitCmd {
         #[arg(short = 't', long)]
         tab: TabId,
         /// Timeout in milliseconds (default: 30000)
-        #[arg(long)]
-        timeout: Option<u64>,
-        /// Idle time in milliseconds (default: 500)
-        #[arg(long)]
-        idle_time: Option<u64>,
+        #[arg(long, default_value = "30000")]
+        timeout: u64,
     },
     /// Wait for a JS expression to become truthy
     Condition {
@@ -362,8 +380,8 @@ pub(crate) enum WaitCmd {
         #[arg(short = 't', long)]
         tab: TabId,
         /// Timeout in milliseconds (default: 30000)
-        #[arg(long)]
-        timeout: Option<u64>,
+        #[arg(long, default_value = "30000")]
+        timeout: u64,
     },
 }
 

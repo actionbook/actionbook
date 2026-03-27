@@ -41,6 +41,7 @@ pub fn format_result_json(result: &ActionResult) -> String {
 /// Format an [`ActionResult`] for CLI output, applying Phase A lifecycle
 /// normalization where requested and falling back to the legacy formatter
 /// for all other commands.
+#[allow(dead_code)]
 pub fn format_cli_result(action: &Action, result: &ActionResult) -> String {
     format_cli_result_with_duration(action, result, None)
 }
@@ -3403,6 +3404,8 @@ mod tests {
             direction: "down".into(),
             amount: Some(300),
             selector: None,
+            container: None,
+            align: None,
         };
         let result = ActionResult::ok(json!({"scrolled": "down", "amount": 300}));
         let out = format_cli_result_json(&action, &result, 2);
@@ -3423,6 +3426,8 @@ mod tests {
             direction: "into-view".into(),
             amount: None,
             selector: Some("#footer".into()),
+            container: None,
+            align: None,
         };
         let result = ActionResult::ok(json!({"scrolled": "into-view", "selector": "#footer"}));
         let out = format_cli_result(&action, &result);
