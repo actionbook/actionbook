@@ -404,6 +404,53 @@ fn contract_b2a_query_modes_json() {
     let _ = headless(&["browser", "close", "-s", &sid], 15);
 }
 
+#[test]
+fn contract_b2a_query_context_uses_live_page_state() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session();
+
+    install_query_fixture(&sid, &tid);
+
+    let mutate_out = headless(
+        &[
+            "browser",
+            "eval",
+            r#"history.pushState({}, '', '/query-live-context'); document.title = 'Live Query Title';"#,
+            "-s",
+            &sid,
+            "-t",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&mutate_out, "mutate query page state");
+
+    let out = headless_json(
+        &["browser", "query", "one", ".single", "-s", &sid, "-t", &tid],
+        15,
+    );
+    assert_success(&out, "query one after live state mutation");
+    let json = parse_envelope(&out);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["command"], "browser.query");
+    assert_eq!(
+        json["context"]["url"],
+        format!("{TEST_URL}query-live-context"),
+        "query context.url must come from live page state, got: {}",
+        json["context"]
+    );
+    assert_eq!(
+        json["context"]["title"], "Live Query Title",
+        "query context.title must come from live page state, got: {}",
+        json["context"]
+    );
+
+    let _ = headless(&["browser", "close", "-s", &sid], 15);
+}
+
 // ---------------------------------------------------------------------------
 // Test 5: Query cardinality error
 // ---------------------------------------------------------------------------

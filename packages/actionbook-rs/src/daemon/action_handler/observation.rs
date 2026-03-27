@@ -380,11 +380,48 @@ pub(super) async fn handle_eval(
     }
 }
 
-fn query_context_fields(regs: &Registries, tab: TabId) -> (String, String) {
-    regs.tabs
+async fn query_context_fields(
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    target_id: &str,
+    tab: TabId,
+) -> (String, String) {
+    let registry_fallback = regs
+        .tabs
         .get(&tab)
         .map(|entry| (entry.url.clone(), entry.title.clone()))
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    let context_result = backend
+        .exec(BackendOp::Evaluate {
+            target_id: target_id.to_string(),
+            expression:
+                r#"(function(){ return { url: window.location.href, title: document.title }; })()"#
+                    .to_string(),
+            return_by_value: true,
+        })
+        .await;
+
+    let Ok(result) = context_result else {
+        return registry_fallback;
+    };
+
+    let live_context = extract_eval_value(&result.value);
+
+    let live_url = live_context
+        .get("url")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .filter(|value| !value.is_empty());
+    let live_title = live_context
+        .get("title")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+
+    (
+        live_url.unwrap_or(registry_fallback.0),
+        live_title.unwrap_or(registry_fallback.1),
+    )
 }
 
 fn with_query_context(
@@ -545,7 +582,7 @@ pub(super) async fn handle_query(
         Ok(t) => t,
         Err(r) => return r,
     };
-    let (ctx_url, ctx_title) = query_context_fields(regs, tab);
+    let (ctx_url, ctx_title) = query_context_fields(backend, regs, target_id, tab).await;
     let selector_json = match serde_json::to_string(selector) {
         Ok(s) => s,
         Err(e) => {
