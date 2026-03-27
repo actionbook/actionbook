@@ -1,4 +1,3 @@
-#![allow(dead_code, unused_imports)]
 mod api;
 mod browser;
 mod cli;
