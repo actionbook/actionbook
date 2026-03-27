@@ -695,6 +695,25 @@ impl WsState {
                 target_id: desired_target.to_string(),
             },
         );
+        drop(sessions);
+
+        // Enable Page domain events on the re-attached session for dialog tracking.
+        {
+            let page_enable_id = self.next_ws_id.fetch_add(1, Ordering::Relaxed);
+            let (pe_tx, _pe_rx) = oneshot::channel();
+            {
+                let mut pending = self.pending.lock().await;
+                pending.insert(page_enable_id, pe_tx);
+            }
+            let _ = tx
+                .send(WsCommand {
+                    ws_id: page_enable_id,
+                    method: "Page.enable".to_string(),
+                    params: serde_json::json!({}),
+                    session_id: Some(new_session_id.clone()),
+                })
+                .await;
+        }
 
         tracing::info!(
             "Session '{}' re-attached to target {} with sessionId: {}",
