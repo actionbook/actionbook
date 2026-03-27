@@ -138,9 +138,23 @@ pub async fn handle_action(
             tab,
             interactive,
             compact,
+            cursor,
+            depth,
+            selector,
             ..
         } => {
-            observation::handle_snapshot(session_id, backend, regs, tab, interactive, compact).await
+            observation::handle_snapshot(
+                session_id,
+                backend,
+                regs,
+                tab,
+                interactive,
+                compact,
+                cursor,
+                depth,
+                selector.as_deref(),
+            )
+            .await
         }
         Action::Screenshot { tab, full_page, .. } => {
             observation::handle_screenshot(session_id, backend, regs, tab, full_page).await

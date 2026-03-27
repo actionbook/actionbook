@@ -66,6 +66,7 @@ async fn ensure_log_capture_initialized(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn handle_snapshot(
     session_id: SessionId,
     backend: &mut dyn BackendSession,
@@ -73,6 +74,9 @@ pub(super) async fn handle_snapshot(
     tab: TabId,
     interactive: bool,
     compact: bool,
+    cursor: bool,
+    depth: Option<u32>,
+    selector: Option<&str>,
 ) -> ActionResult {
     let target_id = match resolve_tab(session_id, regs, tab) {
         Ok(t) => t,
@@ -85,7 +89,7 @@ pub(super) async fn handle_snapshot(
 
     match backend.exec(op).await {
         Ok(result) => {
-            if !interactive && !compact {
+            if !interactive && !compact && !cursor && depth.is_none() && selector.is_none() {
                 return ActionResult::ok(result.value);
             }
 
@@ -136,7 +140,32 @@ pub(super) async fn handle_snapshot(
                 output = compacted.join("\n");
             }
 
-            ActionResult::ok(serde_json::Value::String(output))
+            if let Some(max_depth) = depth {
+                // Truncate tree to max depth by counting leading whitespace
+                let filtered: Vec<&str> = output
+                    .lines()
+                    .filter(|line| {
+                        let indent = line.len() - line.trim_start().len();
+                        indent / 2 <= max_depth as usize
+                    })
+                    .collect();
+                output = filtered.join("\n");
+            }
+
+            let mut data = json!(output);
+            if cursor {
+                // Wrap in object to carry cursor flag
+                data = json!({"tree": output, "cursor": true});
+            }
+            if selector.is_some() {
+                if let serde_json::Value::Object(ref mut map) = data {
+                    map.insert("selector".to_string(), json!(selector));
+                } else {
+                    data = json!({"tree": output, "selector": selector});
+                }
+            }
+
+            ActionResult::ok(data)
         }
         Err(e) => cdp_error_to_result(e),
     }
