@@ -21,7 +21,10 @@ static SESSION_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
 /// Start a headless session on about:blank, return (session_id, tab_id).
 fn start_session() -> (String, String) {
-    let session_id = format!("b2a-query-{}", SESSION_COUNTER.fetch_add(1, Ordering::Relaxed));
+    let session_id = format!(
+        "b2a-query-{}",
+        SESSION_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
     let out = headless_json(
         &[
             "browser",
@@ -312,7 +315,11 @@ fn contract_b2a_query_modes_json() {
     let all_items = all_json["data"]["items"]
         .as_array()
         .expect("items must be an array");
-    assert_eq!(all_items.len(), 3, "expected 3 query items, got: {all_items:?}");
+    assert_eq!(
+        all_items.len(),
+        3,
+        "expected 3 query items, got: {all_items:?}"
+    );
     assert_query_item(
         &all_items[0],
         ".item:nth-of-type(1)",
@@ -373,7 +380,9 @@ fn contract_b2a_query_modes_json() {
 
     // Nth mode
     let nth_out = headless_json(
-        &["browser", "query", "nth", "2", ".item", "-s", &sid, "-t", &tid],
+        &[
+            "browser", "query", "nth", "2", ".item", "-s", &sid, "-t", &tid,
+        ],
         15,
     );
     assert_success(&nth_out, "query nth --json");
@@ -409,7 +418,10 @@ fn contract_b2a_query_cardinality_error() {
 
     install_query_fixture(&sid, &tid);
 
-    let out = headless_json(&["browser", "query", "one", ".item", "-s", &sid, "-t", &tid], 15);
+    let out = headless_json(
+        &["browser", "query", "one", ".item", "-s", &sid, "-t", &tid],
+        15,
+    );
     let json = parse_envelope(&out);
     assert_eq!(
         json["ok"], false,
@@ -431,9 +443,21 @@ fn contract_b2a_query_cardinality_error() {
         json["error"]["message"],
         "Query mode 'one' requires exactly 1 match, found 3"
     );
+    assert_eq!(json["error"]["details"]["query"], ".item");
+    assert_eq!(json["error"]["details"]["count"], 3);
+    assert_eq!(
+        json["error"]["details"]["sample_selectors"],
+        serde_json::json!([
+            ".item:nth-of-type(1)",
+            ".item:nth-of-type(2)",
+            ".item:nth-of-type(3)"
+        ])
+    );
 
     let nth_out = headless_json(
-        &["browser", "query", "nth", "4", ".item", "-s", &sid, "-t", &tid],
+        &[
+            "browser", "query", "nth", "4", ".item", "-s", &sid, "-t", &tid,
+        ],
         15,
     );
     let nth_json = parse_envelope(&nth_out);
@@ -444,6 +468,9 @@ fn contract_b2a_query_cardinality_error() {
         nth_json["error"]["message"],
         "index 4 out of range (found 3 matches)"
     );
+    assert_eq!(nth_json["error"]["details"]["query"], ".item");
+    assert_eq!(nth_json["error"]["details"]["count"], 3);
+    assert_eq!(nth_json["error"]["details"]["index"], 4);
 
     let _ = headless(&["browser", "close", "-s", &sid], 15);
 }
@@ -463,7 +490,16 @@ fn contract_b2a_query_extended_syntax_json() {
     install_query_fixture(&sid, &tid);
 
     let visible_out = headless_json(
-        &["browser", "query", "all", ".item:visible", "-s", &sid, "-t", &tid],
+        &[
+            "browser",
+            "query",
+            "all",
+            ".item:visible",
+            "-s",
+            &sid,
+            "-t",
+            &tid,
+        ],
         15,
     );
     assert_success(&visible_out, "query all .item:visible");
@@ -544,7 +580,10 @@ fn contract_b2a_query_text_output() {
 
     install_query_fixture(&sid, &tid);
 
-    let one_out = headless(&["browser", "query", "one", ".single", "-s", &sid, "-t", &tid], 15);
+    let one_out = headless(
+        &["browser", "query", "one", ".single", "-s", &sid, "-t", &tid],
+        15,
+    );
     assert_success(&one_out, "query one text");
     let one_stdout = stdout_str(&one_out);
     let one_lines: Vec<&str> = one_stdout.trim().lines().collect();
@@ -553,7 +592,10 @@ fn contract_b2a_query_text_output() {
     assert_eq!(one_lines[2], "selector: .single:nth-of-type(1)");
     assert_eq!(one_lines[3], "text: Item A");
 
-    let all_out = headless(&["browser", "query", "all", ".item", "-s", &sid, "-t", &tid], 15);
+    let all_out = headless(
+        &["browser", "query", "all", ".item", "-s", &sid, "-t", &tid],
+        15,
+    );
     assert_success(&all_out, "query all text");
     let all_stdout = stdout_str(&all_out);
     let all_lines: Vec<&str> = all_stdout.trim().lines().collect();
@@ -563,7 +605,9 @@ fn contract_b2a_query_text_output() {
     assert_eq!(all_lines[3], "   Item A");
 
     let nth_out = headless(
-        &["browser", "query", "nth", "2", ".item", "-s", &sid, "-t", &tid],
+        &[
+            "browser", "query", "nth", "2", ".item", "-s", &sid, "-t", &tid,
+        ],
         15,
     );
     assert_success(&nth_out, "query nth text");

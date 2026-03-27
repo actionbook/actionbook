@@ -40,6 +40,9 @@ pub enum ActionResult {
         message: String,
         /// Human/agent-readable guidance on what to do next.
         hint: String,
+        /// Optional structured error details for JSON contract output.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<Value>,
     },
 }
 
@@ -76,6 +79,22 @@ impl ActionResult {
             code: code.into(),
             message: message.into(),
             hint: hint.into(),
+            details: None,
+        }
+    }
+
+    /// Create a fatal error result with structured details.
+    pub fn fatal_with_details(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        hint: impl Into<String>,
+        details: Value,
+    ) -> Self {
+        ActionResult::Fatal {
+            code: code.into(),
+            message: message.into(),
+            hint: hint.into(),
+            details: Some(details),
         }
     }
 
@@ -157,10 +176,12 @@ mod tests {
                 code,
                 message,
                 hint,
+                details,
             } => {
                 assert_eq!(code, "session_not_found");
                 assert!(message.contains("s5"));
                 assert!(hint.contains("list-sessions"));
+                assert!(details.is_none());
             }
             _ => panic!("wrong variant"),
         }
@@ -176,6 +197,32 @@ mod tests {
         ];
         for json in cases {
             let _: ActionResult = serde_json::from_str(json).unwrap();
+        }
+    }
+
+    #[test]
+    fn fatal_with_details_round_trip() {
+        let result = ActionResult::fatal_with_details(
+            "multiple_matches",
+            "found too many items",
+            "narrow your selector",
+            serde_json::json!({"query": ".item", "count": 3}),
+        );
+        let json = serde_json::to_string(&result).unwrap();
+        let decoded: ActionResult = serde_json::from_str(&json).unwrap();
+        match decoded {
+            ActionResult::Fatal {
+                code,
+                message,
+                hint,
+                details,
+            } => {
+                assert_eq!(code, "multiple_matches");
+                assert_eq!(message, "found too many items");
+                assert_eq!(hint, "narrow your selector");
+                assert_eq!(details.unwrap()["count"], 3);
+            }
+            _ => panic!("wrong variant"),
         }
     }
 }
