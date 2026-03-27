@@ -152,10 +152,26 @@ pub(super) async fn handle_snapshot(
         target_id: target_id.to_string(),
     };
 
+    // Look up the tab's url/title to embed in the result for context population.
+    let (ctx_url, ctx_title) = regs
+        .tabs
+        .get(&tab)
+        .map(|t| (t.url.clone(), t.title.clone()))
+        .unwrap_or_default();
+
     match backend.exec(op).await {
         Ok(result) => {
             if !interactive && !compact && !cursor && depth.is_none() && selector.is_none() {
-                return ActionResult::ok(result.value);
+                // Embed context metadata so the formatter can populate url/title.
+                let tree_str = match result.value {
+                    serde_json::Value::String(ref s) => s.clone(),
+                    ref other => other.to_string(),
+                };
+                return ActionResult::ok(json!({
+                    "__ctx_url": ctx_url,
+                    "__ctx_title": ctx_title,
+                    "__tree": tree_str
+                }));
             }
 
             // Extract the string content from the JSON value for filtering.
@@ -176,7 +192,21 @@ pub(super) async fn handle_snapshot(
                 output = filter_depth(&output, max_depth);
             }
 
-            let data = wrap_snapshot_data(&output, cursor, selector);
+            let mut data = json!({
+                "__ctx_url": ctx_url,
+                "__ctx_title": ctx_title,
+                "__tree": output
+            });
+            if cursor {
+                if let serde_json::Value::Object(ref mut map) = data {
+                    map.insert("cursor".to_string(), json!(true));
+                }
+            }
+            if selector.is_some() {
+                if let serde_json::Value::Object(ref mut map) = data {
+                    map.insert("selector".to_string(), json!(selector));
+                }
+            }
             ActionResult::ok(data)
         }
         Err(e) => cdp_error_to_result(e),

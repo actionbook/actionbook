@@ -22,4 +22,5 @@ mod browser_waiting;
 mod contract;
 mod contract_b2a;
 mod contract_b2b;
+mod contract_snapshot_storage;
 mod harness;

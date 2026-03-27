@@ -128,6 +128,10 @@ pub fn format_cli_result_json(action: &Action, result: &ActionResult, duration_m
             serde_json::to_string(&envelope).unwrap_or_else(|_| {
                 r#"{"ok":false,"command":"internal.serialization","context":null,"data":null,"error":{"code":"INTERNAL_ERROR","message":"failed to serialize result","retryable":false,"details":{"hint":"retry the command"}},"meta":{"duration_ms":0,"warnings":[],"pagination":null,"truncated":false}}"#.to_string()
             })
+        } else if let Some(envelope) = normalize_storage_json(action, result, duration_ms) {
+            serde_json::to_string(&envelope).unwrap_or_else(|_| {
+                r#"{"ok":false,"command":"internal.serialization","context":null,"data":null,"error":{"code":"INTERNAL_ERROR","message":"failed to serialize result","retryable":false,"details":{"hint":"retry the command"}},"meta":{"duration_ms":0,"warnings":[],"pagination":null,"truncated":false}}"#.to_string()
+            })
         } else {
             format_result_json(result)
         }
@@ -291,11 +295,26 @@ fn command_name(action: &Action) -> &'static str {
         Action::CookiesSet { .. } => "browser.cookies.set",
         Action::CookiesDelete { .. } => "browser.cookies.delete",
         Action::CookiesClear { .. } => "browser.cookies.clear",
-        Action::StorageList { .. } => "browser.storage.list",
-        Action::StorageGet { .. } => "browser.storage.get",
-        Action::StorageSet { .. } => "browser.storage.set",
-        Action::StorageDelete { .. } => "browser.storage.delete",
-        Action::StorageClear { .. } => "browser.storage.clear",
+        Action::StorageList { kind, .. } => match kind {
+            crate::daemon::types::StorageKind::Local => "browser.local-storage.list",
+            crate::daemon::types::StorageKind::Session => "browser.session-storage.list",
+        },
+        Action::StorageGet { kind, .. } => match kind {
+            crate::daemon::types::StorageKind::Local => "browser.local-storage.get",
+            crate::daemon::types::StorageKind::Session => "browser.session-storage.get",
+        },
+        Action::StorageSet { kind, .. } => match kind {
+            crate::daemon::types::StorageKind::Local => "browser.local-storage.set",
+            crate::daemon::types::StorageKind::Session => "browser.session-storage.set",
+        },
+        Action::StorageDelete { kind, .. } => match kind {
+            crate::daemon::types::StorageKind::Local => "browser.local-storage.delete",
+            crate::daemon::types::StorageKind::Session => "browser.session-storage.delete",
+        },
+        Action::StorageClear { kind, .. } => match kind {
+            crate::daemon::types::StorageKind::Local => "browser.local-storage.clear",
+            crate::daemon::types::StorageKind::Session => "browser.session-storage.clear",
+        },
         Action::Select { .. } => "browser.select",
         Action::Hover { .. } => "browser.hover",
         Action::Focus { .. } => "browser.focus",
@@ -1085,22 +1104,98 @@ fn normalize_observation_json(
     }))
 }
 
-fn observation_context(action: &Action, _result: &ActionResult) -> Option<Value> {
+fn observation_context(action: &Action, result: &ActionResult) -> Option<Value> {
     let session_id = action.session_id()?.to_string();
     let tab_id = action_tab_id(action)?.to_string();
+    // Extract url/title embedded by the snapshot handler via __ctx_url/__ctx_title.
+    let (url, title) = if let ActionResult::Ok { data } = result {
+        let url = data
+            .get("__ctx_url")
+            .and_then(|v| v.as_str())
+            .map(|s| Value::String(s.to_string()))
+            .unwrap_or(Value::Null);
+        let title = data
+            .get("__ctx_title")
+            .and_then(|v| v.as_str())
+            .map(|s| Value::String(s.to_string()))
+            .unwrap_or(Value::Null);
+        (url, title)
+    } else {
+        (Value::Null, Value::Null)
+    };
     Some(serde_json::json!({
         "session_id": session_id,
         "tab_id": tab_id,
-        "url": null,
-        "title": null
+        "url": url,
+        "title": title
     }))
 }
 
 fn normalize_observation_data(action: &Action, data: &Value) -> Value {
     match action {
         Action::Snapshot { .. } => {
-            // Handler returns raw CDP value — wrap with format discriminator
-            serde_json::json!({ "format": "snapshot", "tree": data })
+            // Handler embeds __tree (string), __ctx_url, __ctx_title.
+            // __ctx_* are consumed by observation_context; strip them here.
+            let content = data
+                .get("__tree")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| match data {
+                    Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                });
+            // Preserve nodes/stats if already present in the raw data.
+            let nodes = data
+                .get("nodes")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!([]));
+            // Derive node_count from non-empty content lines when not already provided.
+            let derived_node_count = content.lines().filter(|l| !l.trim().is_empty()).count();
+            // Derive interactive_count from lines containing interactive ARIA roles.
+            const INTERACTIVE_ROLES: &[&str] = &[
+                "button",
+                "link",
+                "textbox",
+                "checkbox",
+                "radio",
+                "combobox",
+                "menuitem",
+                "tab",
+                "switch",
+                "slider",
+                "spinbutton",
+                "searchbox",
+                "option",
+                "menuitemcheckbox",
+                "menuitemradio",
+            ];
+            let derived_interactive_count = content
+                .lines()
+                .filter(|line| {
+                    let lower = line.to_lowercase();
+                    INTERACTIVE_ROLES.iter().any(|role| lower.contains(role))
+                })
+                .count() as u64;
+            let node_count = data
+                .get("stats")
+                .and_then(|s| s.get("node_count"))
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize)
+                .unwrap_or(derived_node_count);
+            let interactive_count = data
+                .get("stats")
+                .and_then(|s| s.get("interactive_count"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(derived_interactive_count);
+            serde_json::json!({
+                "format": "snapshot",
+                "content": content,
+                "nodes": nodes,
+                "stats": {
+                    "node_count": node_count,
+                    "interactive_count": interactive_count
+                }
+            })
         }
         Action::Title { .. } => {
             // Handler returns {"title": val}
@@ -1278,12 +1373,19 @@ fn format_observation_text(action: &Action, result: &ActionResult) -> Option<Str
             let prefix = prefixed_header(&session_id, Some(&tab_id), None);
             match action {
                 Action::Snapshot { .. } => {
-                    // Handler returns raw CDP value — output directly
-                    if data.is_string() {
-                        data.as_str().unwrap_or("").to_string()
-                    } else {
-                        serde_json::to_string_pretty(data).unwrap_or_else(|_| data.to_string())
-                    }
+                    // Handler wraps the tree as {"__ctx_url": ..., "__ctx_title": ..., "__tree": "..."}
+                    // Extract the tree text from __tree; fall back to string/pretty-print.
+                    data.get("__tree")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| {
+                            if data.is_string() {
+                                data.as_str().unwrap_or("").to_string()
+                            } else {
+                                serde_json::to_string_pretty(data)
+                                    .unwrap_or_else(|_| data.to_string())
+                            }
+                        })
                 }
                 Action::Title { .. } => {
                     // Handler returns {"title": val}
@@ -1784,6 +1886,74 @@ fn normalize_interaction_data(action: &Action, data: &Value, duration_ms: u128) 
         }
         _ => data.clone(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Phase B3: Storage normalization
+// ---------------------------------------------------------------------------
+
+fn storage_command(action: &Action) -> Option<&'static str> {
+    match action {
+        Action::StorageList { kind, .. } => match kind {
+            crate::daemon::types::StorageKind::Local => Some("browser.local-storage.list"),
+            crate::daemon::types::StorageKind::Session => Some("browser.session-storage.list"),
+        },
+        Action::StorageGet { kind, .. } => match kind {
+            crate::daemon::types::StorageKind::Local => Some("browser.local-storage.get"),
+            crate::daemon::types::StorageKind::Session => Some("browser.session-storage.get"),
+        },
+        Action::StorageSet { kind, .. } => match kind {
+            crate::daemon::types::StorageKind::Local => Some("browser.local-storage.set"),
+            crate::daemon::types::StorageKind::Session => Some("browser.session-storage.set"),
+        },
+        Action::StorageDelete { kind, .. } => match kind {
+            crate::daemon::types::StorageKind::Local => Some("browser.local-storage.delete"),
+            crate::daemon::types::StorageKind::Session => Some("browser.session-storage.delete"),
+        },
+        Action::StorageClear { kind, .. } => match kind {
+            crate::daemon::types::StorageKind::Local => Some("browser.local-storage.clear"),
+            crate::daemon::types::StorageKind::Session => Some("browser.session-storage.clear"),
+        },
+        _ => None,
+    }
+}
+
+fn normalize_storage_json(
+    action: &Action,
+    result: &ActionResult,
+    duration_ms: u128,
+) -> Option<Value> {
+    let command = storage_command(action)?;
+    let ok = result.is_ok();
+    let session_id = action.session_id()?.to_string();
+    let tab_id = action_tab_id(action).map(|t| t.to_string());
+    let context = serde_json::json!({
+        "session_id": session_id,
+        "tab_id": tab_id,
+        "url": null,
+        "title": null
+    });
+    let data = match result {
+        ActionResult::Ok { data } => data.clone(),
+        _ => Value::Null,
+    };
+    let error = match result {
+        ActionResult::Ok { .. } => Value::Null,
+        _ => normalized_error_value(&normalize_error(result)),
+    };
+    Some(serde_json::json!({
+        "ok": ok,
+        "command": command,
+        "context": context,
+        "data": data,
+        "error": error,
+        "meta": {
+            "duration_ms": duration_ms,
+            "warnings": [],
+            "pagination": null,
+            "truncated": false
+        }
+    }))
 }
 
 fn json_value_type(value: &Value) -> &'static str {
@@ -2487,7 +2657,15 @@ mod tests {
                 tab: crate::daemon::types::TabId(0),
                 kind: crate::daemon::types::StorageKind::Local,
             }),
-            "browser.storage.list"
+            "browser.local-storage.list"
+        );
+        assert_eq!(
+            command_name(&Action::StorageList {
+                session: SessionId::new_unchecked("local-1"),
+                tab: crate::daemon::types::TabId(0),
+                kind: crate::daemon::types::StorageKind::Session,
+            }),
+            "browser.session-storage.list"
         );
         assert_eq!(
             command_name(&Action::WaitNetworkIdle {
