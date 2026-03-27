@@ -62,7 +62,7 @@ fn contract_b1_close_tab_prd_data_shape() {
     let v = parse_envelope(&out);
 
     // JSON envelope fields
-    assert_eq!(v["status"], "Ok", "status should be Ok");
+    assert_eq!(v["ok"], json!(true), "ok should be true");
     assert_eq!(v["command"], "browser.close-tab", "command name");
 
     // context: tab_id is the closed tab, url/title null
@@ -144,7 +144,7 @@ fn contract_b1_goto_prd_data_shape() {
 
     let v = parse_envelope(&out);
 
-    assert_eq!(v["status"], "Ok");
+    assert_eq!(v["ok"], json!(true));
     assert_eq!(v["command"], "browser.goto");
 
     // context
@@ -244,7 +244,7 @@ fn contract_b1_back_prd_data_shape() {
 
     let v = parse_envelope(&out);
 
-    assert_eq!(v["status"], "Ok");
+    assert_eq!(v["ok"], json!(true));
     assert_eq!(v["command"], "browser.back");
 
     // context
@@ -354,7 +354,7 @@ fn contract_b1_forward_prd_data_shape() {
 
     let v = parse_envelope(&out);
 
-    assert_eq!(v["status"], "Ok");
+    assert_eq!(v["ok"], json!(true));
     assert_eq!(v["command"], "browser.forward");
     assert_eq!(v["context"]["tab_id"], "t0");
 
@@ -378,6 +378,52 @@ fn contract_b1_forward_prd_data_shape() {
     assert_eq!(
         v["data"]["title"], "FwdPage2",
         "data.title must be 'FwdPage2'"
+    );
+
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
+    assert_success(&out, "close");
+}
+
+/// PRD 9.3 text: [session tab] url\nok browser.forward\ntitle: <title>
+/// No extra arrow line.
+#[test]
+fn contract_b1_forward_prd_text_output() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    start_blank_session();
+
+    let page1 = "data:text/html,<title>FwdTextPage1</title><h1>one</h1>";
+    let page2 = "data:text/html,<title>FwdTextPage2</title><h1>two</h1>";
+
+    let out = headless(&["browser", "goto", page1, "-s", "local-1", "-t", "t0"], 30);
+    assert_success(&out, "goto page1");
+    let out = headless(&["browser", "goto", page2, "-s", "local-1", "-t", "t0"], 30);
+    assert_success(&out, "goto page2");
+    let out = headless(&["browser", "back", "-s", "local-1", "-t", "t0"], 30);
+    assert_success(&out, "back to page1");
+
+    let out = headless(&["browser", "forward", "-s", "local-1", "-t", "t0"], 30);
+    assert_success(&out, "forward text");
+
+    let text = stdout_str(&out);
+    assert!(
+        text.trim().starts_with("[local-1 t0]"),
+        "forward text must start with [local-1 t0], got: {text}"
+    );
+    assert!(
+        text.contains("ok browser.forward"),
+        "forward text must contain 'ok browser.forward', got: {text}"
+    );
+    assert!(
+        text.contains("title: FwdTextPage2"),
+        "forward text must contain 'title: FwdTextPage2', got: {text}"
+    );
+    // Must NOT contain the extra arrow line.
+    assert!(
+        !text.contains('\u{2192}'),
+        "forward text must not contain the extra arrow line '→', got: {text}"
     );
 
     let out = headless(&["browser", "close", "-s", "local-1"], 30);
@@ -410,7 +456,7 @@ fn contract_b1_reload_prd_data_shape() {
 
     let v = parse_envelope(&out);
 
-    assert_eq!(v["status"], "Ok");
+    assert_eq!(v["ok"], json!(true));
     assert_eq!(v["command"], "browser.reload");
     assert_eq!(v["context"]["tab_id"], "t0");
 
