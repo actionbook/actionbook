@@ -111,6 +111,7 @@ fn api_search_pagination() {
     assert!(pag.is_object(), "meta.pagination should be present for paginated results");
     assert!(pag["page"].is_number(), "pagination.page");
     assert!(pag["page_size"].is_number(), "pagination.page_size");
+    assert!(pag["total"].is_number(), "pagination.total per §2.4");
     assert!(pag["has_more"].is_boolean(), "pagination.has_more");
 }
 
@@ -216,6 +217,10 @@ fn api_get_nonexistent_area() {
         assert!(v["error"]["code"].is_string(), "error.code");
         assert!(v["error"]["message"].is_string(), "error.message");
         assert!(v["error"]["retryable"].is_boolean(), "error.retryable");
+        assert!(
+            v["error"]["details"].is_object() || v["error"]["details"].is_null(),
+            "error.details: object or null per §3.1"
+        );
     }
 }
 

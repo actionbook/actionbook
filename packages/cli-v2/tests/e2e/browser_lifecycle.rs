@@ -42,10 +42,13 @@ fn lifecycle_open_and_close_json() {
     assert_eq!(v["data"]["tab"]["tab_id"], "t1");
     assert!(v["data"]["tab"]["url"].is_string());
     assert!(v["data"]["tab"]["title"].is_string());
+    // §7.1: native_tab_id key must be present (number or null)
     assert!(
-        v["data"]["tab"]["native_tab_id"].is_number() || v["data"]["tab"]["native_tab_id"].is_null(),
-        "tab.native_tab_id should be number or null per §7.1"
+        v["data"]["tab"].as_object().map_or(false, |o| o.contains_key("native_tab_id")),
+        "native_tab_id key must be present in tab object per §7.1"
     );
+    let ntid = &v["data"]["tab"]["native_tab_id"];
+    assert!(ntid.is_number() || ntid.is_null(), "native_tab_id must be number or null");
     // data.reused
     assert_eq!(v["data"]["reused"], false);
     // context (special: start returns context after session creation)
