@@ -875,6 +875,79 @@ mod tests {
     }
 
     #[test]
+    fn op_to_cdp_set_cookie_with_optional_fields() {
+        let op = BackendOp::SetCookie {
+            target_id: "T1".into(),
+            name: "session".into(),
+            value: "abc123".into(),
+            domain: ".example.com".into(),
+            path: "/".into(),
+            secure: Some(true),
+            http_only: Some(true),
+            same_site: Some("Strict".into()),
+            expires: Some(123.0),
+        };
+        let (method, params) = op_to_cdp(&op);
+        assert_eq!(method, "Network.setCookie");
+        assert_eq!(params["secure"], true);
+        assert_eq!(params["httpOnly"], true);
+        assert_eq!(params["sameSite"], "Strict");
+        assert_eq!(params["expires"], 123.0);
+    }
+
+    #[test]
+    fn op_to_cdp_delete_cookies_and_dom_ops() {
+        let delete = BackendOp::DeleteCookies {
+            target_id: "T1".into(),
+            name: "session".into(),
+            domain: Some(".example.com".into()),
+            path: Some("/".into()),
+        };
+        let (method, params) = op_to_cdp(&delete);
+        assert_eq!(method, "Network.deleteCookies");
+        assert_eq!(params["domain"], ".example.com");
+        assert_eq!(params["path"], "/");
+
+        let focus = BackendOp::DomFocus {
+            target_id: "T1".into(),
+            node_id: 11,
+        };
+        let (focus_method, focus_params) = op_to_cdp(&focus);
+        assert_eq!(focus_method, "DOM.focus");
+        assert_eq!(focus_params["nodeId"], 11);
+
+        let files = BackendOp::SetFileInputFiles {
+            target_id: "T1".into(),
+            node_id: 12,
+            files: vec!["/tmp/file.txt".into()],
+        };
+        let (file_method, file_params) = op_to_cdp(&files);
+        assert_eq!(file_method, "DOM.setFileInputFiles");
+        assert_eq!(file_params["files"][0], "/tmp/file.txt");
+    }
+
+    #[test]
+    fn op_to_cdp_get_box_and_node_location() {
+        let box_model = BackendOp::GetBoxModel {
+            target_id: "T1".into(),
+            node_id: 42,
+        };
+        let (box_method, box_params) = op_to_cdp(&box_model);
+        assert_eq!(box_method, "DOM.getBoxModel");
+        assert_eq!(box_params["nodeId"], 42);
+
+        let node = BackendOp::GetNodeForLocation {
+            target_id: "T1".into(),
+            x: 9,
+            y: 21,
+        };
+        let (node_method, node_params) = op_to_cdp(&node);
+        assert_eq!(node_method, "DOM.getNodeForLocation");
+        assert_eq!(node_params["x"], 9);
+        assert_eq!(node_params["y"], 21);
+    }
+
+    #[test]
     fn checkpoint_round_trip_with_headers() {
         let mut headers = HashMap::new();
         headers.insert("Authorization".into(), "Bearer tok".into());

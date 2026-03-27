@@ -160,6 +160,10 @@ impl std::error::Error for ClientError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daemon::action_result::ActionResult;
+    use crate::daemon::wire::{decode_payload, encode_frame, Request, Response};
+    use tempfile::tempdir;
+    use tokio::net::UnixListener;
 
     #[test]
     fn default_socket_path_ends_with_v2_sock() {
@@ -183,5 +187,170 @@ mod tests {
     fn client_error_display_timeout() {
         let err = ClientError::Timeout(Duration::from_secs(30));
         assert!(err.to_string().contains("30s"));
+    }
+
+    async fn spawn_socket_server<F, Fut>(handler: F) -> (tempfile::TempDir, PathBuf)
+    where
+        F: FnOnce(tokio::net::UnixStream) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let dir = tempdir().unwrap();
+        let socket_path = dir.path().join("daemon.sock");
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            handler(stream).await;
+        });
+        (dir, socket_path)
+    }
+
+    #[tokio::test]
+    async fn connect_returns_connection_failed_for_missing_socket() {
+        let dir = tempdir().unwrap();
+        let socket_path = dir.path().join("missing.sock");
+        let result = DaemonClient::connect(&socket_path).await;
+
+        match result {
+            Err(ClientError::ConnectionFailed { path, .. }) => assert_eq!(path, socket_path),
+            Ok(_) => panic!("expected ConnectionFailed, got Ok"),
+            Err(other) => panic!("expected ConnectionFailed, got {other}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn send_action_round_trips_success_response() {
+        let (_dir, socket_path) = spawn_socket_server(|mut stream| async move {
+            let mut len_buf = [0u8; 4];
+            stream.read_exact(&mut len_buf).await.unwrap();
+            let len = u32::from_le_bytes(len_buf);
+            let mut payload = vec![0; len as usize];
+            stream.read_exact(&mut payload).await.unwrap();
+            let request: Request = decode_payload(&payload).unwrap();
+            assert_eq!(request.id, 1);
+            assert!(matches!(request.action, Action::ListSessions));
+
+            let response = Response::new(1, ActionResult::ok(serde_json::json!({"items": []})));
+            let frame = encode_frame(&response).unwrap();
+            stream.write_all(&frame).await.unwrap();
+        })
+        .await;
+
+        let mut client = DaemonClient::connect(&socket_path).await.unwrap();
+        let result = client.send_action(Action::ListSessions).await.unwrap();
+
+        match result {
+            ActionResult::Ok { data } => assert_eq!(data["items"], serde_json::json!([])),
+            other => panic!("expected Ok, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn send_action_uses_monotonic_request_ids() {
+        let (_dir, socket_path) = spawn_socket_server(|mut stream| async move {
+            for expected_id in [1u64, 2u64] {
+                let mut len_buf = [0u8; 4];
+                stream.read_exact(&mut len_buf).await.unwrap();
+                let len = u32::from_le_bytes(len_buf);
+                let mut payload = vec![0; len as usize];
+                stream.read_exact(&mut payload).await.unwrap();
+                let request: Request = decode_payload(&payload).unwrap();
+                assert_eq!(request.id, expected_id);
+
+                let response = Response::new(
+                    expected_id,
+                    ActionResult::ok(serde_json::json!({"id": expected_id})),
+                );
+                let frame = encode_frame(&response).unwrap();
+                stream.write_all(&frame).await.unwrap();
+            }
+        })
+        .await;
+
+        let mut client = DaemonClient::connect(&socket_path).await.unwrap();
+        let first = client.send_action(Action::ListSessions).await.unwrap();
+        let second = client.send_action(Action::ListSessions).await.unwrap();
+
+        match first {
+            ActionResult::Ok { data } => assert_eq!(data["id"], 1),
+            other => panic!("expected Ok, got {other:?}"),
+        }
+        match second {
+            ActionResult::Ok { data } => assert_eq!(data["id"], 2),
+            other => panic!("expected Ok, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn send_action_returns_protocol_error_for_mismatched_response_id() {
+        let (_dir, socket_path) = spawn_socket_server(|mut stream| async move {
+            let mut len_buf = [0u8; 4];
+            stream.read_exact(&mut len_buf).await.unwrap();
+            let len = u32::from_le_bytes(len_buf);
+            let mut payload = vec![0; len as usize];
+            stream.read_exact(&mut payload).await.unwrap();
+            let _: Request = decode_payload(&payload).unwrap();
+
+            let response = Response::new(999, ActionResult::ok(serde_json::json!({"ok": true})));
+            let frame = encode_frame(&response).unwrap();
+            stream.write_all(&frame).await.unwrap();
+        })
+        .await;
+
+        let mut client = DaemonClient::connect(&socket_path).await.unwrap();
+        let result = client.send_action(Action::ListSessions).await;
+
+        match result {
+            Err(ClientError::Protocol(msg)) => assert!(msg.contains("response id mismatch")),
+            other => panic!("expected Protocol, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn send_action_returns_deserialize_error_for_invalid_payload() {
+        let (_dir, socket_path) = spawn_socket_server(|mut stream| async move {
+            let mut len_buf = [0u8; 4];
+            stream.read_exact(&mut len_buf).await.unwrap();
+            let len = u32::from_le_bytes(len_buf);
+            let mut payload = vec![0; len as usize];
+            stream.read_exact(&mut payload).await.unwrap();
+            let _: Request = decode_payload(&payload).unwrap();
+
+            let payload = br#"{"id":1,"result":"not-an-action-result"}"#;
+            let mut frame = Vec::new();
+            frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+            frame.extend_from_slice(payload);
+            stream.write_all(&frame).await.unwrap();
+        })
+        .await;
+
+        let mut client = DaemonClient::connect(&socket_path).await.unwrap();
+        let result = client.send_action(Action::ListSessions).await;
+
+        assert!(matches!(result, Err(ClientError::Deserialize(_))));
+    }
+
+    #[tokio::test]
+    async fn send_action_times_out_when_server_never_replies() {
+        let (_dir, socket_path) = spawn_socket_server(|mut stream| async move {
+            let mut len_buf = [0u8; 4];
+            stream.read_exact(&mut len_buf).await.unwrap();
+            let len = u32::from_le_bytes(len_buf);
+            let mut payload = vec![0; len as usize];
+            stream.read_exact(&mut payload).await.unwrap();
+            let _: Request = decode_payload(&payload).unwrap();
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        })
+        .await;
+
+        let mut client = DaemonClient::connect(&socket_path)
+            .await
+            .unwrap()
+            .with_timeout(Duration::from_millis(5));
+        let result = client.send_action(Action::ListSessions).await;
+
+        match result {
+            Err(ClientError::Timeout(d)) => assert_eq!(d, Duration::from_millis(5)),
+            other => panic!("expected Timeout, got {other:?}"),
+        }
     }
 }
