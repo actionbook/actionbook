@@ -548,18 +548,30 @@ impl Router {
             .await;
 
         // 5. Reshape into PRD 7.5 restart response: {session, reopened}.
+        // Read live tab_count from the newly-registered session handle.
+        let session_id_ref = match &start_result {
+            ActionResult::Ok { data } => data
+                .get("session")
+                .and_then(|s| s.get("session_id"))
+                .and_then(|v| v.as_str())
+                .map(SessionId::new_unchecked),
+            _ => None,
+        };
+        let live_tabs_count = if let Some(ref sid) = session_id_ref {
+            let registry = self.registry.lock().await;
+            registry.get(sid).map(|h| h.tab_count as u64).unwrap_or(0)
+        } else {
+            0
+        };
+
         match start_result {
             ActionResult::Ok { data } => {
-                let tabs_count = data
-                    .get("tab")
-                    .map(|t| if t.is_null() { 0u64 } else { 1 })
-                    .unwrap_or(0);
                 let session_obj = data
                     .get("session")
                     .cloned()
                     .unwrap_or(serde_json::json!(null));
                 let mut session_map = session_obj.as_object().cloned().unwrap_or_default();
-                session_map.insert("tabs_count".into(), serde_json::json!(tabs_count));
+                session_map.insert("tabs_count".into(), serde_json::json!(live_tabs_count));
                 ActionResult::ok(serde_json::json!({
                     "session": session_map,
                     "reopened": true,
@@ -622,27 +634,23 @@ impl Router {
 
     /// Handle `Close`/`CloseSession` — forward to actor, reshape to PRD 7.4.
     async fn handle_close_session(&self, session_id: SessionId, action: Action) -> ActionResult {
-        let tab_count = {
-            let registry = self.registry.lock().await;
-            match registry.get(&session_id) {
-                Some(h) => h.tab_count,
-                None => 0,
-            }
-        };
-
         let result = self.forward_to_session(&session_id, action).await;
-        if result.is_ok() {
-            let mut registry = self.registry.lock().await;
-            registry.remove(&session_id);
-            self.trigger_save(&registry);
+        match result {
+            ActionResult::Ok { data } => {
+                // Use live tab count from actor (accurate even after new-tab/close-tab).
+                let closed_tabs = data.get("tab_count").and_then(|v| v.as_u64()).unwrap_or(0);
 
-            ActionResult::ok(serde_json::json!({
-                "session_id": session_id.to_string(),
-                "status": "closed",
-                "closed_tabs": tab_count,
-            }))
-        } else {
-            result
+                let mut registry = self.registry.lock().await;
+                registry.remove(&session_id);
+                self.trigger_save(&registry);
+
+                ActionResult::ok(serde_json::json!({
+                    "session_id": session_id.to_string(),
+                    "status": "closed",
+                    "closed_tabs": closed_tabs,
+                }))
+            }
+            err => err,
         }
     }
 

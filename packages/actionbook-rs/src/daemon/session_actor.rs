@@ -131,12 +131,14 @@ impl SessionActor {
             // SessionStatus also handled here since it needs actor state.
             let result = match req.action {
                 Action::Close { .. } | Action::CloseSession { .. } => {
+                    let live_tab_count = self.registries.tabs.len();
                     self.state = SessionState::Closed;
                     // Shut down the backend (browser process / WS connection).
                     let _ = self.backend.shutdown(ShutdownPolicy::Graceful).await;
-                    let result = ActionResult::ok(
-                        serde_json::json!({"closed": self.session_id.to_string()}),
-                    );
+                    let result = ActionResult::ok(serde_json::json!({
+                        "closed": self.session_id.to_string(),
+                        "tab_count": live_tab_count,
+                    }));
                     // Send response before breaking so the caller gets the result.
                     let _ = req.response_tx.send(result);
                     break;
