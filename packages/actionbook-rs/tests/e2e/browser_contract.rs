@@ -89,6 +89,28 @@ fn current_url(session_id: &str, tab_id: &str) -> String {
         .to_string()
 }
 
+fn start_session_on_test_url() {
+    for attempt in 0..3 {
+        let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
+        if out.status.success() {
+            let out = headless(
+                &["browser", "goto", TEST_URL, "-s", "local-1", "-t", "t0"],
+                30,
+            );
+            assert_success(&out, "goto test url");
+            wait_for_ready_state_complete("local-1", "t0");
+            return;
+        }
+
+        if attempt == 2 {
+            assert_success(&out, "start");
+        }
+
+        let _ = headless(&["daemon", "stop"], 10);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 1. new-tab JSON contract
 // ---------------------------------------------------------------------------
@@ -100,20 +122,7 @@ fn contract_new_tab_json() {
     }
     let _guard = SessionGuard::new();
 
-    let out = headless(
-        &[
-            "browser",
-            "start",
-            "--mode",
-            "local",
-            "--headless",
-            "--open-url",
-            TEST_URL,
-        ],
-        30,
-    );
-    assert_success(&out, "start");
-    wait_for_ready_state_complete("local-1", "t0");
+    start_session_on_test_url();
 
     let out = headless_json(&["browser", "new-tab", TEST_URL, "-s", "local-1"], 30);
     assert_success(&out, "new-tab json");
@@ -139,7 +148,10 @@ fn contract_new_tab_json() {
         })
     );
     assert_eq!(v["data"]["created"], true, "data.created should be true");
-    assert_eq!(v["data"]["new_window"], false, "data.new_window should be false");
+    assert_eq!(
+        v["data"]["new_window"], false,
+        "data.new_window should be false"
+    );
     assert_eq!(v["data"]["tab"]["tab_id"], "t1");
     assert_eq!(v["data"]["tab"]["url"], expected_url);
     assert_eq!(v["data"]["tab"]["title"], expected_title);
@@ -164,20 +176,7 @@ fn contract_new_tab_text() {
     }
     let _guard = SessionGuard::new();
 
-    let out = headless(
-        &[
-            "browser",
-            "start",
-            "--mode",
-            "local",
-            "--headless",
-            "--open-url",
-            TEST_URL,
-        ],
-        30,
-    );
-    assert_success(&out, "start");
-    wait_for_ready_state_complete("local-1", "t0");
+    start_session_on_test_url();
 
     let out = headless(&["browser", "new-tab", TEST_URL, "-s", "local-1"], 30);
     assert_success(&out, "new-tab text");
@@ -188,9 +187,7 @@ fn contract_new_tab_text() {
     let expected_title = current_title("local-1", "t1");
     assert_eq!(
         text.trim(),
-        format!(
-            "[local-1 t1] {expected_url}\nok browser.new-tab\ntitle: {expected_title}"
-        )
+        format!("[local-1 t1] {expected_url}\nok browser.new-tab\ntitle: {expected_title}")
     );
 
     let out = headless(&["browser", "close", "-s", "local-1"], 30);
@@ -208,20 +205,7 @@ fn contract_open_alias_works() {
     }
     let _guard = SessionGuard::new();
 
-    let out = headless(
-        &[
-            "browser",
-            "start",
-            "--mode",
-            "local",
-            "--headless",
-            "--open-url",
-            TEST_URL,
-        ],
-        30,
-    );
-    assert_success(&out, "start");
-    wait_for_ready_state_complete("local-1", "t0");
+    start_session_on_test_url();
 
     // Use the "open" alias
     let out = headless_json(&["browser", "open", TEST_URL, "-s", "local-1"], 30);
@@ -248,20 +232,7 @@ fn contract_list_tabs_json() {
     }
     let _guard = SessionGuard::new();
 
-    let out = headless(
-        &[
-            "browser",
-            "start",
-            "--mode",
-            "local",
-            "--headless",
-            "--open-url",
-            TEST_URL,
-        ],
-        30,
-    );
-    assert_success(&out, "start");
-    wait_for_ready_state_complete("local-1", "t0");
+    start_session_on_test_url();
 
     let out = headless_json(&["browser", "list-tabs", "-s", "local-1"], 10);
     assert_success(&out, "list-tabs json");
@@ -281,7 +252,10 @@ fn contract_list_tabs_json() {
     assert_eq!(v["data"]["tabs"].as_array().map(|tabs| tabs.len()), Some(1));
     assert_eq!(v["data"]["tabs"][0]["tab_id"], "t0");
     assert_eq!(v["data"]["tabs"][0]["url"], current_url("local-1", "t0"));
-    assert_eq!(v["data"]["tabs"][0]["title"], current_title("local-1", "t0"));
+    assert_eq!(
+        v["data"]["tabs"][0]["title"],
+        current_title("local-1", "t0")
+    );
     assert!(
         v["data"]["tabs"][0]["native_tab_id"].is_string(),
         "list-tabs should expose native_tab_id, got: {}",

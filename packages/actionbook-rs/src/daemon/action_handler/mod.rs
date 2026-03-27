@@ -213,7 +213,7 @@ pub async fn handle_action(
         }
 
         // -- Session-level commands --
-        Action::ListTabs { .. } => session::handle_list_tabs(regs),
+        Action::ListTabs { .. } => session::handle_list_tabs(backend, regs).await,
         Action::ListWindows { .. } => session::handle_list_windows(regs),
         Action::NewTab {
             url,
@@ -776,6 +776,7 @@ mod tests {
     struct MockBackendSession {
         ops: Vec<BackendOp>,
         responses: std::collections::VecDeque<Result<OpResult, ActionbookError>>,
+        targets: Vec<TargetInfo>,
     }
 
     impl MockBackendSession {
@@ -783,7 +784,13 @@ mod tests {
             Self {
                 ops: Vec::new(),
                 responses: responses.into(),
+                targets: Vec::new(),
             }
+        }
+
+        fn with_targets(mut self, targets: Vec<TargetInfo>) -> Self {
+            self.targets = targets;
+            self
         }
 
         fn ops(&self) -> &[BackendOp] {
@@ -803,7 +810,7 @@ mod tests {
         }
 
         async fn list_targets(&self) -> crate::error::Result<Vec<TargetInfo>> {
-            Ok(vec![])
+            Ok(self.targets.clone())
         }
 
         async fn checkpoint(&self) -> crate::error::Result<Checkpoint> {
@@ -1142,7 +1149,13 @@ mod tests {
 
     #[tokio::test]
     async fn list_tabs_returns_registry_content() {
-        let mut backend = MockBackendSession::new(vec![]);
+        let mut backend = MockBackendSession::new(vec![]).with_targets(vec![TargetInfo {
+            target_id: "TARGET_0".into(),
+            target_type: "page".into(),
+            title: "Example Title".into(),
+            url: "https://example.com/updated".into(),
+            attached: true,
+        }]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId::new_unchecked("local-1");
 
@@ -1160,7 +1173,9 @@ mod tests {
                 let tabs = data["tabs"].as_array().unwrap();
                 assert_eq!(tabs.len(), 1);
                 assert_eq!(tabs[0]["tab_id"], "t0");
-                assert_eq!(tabs[0]["url"], "https://example.com");
+                assert_eq!(tabs[0]["url"], "https://example.com/updated");
+                assert_eq!(tabs[0]["title"], "Example Title");
+                assert_eq!(tabs[0]["native_tab_id"], "TARGET_0");
                 assert_eq!(data["total_tabs"], 1);
             }
             _ => panic!("expected Ok"),
@@ -1169,8 +1184,13 @@ mod tests {
 
     #[tokio::test]
     async fn new_tab_creates_target_and_registers() {
-        let mut backend =
-            MockBackendSession::new(vec![Ok(OpResult::new(json!({"targetId": "NEW_TARGET_1"})))]);
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(json!({"targetId": "NEW_TARGET_1"}))),
+            Ok(OpResult::null()),
+            Ok(OpResult::new(json!("complete"))),
+            Ok(OpResult::new(json!("https://new-page.com"))),
+            Ok(OpResult::new(json!("New Page"))),
+        ]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId::new_unchecked("local-1");
 
@@ -1192,6 +1212,18 @@ mod tests {
         let new_tab = regs.tabs.get(&TabId(1)).unwrap();
         assert_eq!(new_tab.target_id, "NEW_TARGET_1");
         assert_eq!(new_tab.url, "https://new-page.com");
+        assert_eq!(new_tab.title, "New Page");
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["tab"]["tab_id"], "t1");
+                assert_eq!(data["tab"]["url"], "https://new-page.com");
+                assert_eq!(data["tab"]["title"], "New Page");
+                assert_eq!(data["tab"]["native_tab_id"], "NEW_TARGET_1");
+                assert_eq!(data["created"], true);
+                assert_eq!(data["new_window"], false);
+            }
+            _ => panic!("expected Ok"),
+        }
     }
 
     #[tokio::test]
@@ -1521,8 +1553,13 @@ mod tests {
 
     #[tokio::test]
     async fn new_tab_with_new_window_creates_window() {
-        let mut backend =
-            MockBackendSession::new(vec![Ok(OpResult::new(json!({"targetId": "NEW_T"})))]);
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(json!({"targetId": "NEW_T"}))),
+            Ok(OpResult::null()),
+            Ok(OpResult::new(json!("complete"))),
+            Ok(OpResult::new(json!("https://new.com"))),
+            Ok(OpResult::new(json!("New Window Tab"))),
+        ]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId::new_unchecked("local-1");
 
@@ -1554,8 +1591,13 @@ mod tests {
 
     #[tokio::test]
     async fn new_tab_with_explicit_window() {
-        let mut backend =
-            MockBackendSession::new(vec![Ok(OpResult::new(json!({"targetId": "NEW_T2"})))]);
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(json!({"targetId": "NEW_T2"}))),
+            Ok(OpResult::null()),
+            Ok(OpResult::new(json!("complete"))),
+            Ok(OpResult::new(json!("https://tab-in-w0.com"))),
+            Ok(OpResult::new(json!("Window 0 Tab"))),
+        ]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId::new_unchecked("local-1");
 

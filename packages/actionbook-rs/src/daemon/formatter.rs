@@ -836,18 +836,15 @@ fn tab_nav_context(action: &Action, result: &ActionResult) -> Option<Value> {
                     }))
                 }
             };
-            let tab_id = data.get("tab").and_then(|v| v.as_str());
-            // The daemon stores the URL in the tab entry; the wire data doesn't carry url/title
-            // directly, but the action itself has the url parameter.
-            let url = match action {
-                Action::NewTab { url, .. } => Some(url.as_str()),
-                _ => None,
-            };
+            let tab = data.get("tab").unwrap_or(data);
+            let tab_id = tab.get("tab_id").and_then(|v| v.as_str());
+            let url = tab.get("url").and_then(|v| v.as_str());
+            let title = tab.get("title").and_then(|v| v.as_str());
             Some(serde_json::json!({
                 "session_id": session_id,
                 "tab_id": tab_id,
                 "url": url,
-                "title": null
+                "title": title
             }))
         }
         // close-tab: context has the closed tab_id but no url
@@ -887,28 +884,11 @@ fn tab_nav_context(action: &Action, result: &ActionResult) -> Option<Value> {
 fn normalize_tab_nav_data(action: &Action, data: &Value) -> Value {
     match action {
         Action::ListTabs { .. } => {
-            // Daemon returns { total_tabs, tabs: [{ tab_id, url, title }] }
+            // Daemon returns PRD shape directly.
             // Already in PRD shape, pass through.
             data.clone()
         }
-        Action::NewTab {
-            new_window, url, ..
-        } => {
-            // Daemon returns { tab, target_id, window }
-            let tab_id = data
-                .get("tab")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            serde_json::json!({
-                "tab": {
-                    "tab_id": tab_id,
-                    "url": url,
-                    "title": ""
-                },
-                "created": true,
-                "new_window": new_window
-            })
-        }
+        Action::NewTab { .. } => data.clone(),
         Action::CloseTab { .. } => {
             // Daemon returns { closed_tab_id }
             data.clone()
@@ -938,29 +918,24 @@ fn format_tab_nav_text(action: &Action, result: &ActionResult) -> Option<String>
                     .cloned()
                     .unwrap_or_default();
                 let mut out = prefixed_header(&session_id, None, None);
+                let tab_word = if tabs.len() == 1 { "tab" } else { "tabs" };
+                out.push_str(&format!("\n{} {tab_word}", tabs.len()));
                 for tab in &tabs {
                     let tab_id = tab.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?");
+                    let title = tab.get("title").and_then(|v| v.as_str()).unwrap_or("");
                     let url = tab.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                    out.push_str(&format!("\n[{session_id} {tab_id}] {url}"));
+                    out.push_str(&format!("\n[{tab_id}] {title}\n{url}"));
                 }
                 out
             }
             Action::NewTab { .. } => {
-                let tab_id = data.get("tab").and_then(|v| v.as_str()).unwrap_or("?");
-                let url = match action {
-                    Action::NewTab { url, .. } => url.as_str(),
-                    _ => "",
-                };
-                let title = data
-                    .get("tab")
-                    .and_then(|_| data.get("title"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let tab = data.get("tab").unwrap_or(data);
+                let tab_id = tab.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?");
+                let url = tab.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                let title = tab.get("title").and_then(|v| v.as_str()).unwrap_or("");
                 let mut out = prefixed_header(&session_id, Some(tab_id), Some(url));
                 out.push_str(&format!("\nok {command}"));
-                if !title.is_empty() {
-                    out.push_str(&format!("\ntitle: {title}"));
-                }
+                out.push_str(&format!("\ntitle: {title}"));
                 out
             }
             Action::CloseTab { tab, .. } => {
@@ -2561,8 +2536,8 @@ mod tests {
         let result = ActionResult::ok(json!({
             "total_tabs": 2,
             "tabs": [
-                {"tab_id": "t0", "url": "https://actionbook.dev", "title": "Home"},
-                {"tab_id": "t1", "url": "https://actionbook.dev/docs", "title": "Docs"}
+                {"tab_id": "t0", "url": "https://actionbook.dev", "title": "Home", "native_tab_id": "TARGET_0"},
+                {"tab_id": "t1", "url": "https://actionbook.dev/docs", "title": "Docs", "native_tab_id": "TARGET_1"}
             ]
         }));
         let out = format_cli_result_json(&action, &result, 5);
@@ -2574,6 +2549,7 @@ mod tests {
         assert_eq!(d["data"]["total_tabs"], 2);
         assert_eq!(d["data"]["tabs"][0]["tab_id"], "t0");
         assert_eq!(d["data"]["tabs"][1]["url"], "https://actionbook.dev/docs");
+        assert_eq!(d["data"]["tabs"][0]["native_tab_id"], "TARGET_0");
         assert_eq!(d["meta"]["duration_ms"], 5);
     }
 
@@ -2585,28 +2561,14 @@ mod tests {
         let result = ActionResult::ok(json!({
             "total_tabs": 2,
             "tabs": [
-                {"tab_id": "t0", "url": "https://actionbook.dev", "title": "Home"},
-                {"tab_id": "t1", "url": "https://actionbook.dev/docs", "title": ""}
+                {"tab_id": "t0", "url": "https://actionbook.dev", "title": "Home", "native_tab_id": "TARGET_0"},
+                {"tab_id": "t1", "url": "https://actionbook.dev/docs", "title": "Docs", "native_tab_id": "TARGET_1"}
             ]
         }));
         let out = format_cli_result(&action, &result);
-        assert!(
-            out.starts_with("[local-1]"),
-            "list-tabs text should start with session header, got: {out}"
-        );
-        // New format: session header + one line per tab, no "ok" line
-        assert!(
-            out.contains("[local-1 t0] https://actionbook.dev"),
-            "should contain first tab line, got: {out}"
-        );
-        assert!(
-            out.contains("[local-1 t1] https://actionbook.dev/docs"),
-            "should contain second tab line, got: {out}"
-        );
-        // No "ok" status line in list-tabs format
-        assert!(
-            !out.contains("ok browser.list-tabs"),
-            "list-tabs should not contain ok line, got: {out}"
+        assert_eq!(
+            out,
+            "[local-1]\n2 tabs\n[t0] Home\nhttps://actionbook.dev\n[t1] Docs\nhttps://actionbook.dev/docs"
         );
     }
 
@@ -2619,9 +2581,14 @@ mod tests {
             window: None,
         };
         let result = ActionResult::ok(json!({
-            "tab": "t2",
-            "target_id": "ABC123",
-            "window": "w0"
+            "tab": {
+                "tab_id": "t2",
+                "url": "https://actionbook.dev",
+                "title": "Actionbook",
+                "native_tab_id": "ABC123"
+            },
+            "created": true,
+            "new_window": false
         }));
         let out = format_cli_result_json(&action, &result, 10);
         let d: Value = serde_json::from_str(&out).unwrap();
@@ -2630,8 +2597,11 @@ mod tests {
         assert_eq!(d["context"]["session_id"], "local-1");
         assert_eq!(d["context"]["tab_id"], "t2");
         assert_eq!(d["context"]["url"], "https://actionbook.dev");
+        assert_eq!(d["context"]["title"], "Actionbook");
         assert_eq!(d["data"]["tab"]["tab_id"], "t2");
         assert_eq!(d["data"]["tab"]["url"], "https://actionbook.dev");
+        assert_eq!(d["data"]["tab"]["title"], "Actionbook");
+        assert_eq!(d["data"]["tab"]["native_tab_id"], "ABC123");
         assert_eq!(d["data"]["created"], true);
         assert_eq!(d["data"]["new_window"], false);
     }
@@ -2645,9 +2615,14 @@ mod tests {
             window: None,
         };
         let result = ActionResult::ok(json!({
-            "tab": "t5",
-            "target_id": "XYZ",
-            "window": "w1"
+            "tab": {
+                "tab_id": "t5",
+                "url": "about:blank",
+                "title": "New Tab",
+                "native_tab_id": "XYZ"
+            },
+            "created": true,
+            "new_window": true
         }));
         let out = format_cli_result_json(&action, &result, 3);
         let d: Value = serde_json::from_str(&out).unwrap();
@@ -2663,27 +2638,19 @@ mod tests {
             window: None,
         };
         let result = ActionResult::ok(json!({
-            "tab": "t2",
-            "target_id": "ABC",
-            "window": "w0"
+            "tab": {
+                "tab_id": "t2",
+                "url": "https://actionbook.dev",
+                "title": "Actionbook",
+                "native_tab_id": "ABC"
+            },
+            "created": true,
+            "new_window": false
         }));
         let out = format_cli_result(&action, &result);
-        assert!(
-            out.starts_with("[local-1 t2] https://actionbook.dev"),
-            "new-tab text should start with [session tab] url prefix, got: {out}"
-        );
-        assert!(
-            out.contains("ok browser.new-tab"),
-            "new-tab text should contain ok line, got: {out}"
-        );
-        // New format uses [sid tid] url header instead of separate tab:/url: lines
-        assert!(
-            !out.contains("tab: t2"),
-            "new-tab should not use old 'tab:' format, got: {out}"
-        );
-        assert!(
-            !out.contains("url: https://actionbook.dev"),
-            "new-tab should not use old 'url:' format, got: {out}"
+        assert_eq!(
+            out,
+            "[local-1 t2] https://actionbook.dev\nok browser.new-tab\ntitle: Actionbook"
         );
     }
 
