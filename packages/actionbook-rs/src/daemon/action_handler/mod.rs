@@ -3049,4 +3049,149 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(regs.tabs.len(), 2);
     }
+
+    // -- extract_eval_value tests --
+
+    #[test]
+    fn extract_eval_value_standard_cdp_format() {
+        let cdp = json!({"result": {"type": "string", "value": "hello"}});
+        assert_eq!(extract_eval_value(&cdp), json!("hello"));
+    }
+
+    #[test]
+    fn extract_eval_value_number() {
+        let cdp = json!({"result": {"type": "number", "value": 42}});
+        assert_eq!(extract_eval_value(&cdp), json!(42));
+    }
+
+    #[test]
+    fn extract_eval_value_null() {
+        let cdp = json!({"result": {"type": "object", "subtype": "null", "value": null}});
+        assert_eq!(extract_eval_value(&cdp), json!(null));
+    }
+
+    #[test]
+    fn extract_eval_value_boolean() {
+        let cdp = json!({"result": {"type": "boolean", "value": true}});
+        assert_eq!(extract_eval_value(&cdp), json!(true));
+    }
+
+    #[test]
+    fn extract_eval_value_missing_result_returns_whole() {
+        let cdp = json!({"something": "else"});
+        assert_eq!(extract_eval_value(&cdp), cdp);
+    }
+
+    #[test]
+    fn extract_eval_value_missing_value_returns_whole() {
+        let cdp = json!({"result": {"type": "undefined"}});
+        assert_eq!(extract_eval_value(&cdp), cdp);
+    }
+
+    #[test]
+    fn extract_eval_value_object_value() {
+        let cdp = json!({"result": {"type": "object", "value": {"key": "val"}}});
+        assert_eq!(extract_eval_value(&cdp), json!({"key": "val"}));
+    }
+
+    // -- map_key_name tests --
+
+    #[test]
+    fn map_key_name_enter() {
+        let (key, text) = map_key_name("enter");
+        assert_eq!(key, "Enter");
+        assert_eq!(text, "\r");
+    }
+
+    #[test]
+    fn map_key_name_return_alias() {
+        let (key, _) = map_key_name("Return");
+        assert_eq!(key, "Enter");
+    }
+
+    #[test]
+    fn map_key_name_tab() {
+        let (key, text) = map_key_name("Tab");
+        assert_eq!(key, "Tab");
+        assert_eq!(text, "\t");
+    }
+
+    #[test]
+    fn map_key_name_escape_aliases() {
+        assert_eq!(map_key_name("escape").0, "Escape");
+        assert_eq!(map_key_name("esc").0, "Escape");
+        assert_eq!(map_key_name("ESC").0, "Escape");
+    }
+
+    #[test]
+    fn map_key_name_backspace() {
+        let (key, text) = map_key_name("Backspace");
+        assert_eq!(key, "Backspace");
+        assert_eq!(text, "");
+    }
+
+    #[test]
+    fn map_key_name_arrows() {
+        assert_eq!(map_key_name("up").0, "ArrowUp");
+        assert_eq!(map_key_name("ArrowUp").0, "ArrowUp");
+        assert_eq!(map_key_name("down").0, "ArrowDown");
+        assert_eq!(map_key_name("left").0, "ArrowLeft");
+        assert_eq!(map_key_name("right").0, "ArrowRight");
+    }
+
+    #[test]
+    fn map_key_name_space() {
+        let (key, text) = map_key_name("space");
+        assert_eq!(key, " ");
+        assert_eq!(text, " ");
+    }
+
+    #[test]
+    fn map_key_name_home_end() {
+        assert_eq!(map_key_name("home").0, "Home");
+        assert_eq!(map_key_name("end").0, "End");
+    }
+
+    #[test]
+    fn map_key_name_page_keys() {
+        assert_eq!(map_key_name("pageup").0, "PageUp");
+        assert_eq!(map_key_name("pagedown").0, "PageDown");
+    }
+
+    #[test]
+    fn map_key_name_delete() {
+        assert_eq!(map_key_name("delete").0, "Delete");
+    }
+
+    #[test]
+    fn map_key_name_unknown_passthrough() {
+        let (key, text) = map_key_name("a");
+        assert_eq!(key, "a");
+        assert_eq!(text, "a");
+    }
+
+    #[test]
+    fn map_key_name_case_insensitive() {
+        assert_eq!(map_key_name("ENTER").0, "Enter");
+        assert_eq!(map_key_name("Tab").0, "Tab");
+        assert_eq!(map_key_name("BACKSPACE").0, "Backspace");
+    }
+
+    // -- element_not_found tests --
+
+    #[test]
+    fn element_not_found_includes_selector() {
+        let result = element_not_found("#missing");
+        assert!(!result.is_ok());
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(json["code"], "element_not_found");
+        assert!(json["message"].as_str().unwrap().contains("#missing"));
+    }
+
+    #[test]
+    fn element_not_found_includes_hint() {
+        let result = element_not_found("div.test");
+        let json = serde_json::to_value(&result).unwrap();
+        assert!(json["hint"].as_str().unwrap().contains("snapshot"));
+    }
 }

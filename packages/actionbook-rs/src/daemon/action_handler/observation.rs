@@ -1,5 +1,70 @@
 use super::*;
 
+/// Interactive ARIA roles used by the snapshot `--interactive` filter.
+const INTERACTIVE_ROLES: &[&str] = &[
+    "button",
+    "link",
+    "textbox",
+    "checkbox",
+    "radio",
+    "combobox",
+    "menuitem",
+    "tab",
+    "switch",
+    "slider",
+    "spinbutton",
+    "searchbox",
+    "option",
+    "menuitemcheckbox",
+    "menuitemradio",
+];
+
+/// Filter snapshot text to only interactive-role lines.
+fn filter_interactive(text: &str) -> String {
+    text.lines()
+        .filter(|line| {
+            let lower = line.to_lowercase();
+            INTERACTIVE_ROLES.iter().any(|role| lower.contains(role))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Strip empty lines from snapshot text.
+fn filter_compact(text: &str) -> String {
+    text.lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Truncate snapshot tree to a maximum indentation depth.
+fn filter_depth(text: &str, max_depth: u32) -> String {
+    text.lines()
+        .filter(|line| {
+            let indent = line.len() - line.trim_start().len();
+            indent / 2 <= max_depth as usize
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Wrap filtered snapshot output with optional cursor / selector metadata.
+fn wrap_snapshot_data(output: &str, cursor: bool, selector: Option<&str>) -> serde_json::Value {
+    let mut data = json!(output);
+    if cursor {
+        data = json!({"tree": output, "cursor": true});
+    }
+    if selector.is_some() {
+        if let serde_json::Value::Object(ref mut map) = data {
+            map.insert("selector".to_string(), json!(selector));
+        } else {
+            data = json!({"tree": output, "selector": selector});
+        }
+    }
+    data
+}
+
 const ENSURE_LOG_CAPTURE_JS: &str = r#"(function() {
     if (!window.__ab_console_logs) {
         window.__ab_console_logs = [];
@@ -102,69 +167,16 @@ pub(super) async fn handle_snapshot(
             let mut output = text;
 
             if interactive {
-                // Filter to only lines that contain interactive element annotations
-                // (roles like button, link, textbox, checkbox, etc.)
-                let interactive_roles = [
-                    "button",
-                    "link",
-                    "textbox",
-                    "checkbox",
-                    "radio",
-                    "combobox",
-                    "menuitem",
-                    "tab",
-                    "switch",
-                    "slider",
-                    "spinbutton",
-                    "searchbox",
-                    "option",
-                    "menuitemcheckbox",
-                    "menuitemradio",
-                ];
-                let filtered: Vec<&str> = output
-                    .lines()
-                    .filter(|line| {
-                        let lower = line.to_lowercase();
-                        interactive_roles.iter().any(|role| lower.contains(role))
-                    })
-                    .collect();
-                output = filtered.join("\n");
+                output = filter_interactive(&output);
             }
-
             if compact {
-                // Strip empty lines and collapse excessive whitespace
-                let compacted: Vec<&str> = output
-                    .lines()
-                    .filter(|line| !line.trim().is_empty())
-                    .collect();
-                output = compacted.join("\n");
+                output = filter_compact(&output);
             }
-
             if let Some(max_depth) = depth {
-                // Truncate tree to max depth by counting leading whitespace
-                let filtered: Vec<&str> = output
-                    .lines()
-                    .filter(|line| {
-                        let indent = line.len() - line.trim_start().len();
-                        indent / 2 <= max_depth as usize
-                    })
-                    .collect();
-                output = filtered.join("\n");
+                output = filter_depth(&output, max_depth);
             }
 
-            let mut data = json!(output);
-            if cursor {
-                // Wrap in object to carry cursor flag
-                data = json!({"tree": output, "cursor": true});
-            }
-            if selector.is_some() {
-                if let serde_json::Value::Object(ref mut map) = data {
-                    map.insert("selector".to_string(), json!(selector));
-                } else {
-                    data = json!({"tree": output, "selector": selector});
-                }
-            }
-
+            let data = wrap_snapshot_data(&output, cursor, selector);
             ActionResult::ok(data)
         }
         Err(e) => cdp_error_to_result(e),
@@ -1164,5 +1176,141 @@ pub(super) async fn handle_logs_errors(
             ActionResult::ok(json!({"errors": val}))
         }
         Err(e) => cdp_error_to_result(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -- filter_interactive tests --
+
+    #[test]
+    fn filter_interactive_keeps_button_lines() {
+        let input = "root\n  button Submit\n  div Container\n  link Home";
+        let result = filter_interactive(input);
+        assert!(result.contains("button Submit"));
+        assert!(result.contains("link Home"));
+        assert!(!result.contains("div Container"));
+        assert!(!result.contains("root"));
+    }
+
+    #[test]
+    fn filter_interactive_is_case_insensitive() {
+        let input = "  Button Login\n  LINK Signup\n  TextBox Email";
+        let result = filter_interactive(input);
+        assert_eq!(result.lines().count(), 3);
+    }
+
+    #[test]
+    fn filter_interactive_returns_empty_for_no_matches() {
+        let input = "div\n  span\n  img";
+        let result = filter_interactive(input);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn filter_interactive_all_roles_recognized() {
+        for role in INTERACTIVE_ROLES {
+            let line = format!("  {} test", role);
+            let result = filter_interactive(&line);
+            assert!(
+                !result.is_empty(),
+                "role '{}' should be recognized as interactive",
+                role
+            );
+        }
+    }
+
+    // -- filter_compact tests --
+
+    #[test]
+    fn filter_compact_removes_empty_lines() {
+        let input = "line1\n\n  \n\nline2\n   \nline3";
+        let result = filter_compact(input);
+        assert_eq!(result, "line1\nline2\nline3");
+    }
+
+    #[test]
+    fn filter_compact_preserves_indentation() {
+        let input = "  indented\n\n    deeper";
+        let result = filter_compact(input);
+        assert_eq!(result, "  indented\n    deeper");
+    }
+
+    #[test]
+    fn filter_compact_handles_already_compact() {
+        let input = "line1\nline2";
+        let result = filter_compact(input);
+        assert_eq!(result, "line1\nline2");
+    }
+
+    // -- filter_depth tests --
+
+    #[test]
+    fn filter_depth_zero_keeps_root_only() {
+        let input = "root\n  child\n    grandchild";
+        let result = filter_depth(input, 0);
+        assert_eq!(result, "root");
+    }
+
+    #[test]
+    fn filter_depth_one_keeps_first_level() {
+        let input = "root\n  child1\n  child2\n    grandchild";
+        let result = filter_depth(input, 1);
+        assert_eq!(result, "root\n  child1\n  child2");
+    }
+
+    #[test]
+    fn filter_depth_large_value_keeps_all() {
+        let input = "root\n  child\n    grandchild\n      deep";
+        let result = filter_depth(input, 100);
+        assert_eq!(result, input);
+    }
+
+    // -- wrap_snapshot_data tests --
+
+    #[test]
+    fn wrap_snapshot_plain() {
+        let data = wrap_snapshot_data("tree text", false, None);
+        assert_eq!(data, json!("tree text"));
+    }
+
+    #[test]
+    fn wrap_snapshot_with_cursor() {
+        let data = wrap_snapshot_data("tree text", true, None);
+        assert_eq!(data["tree"], "tree text");
+        assert_eq!(data["cursor"], true);
+    }
+
+    #[test]
+    fn wrap_snapshot_with_selector() {
+        let data = wrap_snapshot_data("tree text", false, Some("#main"));
+        assert_eq!(data["tree"], "tree text");
+        assert_eq!(data["selector"], "#main");
+    }
+
+    #[test]
+    fn wrap_snapshot_with_cursor_and_selector() {
+        let data = wrap_snapshot_data("tree text", true, Some("div.content"));
+        assert_eq!(data["tree"], "tree text");
+        assert_eq!(data["cursor"], true);
+        assert_eq!(data["selector"], "div.content");
+    }
+
+    // -- combined filter tests --
+
+    #[test]
+    fn filter_interactive_then_compact() {
+        let input = "root\n\n  button Submit\n\n  div Container\n\n  link Home\n\n";
+        let result = filter_compact(&filter_interactive(input));
+        assert_eq!(result, "  button Submit\n  link Home");
+    }
+
+    #[test]
+    fn filter_interactive_then_depth() {
+        let input = "root\n  button Submit\n    link Nested\n      checkbox Deep";
+        let result = filter_depth(&filter_interactive(input), 1);
+        assert_eq!(result, "  button Submit");
     }
 }
