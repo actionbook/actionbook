@@ -33,6 +33,10 @@ pub struct CliV2 {
     #[arg(long, global = true, env = "ACTIONBOOK_SOCKET")]
     socket: Option<PathBuf>,
 
+    /// Timeout in milliseconds for browser commands
+    #[arg(long, global = true)]
+    timeout: Option<u64>,
+
     /// Output in JSON format
     #[arg(long, global = true)]
     pub json: bool,
@@ -742,6 +746,13 @@ fn parse_coordinates(target: &str) -> Option<(f64, f64)> {
 /// Returns (Action, Option<PathBuf>) where the optional path is the local file
 /// to write when the daemon returns binary data (e.g. screenshot PNG).
 fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
+    build_action_with_timeout(cmd, None)
+}
+
+fn build_action_with_timeout(
+    cmd: BrowserCmd,
+    timeout_ms: Option<u64>,
+) -> Result<(Action, Option<PathBuf>), String> {
     // Extract the screenshot output path before converting to Action.
     let screenshot_path = match &cmd {
         BrowserCmd::Screenshot { path, .. } => Some(path.clone()),
@@ -1369,42 +1380,32 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
                 selector,
                 session,
                 tab,
-                timeout,
             } => Action::WaitElement {
                 session,
                 tab,
                 selector,
-                timeout_ms: Some(timeout),
+                timeout_ms: Some(timeout_ms.unwrap_or(DEFAULT_BROWSER_TIMEOUT_MS)),
             },
-            WaitCmd::Navigation {
+            WaitCmd::Navigation { session, tab } => Action::WaitNavigation {
                 session,
                 tab,
-                timeout,
-            } => Action::WaitNavigation {
-                session,
-                tab,
-                timeout_ms: Some(timeout),
+                timeout_ms: Some(timeout_ms.unwrap_or(DEFAULT_BROWSER_TIMEOUT_MS)),
             },
-            WaitCmd::NetworkIdle {
+            WaitCmd::NetworkIdle { session, tab } => Action::WaitNetworkIdle {
                 session,
                 tab,
-                timeout,
-            } => Action::WaitNetworkIdle {
-                session,
-                tab,
-                timeout_ms: Some(timeout),
+                timeout_ms: Some(timeout_ms.unwrap_or(DEFAULT_BROWSER_TIMEOUT_MS)),
                 idle_time_ms: None,
             },
             WaitCmd::Condition {
                 expression,
                 session,
                 tab,
-                timeout,
             } => Action::WaitCondition {
                 session,
                 tab,
                 expression,
-                timeout_ms: Some(timeout),
+                timeout_ms: Some(timeout_ms.unwrap_or(DEFAULT_BROWSER_TIMEOUT_MS)),
             },
         },
 
@@ -1451,8 +1452,8 @@ fn storage_cmd_to_action(cmd: StorageSubCmd, kind: StorageKind) -> Action {
 // Daemon auto-start
 // ---------------------------------------------------------------------------
 
-/// Maximum time to wait for the daemon to become ready after forking.
-const DAEMON_READY_TIMEOUT: Duration = Duration::from_secs(10);
+/// Default timeout for browser commands (30 seconds).
+const DEFAULT_BROWSER_TIMEOUT_MS: u64 = 30_000;
 
 /// Interval between socket connectivity probes.
 const DAEMON_PROBE_INTERVAL: Duration = Duration::from_millis(100);
@@ -1464,8 +1465,11 @@ async fn socket_is_ready(path: &Path) -> bool {
 
 /// Ensure the daemon is running. If the socket is not connectable, fork a
 /// daemon child process and wait until the socket becomes available (up to
-/// [`DAEMON_READY_TIMEOUT`]).
-pub async fn ensure_daemon_running(socket_path: &Path) -> Result<(), String> {
+/// `ready_timeout`.
+pub async fn ensure_daemon_running(
+    socket_path: &Path,
+    ready_timeout: Duration,
+) -> Result<(), String> {
     if socket_is_ready(socket_path).await {
         debug!("daemon already running at {}", socket_path.display());
         return Ok(());
@@ -1488,7 +1492,7 @@ pub async fn ensure_daemon_running(socket_path: &Path) -> Result<(), String> {
     info!("daemon child spawned (pid {})", child.id());
 
     // Wait for the socket to become connectable.
-    let deadline = tokio::time::Instant::now() + DAEMON_READY_TIMEOUT;
+    let deadline = tokio::time::Instant::now() + ready_timeout;
     loop {
         if socket_is_ready(socket_path).await {
             info!("daemon ready at {}", socket_path.display());
@@ -1497,7 +1501,7 @@ pub async fn ensure_daemon_running(socket_path: &Path) -> Result<(), String> {
         if tokio::time::Instant::now() >= deadline {
             return Err(format!(
                 "daemon did not become ready within {}s at {}",
-                DAEMON_READY_TIMEOUT.as_secs(),
+                ready_timeout.as_secs_f64(),
                 socket_path.display()
             ));
         }
@@ -1521,9 +1525,11 @@ impl CliV2 {
     /// Run the CLI: ensure daemon -> parse -> build Action -> send -> format output.
     pub async fn run(self) -> ! {
         let socket_path = self.socket.unwrap_or_else(client::default_socket_path);
+        let timeout_ms = self.timeout.unwrap_or(DEFAULT_BROWSER_TIMEOUT_MS);
+        let command_timeout = Duration::from_millis(timeout_ms);
 
         let TopLevel::Browser { cmd } = self.command;
-        let (action, screenshot_path) = match build_action(cmd) {
+        let (action, screenshot_path) = match build_action_with_timeout(cmd, Some(timeout_ms)) {
             Ok(pair) => pair,
             Err(e) => {
                 eprintln!("error: {e}");
@@ -1532,12 +1538,15 @@ impl CliV2 {
         };
 
         // Auto-start daemon if not running.
-        if let Err(e) = ensure_daemon_running(&socket_path).await {
+        if let Err(e) = ensure_daemon_running(&socket_path, command_timeout).await {
             eprintln!("error: {e}");
             process::exit(1);
         }
 
-        let mut client = match DaemonClient::connect(&socket_path).await {
+        let mut client = match DaemonClient::connect(&socket_path)
+            .await
+            .map(|client| client.with_timeout(command_timeout))
+        {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("{e}");
@@ -2618,18 +2627,19 @@ mod tests {
             selector: "#ready".into(),
             session: session.clone(),
             tab,
-            timeout: 5000,
         }))
         .unwrap();
         assert!(
-            matches!(action, Action::WaitElement { selector, timeout_ms: Some(5000), .. } if selector == "#ready")
+            matches!(action, Action::WaitElement { selector, timeout_ms: Some(DEFAULT_BROWSER_TIMEOUT_MS), .. } if selector == "#ready")
         );
 
-        let (action, _) = build_action(BrowserCmd::Wait(WaitCmd::Navigation {
-            session: session.clone(),
-            tab,
-            timeout: 4000,
-        }))
+        let (action, _) = build_action_with_timeout(
+            BrowserCmd::Wait(WaitCmd::Navigation {
+                session: session.clone(),
+                tab,
+            }),
+            Some(4000),
+        )
         .unwrap();
         assert!(matches!(
             action,
@@ -2639,11 +2649,13 @@ mod tests {
             }
         ));
 
-        let (action, _) = build_action(BrowserCmd::Wait(WaitCmd::NetworkIdle {
-            session: session.clone(),
-            tab,
-            timeout: 9000,
-        }))
+        let (action, _) = build_action_with_timeout(
+            BrowserCmd::Wait(WaitCmd::NetworkIdle {
+                session: session.clone(),
+                tab,
+            }),
+            Some(9000),
+        )
         .unwrap();
         assert!(matches!(
             action,
@@ -2653,16 +2665,56 @@ mod tests {
             }
         ));
 
-        let (action, _) = build_action(BrowserCmd::Wait(WaitCmd::Condition {
-            expression: "window.ready".into(),
-            session,
-            tab,
-            timeout: 7000,
-        }))
+        let (action, _) = build_action_with_timeout(
+            BrowserCmd::Wait(WaitCmd::Condition {
+                expression: "window.ready".into(),
+                session,
+                tab,
+            }),
+            Some(7000),
+        )
         .unwrap();
         assert!(
             matches!(action, Action::WaitCondition { expression, timeout_ms: Some(7000), .. } if expression == "window.ready")
         );
+    }
+
+    #[test]
+    fn cli_parses_global_timeout_for_non_wait_commands() {
+        let cli = CliV2::try_parse_from([
+            "actionbook",
+            "browser",
+            "goto",
+            "https://example.com",
+            "--session",
+            "local-1",
+            "--tab",
+            "t0",
+            "--timeout",
+            "1234",
+        ])
+        .unwrap();
+
+        assert_eq!(cli.timeout, Some(1234));
+    }
+
+    #[test]
+    fn cli_parses_global_timeout_for_wait_commands() {
+        let cli = CliV2::try_parse_from([
+            "actionbook",
+            "browser",
+            "wait",
+            "navigation",
+            "--session",
+            "local-1",
+            "--tab",
+            "t0",
+            "--timeout",
+            "4321",
+        ])
+        .unwrap();
+
+        assert_eq!(cli.timeout, Some(4321));
     }
 
     #[test]
