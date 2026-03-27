@@ -42,6 +42,10 @@ fn lifecycle_open_and_close_json() {
     assert_eq!(v["data"]["tab"]["tab_id"], "t1");
     assert!(v["data"]["tab"]["url"].is_string());
     assert!(v["data"]["tab"]["title"].is_string());
+    assert!(
+        v["data"]["tab"]["native_tab_id"].is_number() || v["data"]["tab"]["native_tab_id"].is_null(),
+        "tab.native_tab_id should be number or null per §7.1"
+    );
     // data.reused
     assert_eq!(v["data"]["reused"], false);
     // context (special: start returns context after session creation)
@@ -73,6 +77,9 @@ fn lifecycle_open_and_close_json() {
     assert_eq!(v["data"]["session_id"], "local-1");
     assert_eq!(v["data"]["status"], "closed");
     assert!(v["data"]["closed_tabs"].is_number());
+    // §4: session commands must return context.session_id
+    assert_eq!(v["context"]["session_id"], "local-1");
+    assert!(v["meta"]["duration_ms"].is_number());
 }
 
 // ===========================================================================
@@ -97,6 +104,7 @@ fn lifecycle_open_and_close_text() {
     assert!(text.contains("ok browser.start"), "start text: should contain 'ok browser.start'");
     assert!(text.contains("mode: local"), "start text: should contain 'mode: local'");
     assert!(text.contains("status: running"), "start text: should contain 'status: running'");
+    assert!(text.contains("title:"), "start text: should contain 'title:' per §7.1");
 
     // status text: "[SID]\nstatus: running\nmode: local\ntabs: N"
     let out = headless(
@@ -315,6 +323,8 @@ fn lifecycle_list_sessions_json() {
     assert!(s["status"].is_string());
     assert!(s["headless"].is_boolean());
     assert!(s["tabs_count"].is_number());
+    // meta per §2.4
+    assert!(v["meta"]["duration_ms"].is_number(), "list-sessions: meta.duration_ms");
 
     let out = headless(&["browser", "close", "--session", "local-1"], 30);
     assert_success(&out, "close");
@@ -340,6 +350,7 @@ fn lifecycle_list_sessions_text() {
     assert!(text.contains("session"), "should contain 'session'");
     assert!(text.contains("[local-1]"), "should contain [local-1]");
     assert!(text.contains("status: running"));
+    assert!(text.contains("tabs:"), "list-sessions text: should contain 'tabs:' per §7.2");
 
     let out = headless(&["browser", "close", "--session", "local-1"], 30);
     assert_success(&out, "close");
@@ -415,7 +426,8 @@ fn lifecycle_restart_text() {
     );
     assert_success(&out, "restart text");
     let text = stdout_str(&out);
-    assert!(text.contains("[local-1"), "should contain [local-1");
+    // §7.5 note: restart text uses [SID t1] format (includes tab_id)
+    assert!(text.contains("[local-1 t"), "restart text: header should include tab_id per §7.5");
     assert!(text.contains("ok browser.restart"), "should contain 'ok browser.restart'");
     assert!(text.contains("status: running"));
 
@@ -470,6 +482,7 @@ fn lifecycle_close_after_operations() {
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["status"], "closed");
     assert!(v["data"]["closed_tabs"].as_u64().unwrap_or(0) >= 1);
+    assert_eq!(v["context"]["session_id"], "local-1", "close: context per §4");
 }
 
 // ===========================================================================
@@ -507,6 +520,7 @@ fn lifecycle_close_s1t2_closes_all_json() {
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["status"], "closed");
     assert_eq!(v["data"]["closed_tabs"], serde_json::json!(2));
+    assert_eq!(v["context"]["session_id"], "local-1", "close: context per §4");
 }
 
 #[test]
@@ -574,6 +588,11 @@ fn lifecycle_double_close_json() {
     assert_eq!(v["error"]["code"], "SESSION_NOT_FOUND");
     assert!(v["error"]["message"].is_string());
     assert!(v["error"]["retryable"].is_boolean());
+    // §3.1: details field always present (may be null or object)
+    assert!(
+        v["error"]["details"].is_object() || v["error"]["details"].is_null(),
+        "error.details should be object or null per §3.1"
+    );
     assert!(v["meta"]["duration_ms"].is_number());
 }
 
@@ -599,6 +618,54 @@ fn lifecycle_double_close_text() {
         30,
     );
     assert_failure(&out, "second close text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "should contain 'error SESSION_NOT_FOUND:', got: {text}"
+    );
+}
+
+// ===========================================================================
+// 10b. error path on status — §3 error format on another command
+// ===========================================================================
+
+#[test]
+fn lifecycle_status_nonexistent_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless_json(
+        &["browser", "status", "--session", "nonexistent"],
+        10,
+    );
+    assert_failure(&out, "status nonexistent");
+    let v = parse_json(&out);
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["command"], "browser.status");
+    assert!(v["data"].is_null());
+    assert_eq!(v["error"]["code"], "SESSION_NOT_FOUND");
+    assert!(v["error"]["message"].is_string());
+    assert!(v["error"]["retryable"].is_boolean());
+    assert!(
+        v["error"]["details"].is_object() || v["error"]["details"].is_null(),
+        "error.details per §3.1"
+    );
+}
+
+#[test]
+fn lifecycle_status_nonexistent_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless(
+        &["browser", "status", "--session", "nonexistent"],
+        10,
+    );
+    assert_failure(&out, "status nonexistent text");
     let text = stdout_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
