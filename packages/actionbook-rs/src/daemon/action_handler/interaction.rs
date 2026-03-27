@@ -84,29 +84,8 @@ return {{ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }};
         (cx, cy)
     };
 
-    let btn = button.unwrap_or("left").to_string();
-    let click_count = count.unwrap_or(1) as i32;
-
-    // mouseMoved -> mousePressed -> mouseReleased
-    for (event_type, cc) in [
-        ("mouseMoved", 0),
-        ("mousePressed", click_count),
-        ("mouseReleased", click_count),
-    ] {
-        let op = BackendOp::DispatchMouseEvent {
-            target_id: target_id.clone(),
-            event_type: event_type.to_string(),
-            x,
-            y,
-            button: btn.clone(),
-            click_count: cc,
-        };
-        if let Err(e) = backend.exec(op).await {
-            return cdp_error_to_result(e);
-        }
-    }
-
-    // --new-tab: extract href from the clicked element and open in a new tab.
+    // --new-tab: extract href and open in a new tab WITHOUT clicking (no
+    // same-page navigation). This replaces the normal click, not supplements it.
     if new_tab {
         let href_js = match serde_json::to_string(selector) {
             Ok(s) => format!(
@@ -154,7 +133,25 @@ return null;
             }
         };
 
-        // Open the URL in a new tab using the existing new-tab mechanism.
+        // Use the source tab's window for the new tab.
+        let source_win = regs.tabs.get(&tab).map(|t| t.window).unwrap_or_else(|| {
+            regs.windows
+                .keys()
+                .min_by_key(|w| w.0)
+                .copied()
+                .unwrap_or_else(|| {
+                    let wid = regs.alloc_window_id();
+                    regs.windows.insert(
+                        wid,
+                        WindowEntry {
+                            id: wid,
+                            tabs: Vec::new(),
+                        },
+                    );
+                    wid
+                })
+        });
+
         let create_op = BackendOp::CreateTarget {
             url: url.clone(),
             window_id: None,
@@ -179,34 +176,17 @@ return null;
                 }
 
                 let new_tab_id = regs.alloc_tab_id();
-                let win_id = regs
-                    .windows
-                    .keys()
-                    .min_by_key(|w| w.0)
-                    .copied()
-                    .unwrap_or_else(|| {
-                        let wid = regs.alloc_window_id();
-                        regs.windows.insert(
-                            wid,
-                            WindowEntry {
-                                id: wid,
-                                tabs: Vec::new(),
-                            },
-                        );
-                        wid
-                    });
-
                 regs.tabs.insert(
                     new_tab_id,
                     TabEntry {
                         id: new_tab_id,
                         target_id: new_target_id.clone(),
-                        window: win_id,
+                        window: source_win,
                         url: url.clone(),
                         title: String::new(),
                     },
                 );
-                if let Some(win) = regs.windows.get_mut(&win_id) {
+                if let Some(win) = regs.windows.get_mut(&source_win) {
                     win.tabs.push(new_tab_id);
                 }
 
@@ -222,6 +202,28 @@ return null;
                 }));
             }
             Err(e) => return cdp_error_to_result(e),
+        }
+    }
+
+    let btn = button.unwrap_or("left").to_string();
+    let click_count = count.unwrap_or(1) as i32;
+
+    // mouseMoved -> mousePressed -> mouseReleased
+    for (event_type, cc) in [
+        ("mouseMoved", 0),
+        ("mousePressed", click_count),
+        ("mouseReleased", click_count),
+    ] {
+        let op = BackendOp::DispatchMouseEvent {
+            target_id: target_id.clone(),
+            event_type: event_type.to_string(),
+            x,
+            y,
+            button: btn.clone(),
+            click_count: cc,
+        };
+        if let Err(e) = backend.exec(op).await {
+            return cdp_error_to_result(e);
         }
     }
 
