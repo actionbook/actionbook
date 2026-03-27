@@ -348,8 +348,8 @@ pub(crate) enum WaitCmd {
         #[arg(short = 't', long)]
         tab: TabId,
         /// Timeout in milliseconds (default: 30000)
-        #[arg(long)]
-        timeout: Option<u64>,
+        #[arg(long, default_value = "30000")]
+        timeout: u64,
     },
     /// Wait for a navigation to complete
     Navigation {
@@ -358,8 +358,8 @@ pub(crate) enum WaitCmd {
         #[arg(short = 't', long)]
         tab: TabId,
         /// Timeout in milliseconds (default: 30000)
-        #[arg(long)]
-        timeout: Option<u64>,
+        #[arg(long, default_value = "30000")]
+        timeout: u64,
     },
     /// Wait for network to become idle
     NetworkIdle {
@@ -368,8 +368,8 @@ pub(crate) enum WaitCmd {
         #[arg(short = 't', long)]
         tab: TabId,
         /// Timeout in milliseconds (default: 30000)
-        #[arg(long)]
-        timeout: Option<u64>,
+        #[arg(long, default_value = "30000")]
+        timeout: u64,
     },
     /// Wait for a JS expression to become truthy
     Condition {
@@ -380,8 +380,8 @@ pub(crate) enum WaitCmd {
         #[arg(short = 't', long)]
         tab: TabId,
         /// Timeout in milliseconds (default: 30000)
-        #[arg(long)]
-        timeout: Option<u64>,
+        #[arg(long, default_value = "30000")]
+        timeout: u64,
     },
 }
 
