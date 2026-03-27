@@ -1176,3 +1176,490 @@ fn contract_snapshot_prd_text_output() {
     // Cleanup
     let _ = headless(&["browser", "close", "-s", session_id], 30);
 }
+
+// ---------------------------------------------------------------------------
+// Group 8: Snapshot field-level contract (#t76 wave 1)
+// ---------------------------------------------------------------------------
+
+/// Helper: start a headless session on actionbook.dev, return (session_id, tab_id).
+fn snapshot_session_setup() -> (String, String) {
+    let out = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            "https://actionbook.dev/",
+        ],
+        30,
+    );
+    assert_success(&out, "start --open-url --json");
+    let start_json: serde_json::Value =
+        serde_json::from_str(&stdout_str(&out)).expect("valid JSON from start");
+    let session_id = start_json["data"]["session"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let tab_id = start_json["data"]["tab"]["tab_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    (session_id, tab_id)
+}
+
+/// PRD 10.1: `--compact` removes empty structural nodes, resulting in fewer
+/// nodes than a full snapshot of the same page.
+#[test]
+fn contract_snapshot_compact_reduces_nodes() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (session_id, tab_id) = snapshot_session_setup();
+
+    // Full snapshot (no flags)
+    let out_full = headless_json(
+        &["browser", "snapshot", "-s", &session_id, "-t", &tab_id],
+        30,
+    );
+    assert_success(&out_full, "snapshot full");
+    let full: serde_json::Value = serde_json::from_str(&stdout_str(&out_full)).expect("valid JSON");
+    let full_count = full["data"]["stats"]["node_count"]
+        .as_u64()
+        .expect("full node_count");
+
+    // Compact snapshot
+    let out_compact = headless_json(
+        &[
+            "browser",
+            "snapshot",
+            "--compact",
+            "-s",
+            &session_id,
+            "-t",
+            &tab_id,
+        ],
+        30,
+    );
+    assert_success(&out_compact, "snapshot --compact");
+    let compact: serde_json::Value =
+        serde_json::from_str(&stdout_str(&out_compact)).expect("valid JSON");
+
+    // Verify PRD shape is preserved
+    assert_eq!(compact["data"]["format"], "snapshot");
+    let compact_nodes = compact["data"]["nodes"]
+        .as_array()
+        .expect("compact nodes array");
+    let compact_count = compact["data"]["stats"]["node_count"]
+        .as_u64()
+        .expect("compact node_count");
+
+    // node_count must match actual nodes length
+    assert_eq!(compact_count, compact_nodes.len() as u64);
+
+    // Compact should have fewer or equal nodes (removes empty structural nodes)
+    assert!(
+        compact_count <= full_count,
+        "--compact node_count ({}) must be <= full node_count ({})",
+        compact_count,
+        full_count
+    );
+
+    // Cleanup
+    let _ = headless(&["browser", "close", "-s", &session_id], 30);
+}
+
+/// PRD 10.1: `--depth <n>` limits the accessibility tree to the given depth,
+/// resulting in fewer nodes than a full snapshot.
+#[test]
+fn contract_snapshot_depth_limits_nodes() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (session_id, tab_id) = snapshot_session_setup();
+
+    // Full snapshot (no depth limit)
+    let out_full = headless_json(
+        &["browser", "snapshot", "-s", &session_id, "-t", &tab_id],
+        30,
+    );
+    assert_success(&out_full, "snapshot full");
+    let full: serde_json::Value = serde_json::from_str(&stdout_str(&out_full)).expect("valid JSON");
+    let full_count = full["data"]["stats"]["node_count"]
+        .as_u64()
+        .expect("full node_count");
+
+    // Depth-limited snapshot (depth=1 = root children only)
+    let out_depth = headless_json(
+        &[
+            "browser",
+            "snapshot",
+            "--depth",
+            "1",
+            "-s",
+            &session_id,
+            "-t",
+            &tab_id,
+        ],
+        30,
+    );
+    assert_success(&out_depth, "snapshot --depth 1");
+    let depth: serde_json::Value =
+        serde_json::from_str(&stdout_str(&out_depth)).expect("valid JSON");
+
+    // Verify PRD shape is preserved
+    assert_eq!(depth["data"]["format"], "snapshot");
+    let depth_nodes = depth["data"]["nodes"]
+        .as_array()
+        .expect("depth nodes array");
+    let depth_count = depth["data"]["stats"]["node_count"]
+        .as_u64()
+        .expect("depth node_count");
+
+    // node_count must match actual nodes length
+    assert_eq!(depth_count, depth_nodes.len() as u64);
+
+    // Depth-limited should have strictly fewer nodes than full
+    assert!(
+        depth_count < full_count,
+        "--depth 1 node_count ({}) must be < full node_count ({})",
+        depth_count,
+        full_count
+    );
+
+    // Cleanup
+    let _ = headless(&["browser", "close", "-s", &session_id], 30);
+}
+
+/// PRD 10.1: `--interactive` returns only interactive elements.
+/// Verify that interactive-only snapshot has fewer nodes, and all returned
+/// nodes have interactive roles.
+#[test]
+fn contract_snapshot_interactive_only_roles() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (session_id, tab_id) = snapshot_session_setup();
+
+    let interactive_roles: std::collections::HashSet<&str> = [
+        "button",
+        "link",
+        "textbox",
+        "checkbox",
+        "radio",
+        "combobox",
+        "listbox",
+        "menuitem",
+        "tab",
+        "treeitem",
+        "switch",
+        "slider",
+        "spinbutton",
+        "searchbox",
+        "option",
+        "menuitemcheckbox",
+        "menuitemradio",
+    ]
+    .into_iter()
+    .collect();
+
+    // Full snapshot
+    let out_full = headless_json(
+        &["browser", "snapshot", "-s", &session_id, "-t", &tab_id],
+        30,
+    );
+    assert_success(&out_full, "snapshot full");
+    let full: serde_json::Value = serde_json::from_str(&stdout_str(&out_full)).expect("valid JSON");
+    let full_count = full["data"]["stats"]["node_count"]
+        .as_u64()
+        .expect("full node_count");
+
+    // Interactive-only snapshot
+    let out_int = headless_json(
+        &[
+            "browser",
+            "snapshot",
+            "--interactive",
+            "-s",
+            &session_id,
+            "-t",
+            &tab_id,
+        ],
+        30,
+    );
+    assert_success(&out_int, "snapshot --interactive");
+    let int: serde_json::Value = serde_json::from_str(&stdout_str(&out_int)).expect("valid JSON");
+
+    assert_eq!(int["data"]["format"], "snapshot");
+    let int_nodes = int["data"]["nodes"].as_array().expect("interactive nodes");
+    let int_count = int["data"]["stats"]["node_count"]
+        .as_u64()
+        .expect("interactive node_count");
+
+    assert_eq!(int_count, int_nodes.len() as u64);
+
+    // Interactive should have fewer nodes than full
+    assert!(
+        int_count < full_count,
+        "--interactive node_count ({}) must be < full node_count ({})",
+        int_count,
+        full_count
+    );
+
+    // All returned nodes must have interactive roles
+    for (i, node) in int_nodes.iter().enumerate() {
+        let role = node["role"].as_str().unwrap_or("");
+        assert!(
+            interactive_roles.contains(role),
+            "interactive nodes[{}] role '{}' must be an interactive role",
+            i,
+            role
+        );
+    }
+
+    // interactive_count must equal node_count for --interactive
+    let int_interactive_count = int["data"]["stats"]["interactive_count"]
+        .as_u64()
+        .expect("interactive_count");
+    assert_eq!(
+        int_interactive_count, int_count,
+        "--interactive: interactive_count ({}) must equal node_count ({})",
+        int_interactive_count, int_count
+    );
+
+    // Cleanup
+    let _ = headless(&["browser", "close", "-s", &session_id], 30);
+}
+
+/// PRD 10.1: `--cursor` flag is accepted and returns valid PRD shape.
+/// The flag should include cursor-interactive custom elements.
+#[test]
+fn contract_snapshot_cursor_flag() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (session_id, tab_id) = snapshot_session_setup();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "snapshot",
+            "--cursor",
+            "-s",
+            &session_id,
+            "-t",
+            &tab_id,
+        ],
+        30,
+    );
+    assert_success(&out, "snapshot --cursor");
+    let json: serde_json::Value = serde_json::from_str(&stdout_str(&out)).expect("valid JSON");
+
+    // Must still return valid PRD 10.1 shape
+    assert_eq!(json["data"]["format"], "snapshot");
+    assert!(
+        json["data"]["content"].as_str().is_some(),
+        "data.content must be a string"
+    );
+    assert!(
+        json["data"]["nodes"].as_array().is_some(),
+        "data.nodes must be an array"
+    );
+    assert!(
+        json["data"]["stats"]["node_count"].as_u64().is_some(),
+        "stats.node_count must be present"
+    );
+    assert!(
+        json["data"]["stats"]["interactive_count"]
+            .as_u64()
+            .is_some(),
+        "stats.interactive_count must be present"
+    );
+
+    // Cleanup
+    let _ = headless(&["browser", "close", "-s", &session_id], 30);
+}
+
+/// PRD 10.1: `--selector <sel>` flag is accepted and returns valid PRD shape.
+/// The flag should limit the snapshot to the specified subtree.
+#[test]
+fn contract_snapshot_selector_flag() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (session_id, tab_id) = snapshot_session_setup();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "snapshot",
+            "--selector",
+            "body",
+            "-s",
+            &session_id,
+            "-t",
+            &tab_id,
+        ],
+        30,
+    );
+    assert_success(&out, "snapshot --selector body");
+    let json: serde_json::Value = serde_json::from_str(&stdout_str(&out)).expect("valid JSON");
+
+    // Must still return valid PRD 10.1 shape
+    assert_eq!(json["data"]["format"], "snapshot");
+    assert!(
+        json["data"]["content"].as_str().is_some(),
+        "data.content must be a string"
+    );
+    assert!(
+        json["data"]["nodes"].as_array().is_some(),
+        "data.nodes must be an array"
+    );
+    assert!(
+        json["data"]["stats"]["node_count"].as_u64().is_some(),
+        "stats.node_count must be present"
+    );
+
+    // Cleanup
+    let _ = headless(&["browser", "close", "-s", &session_id], 30);
+}
+
+/// PRD 10.1: `meta.truncated` must be present in the JSON envelope and set
+/// to `false` for a normal page snapshot (no truncation).
+#[test]
+fn contract_snapshot_meta_truncated_false() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (session_id, tab_id) = snapshot_session_setup();
+
+    let out = headless_json(
+        &["browser", "snapshot", "-s", &session_id, "-t", &tab_id],
+        30,
+    );
+    assert_success(&out, "snapshot --json");
+    let json: serde_json::Value = serde_json::from_str(&stdout_str(&out)).expect("valid JSON");
+
+    // meta must exist
+    assert!(
+        json.get("meta").is_some(),
+        "envelope must have 'meta' field"
+    );
+
+    // meta.truncated must be false for a normal page
+    assert_eq!(
+        json["meta"]["truncated"], false,
+        "meta.truncated must be false for normal snapshot, got: {}",
+        json["meta"]["truncated"]
+    );
+
+    // meta.duration_ms must be present
+    assert!(
+        json["meta"]["duration_ms"].as_u64().is_some()
+            || json["meta"]["duration_ms"].as_f64().is_some(),
+        "meta.duration_ms must be a number"
+    );
+
+    // meta.warnings must be an array
+    assert!(
+        json["meta"]["warnings"].as_array().is_some(),
+        "meta.warnings must be an array"
+    );
+
+    // meta.pagination must be present (null is fine)
+    assert!(
+        json["meta"].get("pagination").is_some(),
+        "meta.pagination must be present"
+    );
+
+    // Cleanup
+    let _ = headless(&["browser", "close", "-s", &session_id], 30);
+}
+
+/// PRD 10.1: text output with `--compact` flag must still include the
+/// `[session tab] url` header and tree content with refs.
+#[test]
+fn contract_snapshot_text_compact_has_header() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (session_id, tab_id) = snapshot_session_setup();
+
+    let out = headless(
+        &[
+            "browser",
+            "snapshot",
+            "--compact",
+            "-s",
+            &session_id,
+            "-t",
+            &tab_id,
+        ],
+        30,
+    );
+    assert_success(&out, "snapshot --compact text");
+    let text = stdout_str(&out);
+
+    // PRD header must be present
+    let header_pattern = format!("[{session_id} {tab_id}]");
+    assert!(
+        text.starts_with(&header_pattern),
+        "compact text must start with PRD header, got:\n{}",
+        &text[..text.len().min(300)]
+    );
+
+    // Must contain refs
+    assert!(
+        text.contains("[ref=e"),
+        "compact text must contain [ref=eN] references"
+    );
+
+    // Cleanup
+    let _ = headless(&["browser", "close", "-s", &session_id], 30);
+}
+
+/// PRD 10.1: text output with `--depth` flag must still include the
+/// `[session tab] url` header.
+#[test]
+fn contract_snapshot_text_depth_has_header() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (session_id, tab_id) = snapshot_session_setup();
+
+    let out = headless(
+        &[
+            "browser",
+            "snapshot",
+            "--depth",
+            "2",
+            "-s",
+            &session_id,
+            "-t",
+            &tab_id,
+        ],
+        30,
+    );
+    assert_success(&out, "snapshot --depth 2 text");
+    let text = stdout_str(&out);
+
+    // PRD header must be present
+    let header_pattern = format!("[{session_id} {tab_id}]");
+    assert!(
+        text.starts_with(&header_pattern),
+        "depth text must start with PRD header, got:\n{}",
+        &text[..text.len().min(300)]
+    );
+
+    // Cleanup
+    let _ = headless(&["browser", "close", "-s", &session_id], 30);
+}
