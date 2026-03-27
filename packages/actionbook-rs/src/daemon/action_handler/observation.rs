@@ -11,8 +11,10 @@ const INTERACTIVE_ROLES: &[&str] = &[
     "checkbox",
     "radio",
     "combobox",
+    "listbox",
     "menuitem",
     "tab",
+    "treeitem",
     "switch",
     "slider",
     "spinbutton",
@@ -1207,7 +1209,9 @@ mod tests {
         assert!(INTERACTIVE_ROLES.contains(&"link"));
         assert!(INTERACTIVE_ROLES.contains(&"textbox"));
         assert!(INTERACTIVE_ROLES.contains(&"checkbox"));
+        assert!(INTERACTIVE_ROLES.contains(&"listbox"));
         assert!(INTERACTIVE_ROLES.contains(&"menuitemradio"));
+        assert!(INTERACTIVE_ROLES.contains(&"treeitem"));
     }
 
     // -- Snapshot parsing tests using parse_ax_tree --
