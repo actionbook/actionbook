@@ -1576,7 +1576,7 @@ impl CliV2 {
         let output = if self.json {
             formatter::format_cli_result_json(&action, &result, duration_ms)
         } else {
-            formatter::format_cli_result(&action, &result)
+            formatter::format_cli_result_with_duration(&action, &result, Some(duration_ms))
         };
         if !output.is_empty() {
             println!("{output}");
