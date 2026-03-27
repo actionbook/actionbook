@@ -964,14 +964,19 @@ fn contract_snapshot_prd_real_nodes() {
 
     // Take a snapshot
     let out = headless_json(
-        &["browser", "snapshot", "-s", session_id, "-t", tab_id, "--json"],
+        &[
+            "browser", "snapshot", "-s", session_id, "-t", tab_id, "--json",
+        ],
         30,
     );
     assert_success(&out, "snapshot --json");
     let json: serde_json::Value =
         serde_json::from_str(&stdout_str(&out)).expect("valid JSON from snapshot");
 
-    assert_eq!(json["command"], "browser.snapshot", "command must be browser.snapshot");
+    assert_eq!(
+        json["command"], "browser.snapshot",
+        "command must be browser.snapshot"
+    );
 
     let data = &json["data"];
 
@@ -983,11 +988,10 @@ fn contract_snapshot_prd_real_nodes() {
     );
 
     // content must be a non-empty string with [ref=eN] patterns
-    let content = data["content"].as_str().expect("data.content must be a string");
-    assert!(
-        !content.is_empty(),
-        "data.content must be non-empty"
-    );
+    let content = data["content"]
+        .as_str()
+        .expect("data.content must be a string");
+    assert!(!content.is_empty(), "data.content must be non-empty");
     assert!(
         content.contains("[ref=e"),
         "data.content must contain [ref=eN] references, got:\n{}",
@@ -995,7 +999,9 @@ fn contract_snapshot_prd_real_nodes() {
     );
 
     // nodes must be a non-empty array
-    let nodes = data["nodes"].as_array().expect("data.nodes must be an array");
+    let nodes = data["nodes"]
+        .as_array()
+        .expect("data.nodes must be an array");
     assert!(
         !nodes.is_empty(),
         "data.nodes must be non-empty (real parsed nodes), got empty array"
@@ -1006,22 +1012,26 @@ fn contract_snapshot_prd_real_nodes() {
         assert!(
             node.get("ref").is_some(),
             "nodes[{}] must have 'ref' field, got: {}",
-            i, node
+            i,
+            node
         );
         assert!(
             node.get("role").and_then(|v| v.as_str()).is_some(),
             "nodes[{}] must have 'role' as string, got: {}",
-            i, node
+            i,
+            node
         );
         assert!(
             node.get("name").is_some(),
             "nodes[{}] must have 'name' field, got: {}",
-            i, node
+            i,
+            node
         );
         assert!(
             node.get("value").is_some(),
             "nodes[{}] must have 'value' field, got: {}",
-            i, node
+            i,
+            node
         );
     }
 
@@ -1093,10 +1103,7 @@ fn contract_snapshot_prd_text_output() {
     let tab_id = start_json["data"]["tab"]["tab_id"].as_str().unwrap();
 
     // Take a snapshot in text mode (no --json)
-    let out = headless(
-        &["browser", "snapshot", "-s", session_id, "-t", tab_id],
-        30,
-    );
+    let out = headless(&["browser", "snapshot", "-s", session_id, "-t", tab_id], 30);
     assert_success(&out, "snapshot text");
     let text = stdout_str(&out);
 

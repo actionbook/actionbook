@@ -197,9 +197,17 @@ fn obs_snapshot_s1t2_different() {
     );
     assert_success(&out, "wait for page load");
 
-    // Open example.org in a new tab (t1)
+    // Open actionbook.dev in a new tab (t1) — must be a genuinely different page
+    // (example.com and example.org have identical structure and would produce
+    // identical parsed accessibility trees).
     let out = headless(
-        &["browser", "open", "https://example.org", "-s", "local-1"],
+        &[
+            "browser",
+            "open",
+            "https://actionbook.dev/",
+            "-s",
+            "local-1",
+        ],
         30,
     );
     assert_success(&out, "open t1");
@@ -277,12 +285,14 @@ fn obs_snapshot_seq_reflects_goto() {
     let raw_a = stdout_str(&out);
     let snap_a = extract_snapshot_content(&raw_a);
 
-    // Navigate to example.org
+    // Navigate to actionbook.dev — must be a genuinely different page
+    // (example.com and example.org have identical structure and would produce
+    // identical parsed accessibility trees).
     let out = headless(
         &[
             "browser",
             "goto",
-            "https://example.org",
+            "https://actionbook.dev/",
             "-s",
             "local-1",
             "-t",
