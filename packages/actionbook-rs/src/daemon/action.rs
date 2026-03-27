@@ -1099,6 +1099,7 @@ mod tests {
                 tab,
                 from_selector: "#from".into(),
                 to_selector: "#to".into(),
+                button: None,
             },
             Action::Upload {
                 session: s.clone(),

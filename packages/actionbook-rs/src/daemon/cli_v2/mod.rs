@@ -2648,7 +2648,7 @@ mod tests {
             text: "hello world".into(),
             session: session.clone(),
             tab,
-            selector: Some("#input".into()),
+            selector: "#input".into(),
         })
         .unwrap();
         assert!(

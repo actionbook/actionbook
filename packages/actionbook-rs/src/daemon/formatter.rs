@@ -3196,6 +3196,7 @@ mod tests {
             tab: TabId(0),
             from_selector: "#source".into(),
             to_selector: "#target".into(),
+            button: None,
         };
         let result = ActionResult::ok(json!({
             "dragged": {"from": "#source", "to": "#target"},
@@ -3362,6 +3363,7 @@ mod tests {
             tab: TabId(0),
             from_selector: "#source".into(),
             to_selector: "#target".into(),
+            button: None,
         };
         let result = ActionResult::ok(json!({
             "dragged": {"from": "#source", "to": "#target"},
