@@ -343,6 +343,9 @@ pub(crate) enum WaitCmd {
     Element {
         /// CSS selector
         selector: String,
+        /// Timeout in milliseconds (overrides global --timeout)
+        #[arg(long = "timeout")]
+        timeout_ms: Option<u64>,
         #[arg(short = 's', long)]
         session: SessionId,
         #[arg(short = 't', long)]
@@ -350,6 +353,9 @@ pub(crate) enum WaitCmd {
     },
     /// Wait for a navigation to complete
     Navigation {
+        /// Timeout in milliseconds (overrides global --timeout)
+        #[arg(long = "timeout")]
+        timeout_ms: Option<u64>,
         #[arg(short = 's', long)]
         session: SessionId,
         #[arg(short = 't', long)]
@@ -357,6 +363,9 @@ pub(crate) enum WaitCmd {
     },
     /// Wait for network to become idle
     NetworkIdle {
+        /// Timeout in milliseconds (overrides global --timeout)
+        #[arg(long = "timeout")]
+        timeout_ms: Option<u64>,
         #[arg(short = 's', long)]
         session: SessionId,
         #[arg(short = 't', long)]
@@ -366,6 +375,9 @@ pub(crate) enum WaitCmd {
     Condition {
         /// JavaScript expression that should return a truthy value
         expression: String,
+        /// Timeout in milliseconds (overrides global --timeout)
+        #[arg(long = "timeout")]
+        timeout_ms: Option<u64>,
         #[arg(short = 's', long)]
         session: SessionId,
         #[arg(short = 't', long)]
