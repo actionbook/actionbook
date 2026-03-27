@@ -796,6 +796,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn setup_logo_symbol_returns_nonempty() {
         let symbol = setup_logo_symbol();
         assert!(!symbol.is_empty());
@@ -804,21 +805,58 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn setup_logo_symbol_utf8_locale() {
-        // Temporarily set LC_ALL to a UTF-8 locale string and verify result
+        // Save original locale vars and restore them on exit.
+        let orig_lc_all = std::env::var("LC_ALL").ok();
+        let orig_lc_ctype = std::env::var("LC_CTYPE").ok();
+        let orig_lang = std::env::var("LANG").ok();
+
         std::env::set_var("LC_ALL", "en_US.UTF-8");
         let symbol = setup_logo_symbol();
+
+        // Restore
+        match orig_lc_all {
+            Some(v) => std::env::set_var("LC_ALL", v),
+            None => std::env::remove_var("LC_ALL"),
+        }
+        match orig_lc_ctype {
+            Some(v) => std::env::set_var("LC_CTYPE", v),
+            None => std::env::remove_var("LC_CTYPE"),
+        }
+        match orig_lang {
+            Some(v) => std::env::set_var("LANG", v),
+            None => std::env::remove_var("LANG"),
+        }
+
         assert_eq!(symbol, "⋈");
-        std::env::remove_var("LC_ALL");
     }
 
     #[test]
     #[serial_test::serial]
     fn setup_logo_symbol_non_utf8_locale() {
-        // Unset all locale vars; should fall back to "><"
+        // Save original locale vars and restore them on exit.
+        let orig_lc_all = std::env::var("LC_ALL").ok();
+        let orig_lc_ctype = std::env::var("LC_CTYPE").ok();
+        let orig_lang = std::env::var("LANG").ok();
+
         std::env::remove_var("LC_ALL");
         std::env::remove_var("LC_CTYPE");
         std::env::remove_var("LANG");
         let symbol = setup_logo_symbol();
+
+        // Restore
+        match orig_lc_all {
+            Some(v) => std::env::set_var("LC_ALL", v),
+            None => std::env::remove_var("LC_ALL"),
+        }
+        match orig_lc_ctype {
+            Some(v) => std::env::set_var("LC_CTYPE", v),
+            None => std::env::remove_var("LC_CTYPE"),
+        }
+        match orig_lang {
+            Some(v) => std::env::set_var("LANG", v),
+            None => std::env::remove_var("LANG"),
+        }
+
         assert_eq!(symbol, "><");
     }
 
