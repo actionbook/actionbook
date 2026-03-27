@@ -382,6 +382,193 @@ pub(super) async fn handle_eval(
     }
 }
 
+async fn query_context_fields(
+    backend: &mut dyn BackendSession,
+    regs: &Registries,
+    target_id: &str,
+    tab: TabId,
+) -> (String, String) {
+    let registry_fallback = regs
+        .tabs
+        .get(&tab)
+        .map(|entry| (entry.url.clone(), entry.title.clone()))
+        .unwrap_or_default();
+
+    let context_result = backend
+        .exec(BackendOp::Evaluate {
+            target_id: target_id.to_string(),
+            expression:
+                r#"(function(){ return { url: window.location.href, title: document.title }; })()"#
+                    .to_string(),
+            return_by_value: true,
+        })
+        .await;
+
+    let Ok(result) = context_result else {
+        return registry_fallback;
+    };
+
+    let live_context = extract_eval_value(&result.value);
+
+    let live_url = live_context
+        .get("url")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .filter(|value| !value.is_empty());
+    let live_title = live_context
+        .get("title")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+
+    (
+        live_url.unwrap_or(registry_fallback.0),
+        live_title.unwrap_or(registry_fallback.1),
+    )
+}
+
+fn with_query_context(
+    ctx_url: &str,
+    ctx_title: &str,
+    value: serde_json::Value,
+) -> serde_json::Value {
+    let mut object = value.as_object().cloned().unwrap_or_default();
+    object.insert("__ctx_url".to_string(), json!(ctx_url));
+    object.insert("__ctx_title".to_string(), json!(ctx_title));
+    serde_json::Value::Object(object)
+}
+
+fn css_query_script(selector_json: &str) -> String {
+    format!(
+        r#"(function() {{
+            const raw = {selector_json};
+
+            function unquote(input) {{
+                const trimmed = String(input || '').trim();
+                if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {{
+                    return trimmed.slice(1, -1);
+                }}
+                return trimmed;
+            }}
+
+            function extractCalls(input, pseudo) {{
+                const marker = ':' + pseudo + '(';
+                const values = [];
+                let remaining = String(input || '').trim();
+                while (true) {{
+                    const start = remaining.indexOf(marker);
+                    if (start === -1) {{
+                        break;
+                    }}
+                    let depth = 0;
+                    let end = -1;
+                    for (let i = start + marker.length - 1; i < remaining.length; i++) {{
+                        const ch = remaining[i];
+                        if (ch === '(') {{
+                            depth += 1;
+                        }} else if (ch === ')') {{
+                            depth -= 1;
+                            if (depth === 0) {{
+                                end = i;
+                                break;
+                            }}
+                        }}
+                    }}
+                    if (end === -1) {{
+                        break;
+                    }}
+                    values.push(remaining.slice(start + marker.length, end));
+                    remaining = (remaining.slice(0, start) + remaining.slice(end + 1)).trim();
+                }}
+                return {{ remaining, values }};
+            }}
+
+            function extractTrailingFlag(input, suffix) {{
+                let remaining = String(input || '').trim();
+                let enabled = false;
+                while (remaining.endsWith(suffix)) {{
+                    enabled = true;
+                    remaining = remaining.slice(0, -suffix.length).trim();
+                }}
+                return {{ remaining, enabled }};
+            }}
+
+            function isVisible(el) {{
+                const rect = el.getBoundingClientRect();
+                const cs = window.getComputedStyle(el);
+                return cs.display !== 'none' && cs.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+            }}
+
+            let working = String(raw || '').trim();
+            const containsInfo = extractCalls(working, 'contains');
+            working = containsInfo.remaining;
+            const hasInfo = extractCalls(working, 'has');
+            working = hasInfo.remaining;
+            const visibleInfo = extractTrailingFlag(working, ':visible');
+            working = visibleInfo.remaining;
+            const enabledInfo = extractTrailingFlag(working, ':enabled');
+            working = enabledInfo.remaining;
+            const disabledInfo = extractTrailingFlag(working, ':disabled');
+            working = disabledInfo.remaining;
+            const checkedInfo = extractTrailingFlag(working, ':checked');
+            working = checkedInfo.remaining;
+
+            const baseSelector = working || '*';
+            const containsTexts = containsInfo.values.map(unquote).filter(Boolean);
+            const hasSelectors = hasInfo.values.map(unquote).filter(Boolean);
+
+            let elements = [];
+            try {{
+                elements = Array.from(document.querySelectorAll(baseSelector));
+            }} catch (_error) {{
+                return [];
+            }}
+
+            return elements
+                .filter((el) => {{
+                    if (visibleInfo.enabled && !isVisible(el)) {{
+                        return false;
+                    }}
+                    if (enabledInfo.enabled && !!el.disabled) {{
+                        return false;
+                    }}
+                    if (disabledInfo.enabled && !el.disabled) {{
+                        return false;
+                    }}
+                    if (checkedInfo.enabled && !el.checked) {{
+                        return false;
+                    }}
+
+                    const text = (el.innerText || el.textContent || '').trim();
+                    if (containsTexts.some((needle) => !text.includes(needle))) {{
+                        return false;
+                    }}
+                    for (const selector of hasSelectors) {{
+                        try {{
+                            if (!el.querySelector(selector)) {{
+                                return false;
+                            }}
+                        }} catch (_error) {{
+                            return false;
+                        }}
+                    }}
+                    return true;
+                }})
+                .slice(0, 500)
+                .map((el, i) => {{
+                    const rect = el.getBoundingClientRect();
+                    const cs = window.getComputedStyle(el);
+                    return {{
+                        selector: raw + ':nth-of-type(' + (i + 1) + ')',
+                        tag: el.tagName.toLowerCase(),
+                        text: isVisible(el) ? (el.innerText || el.textContent || '').trim().substring(0, 80) : '',
+                        visible: cs.display !== 'none' && cs.visibility !== 'hidden' && rect.width > 0 && rect.height > 0,
+                        enabled: !el.disabled
+                    }};
+                }});
+        }})()"#
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn handle_query(
     session_id: SessionId,
@@ -397,6 +584,7 @@ pub(super) async fn handle_query(
         Ok(t) => t,
         Err(r) => return r,
     };
+    let (ctx_url, ctx_title) = query_context_fields(backend, regs, target_id, tab).await;
     let selector_json = match serde_json::to_string(selector) {
         Ok(s) => s,
         Err(e) => {
@@ -406,22 +594,7 @@ pub(super) async fn handle_query(
 
     // Query all matching elements with metadata (PRD §10.7).
     let js = match mode {
-        QueryMode::Css => format!(
-            r#"(function() {{
-                const els = document.querySelectorAll({selector_json});
-                return Array.from(els).slice(0, 500).map((el, i) => {{
-                    const rect = el.getBoundingClientRect();
-                    const cs = window.getComputedStyle(el);
-                    return {{
-                        selector: {selector_json} + ':nth-of-type(' + (i+1) + ')',
-                        tag: el.tagName.toLowerCase(),
-                        text: (el.innerText || '').substring(0, 80),
-                        visible: cs.display !== 'none' && cs.visibility !== 'hidden' && rect.width > 0,
-                        enabled: !el.disabled
-                    }};
-                }});
-            }})()"#
-        ),
+        QueryMode::Css => css_query_script(&selector_json),
         QueryMode::Xpath => format!(
             r#"(function() {{ const result = document.evaluate({selector_json}, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null); const items = []; for (let i = 0; i < Math.min(result.snapshotLength, 500); i++) {{ const el = result.snapshotItem(i); if (el.nodeType === 1) {{ const rect = el.getBoundingClientRect(); const cs = window.getComputedStyle(el); items.push({{ selector: {selector_json}, tag: el.tagName.toLowerCase(), text: (el.innerText || '').substring(0, 80), visible: cs.display !== 'none' && cs.visibility !== 'hidden' && rect.width > 0, enabled: !el.disabled }}); }} }} return items; }})()"#
         ),
@@ -441,57 +614,94 @@ pub(super) async fn handle_query(
             let val = extract_eval_value(&result.value);
             let items = val.as_array().cloned().unwrap_or_default();
             let count = items.len();
+            let sample_selectors: Vec<serde_json::Value> = items
+                .iter()
+                .filter_map(|item| item.get("selector").and_then(|value| value.as_str()))
+                .take(3)
+                .map(|selector| json!(selector))
+                .collect();
 
             match cardinality {
                 QueryCardinality::One => {
                     if count == 0 {
-                        return ActionResult::fatal(
+                        return ActionResult::fatal_with_details(
                             "ELEMENT_NOT_FOUND",
                             format!("no elements match selector '{selector}'"),
                             "check the selector or wait for the element to appear",
+                            json!({
+                                "query": selector,
+                                "count": 0
+                            }),
                         );
                     }
                     if count > 1 {
-                        return ActionResult::fatal(
+                        return ActionResult::fatal_with_details(
                             "MULTIPLE_MATCHES",
                             format!("Query mode 'one' requires exactly 1 match, found {count}"),
                             "use 'query all' or narrow your selector",
+                            json!({
+                                "query": selector,
+                                "count": count,
+                                "sample_selectors": sample_selectors.clone(),
+                            }),
                         );
                     }
-                    ActionResult::ok(json!({
-                        "mode": "one",
-                        "query": selector,
-                        "count": 1,
-                        "item": items[0],
-                    }))
+                    ActionResult::ok(with_query_context(
+                        &ctx_url,
+                        &ctx_title,
+                        json!({
+                            "mode": "one",
+                            "query": selector,
+                            "count": 1,
+                            "item": items[0],
+                        }),
+                    ))
                 }
-                QueryCardinality::All => ActionResult::ok(json!({
-                    "mode": "all",
-                    "query": selector,
-                    "count": count,
-                    "items": items,
-                })),
-                QueryCardinality::Count => ActionResult::ok(json!({
-                    "mode": "count",
-                    "query": selector,
-                    "count": count,
-                })),
+                QueryCardinality::All => ActionResult::ok(with_query_context(
+                    &ctx_url,
+                    &ctx_title,
+                    json!({
+                        "mode": "all",
+                        "query": selector,
+                        "count": count,
+                        "items": items,
+                    }),
+                )),
+                QueryCardinality::Count => ActionResult::ok(with_query_context(
+                    &ctx_url,
+                    &ctx_title,
+                    json!({
+                        "mode": "count",
+                        "query": selector,
+                        "count": count,
+                    }),
+                )),
                 QueryCardinality::Nth => {
                     let n = nth_index.unwrap_or(1) as usize;
                     if n == 0 || n > count {
-                        return ActionResult::fatal(
+                        return ActionResult::fatal_with_details(
                             "INDEX_OUT_OF_RANGE",
                             format!("index {n} out of range (found {count} matches)"),
                             "use 'query count' to check the number of matches first",
+                            json!({
+                                "query": selector,
+                                "count": count,
+                                "index": n,
+                                "sample_selectors": sample_selectors.clone(),
+                            }),
                         );
                     }
-                    ActionResult::ok(json!({
-                        "mode": "nth",
-                        "query": selector,
-                        "index": n,
-                        "count": count,
-                        "item": items[n - 1],
-                    }))
+                    ActionResult::ok(with_query_context(
+                        &ctx_url,
+                        &ctx_title,
+                        json!({
+                            "mode": "nth",
+                            "query": selector,
+                            "index": n,
+                            "count": count,
+                            "item": items[n - 1],
+                        }),
+                    ))
                 }
             }
         }

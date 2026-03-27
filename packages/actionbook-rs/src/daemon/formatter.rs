@@ -24,6 +24,7 @@ pub fn format_result(result: &ActionResult) -> String {
             code,
             message,
             hint,
+            ..
         } => format_fatal(code, message, hint),
     }
 }
@@ -136,7 +137,11 @@ pub fn format_cli_result_json(action: &Action, result: &ActionResult, duration_m
             format_result_json(result)
         }
     } else {
-        let envelope = error_envelope(action, normalize_error(result), duration_ms);
+        let envelope = error_envelope(
+            action,
+            normalize_error_for_action(action, result),
+            duration_ms,
+        );
         serde_json::to_string(&envelope).unwrap_or_else(|_| {
             r#"{"ok":false,"command":"internal.serialization","context":null,"data":null,"error":{"code":"INTERNAL_ERROR","message":"failed to serialize result","retryable":false,"details":{"hint":"retry the command"}},"meta":{"duration_ms":0,"warnings":[],"pagination":null,"truncated":false}}"#.to_string()
         })
@@ -381,9 +386,6 @@ fn format_query_result(mode: &str, data: &Value) -> String {
                     if !text.is_empty() {
                         out.push_str(&format!("text: {text}\n"));
                     }
-                }
-                if let Some(tag) = item.get("tag").and_then(|v| v.as_str()) {
-                    out.push_str(&format!("tag: {tag}"));
                 }
             }
             out.trim_end().to_string()
@@ -653,15 +655,25 @@ fn normalize_error(result: &ActionResult) -> NormalizedError {
             code,
             message,
             hint,
-        } => NormalizedError {
-            code: normalize_error_code(code),
-            message: message.clone(),
-            retryable: false,
-            details: error_details(&[
-                ("hint", Some(Value::String(hint.clone()))),
-                ("raw_code", Some(Value::String(code.clone()))),
-            ]),
-        },
+            details,
+        } => {
+            let mut merged_details = details
+                .clone()
+                .and_then(|value| value.as_object().cloned())
+                .unwrap_or_default();
+            merged_details
+                .entry("hint".to_string())
+                .or_insert_with(|| Value::String(hint.clone()));
+            merged_details
+                .entry("raw_code".to_string())
+                .or_insert_with(|| Value::String(code.clone()));
+            NormalizedError {
+                code: normalize_error_code(code),
+                message: message.clone(),
+                retryable: false,
+                details: Value::Object(merged_details),
+            }
+        }
         ActionResult::Retryable { reason, hint } => {
             let code = normalize_error_code(reason);
             NormalizedError {
@@ -689,6 +701,26 @@ fn normalize_error(result: &ActionResult) -> NormalizedError {
             retryable: false,
             details: Value::Object(serde_json::Map::new()),
         },
+    }
+}
+
+fn normalize_error_for_action(action: &Action, result: &ActionResult) -> NormalizedError {
+    match (action, result) {
+        (
+            Action::Query { .. },
+            ActionResult::Fatal {
+                code,
+                message,
+                details: Some(details),
+                ..
+            },
+        ) => NormalizedError {
+            code: normalize_error_code(code),
+            message: message.clone(),
+            retryable: false,
+            details: details.clone(),
+        },
+        _ => normalize_error(result),
     }
 }
 
@@ -1247,8 +1279,15 @@ fn normalize_observation_data(action: &Action, data: &Value) -> Value {
             })
         }
         Action::Query { .. } => {
-            // Already has mode/count/item(s) structure from handler — pass through
-            data.clone()
+            // Strip internal context fields before serializing JSON.
+            if let Some(map) = data.as_object() {
+                let mut filtered = map.clone();
+                filtered.remove("__ctx_url");
+                filtered.remove("__ctx_title");
+                Value::Object(filtered)
+            } else {
+                data.clone()
+            }
         }
         Action::Describe { selector, .. } => {
             // Handler returns {"description": val, "selector": selector}
@@ -1468,9 +1507,10 @@ fn format_observation_text(action: &Action, result: &ActionResult) -> Option<Str
                     out
                 }
                 Action::Query { .. } => {
-                    // Use existing format_query_result
                     if let Some(mode) = data.get("mode").and_then(|v| v.as_str()) {
-                        format_query_result(mode, data)
+                        let url = data.get("__ctx_url").and_then(|v| v.as_str());
+                        let header = prefixed_header(&session_id, Some(&tab_id), url);
+                        format!("{header}\n{}", format_query_result(mode, data))
                     } else {
                         serde_json::to_string_pretty(data).unwrap_or_else(|_| data.to_string())
                     }
@@ -2154,7 +2194,7 @@ mod tests {
                 "tag": "button"
             }
         })));
-        assert_eq!(one, "1 match\nselector: #ready\ntext: Ready\ntag: button");
+        assert_eq!(one, "1 match\nselector: #ready\ntext: Ready");
 
         let all = format_result(&ActionResult::ok(json!({
             "mode": "all",
@@ -3176,14 +3216,74 @@ mod tests {
         let result = ActionResult::ok(json!({
             "mode": "all",
             "count": 2,
+            "__ctx_url": "https://actionbook.dev/",
+            "__ctx_title": "Actionbook",
             "items": [{"selector": ".item:nth-child(1)"}, {"selector": ".item:nth-child(2)"}]
         }));
         let out = format_cli_result_json(&action, &result, 12);
         let d: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(d["ok"], true);
         assert_eq!(d["command"], "browser.query");
+        assert_eq!(d["context"]["url"], "https://actionbook.dev/");
+        assert_eq!(d["context"]["title"], "Actionbook");
         assert_eq!(d["data"]["mode"], "all");
         assert_eq!(d["data"]["count"], 2);
+        assert!(d["data"].get("__ctx_url").is_none());
+        assert!(d["data"].get("__ctx_title").is_none());
+    }
+
+    #[test]
+    fn observation_text_formats_query_with_prefixed_header() {
+        let action = Action::Query {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            selector: ".item".into(),
+            mode: crate::daemon::types::QueryMode::Css,
+            cardinality: crate::daemon::types::QueryCardinality::One,
+            nth_index: None,
+        };
+        let result = ActionResult::ok(json!({
+            "mode": "one",
+            "__ctx_url": "https://actionbook.dev/",
+            "count": 1,
+            "item": {
+                "selector": ".item:nth-of-type(1)",
+                "text": "Item A"
+            }
+        }));
+        let out = format_cli_result(&action, &result);
+        assert_eq!(
+            out,
+            "[local-1 t0] https://actionbook.dev/\n1 match\nselector: .item:nth-of-type(1)\ntext: Item A"
+        );
+    }
+
+    #[test]
+    fn observation_json_query_error_uses_structured_details() {
+        let action = Action::Query {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            selector: ".item".into(),
+            mode: crate::daemon::types::QueryMode::Css,
+            cardinality: crate::daemon::types::QueryCardinality::One,
+            nth_index: None,
+        };
+        let result = ActionResult::fatal_with_details(
+            "multiple_matches",
+            "Query mode 'one' requires exactly 1 match, found 3",
+            "use 'query all' or narrow your selector",
+            json!({
+                "query": ".item",
+                "count": 3,
+                "sample_selectors": [".item:nth-of-type(1)"]
+            }),
+        );
+        let out = format_cli_result_json(&action, &result, 5);
+        let d: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(d["error"]["code"], "MULTIPLE_MATCHES");
+        assert_eq!(d["error"]["details"]["query"], ".item");
+        assert_eq!(d["error"]["details"]["count"], 3);
+        assert!(d["error"]["details"].get("hint").is_none());
     }
 
     #[test]
