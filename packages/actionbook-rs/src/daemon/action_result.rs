@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Structured result type for daemon responses to client Actions.
 //!
 //! Results are classified by recovery strategy so that AI agents and CLI
@@ -59,6 +58,7 @@ impl ActionResult {
     }
 
     /// Create a user-action-required result.
+    #[allow(dead_code)]
     pub fn user_action(action: impl Into<String>, hint: impl Into<String>) -> Self {
         ActionResult::UserAction {
             action: action.into(),

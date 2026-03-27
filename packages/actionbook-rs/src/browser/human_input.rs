@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Human-like mouse movement and typing simulation (borrowed from pinchtab/human.go)
 //!
 //! Generates bezier-curve mouse paths and natural typing patterns
@@ -7,6 +6,7 @@
 use rand::Rng;
 
 /// Generate a bezier curve mouse path from start to end point
+#[allow(dead_code)]
 pub fn bezier_mouse_path(start_x: f64, start_y: f64, end_x: f64, end_y: f64) -> Vec<(f64, f64)> {
     let mut rng = rand::thread_rng();
 
@@ -51,6 +51,7 @@ pub fn bezier_mouse_path(start_x: f64, start_y: f64, end_x: f64, end_y: f64) -> 
 }
 
 /// Generate a random start position offset from the target
+#[allow(dead_code)]
 pub fn random_start_offset(target_x: f64, target_y: f64) -> (f64, f64) {
     let mut rng = rand::thread_rng();
     let offset_x = rng.gen_range(50.0..250.0) * if rng.gen_bool(0.5) { 1.0 } else { -1.0 };
@@ -62,6 +63,7 @@ pub fn random_start_offset(target_x: f64, target_y: f64) -> (f64, f64) {
 }
 
 /// Generate typing delays for each character (milliseconds)
+#[allow(dead_code)]
 pub fn typing_delays(text: &str, fast: bool) -> Vec<(char, u64)> {
     let mut rng = rand::thread_rng();
     let base_delay: u64 = if fast { 40 } else { 80 };
@@ -136,6 +138,7 @@ pub fn typing_delays(text: &str, fast: bool) -> Vec<(char, u64)> {
 }
 
 /// Pre-click delay (human pause before clicking)
+#[allow(dead_code)]
 pub fn pre_click_delay_ms() -> u64 {
     let mut rng = rand::thread_rng();
     rng.gen_range(50..200)

@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! CDP-level backend operations (Layer 2 — daemon-internal).
 //!
 //! [`BackendOp`] represents the primitives that the daemon's Action Handler
@@ -47,6 +46,7 @@ pub enum BackendOp {
     },
 
     /// Get the box model (position/size) of a node (`DOM.getBoxModel`).
+    #[allow(dead_code)]
     GetBoxModel { target_id: String, node_id: i64 },
 
     // ---- Input dispatch ----
@@ -116,10 +116,12 @@ pub enum BackendOp {
     },
 
     /// Get the DOM node at a specific page coordinate (`DOM.getNodeForLocation`).
+    #[allow(dead_code)]
     GetNodeForLocation { target_id: String, x: i64, y: i64 },
 
     // ---- DOM manipulation ----
     /// Focus a DOM node (`DOM.focus`).
+    #[allow(dead_code)]
     DomFocus { target_id: String, node_id: i64 },
 
     /// Set files on a file input element (`DOM.setFileInputFiles`).
@@ -131,12 +133,14 @@ pub enum BackendOp {
 
     // ---- Target management ----
     /// List all CDP targets (`Target.getTargets`).
+    #[allow(dead_code)]
     GetTargets,
 
     /// Create a new target/tab (`Target.createTarget`).
     CreateTarget {
         url: String,
         /// If set, open in this browser window.
+        #[allow(dead_code)]
         window_id: Option<i64>,
         /// If true, create in a new window.
         new_window: bool,

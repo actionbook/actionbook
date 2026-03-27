@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! In-memory session registry — maps [`SessionId`] to live session handles.
 //!
 //! The registry is owned by the daemon's request router. It tracks all active
@@ -130,6 +129,7 @@ impl SessionRegistry {
     }
 
     /// Create a registry with a custom starting ID (useful for crash recovery).
+    #[allow(dead_code)]
     pub fn with_next_id(next_id: u32) -> Self {
         SessionRegistry {
             sessions: HashMap::new(),
@@ -159,6 +159,7 @@ impl SessionRegistry {
     /// Register a session, allocating an ID automatically.
     ///
     /// Returns the assigned [`SessionId`].
+    #[allow(dead_code)]
     pub fn register_session(&mut self, handle: SessionHandle) -> SessionId {
         let id = self.next_session_id();
         self.sessions.insert(id.clone(), handle);
@@ -171,6 +172,7 @@ impl SessionRegistry {
     }
 
     /// Get a mutable reference to a session handle.
+    #[allow(dead_code)]
     pub fn get_mut(&mut self, id: &SessionId) -> Option<&mut SessionHandle> {
         self.sessions.get_mut(id)
     }
@@ -209,11 +211,13 @@ impl SessionRegistry {
     }
 
     /// Number of registered sessions.
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.sessions.len()
     }
 
     /// Whether the registry is empty.
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.sessions.is_empty()
     }

@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Electron application discovery across platforms.
 //!
 //! Detects commonly installed Electron apps by searching platform-specific
@@ -8,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Information about a discovered Electron application.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ElectronAppInfo {
     /// Application name (e.g., "Visual Studio Code")
@@ -20,6 +20,7 @@ pub struct ElectronAppInfo {
 }
 
 /// Well-known Electron applications with their platform-specific paths.
+#[allow(dead_code)]
 struct AppDefinition {
     name: &'static str,
     #[cfg(target_os = "macos")]
@@ -30,6 +31,7 @@ struct AppDefinition {
     windows_paths: &'static [&'static str],
 }
 
+#[allow(dead_code)]
 static KNOWN_APPS: &[AppDefinition] = &[
     AppDefinition {
         name: "Visual Studio Code",
@@ -103,6 +105,7 @@ static KNOWN_APPS: &[AppDefinition] = &[
 /// Discovers installed Electron applications on the current platform.
 ///
 /// Returns a list of detected apps with their executable paths.
+#[allow(dead_code)]
 pub fn discover_electron_apps() -> Vec<ElectronAppInfo> {
     let mut apps = Vec::new();
 
@@ -116,6 +119,7 @@ pub fn discover_electron_apps() -> Vec<ElectronAppInfo> {
 }
 
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 fn detect_app(app_def: &AppDefinition) -> Option<ElectronAppInfo> {
     let path = PathBuf::from(app_def.macos_path);
     if path.exists() {
@@ -130,6 +134,7 @@ fn detect_app(app_def: &AppDefinition) -> Option<ElectronAppInfo> {
 }
 
 #[cfg(target_os = "linux")]
+#[allow(dead_code)]
 fn detect_app(app_def: &AppDefinition) -> Option<ElectronAppInfo> {
     for path_str in app_def.linux_paths {
         let expanded = shellexpand::tilde(path_str);
@@ -146,6 +151,7 @@ fn detect_app(app_def: &AppDefinition) -> Option<ElectronAppInfo> {
 }
 
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 fn detect_app(app_def: &AppDefinition) -> Option<ElectronAppInfo> {
     for path_str in app_def.windows_paths {
         // Expand environment variables
@@ -227,6 +233,7 @@ fn detect_app(app_def: &AppDefinition) -> Option<ElectronAppInfo> {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+#[allow(dead_code)]
 fn detect_app(_app_def: &AppDefinition) -> Option<ElectronAppInfo> {
     None
 }

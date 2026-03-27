@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Request Router — dispatches Actions to global handlers or session actors.
 //!
 //! The router is the daemon's front door. It receives [`Action`]s from the UDS
@@ -35,6 +34,7 @@ pub struct Router {
 
 impl Router {
     /// Create a new router with the given registry (no factories — StartSession will fail).
+    #[allow(dead_code)]
     pub fn new(registry: Arc<Mutex<SessionRegistry>>) -> Self {
         Router {
             registry,
@@ -44,6 +44,7 @@ impl Router {
     }
 
     /// Create a new router with a single backend factory (backwards compat).
+    #[allow(dead_code)]
     pub fn with_factory(
         registry: Arc<Mutex<SessionRegistry>>,
         factory: Arc<dyn BrowserBackendFactory>,

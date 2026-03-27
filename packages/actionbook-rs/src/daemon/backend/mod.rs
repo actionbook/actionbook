@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Browser backend abstraction layer.
 //!
 //! Defines the [`BrowserBackendFactory`] and [`BackendSession`] traits that
@@ -35,9 +34,11 @@ use crate::error::Result;
 #[async_trait]
 pub trait BrowserBackendFactory: Send + Sync {
     /// Which backend kind this factory produces.
+    #[allow(dead_code)]
     fn kind(&self) -> BackendKind;
 
     /// Declare capabilities of this backend.
+    #[allow(dead_code)]
     fn capabilities(&self) -> Capabilities;
 
     /// Start a new browser session (launch a process, connect WS, etc.).
@@ -47,6 +48,7 @@ pub trait BrowserBackendFactory: Send + Sync {
     async fn attach(&self, spec: AttachSpec) -> Result<Box<dyn BackendSession>>;
 
     /// Resume a previously checkpointed session after daemon restart.
+    #[allow(dead_code)]
     async fn resume(&self, cp: Checkpoint) -> Result<Box<dyn BackendSession>>;
 }
 
@@ -69,6 +71,7 @@ pub trait BackendSession: Send {
     ///
     /// The caller should `take()` this once and poll it in a select loop.
     /// Returns an empty stream if already taken.
+    #[allow(dead_code)]
     fn events(&mut self) -> BoxStream<'static, BackendEvent>;
 
     /// Execute a CDP-level operation and return the raw result.
@@ -78,9 +81,11 @@ pub trait BackendSession: Send {
     async fn list_targets(&self) -> Result<Vec<TargetInfo>>;
 
     /// Produce a checkpoint for crash recovery.
+    #[allow(dead_code)]
     async fn checkpoint(&self) -> Result<Checkpoint>;
 
     /// Check whether the browser connection is alive.
+    #[allow(dead_code)]
     async fn health(&self) -> Result<Health>;
 
     /// Shut down the browser according to the given policy.

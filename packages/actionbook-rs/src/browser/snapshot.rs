@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! CDP Accessibility Tree snapshot (borrowed from pinchtab's approach)
 //!
 //! Uses `Accessibility.getFullAXTree` to get the real browser accessibility tree,
@@ -15,12 +14,14 @@ use crate::error::Result;
 // ============================================================================
 
 /// CDP Accessibility.getFullAXTree response envelope
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 pub struct AxTreeResponse {
     pub nodes: Vec<AxNode>,
 }
 
 /// Single node in the CDP accessibility tree
+#[allow(dead_code)]
 #[derive(Deserialize, Debug, Clone)]
 pub struct AxNode {
     #[serde(rename = "nodeId")]
@@ -44,6 +45,7 @@ pub struct AxNode {
 }
 
 /// CDP AXValue structure: { type: "...", value: "..." }
+#[allow(dead_code)]
 #[derive(Deserialize, Debug, Clone)]
 pub struct AxValue {
     #[serde(rename = "type")]
@@ -54,6 +56,7 @@ pub struct AxValue {
 
 impl AxValue {
     /// Extract string value from AXValue
+    #[allow(dead_code)]
     pub fn as_string(&self) -> String {
         if let Some(ref val) = self.value {
             if let Some(s) = val.as_str() {
@@ -80,6 +83,7 @@ impl AxValue {
 }
 
 /// CDP AXProperty structure
+#[allow(dead_code)]
 #[derive(Deserialize, Debug, Clone)]
 pub struct AxProperty {
     pub name: String,
@@ -87,6 +91,7 @@ pub struct AxProperty {
 }
 
 /// A single node in the accessibility tree
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct A11yNode {
     /// Stable reference ID ("e0", "e1", ...) — only set for interactive/named content nodes
@@ -131,6 +136,7 @@ pub struct A11yNode {
 }
 
 /// Cached ref→backendNodeId mapping for action resolution
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct RefCache {
     /// "e0" → backend_node_id
@@ -143,6 +149,7 @@ pub struct RefCache {
 }
 
 /// Snapshot filter options
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnapshotFilter {
     All,
@@ -150,6 +157,7 @@ pub enum SnapshotFilter {
 }
 
 /// Snapshot output format
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnapshotFormat {
     /// Indented tree format: `- role "name" [ref=eN]` (~60-70% fewer tokens than JSON)
@@ -159,6 +167,7 @@ pub enum SnapshotFormat {
 }
 
 /// Interactive ARIA roles (from pinchtab/snapshot.go)
+#[allow(dead_code)]
 const INTERACTIVE_ROLES: &[&str] = &[
     "button",
     "link",
@@ -180,6 +189,7 @@ const INTERACTIVE_ROLES: &[&str] = &[
 ];
 
 /// Content roles — get refs only if they have a name
+#[allow(dead_code)]
 const CONTENT_ROLES: &[&str] = &[
     "heading",
     "cell",
@@ -194,6 +204,7 @@ const CONTENT_ROLES: &[&str] = &[
 ];
 
 /// Roles to skip entirely (noise — text content is already in parent's name)
+#[allow(dead_code)]
 const SKIP_ROLES: &[&str] = &[
     "InlineTextBox",
     "StaticText",
@@ -207,6 +218,7 @@ const SKIP_ROLES: &[&str] = &[
 ];
 
 /// Structural roles that may be removed during compact filtering
+#[allow(dead_code)]
 const STRUCTURAL_ROLES: &[&str] = &[
     "generic",
     "group",
@@ -235,6 +247,7 @@ const STRUCTURAL_ROLES: &[&str] = &[
 /// Builds a proper tree from CDP nodes, then renders with recursive traversal.
 /// Ignored nodes' children are promoted. RootWebArea/WebArea are unwrapped.
 /// Only interactive roles and named content roles get refs (eN).
+#[allow(dead_code)]
 pub fn parse_ax_tree(
     raw: serde_json::Value,
     filter: SnapshotFilter,
@@ -598,6 +611,7 @@ pub fn parse_ax_tree(
 
 /// Remove leaf nodes that are structural with no name, no ref, no value.
 /// These are empty `<div>`/`<span>` wrappers that add no information.
+#[allow(dead_code)]
 pub fn remove_empty_leaves(nodes: &[A11yNode]) -> Vec<A11yNode> {
     let structural_set: HashSet<&str> = STRUCTURAL_ROLES.iter().copied().collect();
     let mut has_child = vec![false; nodes.len()];
@@ -632,6 +646,7 @@ pub fn remove_empty_leaves(nodes: &[A11yNode]) -> Vec<A11yNode> {
 ///
 /// Format: `- role "name" [disabled, ref=eN]: value`
 /// Attributes are combined in a single `[...]` block. Value uses `: value` suffix.
+#[allow(dead_code)]
 pub fn format_compact(nodes: &[A11yNode]) -> String {
     let mut out = String::new();
     for node in nodes {
@@ -699,6 +714,7 @@ pub fn format_compact(nodes: &[A11yNode]) -> String {
 
 /// Compute diff between two snapshots
 /// Returns (added, changed, removed)
+#[allow(dead_code)]
 pub fn diff_snapshots(
     prev: &[A11yNode],
     curr: &[A11yNode],
@@ -740,6 +756,7 @@ pub fn diff_snapshots(
 }
 
 /// Estimate token count for output
+#[allow(dead_code)]
 pub fn estimate_tokens(content: &str, format: SnapshotFormat) -> usize {
     let len = content.len();
     match format {
@@ -749,6 +766,7 @@ pub fn estimate_tokens(content: &str, format: SnapshotFormat) -> usize {
 }
 
 /// Estimate the token cost of a single node in a given format
+#[allow(dead_code)]
 fn estimate_node_tokens(node: &A11yNode, format: SnapshotFormat) -> usize {
     let ref_len = node.ref_id.as_ref().map(|r| r.len()).unwrap_or(0);
     let role_len = node.role.len();
@@ -764,6 +782,7 @@ fn estimate_node_tokens(node: &A11yNode, format: SnapshotFormat) -> usize {
 
 /// Truncate nodes to fit within a token budget.
 /// Returns the truncated node list and whether truncation occurred.
+#[allow(dead_code)]
 pub fn truncate_to_tokens(
     nodes: &[A11yNode],
     max_tokens: usize,
@@ -786,6 +805,7 @@ pub fn truncate_to_tokens(
 
 /// Compact tree: keep only nodes with [ref=] or values, plus their ancestors.
 /// Matches agent-browser's compact_tree behavior.
+#[allow(dead_code)]
 pub fn compact_tree_nodes(nodes: &[A11yNode]) -> Vec<A11yNode> {
     let mut keep = vec![false; nodes.len()];
 
@@ -816,6 +836,7 @@ pub fn compact_tree_nodes(nodes: &[A11yNode]) -> Vec<A11yNode> {
 }
 
 /// A cursor-interactive element detected via DOM inspection
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CursorElement {
     pub selector: String,

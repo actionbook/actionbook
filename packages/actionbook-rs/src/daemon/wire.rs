@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Wire protocol types and length-prefix framing helpers (Layer 3).
 //!
 //! Transport: UDS (Unix) / Named Pipe (Windows)
@@ -80,6 +79,7 @@ pub fn encode_frame<T: Serialize>(value: &T) -> serde_json::Result<Vec<u8>> {
 /// Read the 4-byte length prefix from a buffer, returning the payload length.
 ///
 /// Returns `None` if the buffer has fewer than 4 bytes.
+#[allow(dead_code)]
 pub fn read_frame_length(buf: &[u8]) -> Option<u32> {
     if buf.len() < 4 {
         return None;

@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Auto-discover and connect to a running Chrome/Chromium instance.
 //!
 //! Discovery strategy (first match wins):
@@ -9,6 +8,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 /// Result of auto-discovery: the CDP WebSocket URL and the port it was found on.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct DiscoveredBrowser {
     pub ws_url: String,
@@ -18,6 +18,7 @@ pub struct DiscoveredBrowser {
 /// Attempt to auto-discover a running Chrome instance.
 ///
 /// Returns the first reachable browser's WebSocket URL, or an error if none found.
+#[allow(dead_code)]
 pub async fn auto_discover() -> Result<DiscoveredBrowser, String> {
     // Strategy 1: Check DevToolsActivePort files
     //
@@ -99,6 +100,7 @@ pub async fn auto_discover() -> Result<DiscoveredBrowser, String> {
 /// File format (two lines):
 ///   Line 1: port number
 ///   Line 2: WebSocket path (e.g. `/devtools/browser/...`)
+#[allow(dead_code)]
 fn read_devtools_active_port(user_data_dir: &std::path::Path) -> Option<(u16, String)> {
     let path = user_data_dir.join("DevToolsActivePort");
     let content = std::fs::read_to_string(&path).ok()?;
@@ -127,6 +129,7 @@ enum DiscoverError {
 ///
 /// Rejects Electron apps (Slack, Discord, VS Code, etc.) by checking the User-Agent
 /// for the `Electron` token. Only real browsers are accepted.
+#[allow(dead_code)]
 async fn discover_via_http(port: u16) -> Result<DiscoveredBrowser, DiscoverError> {
     let url = format!("http://127.0.0.1:{}/json/version", port);
     let client = reqwest::Client::builder()
@@ -187,6 +190,7 @@ async fn discover_via_http(port: u16) -> Result<DiscoveredBrowser, DiscoverError
 
 /// Quick TCP connect check — verifies the port is actually listening.
 /// Used to reject stale DevToolsActivePort files whose Chrome has exited.
+#[allow(dead_code)]
 async fn is_port_listening(port: u16) -> bool {
     tokio::time::timeout(
         Duration::from_secs(1),
@@ -199,6 +203,7 @@ async fn is_port_listening(port: u16) -> bool {
 
 /// Chrome-specific target type values returned by `/json`.
 /// Used to positively identify a browser (vs. a random service returning JSON arrays).
+#[allow(dead_code)]
 const CHROME_TARGET_TYPES: &[&str] = &[
     "page",
     "background_page",
@@ -214,6 +219,7 @@ const CHROME_TARGET_TYPES: &[&str] = &[
 /// one entry has a `type` field matching a known Chrome target type AND a
 /// `webSocketDebuggerUrl` field. This rejects empty arrays (could be anything)
 /// and non-browser services that happen to return JSON arrays.
+#[allow(dead_code)]
 async fn probe_json_endpoint(port: u16) -> bool {
     let url = format!("http://127.0.0.1:{}/json", port);
     let client = reqwest::Client::builder()
@@ -247,6 +253,7 @@ async fn probe_json_endpoint(port: u16) -> bool {
 }
 
 /// Platform-specific Chrome/Chromium user data directories, in priority order.
+#[allow(dead_code)]
 fn chrome_user_data_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
 

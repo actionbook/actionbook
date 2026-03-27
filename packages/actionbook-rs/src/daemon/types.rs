@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Core newtypes and enums for the v2 daemon protocol.
 //!
 //! Provides [`SessionId`], [`TabId`], [`WindowId`] newtypes with short-format
@@ -48,6 +47,7 @@ impl SessionId {
     }
 
     /// Create a SessionId without validation (for internal use).
+    #[allow(dead_code)]
     pub(crate) fn new_unchecked(id: impl Into<String>) -> Self {
         SessionId(id.into())
     }
@@ -128,6 +128,7 @@ impl SessionId {
     }
 
     /// Returns the string value.
+    #[allow(dead_code)]
     pub fn as_str(&self) -> &str {
         &self.0
     }

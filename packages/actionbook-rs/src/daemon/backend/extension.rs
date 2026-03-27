@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Extension backend: connect to the user's Chrome via extension bridge.
 //!
 //! Implements the two-phase connection model:
@@ -290,14 +289,17 @@ pub struct ExtensionBackendSession {
     /// WebSocket connection to the extension.
     ws: ExtWsStream,
     /// Bridge port.
+    #[allow(dead_code)]
     port: u16,
     /// Monotonically increasing request ID for bridge messages.
     cmd_id: AtomicI64,
     /// Sender for backend events.
     event_tx: mpsc::UnboundedSender<BackendEvent>,
     /// Receiver for backend events (taken once by `events()`).
+    #[allow(dead_code)]
     event_rx: Option<mpsc::UnboundedReceiver<BackendEvent>>,
     /// Connection start time.
+    #[allow(dead_code)]
     connected_at: Instant,
 }
 

@@ -1,9 +1,9 @@
-#![allow(dead_code)]
 /// Readability extraction JavaScript (borrowed from pinchtab/readability.js)
 ///
 /// Extracts meaningful text content from a page, stripping navigation,
 /// ads, modals, and other non-content elements. Returns ~800 tokens/page
 /// vs 10,000+ for full snapshot.
+#[allow(dead_code)]
 pub const READABILITY_JS: &str = r#"
 (function() {
     function extractReadable() {

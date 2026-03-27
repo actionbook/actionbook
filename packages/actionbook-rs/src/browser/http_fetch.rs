@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 /// HTTP-first content fetching (I2: tiered degradation).
 ///
 /// For static pages (Wikipedia, blogs, docs) we can skip launching a browser
@@ -7,6 +6,7 @@
 use std::time::Duration;
 
 /// Result of a successful HTTP fetch.
+#[allow(dead_code)]
 pub struct HttpFetchResult {
     /// Extracted content (plain text)
     pub content: String,
@@ -26,6 +26,7 @@ pub struct HttpFetchResult {
 /// requires JS rendering (SPA), and `Err` on hard failures.
 ///
 /// The caller should fall back to browser-based fetching when `None` is returned.
+#[allow(dead_code)]
 pub async fn try_http_fetch(
     url: &str,
     max_tokens: Option<usize>,
@@ -118,6 +119,7 @@ pub async fn try_http_fetch(
 /// - Skips content inside `<script>`, `<style>`, `<noscript>` blocks
 /// - Collapses whitespace
 /// - Inserts newlines for block-level elements
+#[allow(dead_code)]
 fn strip_html_tags(html: &str) -> String {
     let mut result = String::with_capacity(html.len() / 3);
     let mut in_tag = false;

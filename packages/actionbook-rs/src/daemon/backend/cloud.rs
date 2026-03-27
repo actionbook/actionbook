@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Cloud backend: connect to a remote browser via `wss://` with auth headers.
 //!
 //! Uses `tokio-tungstenite` with TLS for secure WebSocket communication.
@@ -131,6 +130,7 @@ pub struct CloudBackendSession {
     /// Monotonically increasing CDP command ID.
     cmd_id: Arc<AtomicI64>,
     /// Receiver for backend events from the WS monitor task.
+    #[allow(dead_code)]
     event_rx: Option<mpsc::UnboundedReceiver<BackendEvent>>,
     /// Token to cancel the background monitor task on shutdown.
     cancel: CancellationToken,
@@ -475,6 +475,7 @@ async fn connect_wss_and_monitor(
 }
 
 /// Connect to WSS with exponential backoff retry (for resume).
+#[allow(dead_code)]
 async fn connect_wss_with_retry(
     ws_url: String,
     headers: &HashMap<String, String>,

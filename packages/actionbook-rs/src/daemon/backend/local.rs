@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Local backend: launch and control a Chrome process via CDP over `ws://`.
 //!
 //! Uses the existing [`BrowserLauncher`] for process management and
@@ -150,16 +149,19 @@ pub struct LocalBackendSession {
     /// WebSocket connection to the browser.
     ws: WsStream,
     /// The WebSocket URL we connected to.
+    #[allow(dead_code)]
     ws_url: String,
     /// Chrome process ID (None if we attached to an existing process).
     pid: Option<u32>,
     /// CDP debugging port.
     cdp_port: u16,
     /// Chrome user data directory.
+    #[allow(dead_code)]
     user_data_dir: PathBuf,
     /// Monotonically increasing CDP command ID.
     cmd_id: Arc<AtomicI64>,
     /// Receiver for backend events from the WS monitor task.
+    #[allow(dead_code)]
     event_rx: Option<mpsc::UnboundedReceiver<BackendEvent>>,
     /// Token to cancel the background health-probe task on shutdown.
     cancel: CancellationToken,

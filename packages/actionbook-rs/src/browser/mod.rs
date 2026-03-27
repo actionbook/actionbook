@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 pub mod app_discovery; // Electron app discovery
 pub mod auto_connect; // Auto-discover running Chrome instances
 mod backend;

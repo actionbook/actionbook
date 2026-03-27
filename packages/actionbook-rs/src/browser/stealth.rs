@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Stealth browser automation support using chaser-oxide.
 //!
 //! Enable with `--features stealth` for:
@@ -48,6 +47,7 @@ impl Default for StealthProfile {
 }
 
 /// Operating system options for stealth profile
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum StealthOs {
     Windows,
@@ -57,6 +57,7 @@ pub enum StealthOs {
 }
 
 /// GPU options for stealth profile
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum StealthGpu {
     // NVIDIA
@@ -214,6 +215,7 @@ pub async fn apply_stealth_to_page(
 }
 
 /// Get stealth mode status string
+#[allow(dead_code)]
 pub fn stealth_status() -> &'static str {
     if cfg!(feature = "stealth") {
         "enabled (chaser-oxide)"
@@ -223,6 +225,7 @@ pub fn stealth_status() -> &'static str {
 }
 
 /// Parse OS string from CLI into StealthOs
+#[allow(dead_code)]
 pub fn parse_stealth_os(s: &str) -> Option<StealthOs> {
     match s.to_lowercase().as_str() {
         "windows" | "win" => Some(StealthOs::Windows),
@@ -234,6 +237,7 @@ pub fn parse_stealth_os(s: &str) -> Option<StealthOs> {
 }
 
 /// Parse GPU string from CLI into StealthGpu
+#[allow(dead_code)]
 pub fn parse_stealth_gpu(s: &str) -> Option<StealthGpu> {
     match s.to_lowercase().replace(['-', '_', ' '], "").as_str() {
         "nvidiartx4080" | "rtx4080" | "4080" => Some(StealthGpu::NvidiaRtx4080),
@@ -250,6 +254,7 @@ pub fn parse_stealth_gpu(s: &str) -> Option<StealthGpu> {
 }
 
 /// Build a StealthProfile from optional CLI parameters
+#[allow(dead_code)]
 pub fn build_stealth_profile(os: Option<&str>, gpu: Option<&str>) -> StealthProfile {
     let mut profile = StealthProfile::default();
 

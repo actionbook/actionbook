@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! RPC client for communicating with the actionbook daemon over UDS.
 //!
 //! The [`DaemonClient`] connects to the daemon's Unix Domain Socket,
@@ -55,6 +54,7 @@ impl DaemonClient {
     }
 
     /// Override the default timeout.
+    #[allow(dead_code)]
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
