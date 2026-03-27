@@ -614,3 +614,315 @@ fn contract_start_open_url_returns_post_nav_title() {
     let session_id = data["session"]["session_id"].as_str().unwrap();
     let _ = headless(&["browser", "close", "-s", session_id], 30);
 }
+
+// ---------------------------------------------------------------------------
+// Group 6: PRD 7.3 browser.status contract
+// ---------------------------------------------------------------------------
+
+/// Verify that `browser status --json` returns the PRD 7.3 nested structure:
+/// data.session (session_id, mode, status, headless, tabs_count),
+/// data.tabs (array of {tab_id, url, title}),
+/// data.capabilities (snapshot, pdf, upload).
+#[test]
+fn contract_status_prd_data_shape() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let start_out = headless_json(&["browser", "start", "--mode", "local", "--headless"], 30);
+    assert_success(&start_out, "start for status test");
+    let start_json: serde_json::Value =
+        serde_json::from_str(&stdout_str(&start_out)).expect("valid JSON");
+    let session_id = start_json["context"]["session_id"]
+        .as_str()
+        .expect("session_id");
+
+    let out = headless_json(&["browser", "status", "-s", session_id], 30);
+    assert_success(&out, "status --json");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout_str(&out)).expect("valid JSON from status");
+    let data = &json["data"];
+
+    // session object
+    let session = &data["session"];
+    assert!(
+        session["session_id"].is_string(),
+        "data.session.session_id must be a string, got: {}",
+        data
+    );
+    assert!(
+        session["mode"].is_string(),
+        "data.session.mode must be a string, got: {}",
+        data
+    );
+    assert_eq!(
+        session["status"], "running",
+        "data.session.status must be 'running', got: {}",
+        data
+    );
+    assert!(
+        session["headless"].is_boolean(),
+        "data.session.headless must be a boolean, got: {}",
+        data
+    );
+    assert!(
+        session["tabs_count"].is_number(),
+        "data.session.tabs_count must be a number, got: {}",
+        data
+    );
+
+    // tabs array
+    let tabs = data["tabs"].as_array().expect("data.tabs must be an array");
+    assert!(
+        !tabs.is_empty(),
+        "data.tabs must have at least 1 tab, got: {}",
+        data
+    );
+    let tab = &tabs[0];
+    assert!(
+        tab["tab_id"].is_string(),
+        "tabs[0].tab_id must be a string, got: {}",
+        tab
+    );
+    assert!(
+        tab["url"].is_string(),
+        "tabs[0].url must be a string, got: {}",
+        tab
+    );
+
+    // capabilities object
+    let caps = &data["capabilities"];
+    assert!(
+        caps["snapshot"].is_boolean(),
+        "data.capabilities.snapshot must be a boolean, got: {}",
+        data
+    );
+
+    // Cleanup
+    let _ = headless(&["browser", "close", "-s", session_id], 30);
+}
+
+/// Verify that `browser status` text output matches PRD 7.3 format.
+#[test]
+fn contract_status_prd_text_output() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let start_out = headless_json(&["browser", "start", "--mode", "local", "--headless"], 30);
+    assert_success(&start_out, "start for status text test");
+    let start_json: serde_json::Value =
+        serde_json::from_str(&stdout_str(&start_out)).expect("valid JSON");
+    let session_id = start_json["context"]["session_id"]
+        .as_str()
+        .expect("session_id");
+
+    let out = headless(&["browser", "status", "-s", session_id], 30);
+    assert_success(&out, "status text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains("status: running"),
+        "text must contain 'status: running', got:\n{}",
+        text
+    );
+    assert!(
+        text.contains("mode: local"),
+        "text must contain 'mode: local', got:\n{}",
+        text
+    );
+    assert!(
+        text.contains("tabs:"),
+        "text must contain 'tabs:', got:\n{}",
+        text
+    );
+    assert!(
+        !text.contains("windows:"),
+        "text must NOT contain 'windows:', got:\n{}",
+        text
+    );
+
+    // Cleanup
+    let _ = headless(&["browser", "close", "-s", session_id], 30);
+}
+
+// ---------------------------------------------------------------------------
+// Group 7: PRD 7.4 browser.close contract
+// ---------------------------------------------------------------------------
+
+/// Verify that `browser close --json` returns PRD 7.4 data shape:
+/// {session_id, status: "closed", closed_tabs: N}
+#[test]
+fn contract_close_prd_data_shape() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let start_out = headless_json(&["browser", "start", "--mode", "local", "--headless"], 30);
+    assert_success(&start_out, "start for close test");
+    let start_json: serde_json::Value =
+        serde_json::from_str(&stdout_str(&start_out)).expect("valid JSON");
+    let session_id = start_json["context"]["session_id"]
+        .as_str()
+        .expect("session_id");
+
+    let out = headless_json(&["browser", "close", "-s", session_id], 30);
+    assert_success(&out, "close --json");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout_str(&out)).expect("valid JSON from close");
+    let data = &json["data"];
+
+    assert_eq!(
+        data["session_id"].as_str().unwrap(),
+        session_id,
+        "data.session_id must match, got: {}",
+        data
+    );
+    assert_eq!(
+        data["status"], "closed",
+        "data.status must be 'closed', got: {}",
+        data
+    );
+    assert!(
+        data["closed_tabs"].is_number(),
+        "data.closed_tabs must be a number, got: {}",
+        data
+    );
+}
+
+/// Verify that `browser close` text output matches PRD 7.4 format.
+#[test]
+fn contract_close_prd_text_output() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let start_out = headless_json(&["browser", "start", "--mode", "local", "--headless"], 30);
+    assert_success(&start_out, "start for close text test");
+    let start_json: serde_json::Value =
+        serde_json::from_str(&stdout_str(&start_out)).expect("valid JSON");
+    let session_id = start_json["context"]["session_id"]
+        .as_str()
+        .expect("session_id");
+
+    let out = headless(&["browser", "close", "-s", session_id], 30);
+    assert_success(&out, "close text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains("ok browser.close"),
+        "text must contain 'ok browser.close', got:\n{}",
+        text
+    );
+    assert!(
+        text.contains("closed_tabs:"),
+        "text must contain 'closed_tabs:', got:\n{}",
+        text
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Group 8: PRD 7.5 browser.restart contract
+// ---------------------------------------------------------------------------
+
+/// Verify that `browser restart --json` returns PRD 7.5 data shape:
+/// {session: {session_id, mode, status, headless, tabs_count}, reopened: true}
+#[test]
+fn contract_restart_prd_data_shape() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let start_out = headless_json(&["browser", "start", "--mode", "local", "--headless"], 30);
+    assert_success(&start_out, "start for restart test");
+    let start_json: serde_json::Value =
+        serde_json::from_str(&stdout_str(&start_out)).expect("valid JSON");
+    let session_id = start_json["context"]["session_id"]
+        .as_str()
+        .expect("session_id");
+
+    let out = headless_json(&["browser", "restart", "-s", session_id], 30);
+    assert_success(&out, "restart --json");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout_str(&out)).expect("valid JSON from restart");
+    let data = &json["data"];
+
+    // session object
+    let session = &data["session"];
+    assert_eq!(
+        session["session_id"].as_str().unwrap(),
+        session_id,
+        "data.session.session_id must match original, got: {}",
+        data
+    );
+    assert!(
+        session["mode"].is_string(),
+        "data.session.mode must be a string, got: {}",
+        data
+    );
+    assert_eq!(
+        session["status"], "running",
+        "data.session.status must be 'running', got: {}",
+        data
+    );
+    assert!(
+        session["headless"].is_boolean(),
+        "data.session.headless must be a boolean, got: {}",
+        data
+    );
+    assert!(
+        session["tabs_count"].is_number(),
+        "data.session.tabs_count must be a number, got: {}",
+        data
+    );
+
+    // reopened flag
+    assert_eq!(
+        data["reopened"], true,
+        "data.reopened must be true, got: {}",
+        data
+    );
+
+    // Cleanup
+    let _ = headless(&["browser", "close", "-s", session_id], 30);
+}
+
+/// Verify that `browser restart` text output matches PRD 7.5 format.
+#[test]
+fn contract_restart_prd_text_output() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let start_out = headless_json(&["browser", "start", "--mode", "local", "--headless"], 30);
+    assert_success(&start_out, "start for restart text test");
+    let start_json: serde_json::Value =
+        serde_json::from_str(&stdout_str(&start_out)).expect("valid JSON");
+    let session_id = start_json["context"]["session_id"]
+        .as_str()
+        .expect("session_id");
+
+    let out = headless(&["browser", "restart", "-s", session_id], 30);
+    assert_success(&out, "restart text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains("ok browser.restart"),
+        "text must contain 'ok browser.restart', got:\n{}",
+        text
+    );
+    assert!(
+        text.contains("status: running"),
+        "text must contain 'status: running', got:\n{}",
+        text
+    );
+
+    // Cleanup — session is still running after restart
+    let _ = headless(&["browser", "close", "-s", session_id], 30);
+}
