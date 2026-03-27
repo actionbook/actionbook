@@ -272,7 +272,14 @@ pub(super) async fn handle_storage_list(
     };
     let store = storage_js_name(kind);
     let js = format!(
-        r#"(function() {{ const keys = []; for (let i = 0; i < {store}.length; i++) {{ keys.push({store}.key(i)); }} return keys; }})()"#
+        r#"(function() {{
+            const items = [];
+            for (let i = 0; i < {store}.length; i++) {{
+                const key = {store}.key(i);
+                items.push({{ key, value: {store}.getItem(key) }});
+            }}
+            return items;
+        }})()"#
     );
     let op = BackendOp::Evaluate {
         target_id: target_id.to_string(),
@@ -282,7 +289,7 @@ pub(super) async fn handle_storage_list(
     match backend.exec(op).await {
         Ok(result) => {
             let val = extract_eval_value(&result.value);
-            ActionResult::ok(json!({"keys": val, "kind": kind.to_string()}))
+            ActionResult::ok(json!({"storage": kind.to_string(), "items": val}))
         }
         Err(e) => cdp_error_to_result(e),
     }
@@ -314,7 +321,13 @@ pub(super) async fn handle_storage_get(
     match backend.exec(op).await {
         Ok(result) => {
             let val = extract_eval_value(&result.value);
-            ActionResult::ok(json!({"key": key, "value": val, "kind": kind.to_string()}))
+            ActionResult::ok(json!({
+                "storage": kind.to_string(),
+                "item": {
+                    "key": key,
+                    "value": val,
+                }
+            }))
         }
         Err(e) => cdp_error_to_result(e),
     }
@@ -349,7 +362,11 @@ pub(super) async fn handle_storage_set(
         return_by_value: true,
     };
     match backend.exec(op).await {
-        Ok(_) => ActionResult::ok(json!({"set": key, "kind": kind.to_string()})),
+        Ok(_) => ActionResult::ok(json!({
+            "storage": kind.to_string(),
+            "action": "set",
+            "affected": 1,
+        })),
         Err(e) => cdp_error_to_result(e),
     }
 }
@@ -371,14 +388,27 @@ pub(super) async fn handle_storage_delete(
         Ok(s) => s,
         Err(e) => return ActionResult::fatal("invalid_key", e.to_string(), "check key"),
     };
-    let js = format!("{store}.removeItem({key_json})");
+    let js = format!(
+        r#"(function() {{
+            const existed = {store}.getItem({key_json}) !== null;
+            {store}.removeItem({key_json});
+            return existed ? 1 : 0;
+        }})()"#
+    );
     let op = BackendOp::Evaluate {
         target_id: target_id.to_string(),
         expression: js,
         return_by_value: true,
     };
     match backend.exec(op).await {
-        Ok(_) => ActionResult::ok(json!({"deleted": key, "kind": kind.to_string()})),
+        Ok(result) => {
+            let affected = extract_eval_value(&result.value).as_u64().unwrap_or(0);
+            ActionResult::ok(json!({
+                "storage": kind.to_string(),
+                "action": "delete",
+                "affected": affected,
+            }))
+        }
         Err(e) => cdp_error_to_result(e),
     }
 }
@@ -395,14 +425,27 @@ pub(super) async fn handle_storage_clear(
         Err(r) => return r,
     };
     let store = storage_js_name(kind);
-    let js = format!("{store}.clear()");
+    let js = format!(
+        r#"(function() {{
+            const affected = {store}.length;
+            {store}.clear();
+            return affected;
+        }})()"#
+    );
     let op = BackendOp::Evaluate {
         target_id: target_id.to_string(),
         expression: js,
         return_by_value: true,
     };
     match backend.exec(op).await {
-        Ok(_) => ActionResult::ok(json!({"cleared": kind.to_string()})),
+        Ok(result) => {
+            let affected = extract_eval_value(&result.value).as_u64().unwrap_or(0);
+            ActionResult::ok(json!({
+                "storage": kind.to_string(),
+                "action": "clear",
+                "affected": affected,
+            }))
+        }
         Err(e) => cdp_error_to_result(e),
     }
 }
