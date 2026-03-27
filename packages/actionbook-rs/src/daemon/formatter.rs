@@ -3261,6 +3261,60 @@ mod tests {
     }
 
     #[test]
+    fn observation_json_envelope_wraps_screenshot_artifact() {
+        let action = Action::Screenshot {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            full_page: false,
+            annotate: false,
+            format: Some("jpeg".into()),
+            quality: Some(80),
+            selector: None,
+        };
+        let result = ActionResult::ok(json!({
+            "__ctx_url": "https://actionbook.dev/",
+            "__ctx_title": "Actionbook",
+            "artifact": {
+                "path": "/tmp/out.jpg",
+                "mime_type": "image/jpeg",
+                "bytes": 321
+            }
+        }));
+        let out = format_cli_result_json(&action, &result, 14);
+        let d: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(d["ok"], true);
+        assert_eq!(d["command"], "browser.screenshot");
+        assert_eq!(d["context"]["url"], "https://actionbook.dev/");
+        assert_eq!(d["context"]["title"], "Actionbook");
+        assert_eq!(d["data"]["artifact"]["path"], "/tmp/out.jpg");
+        assert_eq!(d["data"]["artifact"]["mime_type"], "image/jpeg");
+        assert_eq!(d["data"]["artifact"]["bytes"], 321);
+    }
+
+    #[test]
+    fn observation_text_formats_pdf_artifact_with_prefixed_header() {
+        let action = Action::Pdf {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            path: "/tmp/out.pdf".into(),
+        };
+        let result = ActionResult::ok(json!({
+            "__ctx_url": "https://actionbook.dev/",
+            "__ctx_title": "Actionbook",
+            "artifact": {
+                "path": "/tmp/out.pdf",
+                "mime_type": "application/pdf",
+                "bytes": 2048
+            }
+        }));
+        let out = format_cli_result(&action, &result);
+        assert_eq!(
+            out,
+            "[local-1 t0] https://actionbook.dev/\nok browser.pdf\npath: /tmp/out.pdf"
+        );
+    }
+
+    #[test]
     fn observation_text_formats_query_with_prefixed_header() {
         let action = Action::Query {
             session: SessionId::new_unchecked("local-1"),

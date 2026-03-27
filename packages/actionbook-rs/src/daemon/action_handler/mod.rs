@@ -159,11 +159,14 @@ pub async fn handle_action(
         Action::Screenshot {
             tab,
             full_page,
+            annotate,
             format,
             quality,
             selector,
             ..
         } => {
+            // TODO(#t80): plumb --annotate through once labeled overlay rendering is implemented.
+            let _ = annotate;
             observation::handle_screenshot(
                 session_id,
                 backend,
