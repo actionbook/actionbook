@@ -16,6 +16,15 @@
 /// GetDocument -> QuerySelector(selector) -> GetBoxModel(node_id) -> DispatchMouseEvent(x, y)
 /// ```
 #[derive(Debug, Clone)]
+pub struct ScreenshotClip {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub scale: f64,
+}
+
+#[derive(Debug, Clone)]
 pub enum BackendOp {
     // ---- Navigation ----
     /// Navigate a target to a URL (`Page.navigate`).
@@ -75,11 +84,17 @@ pub enum BackendOp {
     },
 
     // ---- Capture ----
-    /// Capture a screenshot as PNG (`Page.captureScreenshot`).
+    /// Capture a screenshot (`Page.captureScreenshot`).
     CaptureScreenshot {
         target_id: String,
         /// Capture the full scrollable page (not just the viewport).
         full_page: bool,
+        /// Screenshot format ("png" or "jpeg").
+        format: Option<String>,
+        /// JPEG quality (0-100).
+        quality: Option<u8>,
+        /// Optional clip rectangle for selector-scoped captures.
+        clip: Option<ScreenshotClip>,
     },
 
     /// Print the page to PDF (`Page.printToPDF`).

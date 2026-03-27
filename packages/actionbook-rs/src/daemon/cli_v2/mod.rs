@@ -345,6 +345,21 @@ enum BrowserCmd {
         /// Tab ID (e.g. t0)
         #[arg(short = 't', long)]
         tab: TabId,
+        /// Capture the full scrollable page
+        #[arg(long)]
+        full: bool,
+        /// Overlay numbered labels for interactive elements
+        #[arg(long)]
+        annotate: bool,
+        /// JPEG quality (effective only for jpeg)
+        #[arg(long = "screenshot-quality", value_parser = clap::value_parser!(u8).range(0..=100))]
+        screenshot_quality: Option<u8>,
+        /// Screenshot format
+        #[arg(long = "screenshot-format", value_parser = ["png", "jpeg"])]
+        screenshot_format: Option<String>,
+        /// Restrict capture to a specific selector
+        #[arg(long)]
+        selector: Option<String>,
     },
 
     /// Click an element by selector or at coordinates (x,y)
@@ -856,6 +871,42 @@ fn parse_coordinates(target: &str) -> Option<(f64, f64)> {
     Some((x, y))
 }
 
+fn screenshot_mime_type(action: &Action) -> &'static str {
+    match action {
+        Action::Screenshot {
+            format: Some(format),
+            ..
+        } if format == "jpeg" => "image/jpeg",
+        _ => "image/png",
+    }
+}
+
+fn screenshot_written_result(
+    action: &Action,
+    path: &Path,
+    bytes_len: usize,
+    result: &super::action_result::ActionResult,
+) -> super::action_result::ActionResult {
+    let mut data = serde_json::Map::new();
+    if let super::action_result::ActionResult::Ok { data: original } = result {
+        if let Some(url) = original.get("__ctx_url").cloned() {
+            data.insert("__ctx_url".into(), url);
+        }
+        if let Some(title) = original.get("__ctx_title").cloned() {
+            data.insert("__ctx_title".into(), title);
+        }
+    }
+    data.insert(
+        "artifact".into(),
+        serde_json::json!({
+            "path": path.display().to_string(),
+            "mime_type": screenshot_mime_type(action),
+            "bytes": bytes_len,
+        }),
+    );
+    super::action_result::ActionResult::ok(serde_json::Value::Object(data))
+}
+
 // ---------------------------------------------------------------------------
 // Action construction — pure mapping, no logic
 // ---------------------------------------------------------------------------
@@ -980,10 +1031,19 @@ fn build_action_with_timeout(
             path: _,
             session,
             tab,
+            full,
+            annotate,
+            screenshot_quality,
+            screenshot_format,
+            selector,
         } => Action::Screenshot {
             session,
             tab,
-            full_page: false,
+            full_page: full,
+            annotate,
+            format: screenshot_format,
+            quality: screenshot_quality,
+            selector,
         },
         // NOTE: screenshot_path is extracted above and returned alongside the action.
         BrowserCmd::Click {
@@ -1768,7 +1828,7 @@ impl CliV2 {
         };
         let duration_ms = started_at.elapsed().as_millis();
 
-        // If this was a screenshot command, decode the base64 PNG and write to disk.
+        // If this was a screenshot command, decode the image and write it to disk.
         if let Some(path) = screenshot_path {
             if result.is_ok() {
                 if let super::action_result::ActionResult::Ok { ref data } = result {
@@ -1808,17 +1868,26 @@ impl CliV2 {
                                     }
                                     process::exit(1);
                                 }
+                                let written =
+                                    screenshot_written_result(&action, &path, bytes.len(), &result);
                                 if self.json {
                                     println!(
                                         "{}",
                                         formatter::format_cli_result_json(
                                             &action,
-                                            &result,
+                                            &written,
                                             duration_ms
                                         )
                                     );
                                 } else {
-                                    println!("screenshot saved to {}", path.display());
+                                    println!(
+                                        "{}",
+                                        formatter::format_cli_result_with_duration(
+                                            &action,
+                                            &written,
+                                            Some(duration_ms)
+                                        )
+                                    );
                                 }
                                 process::exit(0);
                             }
@@ -2477,6 +2546,11 @@ mod tests {
             path: PathBuf::from("/tmp/out.png"),
             session: session.clone(),
             tab,
+            full: true,
+            annotate: true,
+            screenshot_quality: Some(80),
+            screenshot_format: Some("jpeg".into()),
+            selector: Some("body".into()),
         })
         .unwrap();
         assert_eq!(path.as_deref(), Some(Path::new("/tmp/out.png")));
@@ -2485,8 +2559,12 @@ mod tests {
             Action::Screenshot {
                 session: s,
                 tab: TabId(3),
-                full_page: false
-            } if s == session
+                full_page: true,
+                annotate: true,
+                format: Some(ref format),
+                quality: Some(80),
+                selector: Some(ref selector),
+            } if s == session && format == "jpeg" && selector == "body"
         ));
 
         let (action, _) = build_action(BrowserCmd::Pdf {

@@ -3,6 +3,7 @@ use crate::browser::readability::READABILITY_JS;
 use crate::browser::snapshot::{
     format_compact, parse_ax_tree, remove_empty_leaves, SnapshotFilter,
 };
+use crate::daemon::backend_op::ScreenshotClip;
 
 /// Interactive ARIA roles used for counting interactive nodes in snapshot stats.
 const INTERACTIVE_ROLES: &[&str] = &[
@@ -267,26 +268,113 @@ pub(super) async fn handle_snapshot(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn handle_screenshot(
     session_id: SessionId,
     backend: &mut dyn BackendSession,
     regs: &Registries,
     tab: TabId,
     full_page: bool,
+    format: Option<&str>,
+    quality: Option<u8>,
+    selector: Option<&str>,
 ) -> ActionResult {
     let target_id = match resolve_tab(session_id, regs, tab) {
         Ok(t) => t,
         Err(r) => return r,
     };
 
+    let clip = if let Some(selector) = selector {
+        match screenshot_clip_for_selector(backend, target_id, selector).await {
+            Ok(clip) => Some(clip),
+            Err(result) => return result,
+        }
+    } else {
+        None
+    };
+
     let op = BackendOp::CaptureScreenshot {
         target_id: target_id.to_string(),
         full_page,
+        format: format.map(str::to_string),
+        quality,
+        clip,
     };
 
     match backend.exec(op).await {
-        Ok(result) => ActionResult::ok(result.value),
+        Ok(result) => ok_with_tab_context(backend, target_id, regs, tab, result.value).await,
         Err(e) => cdp_error_to_result(e),
+    }
+}
+
+async fn screenshot_clip_for_selector(
+    backend: &mut dyn BackendSession,
+    target_id: &str,
+    selector: &str,
+) -> Result<ScreenshotClip, ActionResult> {
+    let selector_json = match serde_json::to_string(selector) {
+        Ok(s) => s,
+        Err(e) => {
+            return Err(ActionResult::fatal(
+                "invalid_selector",
+                e.to_string(),
+                "check selector syntax",
+            ))
+        }
+    };
+
+    let js = format!(
+        r#"(function() {{
+{FIND_ELEMENT_JS}
+const el = __findElement({selector_json});
+if (!el) return null;
+const rect = el.getBoundingClientRect();
+return {{
+  x: rect.left + window.scrollX,
+  y: rect.top + window.scrollY,
+  width: rect.width,
+  height: rect.height,
+  scale: 1
+}};
+}})()"#
+    );
+
+    let op = BackendOp::Evaluate {
+        target_id: target_id.to_string(),
+        expression: js,
+        return_by_value: true,
+    };
+
+    match backend.exec(op).await {
+        Ok(result) => {
+            let val = extract_eval_value(&result.value);
+            if val.is_null() {
+                return Err(element_not_found(selector));
+            }
+
+            let x = val.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let y = val.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let width = val.get("width").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let height = val.get("height").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let scale = val.get("scale").and_then(|v| v.as_f64()).unwrap_or(1.0);
+
+            if width <= 0.0 || height <= 0.0 {
+                return Err(ActionResult::fatal(
+                    "invalid_selector",
+                    format!("selector '{selector}' resolved to an empty bounding box"),
+                    "choose an element with visible size",
+                ));
+            }
+
+            Ok(ScreenshotClip {
+                x,
+                y,
+                width,
+                height,
+                scale,
+            })
+        }
+        Err(e) => Err(cdp_error_to_result(e)),
     }
 }
 
@@ -335,7 +423,22 @@ pub(super) async fn handle_pdf(
             };
 
             match std::fs::write(path, &bytes) {
-                Ok(_) => ActionResult::ok(json!({"pdf": path, "bytes": bytes.len()})),
+                Ok(_) => {
+                    ok_with_tab_context(
+                        backend,
+                        target_id,
+                        regs,
+                        tab,
+                        json!({
+                            "artifact": {
+                                "path": path,
+                                "mime_type": "application/pdf",
+                                "bytes": bytes.len(),
+                            }
+                        }),
+                    )
+                    .await
+                }
                 Err(e) => ActionResult::fatal(
                     "pdf_write_error",
                     format!("failed to write PDF to {path}: {e}"),

@@ -132,13 +132,25 @@ pub enum Action {
         selector: Option<String>,
     },
 
-    /// Take a screenshot (PNG).
+    /// Take a screenshot and save it to a file on the CLI side.
     Screenshot {
         session: SessionId,
         tab: TabId,
         /// If true, capture the full scrollable page.
         #[serde(default)]
         full_page: bool,
+        /// If true, request an annotated screenshot.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        annotate: bool,
+        /// Screenshot format ("png" or "jpeg").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        format: Option<String>,
+        /// JPEG quality (0-100).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quality: Option<u8>,
+        /// Restrict the screenshot to a specific selector.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
     },
 
     /// Close the session's browser entirely.
@@ -888,11 +900,28 @@ mod tests {
             session: SessionId::new_unchecked("local-1"),
             tab: TabId(0),
             full_page: true,
+            annotate: true,
+            format: Some("jpeg".into()),
+            quality: Some(80),
+            selector: Some("body".into()),
         };
         let json = serde_json::to_string(&action).unwrap();
         let decoded: Action = serde_json::from_str(&json).unwrap();
         match decoded {
-            Action::Screenshot { full_page, .. } => assert!(full_page),
+            Action::Screenshot {
+                full_page,
+                annotate,
+                format,
+                quality,
+                selector,
+                ..
+            } => {
+                assert!(full_page);
+                assert!(annotate);
+                assert_eq!(format.as_deref(), Some("jpeg"));
+                assert_eq!(quality, Some(80));
+                assert_eq!(selector.as_deref(), Some("body"));
+            }
             _ => panic!("wrong variant"),
         }
     }

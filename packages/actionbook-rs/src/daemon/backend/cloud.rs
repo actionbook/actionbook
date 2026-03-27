@@ -668,10 +668,25 @@ fn op_to_cdp(op: &BackendOp) -> (&'static str, serde_json::Value) {
         BackendOp::CaptureScreenshot {
             target_id: _,
             full_page,
+            format,
+            quality,
+            clip,
         } => {
-            let mut params = serde_json::json!({ "format": "png" });
+            let mut params = serde_json::json!({ "format": format.as_deref().unwrap_or("png") });
             if *full_page {
                 params["captureBeyondViewport"] = serde_json::json!(true);
+            }
+            if let Some(quality) = quality {
+                params["quality"] = serde_json::json!(quality);
+            }
+            if let Some(clip) = clip {
+                params["clip"] = serde_json::json!({
+                    "x": clip.x,
+                    "y": clip.y,
+                    "width": clip.width,
+                    "height": clip.height,
+                    "scale": clip.scale,
+                });
             }
             ("Page.captureScreenshot", params)
         }
@@ -849,10 +864,14 @@ mod tests {
         let op = BackendOp::CaptureScreenshot {
             target_id: "T1".into(),
             full_page: true,
+            format: None,
+            quality: None,
+            clip: None,
         };
         let (method, params) = op_to_cdp(&op);
         assert_eq!(method, "Page.captureScreenshot");
         assert_eq!(params["captureBeyondViewport"], true);
+        assert_eq!(params["format"], "png");
     }
 
     #[test]
@@ -860,10 +879,15 @@ mod tests {
         let op = BackendOp::CaptureScreenshot {
             target_id: "T1".into(),
             full_page: false,
+            format: Some("jpeg".into()),
+            quality: Some(72),
+            clip: None,
         };
         let (method, params) = op_to_cdp(&op);
         assert_eq!(method, "Page.captureScreenshot");
         assert!(params.get("captureBeyondViewport").is_none());
+        assert_eq!(params["format"], "jpeg");
+        assert_eq!(params["quality"], 72);
     }
 
     #[test]

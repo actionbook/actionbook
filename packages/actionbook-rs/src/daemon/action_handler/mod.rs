@@ -156,8 +156,25 @@ pub async fn handle_action(
             )
             .await
         }
-        Action::Screenshot { tab, full_page, .. } => {
-            observation::handle_screenshot(session_id, backend, regs, tab, full_page).await
+        Action::Screenshot {
+            tab,
+            full_page,
+            format,
+            quality,
+            selector,
+            ..
+        } => {
+            observation::handle_screenshot(
+                session_id,
+                backend,
+                regs,
+                tab,
+                full_page,
+                format.as_deref(),
+                quality,
+                selector.as_deref(),
+            )
+            .await
         }
         Action::Click {
             tab,
@@ -999,8 +1016,21 @@ mod tests {
 
     #[tokio::test]
     async fn screenshot_sends_capture() {
-        let mut backend =
-            MockBackendSession::new(vec![Ok(OpResult::new(json!({"data": "base64data"})))]);
+        let mut backend = MockBackendSession::new(vec![
+            Ok(OpResult::new(json!({
+                "result": {
+                    "type": "object",
+                    "value": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "width": 120.0,
+                        "height": 80.0,
+                        "scale": 1.0
+                    }
+                }
+            }))),
+            Ok(OpResult::new(json!({"data": "base64data"}))),
+        ]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId::new_unchecked("local-1");
 
@@ -1012,13 +1042,29 @@ mod tests {
                 session: sid,
                 tab: TabId(0),
                 full_page: true,
+                annotate: false,
+                format: Some("jpeg".into()),
+                quality: Some(70),
+                selector: Some("body".into()),
             },
         )
         .await;
 
         assert!(result.is_ok());
-        match &backend.ops()[0] {
-            BackendOp::CaptureScreenshot { full_page, .. } => assert!(full_page),
+        assert_eq!(backend.ops().len(), 3);
+        match &backend.ops()[1] {
+            BackendOp::CaptureScreenshot {
+                full_page,
+                format,
+                quality,
+                clip,
+                ..
+            } => {
+                assert!(full_page);
+                assert_eq!(format.as_deref(), Some("jpeg"));
+                assert_eq!(*quality, Some(70));
+                assert!(clip.is_some());
+            }
             other => panic!("expected CaptureScreenshot, got {other:?}"),
         }
     }

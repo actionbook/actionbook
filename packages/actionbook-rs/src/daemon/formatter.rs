@@ -1080,6 +1080,8 @@ fn format_tab_nav_text(action: &Action, result: &ActionResult) -> Option<String>
 fn observation_command(action: &Action) -> Option<&'static str> {
     match action {
         Action::Snapshot { .. } => Some("browser.snapshot"),
+        Action::Screenshot { .. } => Some("browser.screenshot"),
+        Action::Pdf { .. } => Some("browser.pdf"),
         Action::Title { .. } => Some("browser.title"),
         Action::Url { .. } => Some("browser.url"),
         Action::Viewport { .. } => Some("browser.viewport"),
@@ -1182,6 +1184,10 @@ fn normalize_observation_data(action: &Action, data: &Value) -> Value {
                 "nodes": nodes,
                 "stats": stats
             })
+        }
+        Action::Screenshot { .. } | Action::Pdf { .. } => {
+            let artifact = data.get("artifact").cloned().unwrap_or(Value::Null);
+            serde_json::json!({ "artifact": artifact })
         }
         Action::Title { .. } => {
             // Handler returns {"title": val}
@@ -1381,6 +1387,17 @@ fn format_observation_text(action: &Action, result: &ActionResult) -> Option<Str
                             }
                         });
                     format!("{header}\n{content}")
+                }
+                Action::Screenshot { .. } | Action::Pdf { .. } => {
+                    let path = data
+                        .get("artifact")
+                        .and_then(|artifact| artifact.get("path"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    format!(
+                        "{prefix}\nok {}\npath: {path}",
+                        observation_command(action)?
+                    )
                 }
                 Action::Title { .. } => {
                     // Handler returns {"title": val}
@@ -2512,6 +2529,10 @@ mod tests {
             session: SessionId::new_unchecked("local-1"),
             tab: crate::daemon::types::TabId(0),
             full_page: false,
+            annotate: false,
+            format: None,
+            quality: None,
+            selector: None,
         };
         let out = format_cli_side_error_json(
             &action,
@@ -2534,6 +2555,10 @@ mod tests {
             session: SessionId::new_unchecked("local-1"),
             tab: crate::daemon::types::TabId(0),
             full_page: false,
+            annotate: false,
+            format: None,
+            quality: None,
+            selector: None,
         };
         let out = format_cli_side_error_text(
             &action,
