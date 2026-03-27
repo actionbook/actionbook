@@ -802,6 +802,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn setup_logo_symbol_utf8_locale() {
         // Temporarily set LC_ALL to a UTF-8 locale string and verify result
         std::env::set_var("LC_ALL", "en_US.UTF-8");
@@ -811,6 +812,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn setup_logo_symbol_non_utf8_locale() {
         // Unset all locale vars; should fall back to "><"
         std::env::remove_var("LC_ALL");

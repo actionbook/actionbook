@@ -1597,19 +1597,6 @@ mod tests {
         let _ = read_pid_file().await;
     }
 
-    #[tokio::test]
-    async fn test_delete_token_file_noop_when_no_file() {
-        // Should not panic even if the file doesn't exist.
-        delete_token_file().await;
-    }
-
-    #[tokio::test]
-    async fn test_delete_port_file_noop_when_no_file() {
-        delete_port_file().await;
-    }
-
-    #[tokio::test]
-    async fn test_delete_pid_file_noop_when_no_file() {
-        delete_pid_file().await;
-    }
+    // delete_token_file, delete_port_file, delete_pid_file tests omitted:
+    // functions use system data dirs (dirs::data_local_dir()), unsafe to run in parallel tests.
 }
