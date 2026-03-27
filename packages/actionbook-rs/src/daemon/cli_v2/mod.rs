@@ -724,8 +724,10 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
     };
 
     /// Auto-prepend `https://` when the URL has no scheme.
+    /// Preserves URLs that already have a scheme (`://`) or use non-HTTP
+    /// schemes like `about:`, `data:`, `mailto:`, `javascript:`, `chrome:`, etc.
     fn ensure_scheme(url: String) -> String {
-        if url.contains("://") {
+        if url.contains("://") || url.contains(':') {
             url
         } else {
             format!("https://{url}")
@@ -1777,6 +1779,48 @@ mod tests {
         .unwrap();
         match action {
             Action::NewTab { url, .. } => assert_eq!(url, "https://example.com"),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn goto_preserves_about_blank() {
+        let (action, _) = build_action(BrowserCmd::Goto {
+            url: "about:blank".into(),
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        })
+        .unwrap();
+        match action {
+            Action::Goto { url, .. } => assert_eq!(url, "about:blank"),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn goto_preserves_data_url() {
+        let (action, _) = build_action(BrowserCmd::Goto {
+            url: "data:text/html,<h1>hi</h1>".into(),
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        })
+        .unwrap();
+        match action {
+            Action::Goto { url, .. } => assert_eq!(url, "data:text/html,<h1>hi</h1>"),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn goto_preserves_chrome_scheme() {
+        let (action, _) = build_action(BrowserCmd::Goto {
+            url: "chrome://settings".into(),
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        })
+        .unwrap();
+        match action {
+            Action::Goto { url, .. } => assert_eq!(url, "chrome://settings"),
             _ => panic!("wrong variant"),
         }
     }

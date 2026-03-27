@@ -92,15 +92,7 @@ fn err_goto_invalid_url() {
     assert_success(&out, "start session");
 
     let out = headless(
-        &[
-            "browser",
-            "goto",
-            "not-a-valid-url-at-all",
-            "-s",
-            "local-1",
-            "-t",
-            "t0",
-        ],
+        &["browser", "goto", "://invalid", "-s", "local-1", "-t", "t0"],
         30,
     );
     assert_failure(&out, "goto invalid URL");
