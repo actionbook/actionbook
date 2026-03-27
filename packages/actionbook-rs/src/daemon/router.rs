@@ -216,6 +216,8 @@ impl Router {
         // Atomically check uniqueness and reserve a slot under a single lock.
         let explicit_profile = profile.is_some();
         let profile_name = profile.unwrap_or_else(|| "default".into());
+        let reused = reuse_id.is_some();
+
         let session_id = {
             let mut registry = self.registry.lock().await;
             let existing = registry.list_sessions();
@@ -311,9 +313,9 @@ impl Router {
             id
         }; // lock released — backend start can proceed without holding it.
 
-        // Save open_url before it's moved into StartSpec, so we can update
-        // the tab registry after session creation.
+        // Save values before they're moved into StartSpec/AttachSpec.
         let open_url_for_registry = open_url.clone();
+        let cdp_endpoint_for_response = cdp_endpoint.clone();
 
         // Create backend session based on mode.
         let backend = match mode {
@@ -387,11 +389,22 @@ impl Router {
         // Discover initial tabs.
         let targets: Vec<TargetInfo> = backend.list_targets().await.unwrap_or_default();
 
-        let tab_ids: Vec<String> = targets
-            .iter()
-            .filter(|t| t.target_type == "page")
-            .map(|t| t.target_id.clone())
-            .collect();
+        let page_targets: Vec<&TargetInfo> =
+            targets.iter().filter(|t| t.target_type == "page").collect();
+
+        let tab_ids: Vec<String> = page_targets.iter().map(|t| t.target_id.clone()).collect();
+
+        // Capture first tab info for the response before moving targets.
+        // native_tab_id is not available via CDP (Chrome's internal tab integer
+        // is only exposed through the Extensions API); included as null per PRD.
+        let first_tab = page_targets.first().map(|t| {
+            serde_json::json!({
+                "tab_id": format!("t{}", 0),
+                "url": t.url,
+                "title": t.title,
+                "native_tab_id": null,
+            })
+        });
 
         let (tx, _join_handle) = SessionActor::spawn(session_id.clone(), backend, targets);
 
@@ -417,21 +430,69 @@ impl Router {
         self.trigger_save(&registry);
         drop(registry); // release lock before sending Goto
 
-        // If open_url was specified, send a Goto to update the tab registry URL.
-        // The backend already navigated during start, but the tab registry
-        // recorded the pre-navigation URL from target discovery.
-        if let Some(ref url) = open_url_for_registry {
+        // If open_url was specified, send a Goto to update the tab registry URL,
+        // then wait for the page to finish loading before fetching the title.
+        // BackendOp::Navigate only sends Page.navigate without waiting for load,
+        // so fetch_title in the Goto handler may return a stale title.
+        let goto_title = if let Some(ref url) = open_url_for_registry {
             let goto = Action::Goto {
                 session: session_id.clone(),
                 tab: TabId(0),
                 url: url.clone(),
             };
-            let _ = self.forward_to_session(&session_id, goto).await;
-        }
+            let _goto_result = self.forward_to_session(&session_id, goto).await;
+
+            // Wait for navigation to complete (readyState === "complete").
+            let wait = Action::WaitNavigation {
+                session: session_id.clone(),
+                tab: TabId(0),
+                timeout_ms: Some(10_000),
+            };
+            let _ = self.forward_to_session(&session_id, wait).await;
+
+            // Now fetch the title after the page has fully loaded.
+            let title_action = Action::Title {
+                session: session_id.clone(),
+                tab: TabId(0),
+            };
+            let title_result = self.forward_to_session(&session_id, title_action).await;
+            match &title_result {
+                ActionResult::Ok { data } => data
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .filter(|t| !t.is_empty())
+                    .map(|t| t.to_string()),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        // Build PRD-compliant response with session/tab/reused structure.
+        let tab_value = match first_tab {
+            Some(mut tab) => {
+                // Override URL and title if open_url was used (backend navigated).
+                if let Some(ref url) = open_url_for_registry {
+                    tab["url"] = serde_json::Value::String(url.clone());
+                }
+                if let Some(ref title) = goto_title {
+                    tab["title"] = serde_json::Value::String(title.clone());
+                }
+                tab
+            }
+            None => serde_json::json!(null),
+        };
 
         ActionResult::ok(serde_json::json!({
-            "session_id": session_id.to_string(),
-            "tab_ids": tab_ids,
+            "session": {
+                "session_id": session_id.to_string(),
+                "mode": format!("{mode}"),
+                "status": "running",
+                "headless": headless,
+                "cdp_endpoint": cdp_endpoint_for_response,
+            },
+            "tab": tab_value,
+            "reused": reused,
         }))
     }
 
@@ -917,7 +978,10 @@ mod tests {
         assert!(result.is_ok(), "expected Ok, got: {result:?}");
         match result {
             ActionResult::Ok { data } => {
-                assert_eq!(data["session_id"], "local-1");
+                assert_eq!(data["session"]["session_id"], "local-1");
+                assert_eq!(data["session"]["mode"], "local");
+                assert_eq!(data["session"]["status"], "running");
+                assert_eq!(data["reused"], false);
             }
             _ => panic!("expected Ok"),
         }
@@ -949,7 +1013,8 @@ mod tests {
         assert!(result.is_ok(), "expected Ok, got: {result:?}");
         match result {
             ActionResult::Ok { data } => {
-                assert_eq!(data["session_id"], "local-1");
+                assert_eq!(data["session"]["session_id"], "local-1");
+                assert_eq!(data["session"]["mode"], "extension");
             }
             _ => panic!("expected Ok"),
         }
@@ -972,7 +1037,8 @@ mod tests {
         assert!(result.is_ok(), "expected Ok, got: {result:?}");
         match result {
             ActionResult::Ok { data } => {
-                assert_eq!(data["session_id"], "local-1");
+                assert_eq!(data["session"]["session_id"], "local-1");
+                assert_eq!(data["session"]["mode"], "cloud");
             }
             _ => panic!("expected Ok"),
         }
@@ -1063,7 +1129,7 @@ mod tests {
         match result {
             ActionResult::Ok { data } => {
                 assert_eq!(
-                    data["session_id"], "local-2",
+                    data["session"]["session_id"], "local-2",
                     "auto-generate should skip occupied local-1 and use local-2"
                 );
             }
@@ -1102,7 +1168,7 @@ mod tests {
             })
             .await;
         match result {
-            ActionResult::Ok { data } => assert_eq!(data["session_id"], "local-1"),
+            ActionResult::Ok { data } => assert_eq!(data["session"]["session_id"], "local-1"),
             _ => panic!("expected Ok, got: {result:?}"),
         }
         let reg = router.registry.lock().await;
@@ -1188,11 +1254,11 @@ mod tests {
             .await;
 
         match first {
-            ActionResult::Ok { data } => assert_eq!(data["session_id"], "work"),
+            ActionResult::Ok { data } => assert_eq!(data["session"]["session_id"], "work"),
             _ => panic!("expected Ok, got: {first:?}"),
         }
         match second {
-            ActionResult::Ok { data } => assert_eq!(data["session_id"], "work-2"),
+            ActionResult::Ok { data } => assert_eq!(data["session"]["session_id"], "work-2"),
             _ => panic!("expected Ok, got: {second:?}"),
         }
     }

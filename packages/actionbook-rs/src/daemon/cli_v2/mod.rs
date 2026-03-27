@@ -186,7 +186,7 @@ enum BrowserCmd {
         #[arg(long, value_enum, default_value = "local")]
         mode: CliMode,
         /// Profile name for configuration
-        #[arg(long, short = 'p')]
+        #[arg(long, short = 'P')]
         profile: Option<String>,
         /// Launch in headless mode
         #[arg(long)]
@@ -197,6 +197,9 @@ enum BrowserCmd {
         /// CDP WebSocket endpoint for cloud mode (e.g. wss://cloud.example.com/browser)
         #[arg(long)]
         cdp_endpoint: Option<String>,
+        /// WS auth header for --cdp-endpoint (e.g. "Authorization:Bearer tok")
+        #[arg(long = "header", value_name = "KEY:VALUE")]
+        headers: Vec<String>,
         /// Explicit session ID (e.g. "research-google"); daemon auto-assigns if omitted
         #[arg(long)]
         set_session_id: Option<String>,
@@ -883,6 +886,7 @@ fn build_action_with_timeout(
             headless,
             open_url,
             cdp_endpoint,
+            headers,
             set_session_id,
         } => {
             let mode: Mode = mode.into();
@@ -893,13 +897,25 @@ fn build_action_with_timeout(
                         .into(),
                 );
             }
+            let ws_headers = if headers.is_empty() {
+                None
+            } else {
+                let mut map = std::collections::HashMap::new();
+                for h in &headers {
+                    let (k, v) = h.split_once(':').ok_or_else(|| {
+                        format!("invalid header '{h}': expected KEY:VALUE format")
+                    })?;
+                    map.insert(k.trim().to_string(), v.trim().to_string());
+                }
+                Some(map)
+            };
             Action::StartSession {
                 mode,
                 profile,
                 headless,
                 open_url,
                 cdp_endpoint,
-                ws_headers: None,
+                ws_headers,
                 set_session_id,
             }
         }
@@ -1857,6 +1873,7 @@ mod tests {
             headless: true,
             open_url: Some("https://example.com".into()),
             cdp_endpoint: None,
+            headers: vec![],
             set_session_id: None,
         })
         .unwrap();
@@ -1885,6 +1902,7 @@ mod tests {
             headless: false,
             open_url: None,
             cdp_endpoint: Some("wss://cloud.example.com/browser".into()),
+            headers: vec![],
             set_session_id: None,
         })
         .unwrap();
@@ -1910,6 +1928,7 @@ mod tests {
             headless: false,
             open_url: None,
             cdp_endpoint: None,
+            headers: vec![],
             set_session_id: None,
         });
         assert!(result.is_err());
@@ -1924,6 +1943,7 @@ mod tests {
             headless: false,
             open_url: None,
             cdp_endpoint: None,
+            headers: vec![],
             set_session_id: None,
         })
         .unwrap();
@@ -3222,5 +3242,65 @@ mod tests {
         })
         .unwrap_err();
         assert!(err.contains("expected format 'x,y'"));
+    }
+
+    #[test]
+    fn build_start_with_headers_parses_key_value() {
+        let (action, _) = build_action(BrowserCmd::Start {
+            mode: CliMode::Cloud,
+            profile: None,
+            headless: false,
+            open_url: None,
+            cdp_endpoint: Some("wss://cloud.example.com/browser".into()),
+            headers: vec![
+                "Authorization:Bearer tok123".into(),
+                "X-Custom : value".into(),
+            ],
+            set_session_id: None,
+        })
+        .unwrap();
+        match action {
+            Action::StartSession { ws_headers, .. } => {
+                let h = ws_headers.expect("headers should be Some");
+                assert_eq!(h.get("Authorization").unwrap(), "Bearer tok123");
+                assert_eq!(h.get("X-Custom").unwrap(), "value");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn build_start_with_invalid_header_errors() {
+        let result = build_action(BrowserCmd::Start {
+            mode: CliMode::Cloud,
+            profile: None,
+            headless: false,
+            open_url: None,
+            cdp_endpoint: Some("wss://cloud.example.com/browser".into()),
+            headers: vec!["no-colon-here".into()],
+            set_session_id: None,
+        });
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("KEY:VALUE"));
+    }
+
+    #[test]
+    fn build_start_without_headers_sets_none() {
+        let (action, _) = build_action(BrowserCmd::Start {
+            mode: CliMode::Local,
+            profile: None,
+            headless: false,
+            open_url: None,
+            cdp_endpoint: None,
+            headers: vec![],
+            set_session_id: None,
+        })
+        .unwrap();
+        match action {
+            Action::StartSession { ws_headers, .. } => {
+                assert!(ws_headers.is_none());
+            }
+            _ => panic!("wrong variant"),
+        }
     }
 }
