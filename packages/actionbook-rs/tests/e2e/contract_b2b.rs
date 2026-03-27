@@ -338,7 +338,135 @@ fn contract_b2b_wait_condition_json() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 9: Interaction error contract
+// Test 9: Click text contract
+// ---------------------------------------------------------------------------
+
+#[test]
+fn contract_b2b_click_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session();
+    inject_html(&sid, &tid, r#"<button id="btn">Click Me</button>"#);
+
+    let out = headless(&["browser", "click", "-s", &sid, "-t", &tid, "#btn"], 15);
+    assert_success(&out, "click text");
+
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("ok browser.click"),
+        "text must contain 'ok browser.click', got: {text}"
+    );
+    assert!(
+        text.contains("target: #btn"),
+        "text must contain 'target: #btn', got: {text}"
+    );
+
+    let _ = headless(&["browser", "close", "-s", &sid], 15);
+}
+
+// ---------------------------------------------------------------------------
+// Test 10: Type text contract
+// ---------------------------------------------------------------------------
+
+#[test]
+fn contract_b2b_type_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session();
+    inject_html(&sid, &tid, r#"<input id="name" type="text" />"#);
+
+    let out = headless(
+        &["browser", "type", "-s", &sid, "-t", &tid, "hello", "#name"],
+        15,
+    );
+    assert_success(&out, "type text");
+
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("ok browser.type"),
+        "text must contain 'ok browser.type', got: {text}"
+    );
+    assert!(
+        text.contains("target: #name"),
+        "text must contain 'target: #name', got: {text}"
+    );
+
+    let _ = headless(&["browser", "close", "-s", &sid], 15);
+}
+
+// ---------------------------------------------------------------------------
+// Test 11: Eval text contract
+// ---------------------------------------------------------------------------
+
+#[test]
+fn contract_b2b_eval_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session();
+
+    let out = headless(&["browser", "eval", "-s", &sid, "-t", &tid, "1 + 1"], 15);
+    assert_success(&out, "eval text");
+
+    let text = stdout_str(&out);
+    assert!(
+        text.contains('2'),
+        "eval text must contain result value '2', got: {text}"
+    );
+
+    let _ = headless(&["browser", "close", "-s", &sid], 15);
+}
+
+// ---------------------------------------------------------------------------
+// Test 12: Wait-element text contract
+// ---------------------------------------------------------------------------
+
+#[test]
+fn contract_b2b_wait_element_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session();
+    inject_html(&sid, &tid, r#"<div id="target">Exists</div>"#);
+
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "element",
+            "-s",
+            &sid,
+            "-t",
+            &tid,
+            "#target",
+            "--timeout",
+            "5000",
+        ],
+        15,
+    );
+    assert_success(&out, "wait element text");
+
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("ok browser.wait.element"),
+        "text must contain 'ok browser.wait.element', got: {text}"
+    );
+    assert!(
+        text.contains("target: #target"),
+        "text must contain 'target: #target', got: {text}"
+    );
+
+    let _ = headless(&["browser", "close", "-s", &sid], 15);
+}
+
+// ---------------------------------------------------------------------------
+// Test 13: Interaction error contract
 // ---------------------------------------------------------------------------
 
 #[test]

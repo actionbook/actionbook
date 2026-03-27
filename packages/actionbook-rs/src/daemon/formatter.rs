@@ -1691,7 +1691,7 @@ fn normalize_interaction_data(action: &Action, data: &Value) -> Value {
 }
 
 fn format_interaction_text(action: &Action, result: &ActionResult) -> Option<String> {
-    let _command = interaction_command(action)?;
+    let command = interaction_command(action)?;
     let session_id = action.session_id()?.to_string();
     let tab_id = action_tab_id(action).map(|tab| tab.to_string());
 
@@ -1700,40 +1700,48 @@ fn format_interaction_text(action: &Action, result: &ActionResult) -> Option<Str
             let prefix = prefixed_header(&session_id, tab_id.as_deref(), None);
             match action {
                 Action::Click { selector, .. } => {
-                    format!("{prefix}\nclicked {selector}")
+                    format!("{prefix}\nok {command}\ntarget: {selector}")
                 }
                 Action::Type { selector, .. } => {
                     let text = data.get("typed").and_then(|v| v.as_str()).unwrap_or("");
-                    format!("{prefix}\ntyped {text} into {selector}")
+                    let mut out = format!("{prefix}\nok {command}\ntarget: {selector}");
+                    if !text.is_empty() {
+                        out.push_str(&format!("\ntext: {text}"));
+                    }
+                    out
                 }
-                Action::Fill { selector, .. } => {
-                    let value = data.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                    format!("{prefix}\nfilled {selector} with {value}")
+                Action::Fill {
+                    selector, value, ..
+                } => {
+                    format!("{prefix}\nok {command}\ntarget: {selector}\nvalue: {value}")
                 }
                 Action::Select { selector, .. } => {
                     let value = data.get("selected").and_then(|v| v.as_str()).unwrap_or("");
-                    format!("{prefix}\nselected {value} in {selector}")
+                    format!("{prefix}\nok {command}\ntarget: {selector}\nvalue: {value}")
                 }
                 Action::Hover { selector, .. } => {
-                    format!("{prefix}\nhovered {selector}")
+                    format!("{prefix}\nok {command}\ntarget: {selector}")
                 }
                 Action::Focus { selector, .. } => {
-                    format!("{prefix}\nfocused {selector}")
+                    format!("{prefix}\nok {command}\ntarget: {selector}")
                 }
                 Action::Press { key_or_chord, .. } => {
-                    format!("{prefix}\npressed {key_or_chord}")
+                    format!("{prefix}\nok {command}\nkey: {key_or_chord}")
                 }
                 Action::Drag {
                     from_selector,
                     to_selector,
                     ..
                 } => {
-                    format!("{prefix}\ndragged {from_selector} → {to_selector}")
+                    format!("{prefix}\nok {command}\nfrom: {from_selector}\nto: {to_selector}")
                 }
                 Action::Upload {
                     selector, files, ..
                 } => {
-                    format!("{prefix}\nuploaded {} file(s) to {selector}", files.len())
+                    format!(
+                        "{prefix}\nok {command}\ntarget: {selector}\ncount: {}",
+                        files.len()
+                    )
                 }
                 Action::Scroll {
                     direction,
@@ -1741,26 +1749,26 @@ fn format_interaction_text(action: &Action, result: &ActionResult) -> Option<Str
                     selector,
                     ..
                 } => {
-                    if direction == "into-view" {
-                        let sel = selector.as_deref().unwrap_or("element");
-                        format!("{prefix}\nscrolled {sel} into view")
-                    } else if let Some(px) = amount {
-                        format!("{prefix}\nscrolled {direction} {px}px")
-                    } else {
-                        format!("{prefix}\nscrolled {direction}")
+                    let mut out = format!("{prefix}\nok {command}\ndirection: {direction}");
+                    if let Some(px) = amount {
+                        out.push_str(&format!("\namount: {px}"));
                     }
+                    if let Some(sel) = selector {
+                        out.push_str(&format!("\ntarget: {sel}"));
+                    }
+                    out
                 }
                 Action::MouseMove { x, y, .. } => {
-                    format!("{prefix}\nmoved to ({x},{y})")
+                    format!("{prefix}\nok {command}\nx: {x}\ny: {y}")
                 }
                 Action::CursorPosition { .. } => {
                     let cursor = data.get("cursor").unwrap_or(data);
                     let x = cursor.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let y = cursor.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    format!("{x},{y}")
+                    format!("{prefix}\nok {command}\nx: {x}\ny: {y}")
                 }
                 Action::Eval { .. } => {
-                    // Raw eval result — output directly
+                    // Eval: output the raw value directly (no ok prefix)
                     if data.is_string() {
                         data.as_str().unwrap_or("").to_string()
                     } else if data.is_null() {
@@ -1770,18 +1778,22 @@ fn format_interaction_text(action: &Action, result: &ActionResult) -> Option<Str
                     }
                 }
                 Action::WaitElement { selector, .. } => {
-                    format!("{prefix}\nfound {selector}")
+                    format!("{prefix}\nok {command}\ntarget: {selector}")
                 }
                 Action::WaitNavigation { .. } => {
                     let url = data.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                    format!("{prefix}\nnavigated to {url}")
+                    let mut out = format!("{prefix}\nok {command}");
+                    if !url.is_empty() {
+                        out.push_str(&format!("\nurl: {url}"));
+                    }
+                    out
                 }
                 Action::WaitNetworkIdle { .. } => {
-                    format!("{prefix}\nnetwork idle")
+                    format!("{prefix}\nok {command}")
                 }
                 Action::WaitCondition { expression, .. } => {
                     let value = data.get("value").cloned().unwrap_or(Value::Null);
-                    format!("{prefix}\ncondition met: {expression} → {value}")
+                    format!("{prefix}\nok {command}\nexpression: {expression}\nvalue: {value}")
                 }
                 _ => return None,
             }
@@ -2969,7 +2981,8 @@ mod tests {
         let result = ActionResult::ok(json!({"clicked": "#btn", "x": 100, "y": 200}));
         let out = format_cli_result(&action, &result);
         assert!(out.contains("[local-1 t0]"));
-        assert!(out.contains("clicked #btn"));
+        assert!(out.contains("ok browser.click"));
+        assert!(out.contains("target: #btn"));
     }
 
     #[test]
@@ -3078,7 +3091,8 @@ mod tests {
         };
         let result = ActionResult::ok(json!({"pressed": "Control+c"}));
         let out = format_cli_result(&action, &result);
-        assert!(out.contains("pressed Control+c"));
+        assert!(out.contains("ok browser.press"));
+        assert!(out.contains("key: Control+c"));
     }
 
     #[test]
@@ -3148,7 +3162,9 @@ mod tests {
         };
         let result = ActionResult::ok(json!({"scrolled": "into-view", "selector": "#footer"}));
         let out = format_cli_result(&action, &result);
-        assert!(out.contains("scrolled #footer into view"));
+        assert!(out.contains("ok browser.scroll"));
+        assert!(out.contains("direction: into-view"));
+        assert!(out.contains("target: #footer"));
     }
 
     #[test]
@@ -3191,7 +3207,9 @@ mod tests {
         };
         let result = ActionResult::ok(json!({"cursor": {"x": 42.0, "y": 99.0}}));
         let out = format_cli_result(&action, &result);
-        assert!(out.contains("42,99"));
+        assert!(out.contains("ok browser.cursor-position"));
+        assert!(out.contains("x: 42"));
+        assert!(out.contains("y: 99"));
     }
 
     #[test]
@@ -3254,7 +3272,8 @@ mod tests {
         };
         let result = ActionResult::ok(json!({"found": "#ready"}));
         let out = format_cli_result(&action, &result);
-        assert!(out.contains("found #ready"));
+        assert!(out.contains("ok browser.wait.element"));
+        assert!(out.contains("target: #ready"));
     }
 
     #[test]
@@ -3291,7 +3310,8 @@ mod tests {
             "readyState": "complete"
         }));
         let out = format_cli_result(&action, &result);
-        assert!(out.contains("navigated to https://actionbook.dev/page2"));
+        assert!(out.contains("ok browser.wait.navigation"));
+        assert!(out.contains("url: https://actionbook.dev/page2"));
     }
 
     #[test]
@@ -3320,7 +3340,7 @@ mod tests {
         };
         let result = ActionResult::ok(json!({"network_idle": true}));
         let out = format_cli_result(&action, &result);
-        assert!(out.contains("network idle"));
+        assert!(out.contains("ok browser.wait.network-idle"));
     }
 
     #[test]
@@ -3354,7 +3374,8 @@ mod tests {
         };
         let result = ActionResult::ok(json!({"condition_met": true, "value": true}));
         let out = format_cli_result(&action, &result);
-        assert!(out.contains("condition met: window.loaded"));
+        assert!(out.contains("ok browser.wait.condition"));
+        assert!(out.contains("expression: window.loaded"));
     }
 
     #[test]
