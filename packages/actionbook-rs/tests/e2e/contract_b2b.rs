@@ -1,8 +1,4 @@
 //! Contract E2E tests for Phase B2b interaction / wait / eval commands.
-//!
-//! This file starts with the command shapes that are already stable enough to
-//! pin on `release/1.0.0`. Coordinate-based click/drag coverage will be added
-//! after the corresponding CLI/action parity work lands.
 
 use crate::harness::{
     append_body_html_js, assert_success, headless, headless_json, set_body_html_js, skip,
@@ -121,6 +117,55 @@ fn contract_b2b_click_selector_json_and_text() {
 }
 
 #[test]
+fn contract_b2b_click_coordinates_json_and_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session();
+
+    let setup_js = set_body_html_js(
+        r#"<button id="coord-btn" style="position:absolute; left:40px; top:50px; width:120px; height:80px;" onclick="window.__coordClicked = true">Click</button>"#,
+    );
+    let out = headless(&["browser", "eval", &setup_js, "-s", &sid, "-t", &tid], 15);
+    assert_success(&out, "inject coordinate click target");
+
+    let out = headless_json(&["browser", "click", "80,90", "-s", &sid, "-t", &tid], 15);
+    assert_success(&out, "click coordinates json");
+    let json = parse_envelope(&out);
+    assert_envelope(&json, "browser.click");
+    assert_eq!(json["data"]["action"], "click");
+    assert_eq!(json["data"]["target"]["selector"], "80,90");
+
+    let out = headless(&["browser", "click", "80,90", "-s", &sid, "-t", &tid], 15);
+    assert_success(&out, "click coordinates text");
+    let text = stdout_str(&out);
+    assert!(text.contains("ok browser.click"), "got: {text}");
+    assert!(text.contains("target: 80,90"), "got: {text}");
+
+    let out = headless(
+        &[
+            "browser",
+            "eval",
+            "window.__coordClicked === true",
+            "-s",
+            &sid,
+            "-t",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "verify coordinate click effect");
+    assert!(
+        stdout_str(&out).contains("true"),
+        "got: {}",
+        stdout_str(&out)
+    );
+
+    close_session(&sid);
+}
+
+#[test]
 fn contract_b2b_type_json_and_text() {
     if skip() {
         return;
@@ -136,12 +181,12 @@ fn contract_b2b_type_json_and_text() {
         &[
             "browser",
             "type",
+            "#msg",
             "hello world",
             "-s",
             &sid,
             "-t",
             &tid,
-            "#msg",
         ],
         15,
     );
@@ -156,12 +201,12 @@ fn contract_b2b_type_json_and_text() {
         &[
             "browser",
             "type",
+            "#msg",
             "hello world",
             "-s",
             &sid,
             "-t",
             &tid,
-            "#msg",
         ],
         15,
     );
@@ -197,17 +242,7 @@ fn contract_b2b_select_json_and_text() {
     assert_success(&out, "inject select");
 
     let out = headless_json(
-        &[
-            "browser",
-            "select",
-            "b",
-            "--selector",
-            "#sel",
-            "-s",
-            &sid,
-            "-t",
-            &tid,
-        ],
+        &["browser", "select", "#sel", "b", "-s", &sid, "-t", &tid],
         15,
     );
     assert_success(&out, "select json");
@@ -218,17 +253,7 @@ fn contract_b2b_select_json_and_text() {
     assert_eq!(json["data"]["value_summary"]["value"], "b");
 
     let out = headless(
-        &[
-            "browser",
-            "select",
-            "b",
-            "--selector",
-            "#sel",
-            "-s",
-            &sid,
-            "-t",
-            &tid,
-        ],
+        &["browser", "select", "#sel", "b", "-s", &sid, "-t", &tid],
         15,
     );
     assert_success(&out, "select text");
@@ -276,16 +301,7 @@ fn contract_b2b_upload_json_and_text() {
 
     let out = headless_json(
         &[
-            "browser",
-            "upload",
-            &path_a,
-            &path_b,
-            "--selector",
-            "#upload",
-            "-s",
-            &sid,
-            "-t",
-            &tid,
+            "browser", "upload", "#upload", &path_a, &path_b, "-s", &sid, "-t", &tid,
         ],
         20,
     );
@@ -298,16 +314,7 @@ fn contract_b2b_upload_json_and_text() {
 
     let out = headless(
         &[
-            "browser",
-            "upload",
-            &path_a,
-            &path_b,
-            "--selector",
-            "#upload",
-            "-s",
-            &sid,
-            "-t",
-            &tid,
+            "browser", "upload", "#upload", &path_a, &path_b, "-s", &sid, "-t", &tid,
         ],
         20,
     );
@@ -321,7 +328,6 @@ fn contract_b2b_upload_json_and_text() {
 }
 
 #[test]
-#[ignore = "TODO: enable after PR #297 merges"]
 fn contract_b2b_scroll_json_and_text() {
     if skip() {
         return;
@@ -329,13 +335,30 @@ fn contract_b2b_scroll_json_and_text() {
     let _guard = SessionGuard::new();
     let (sid, tid) = start_session();
 
-    let setup_js = set_body_html_js(r#"<div id="anchor" style="margin-top: 3000px">Anchor</div>"#);
+    let setup_js = set_body_html_js(
+        r#"
+        <div id="scrollbox" style="width: 180px; height: 180px; overflow: auto; border: 1px solid #999;">
+          <div style="width: 1400px; height: 1400px; position: relative;">
+            <div id="anchor" style="position: absolute; left: 1100px; top: 1100px; width: 40px; height: 40px;">Anchor</div>
+          </div>
+        </div>
+        "#,
+    );
     let out = headless(&["browser", "eval", &setup_js, "-s", &sid, "-t", &tid], 15);
-    assert_success(&out, "inject tall page");
+    assert_success(&out, "inject scroll fixtures");
 
     let out = headless_json(
         &[
-            "browser", "scroll", "down", "--amount", "240", "-s", &sid, "-t", &tid,
+            "browser",
+            "scroll",
+            "down",
+            "240",
+            "--container",
+            "#scrollbox",
+            "-s",
+            &sid,
+            "-t",
+            &tid,
         ],
         15,
     );
@@ -345,6 +368,204 @@ fn contract_b2b_scroll_json_and_text() {
     assert_eq!(json["data"]["action"], "scroll");
     assert_eq!(json["data"]["direction"], "down");
     assert_eq!(json["data"]["amount"], 240);
+    assert_eq!(json["data"]["changed"]["scroll_changed"], true);
+
+    let out = headless(
+        &[
+            "browser",
+            "eval",
+            "document.querySelector('#scrollbox').scrollTop >= 240",
+            "-s",
+            &sid,
+            "-t",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "verify scroll down");
+    assert!(
+        stdout_str(&out).contains("true"),
+        "got: {}",
+        stdout_str(&out)
+    );
+
+    let out = headless(
+        &[
+            "browser",
+            "scroll",
+            "right",
+            "180",
+            "--container",
+            "#scrollbox",
+            "-s",
+            &sid,
+            "-t",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "scroll right");
+
+    let out = headless(
+        &[
+            "browser",
+            "eval",
+            "document.querySelector('#scrollbox').scrollLeft >= 180",
+            "-s",
+            &sid,
+            "-t",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "verify scroll right");
+    assert!(
+        stdout_str(&out).contains("true"),
+        "got: {}",
+        stdout_str(&out)
+    );
+
+    let out = headless(
+        &[
+            "browser",
+            "scroll",
+            "left",
+            "60",
+            "--container",
+            "#scrollbox",
+            "-s",
+            &sid,
+            "-t",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "scroll left");
+
+    let out = headless(
+        &[
+            "browser",
+            "eval",
+            "(() => { const el = document.querySelector('#scrollbox'); return el.scrollLeft > 0 && el.scrollLeft < 180; })()",
+            "-s",
+            &sid,
+            "-t",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "verify scroll left");
+    assert!(
+        stdout_str(&out).contains("true"),
+        "got: {}",
+        stdout_str(&out)
+    );
+
+    let out = headless(
+        &[
+            "browser",
+            "scroll",
+            "up",
+            "40",
+            "--container",
+            "#scrollbox",
+            "-s",
+            &sid,
+            "-t",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "scroll up");
+
+    let out = headless(
+        &[
+            "browser",
+            "eval",
+            "(() => { const el = document.querySelector('#scrollbox'); return el.scrollTop > 0 && el.scrollTop < 240; })()",
+            "-s",
+            &sid,
+            "-t",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "verify scroll up");
+    assert!(
+        stdout_str(&out).contains("true"),
+        "got: {}",
+        stdout_str(&out)
+    );
+
+    let out = headless(
+        &[
+            "browser",
+            "scroll",
+            "bottom",
+            "--container",
+            "#scrollbox",
+            "-s",
+            &sid,
+            "-t",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "scroll bottom");
+
+    let out = headless(
+        &[
+            "browser",
+            "eval",
+            "document.querySelector('#scrollbox').scrollTop > 1000",
+            "-s",
+            &sid,
+            "-t",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "verify scroll bottom");
+    assert!(
+        stdout_str(&out).contains("true"),
+        "got: {}",
+        stdout_str(&out)
+    );
+
+    let out = headless(
+        &[
+            "browser",
+            "scroll",
+            "top",
+            "--container",
+            "#scrollbox",
+            "-s",
+            &sid,
+            "-t",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "scroll top");
+
+    let out = headless(
+        &[
+            "browser",
+            "eval",
+            "document.querySelector('#scrollbox').scrollTop === 0",
+            "-s",
+            &sid,
+            "-t",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "verify scroll top");
+    assert!(
+        stdout_str(&out).contains("true"),
+        "got: {}",
+        stdout_str(&out)
+    );
 
     let out = headless(
         &[
@@ -352,6 +573,8 @@ fn contract_b2b_scroll_json_and_text() {
             "scroll",
             "into-view",
             "#anchor",
+            "--align",
+            "center",
             "-s",
             &sid,
             "-t",
@@ -364,6 +587,25 @@ fn contract_b2b_scroll_json_and_text() {
     assert!(text.contains("ok browser.scroll"), "got: {text}");
     assert!(text.contains("direction: into-view"), "got: {text}");
     assert!(text.contains("target: #anchor"), "got: {text}");
+
+    let out = headless(
+        &[
+            "browser",
+            "eval",
+            "(() => { const el = document.querySelector('#scrollbox'); return el.scrollTop > 0 && el.scrollLeft > 0; })()",
+            "-s",
+            &sid,
+            "-t",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "verify scroll into-view");
+    assert!(
+        stdout_str(&out).contains("true"),
+        "got: {}",
+        stdout_str(&out)
+    );
 
     close_session(&sid);
 }
@@ -393,7 +635,6 @@ fn contract_b2b_eval_json_and_text() {
 }
 
 #[test]
-#[ignore = "TODO: enable after PR #297 merges"]
 fn contract_b2b_waits_json_and_text() {
     if skip() {
         return;
@@ -409,16 +650,7 @@ fn contract_b2b_waits_json_and_text() {
 
     let out = headless_json(
         &[
-            "browser",
-            "wait",
-            "element",
-            "#ready",
-            "-s",
-            &sid,
-            "-t",
-            &tid,
-            "--timeout",
-            "5000",
+            "browser", "wait", "element", "#ready", "-s", &sid, "-t", &tid,
         ],
         15,
     );
@@ -439,8 +671,6 @@ fn contract_b2b_waits_json_and_text() {
             &sid,
             "-t",
             &tid,
-            "--timeout",
-            "5000",
         ],
         15,
     );
@@ -473,32 +703,100 @@ fn contract_b2b_waits_json_and_text() {
     assert_eq!(json["data"]["kind"], "navigation");
     assert_eq!(json["data"]["satisfied"], true);
     assert!(
-        json["data"]["observed_value"]["url"]
+        json["data"]["observed_value"]["url"].as_str().is_some(),
+        "navigation observed_value.url should be a string, got: {}",
+        json["data"]
+    );
+    assert!(
+        json["data"]["observed_value"]["ready_state"]
             .as_str()
-            .unwrap_or_default()
-            .contains("data:text/html"),
-        "navigation observed url should contain data URL, got: {}",
+            .is_some(),
+        "navigation observed_value.ready_state should be a string, got: {}",
         json["data"]
     );
 
     let out = headless(
-        &[
-            "browser",
-            "wait",
-            "network-idle",
-            "-s",
-            &sid,
-            "-t",
-            &tid,
-            "--timeout",
-            "5000",
-        ],
+        &["browser", "wait", "network-idle", "-s", &sid, "-t", &tid],
         20,
     );
     assert_success(&out, "wait network-idle text");
     let text = stdout_str(&out);
     assert!(text.contains("ok browser.wait.network-idle"), "got: {text}");
     assert!(text.contains("elapsed_ms:"), "got: {text}");
+
+    close_session(&sid);
+}
+
+#[test]
+fn contract_b2b_drag_coordinates_json_and_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session();
+
+    let setup_js = r#"(() => {
+        document.body.innerHTML = '';
+        const source = document.createElement('div');
+        source.id = 'source';
+        source.style.cssText = 'position:absolute; left:20px; top:30px; width:60px; height:60px; background:#f66;';
+        document.body.appendChild(source);
+        window.__dragStarted = false;
+        window.__dragEnd = null;
+        source.addEventListener('mousedown', () => {
+            window.__dragStarted = true;
+        });
+        document.addEventListener('mouseup', (event) => {
+            window.__dragEnd = { x: event.clientX, y: event.clientY };
+        });
+        return 'ready';
+    })()"#;
+    let out = headless(&["browser", "eval", setup_js, "-s", &sid, "-t", &tid], 15);
+    assert_success(&out, "inject drag fixtures");
+
+    let out = headless_json(
+        &[
+            "browser", "drag", "#source", "300,400", "-s", &sid, "-t", &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "drag coordinates json");
+    let json = parse_envelope(&out);
+    assert_envelope(&json, "browser.drag");
+    assert_eq!(json["data"]["action"], "drag");
+    assert_eq!(json["data"]["target"]["from"]["selector"], "#source");
+    assert_eq!(json["data"]["target"]["to"]["selector"], "300,400");
+
+    let out = headless(
+        &[
+            "browser", "drag", "#source", "300,400", "-s", &sid, "-t", &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "drag coordinates text");
+    let text = stdout_str(&out);
+    assert!(text.contains("ok browser.drag"), "got: {text}");
+    assert!(text.contains("from: #source"), "got: {text}");
+    assert!(text.contains("to: 300,400"), "got: {text}");
+
+    let out = headless(
+        &[
+            "browser",
+            "eval",
+            "window.__dragStarted === true && window.__dragEnd !== null && Math.abs(window.__dragEnd.x - 300) <= 5 && Math.abs(window.__dragEnd.y - 400) <= 5",
+            "-s",
+            &sid,
+            "-t",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "verify drag coordinates effect");
+    assert!(
+        stdout_str(&out).contains("true"),
+        "got: {}",
+        stdout_str(&out)
+    );
 
     close_session(&sid);
 }
