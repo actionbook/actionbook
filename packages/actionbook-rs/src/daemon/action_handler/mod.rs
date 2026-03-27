@@ -927,7 +927,24 @@ mod tests {
 
     #[tokio::test]
     async fn snapshot_sends_get_accessibility_tree() {
-        let tree = json!({"nodes": [{"role": "button", "name": "Submit"}]});
+        // Provide a valid CDP Accessibility.getFullAXTree response structure
+        let tree = json!({"nodes": [
+            {
+                "nodeId": "1",
+                "role": {"type": "role", "value": "RootWebArea"},
+                "name": {"type": "computedString", "value": "Test"},
+                "childIds": ["2"],
+                "properties": []
+            },
+            {
+                "nodeId": "2",
+                "backendDOMNodeId": 10,
+                "role": {"type": "role", "value": "button"},
+                "name": {"type": "computedString", "value": "Submit"},
+                "childIds": [],
+                "properties": []
+            }
+        ]});
         let mut backend = MockBackendSession::new(vec![Ok(OpResult::new(tree.clone()))]);
         let mut regs = make_regs_with_tab();
         let sid = SessionId::new_unchecked("local-1");
@@ -954,6 +971,14 @@ mod tests {
             &backend.ops()[0],
             BackendOp::GetAccessibilityTree { .. }
         ));
+
+        // Verify PRD 10.1 shape in response
+        if let ActionResult::Ok { data } = &result {
+            assert_eq!(data["format"], "snapshot");
+            assert!(data["content"].as_str().unwrap().contains("button"));
+            assert!(!data["nodes"].as_array().unwrap().is_empty());
+            assert!(data["stats"]["node_count"].as_u64().unwrap() > 0);
+        }
     }
 
     #[tokio::test]

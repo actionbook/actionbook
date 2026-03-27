@@ -1129,67 +1129,26 @@ fn observation_context(action: &Action, result: &ActionResult) -> Option<Value> 
 fn normalize_observation_data(action: &Action, data: &Value) -> Value {
     match action {
         Action::Snapshot { .. } => {
-            // Handler embeds __tree (string), __ctx_url, __ctx_title.
-            // __ctx_* are consumed by observation_context; strip them here.
+            // Handler now returns PRD 10.1 shape with real parsed nodes/stats.
+            // Extract fields, stripping internal __ctx_* keys.
             let content = data
-                .get("__tree")
+                .get("content")
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| match data {
-                    Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                });
-            // Preserve nodes/stats if already present in the raw data.
+                .unwrap_or("")
+                .to_string();
             let nodes = data
                 .get("nodes")
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!([]));
-            // Derive node_count from non-empty content lines when not already provided.
-            let derived_node_count = content.lines().filter(|l| !l.trim().is_empty()).count();
-            // Derive interactive_count from lines containing interactive ARIA roles.
-            const INTERACTIVE_ROLES: &[&str] = &[
-                "button",
-                "link",
-                "textbox",
-                "checkbox",
-                "radio",
-                "combobox",
-                "menuitem",
-                "tab",
-                "switch",
-                "slider",
-                "spinbutton",
-                "searchbox",
-                "option",
-                "menuitemcheckbox",
-                "menuitemradio",
-            ];
-            let derived_interactive_count = content
-                .lines()
-                .filter(|line| {
-                    let lower = line.to_lowercase();
-                    INTERACTIVE_ROLES.iter().any(|role| lower.contains(role))
-                })
-                .count() as u64;
-            let node_count = data
+            let stats = data
                 .get("stats")
-                .and_then(|s| s.get("node_count"))
-                .and_then(|v| v.as_u64())
-                .map(|n| n as usize)
-                .unwrap_or(derived_node_count);
-            let interactive_count = data
-                .get("stats")
-                .and_then(|s| s.get("interactive_count"))
-                .and_then(|v| v.as_u64())
-                .unwrap_or(derived_interactive_count);
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
             serde_json::json!({
                 "format": "snapshot",
                 "content": content,
                 "nodes": nodes,
-                "stats": {
-                    "node_count": node_count,
-                    "interactive_count": interactive_count
-                }
+                "stats": stats
             })
         }
         Action::Title { .. } => {
@@ -1368,9 +1327,8 @@ fn format_observation_text(action: &Action, result: &ActionResult) -> Option<Str
             let prefix = prefixed_header(&session_id, Some(&tab_id), None);
             match action {
                 Action::Snapshot { .. } => {
-                    // Handler wraps the tree as {"__ctx_url": ..., "__ctx_title": ..., "__tree": "..."}
-                    // Extract the tree text from __tree; fall back to string/pretty-print.
-                    data.get("__tree")
+                    // Handler returns PRD shape with "content" field containing tree text.
+                    data.get("content")
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| {

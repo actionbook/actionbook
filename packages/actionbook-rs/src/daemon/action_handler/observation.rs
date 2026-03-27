@@ -1,6 +1,9 @@
 use super::*;
+use crate::browser::snapshot::{
+    format_compact, parse_ax_tree, remove_empty_leaves, SnapshotFilter,
+};
 
-/// Interactive ARIA roles used by the snapshot `--interactive` filter.
+/// Interactive ARIA roles used for counting interactive nodes in snapshot stats.
 const INTERACTIVE_ROLES: &[&str] = &[
     "button",
     "link",
@@ -18,52 +21,6 @@ const INTERACTIVE_ROLES: &[&str] = &[
     "menuitemcheckbox",
     "menuitemradio",
 ];
-
-/// Filter snapshot text to only interactive-role lines.
-fn filter_interactive(text: &str) -> String {
-    text.lines()
-        .filter(|line| {
-            let lower = line.to_lowercase();
-            INTERACTIVE_ROLES.iter().any(|role| lower.contains(role))
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Strip empty lines from snapshot text.
-fn filter_compact(text: &str) -> String {
-    text.lines()
-        .filter(|line| !line.trim().is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Truncate snapshot tree to a maximum indentation depth.
-fn filter_depth(text: &str, max_depth: u32) -> String {
-    text.lines()
-        .filter(|line| {
-            let indent = line.len() - line.trim_start().len();
-            indent / 2 <= max_depth as usize
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Wrap filtered snapshot output with optional cursor / selector metadata.
-fn wrap_snapshot_data(output: &str, cursor: bool, selector: Option<&str>) -> serde_json::Value {
-    let mut data = json!(output);
-    if cursor {
-        data = json!({"tree": output, "cursor": true});
-    }
-    if selector.is_some() {
-        if let serde_json::Value::Object(ref mut map) = data {
-            map.insert("selector".to_string(), json!(selector));
-        } else {
-            data = json!({"tree": output, "selector": selector});
-        }
-    }
-    data
-}
 
 const ENSURE_LOG_CAPTURE_JS: &str = r#"(function() {
     if (!window.__ab_console_logs) {
@@ -161,42 +118,71 @@ pub(super) async fn handle_snapshot(
 
     match backend.exec(op).await {
         Ok(result) => {
-            if !interactive && !compact && !cursor && depth.is_none() && selector.is_none() {
-                // Embed context metadata so the formatter can populate url/title.
-                let tree_str = match result.value {
-                    serde_json::Value::String(ref s) => s.clone(),
-                    ref other => other.to_string(),
-                };
-                return ActionResult::ok(json!({
-                    "__ctx_url": ctx_url,
-                    "__ctx_title": ctx_title,
-                    "__tree": tree_str
-                }));
-            }
-
-            // Extract the string content from the JSON value for filtering.
-            let text = match result.value {
-                serde_json::Value::String(ref s) => s.clone(),
-                ref other => other.to_string(),
+            let filter = if interactive {
+                SnapshotFilter::Interactive
+            } else {
+                SnapshotFilter::All
             };
+            let max_depth_usize = depth.map(|d| d as usize);
 
-            let mut output = text;
+            // Parse the raw CDP accessibility tree into structured A11yNodes.
+            let (mut nodes, _cache) =
+                match parse_ax_tree(result.value, filter, max_depth_usize, None) {
+                    Ok(parsed) => parsed,
+                    Err(_) => {
+                        return ActionResult::fatal(
+                            "SNAPSHOT_PARSE_ERROR",
+                            "Failed to parse accessibility tree",
+                            "Check that the page has loaded and try again",
+                        );
+                    }
+                };
 
-            if interactive {
-                output = filter_interactive(&output);
-            }
             if compact {
-                output = filter_compact(&output);
+                nodes = remove_empty_leaves(&nodes);
             }
-            if let Some(max_depth) = depth {
-                output = filter_depth(&output, max_depth);
-            }
+
+            // Render text content from parsed nodes.
+            let content = format_compact(&nodes);
+
+            // Build PRD 10.1 nodes array: only nodes with refs.
+            let interactive_set: std::collections::HashSet<&str> =
+                INTERACTIVE_ROLES.iter().copied().collect();
+            let prd_nodes: Vec<serde_json::Value> = nodes
+                .iter()
+                .filter(|n| n.ref_id.is_some())
+                .map(|n| {
+                    json!({
+                        "ref": n.ref_id.as_deref().unwrap_or(""),
+                        "role": n.role,
+                        "name": n.name,
+                        "value": n.value.as_deref().unwrap_or("")
+                    })
+                })
+                .collect();
+
+            let interactive_count = prd_nodes
+                .iter()
+                .filter(|n| {
+                    n.get("role")
+                        .and_then(|v| v.as_str())
+                        .map(|r| interactive_set.contains(r))
+                        .unwrap_or(false)
+                })
+                .count();
 
             let mut data = json!({
                 "__ctx_url": ctx_url,
                 "__ctx_title": ctx_title,
-                "__tree": output
+                "format": "snapshot",
+                "content": content,
+                "nodes": prd_nodes,
+                "stats": {
+                    "node_count": prd_nodes.len(),
+                    "interactive_count": interactive_count
+                }
             });
+
             if cursor {
                 if let serde_json::Value::Object(ref mut map) = data {
                     map.insert("cursor".to_string(), json!(true));
@@ -1213,134 +1199,158 @@ pub(super) async fn handle_logs_errors(
 mod tests {
     use super::*;
 
-    // -- filter_interactive tests --
+    // -- INTERACTIVE_ROLES tests --
 
     #[test]
-    fn filter_interactive_keeps_button_lines() {
-        let input = "root\n  button Submit\n  div Container\n  link Home";
-        let result = filter_interactive(input);
-        assert!(result.contains("button Submit"));
-        assert!(result.contains("link Home"));
-        assert!(!result.contains("div Container"));
-        assert!(!result.contains("root"));
+    fn interactive_roles_contains_expected_roles() {
+        assert!(INTERACTIVE_ROLES.contains(&"button"));
+        assert!(INTERACTIVE_ROLES.contains(&"link"));
+        assert!(INTERACTIVE_ROLES.contains(&"textbox"));
+        assert!(INTERACTIVE_ROLES.contains(&"checkbox"));
+        assert!(INTERACTIVE_ROLES.contains(&"menuitemradio"));
+    }
+
+    // -- Snapshot parsing tests using parse_ax_tree --
+
+    #[test]
+    fn snapshot_parse_produces_prd_nodes() {
+        // Simulate a minimal CDP Accessibility.getFullAXTree response
+        let cdp_response = json!({
+            "nodes": [
+                {
+                    "nodeId": "1",
+                    "role": {"type": "role", "value": "RootWebArea"},
+                    "name": {"type": "computedString", "value": "Test Page"},
+                    "childIds": ["2", "3"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "2",
+                    "backendDOMNodeId": 10,
+                    "role": {"type": "role", "value": "button"},
+                    "name": {"type": "computedString", "value": "Submit"},
+                    "childIds": [],
+                    "properties": []
+                },
+                {
+                    "nodeId": "3",
+                    "backendDOMNodeId": 11,
+                    "role": {"type": "role", "value": "link"},
+                    "name": {"type": "computedString", "value": "Home"},
+                    "childIds": [],
+                    "properties": []
+                }
+            ]
+        });
+
+        let (nodes, _cache) = parse_ax_tree(cdp_response, SnapshotFilter::All, None, None).unwrap();
+
+        // Should have 2 nodes (RootWebArea is unwrapped)
+        assert_eq!(nodes.len(), 2);
+        assert_eq!(nodes[0].role, "button");
+        assert_eq!(nodes[0].name, "Submit");
+        assert!(nodes[0].ref_id.is_some());
+        assert_eq!(nodes[1].role, "link");
+        assert_eq!(nodes[1].name, "Home");
+        assert!(nodes[1].ref_id.is_some());
     }
 
     #[test]
-    fn filter_interactive_is_case_insensitive() {
-        let input = "  Button Login\n  LINK Signup\n  TextBox Email";
-        let result = filter_interactive(input);
-        assert_eq!(result.lines().count(), 3);
+    fn snapshot_interactive_filter_via_parse() {
+        let cdp_response = json!({
+            "nodes": [
+                {
+                    "nodeId": "1",
+                    "role": {"type": "role", "value": "RootWebArea"},
+                    "name": {"type": "computedString", "value": ""},
+                    "childIds": ["2", "3"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "2",
+                    "backendDOMNodeId": 10,
+                    "role": {"type": "role", "value": "button"},
+                    "name": {"type": "computedString", "value": "Click"},
+                    "childIds": [],
+                    "properties": []
+                },
+                {
+                    "nodeId": "3",
+                    "backendDOMNodeId": 11,
+                    "role": {"type": "role", "value": "heading"},
+                    "name": {"type": "computedString", "value": "Title"},
+                    "childIds": [],
+                    "properties": [
+                        {"name": "level", "value": {"type": "integer", "value": 1}}
+                    ]
+                }
+            ]
+        });
+
+        let (nodes, _cache) =
+            parse_ax_tree(cdp_response, SnapshotFilter::Interactive, None, None).unwrap();
+
+        // Only the button should remain (heading is content, not interactive)
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].role, "button");
     }
 
     #[test]
-    fn filter_interactive_returns_empty_for_no_matches() {
-        let input = "div\n  span\n  img";
-        let result = filter_interactive(input);
-        assert!(result.is_empty());
-    }
+    fn snapshot_prd_node_shape() {
+        let cdp_response = json!({
+            "nodes": [
+                {
+                    "nodeId": "1",
+                    "role": {"type": "role", "value": "RootWebArea"},
+                    "name": {"type": "computedString", "value": ""},
+                    "childIds": ["2"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "2",
+                    "backendDOMNodeId": 10,
+                    "role": {"type": "role", "value": "textbox"},
+                    "name": {"type": "computedString", "value": "Search"},
+                    "value": {"type": "string", "value": "hello"},
+                    "childIds": [],
+                    "properties": []
+                }
+            ]
+        });
 
-    #[test]
-    fn filter_interactive_all_roles_recognized() {
-        for role in INTERACTIVE_ROLES {
-            let line = format!("  {} test", role);
-            let result = filter_interactive(&line);
-            assert!(
-                !result.is_empty(),
-                "role '{}' should be recognized as interactive",
-                role
-            );
-        }
-    }
+        let (nodes, _cache) = parse_ax_tree(cdp_response, SnapshotFilter::All, None, None).unwrap();
 
-    // -- filter_compact tests --
+        // Build PRD node shape
+        let interactive_set: std::collections::HashSet<&str> =
+            INTERACTIVE_ROLES.iter().copied().collect();
+        let prd_nodes: Vec<serde_json::Value> = nodes
+            .iter()
+            .filter(|n| n.ref_id.is_some())
+            .map(|n| {
+                json!({
+                    "ref": n.ref_id.as_deref().unwrap_or(""),
+                    "role": n.role,
+                    "name": n.name,
+                    "value": n.value.as_deref().unwrap_or("")
+                })
+            })
+            .collect();
 
-    #[test]
-    fn filter_compact_removes_empty_lines() {
-        let input = "line1\n\n  \n\nline2\n   \nline3";
-        let result = filter_compact(input);
-        assert_eq!(result, "line1\nline2\nline3");
-    }
+        assert_eq!(prd_nodes.len(), 1);
+        assert_eq!(prd_nodes[0]["ref"], "e0");
+        assert_eq!(prd_nodes[0]["role"], "textbox");
+        assert_eq!(prd_nodes[0]["name"], "Search");
+        assert_eq!(prd_nodes[0]["value"], "hello");
 
-    #[test]
-    fn filter_compact_preserves_indentation() {
-        let input = "  indented\n\n    deeper";
-        let result = filter_compact(input);
-        assert_eq!(result, "  indented\n    deeper");
-    }
-
-    #[test]
-    fn filter_compact_handles_already_compact() {
-        let input = "line1\nline2";
-        let result = filter_compact(input);
-        assert_eq!(result, "line1\nline2");
-    }
-
-    // -- filter_depth tests --
-
-    #[test]
-    fn filter_depth_zero_keeps_root_only() {
-        let input = "root\n  child\n    grandchild";
-        let result = filter_depth(input, 0);
-        assert_eq!(result, "root");
-    }
-
-    #[test]
-    fn filter_depth_one_keeps_first_level() {
-        let input = "root\n  child1\n  child2\n    grandchild";
-        let result = filter_depth(input, 1);
-        assert_eq!(result, "root\n  child1\n  child2");
-    }
-
-    #[test]
-    fn filter_depth_large_value_keeps_all() {
-        let input = "root\n  child\n    grandchild\n      deep";
-        let result = filter_depth(input, 100);
-        assert_eq!(result, input);
-    }
-
-    // -- wrap_snapshot_data tests --
-
-    #[test]
-    fn wrap_snapshot_plain() {
-        let data = wrap_snapshot_data("tree text", false, None);
-        assert_eq!(data, json!("tree text"));
-    }
-
-    #[test]
-    fn wrap_snapshot_with_cursor() {
-        let data = wrap_snapshot_data("tree text", true, None);
-        assert_eq!(data["tree"], "tree text");
-        assert_eq!(data["cursor"], true);
-    }
-
-    #[test]
-    fn wrap_snapshot_with_selector() {
-        let data = wrap_snapshot_data("tree text", false, Some("#main"));
-        assert_eq!(data["tree"], "tree text");
-        assert_eq!(data["selector"], "#main");
-    }
-
-    #[test]
-    fn wrap_snapshot_with_cursor_and_selector() {
-        let data = wrap_snapshot_data("tree text", true, Some("div.content"));
-        assert_eq!(data["tree"], "tree text");
-        assert_eq!(data["cursor"], true);
-        assert_eq!(data["selector"], "div.content");
-    }
-
-    // -- combined filter tests --
-
-    #[test]
-    fn filter_interactive_then_compact() {
-        let input = "root\n\n  button Submit\n\n  div Container\n\n  link Home\n\n";
-        let result = filter_compact(&filter_interactive(input));
-        assert_eq!(result, "  button Submit\n  link Home");
-    }
-
-    #[test]
-    fn filter_interactive_then_depth() {
-        let input = "root\n  button Submit\n    link Nested\n      checkbox Deep";
-        let result = filter_depth(&filter_interactive(input), 1);
-        assert_eq!(result, "  button Submit");
+        let interactive_count = prd_nodes
+            .iter()
+            .filter(|n| {
+                n.get("role")
+                    .and_then(|v| v.as_str())
+                    .map(|r| interactive_set.contains(r))
+                    .unwrap_or(false)
+            })
+            .count();
+        assert_eq!(interactive_count, 1);
     }
 }
