@@ -2500,8 +2500,12 @@ mod tests {
             matches!(action, Action::Scroll { direction, amount: None, .. } if direction == "top")
         );
 
-        let (action, _) =
-            build_action(BrowserCmd::Scroll(ScrollCmd::Bottom { session, tab, container: None })).unwrap();
+        let (action, _) = build_action(BrowserCmd::Scroll(ScrollCmd::Bottom {
+            session,
+            tab,
+            container: None,
+        }))
+        .unwrap();
         assert!(
             matches!(action, Action::Scroll { direction, amount: None, .. } if direction == "bottom")
         );
