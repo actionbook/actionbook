@@ -2986,6 +2986,127 @@ mod tests {
     }
 
     #[test]
+    fn interaction_text_type() {
+        let action = Action::Type {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            selector: "#input".into(),
+            text: "hello".into(),
+        };
+        let result = ActionResult::ok(json!({"typed": "hello", "selector": "#input"}));
+        let out = format_cli_result(&action, &result);
+        assert!(out.contains("ok browser.type"));
+        assert!(out.contains("target: #input"));
+        assert!(out.contains("text: hello"));
+    }
+
+    #[test]
+    fn interaction_text_fill() {
+        let action = Action::Fill {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            selector: "#email".into(),
+            value: "test@example.com".into(),
+        };
+        let result = ActionResult::ok(json!({"filled": "#email", "value": "test@example.com"}));
+        let out = format_cli_result(&action, &result);
+        assert!(out.contains("ok browser.fill"));
+        assert!(out.contains("target: #email"));
+        assert!(out.contains("value: test@example.com"));
+    }
+
+    #[test]
+    fn interaction_text_select() {
+        let action = Action::Select {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            selector: "#dropdown".into(),
+            value: "option-2".into(),
+            by_text: false,
+        };
+        let result = ActionResult::ok(json!({"selected": "option-2", "selector": "#dropdown"}));
+        let out = format_cli_result(&action, &result);
+        assert!(out.contains("ok browser.select"));
+        assert!(out.contains("target: #dropdown"));
+        assert!(out.contains("value: option-2"));
+    }
+
+    #[test]
+    fn interaction_text_hover() {
+        let action = Action::Hover {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            selector: "#menu".into(),
+        };
+        let result = ActionResult::ok(json!({"hovered": "#menu", "x": 50, "y": 60}));
+        let out = format_cli_result(&action, &result);
+        assert!(out.contains("ok browser.hover"));
+        assert!(out.contains("target: #menu"));
+    }
+
+    #[test]
+    fn interaction_text_focus() {
+        let action = Action::Focus {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            selector: "#search".into(),
+        };
+        let result = ActionResult::ok(json!({"focused": "#search"}));
+        let out = format_cli_result(&action, &result);
+        assert!(out.contains("ok browser.focus"));
+        assert!(out.contains("target: #search"));
+    }
+
+    #[test]
+    fn interaction_text_drag() {
+        let action = Action::Drag {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            from_selector: "#source".into(),
+            to_selector: "#target".into(),
+        };
+        let result = ActionResult::ok(json!({
+            "dragged": {"from": "#source", "to": "#target"},
+            "from": {"x": 10, "y": 20},
+            "to": {"x": 100, "y": 200}
+        }));
+        let out = format_cli_result(&action, &result);
+        assert!(out.contains("ok browser.drag"));
+        assert!(out.contains("from: #source"));
+        assert!(out.contains("to: #target"));
+    }
+
+    #[test]
+    fn interaction_text_upload() {
+        let action = Action::Upload {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            selector: "#file-input".into(),
+            files: vec!["a.txt".into(), "b.txt".into()],
+        };
+        let result = ActionResult::ok(json!({"uploaded": 2, "selector": "#file-input"}));
+        let out = format_cli_result(&action, &result);
+        assert!(out.contains("ok browser.upload"));
+        assert!(out.contains("target: #file-input"));
+        assert!(out.contains("count: 2"));
+    }
+
+    #[test]
+    fn interaction_text_mouse_move() {
+        let action = Action::MouseMove {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            x: 150.5,
+            y: 250.0,
+        };
+        let result = ActionResult::ok(json!({"moved": {"x": 150.5, "y": 250.0}}));
+        let out = format_cli_result(&action, &result);
+        assert!(out.contains("ok browser.mouse-move"));
+        assert!(out.contains("x: 150.5"));
+        assert!(out.contains("y: 250"));
+    }
+
+    #[test]
     fn interaction_json_type() {
         let action = Action::Type {
             session: SessionId::new_unchecked("local-1"),
