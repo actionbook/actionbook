@@ -159,40 +159,35 @@ pub fn ensure_no_sessions() {
 
 // ── Trusted HTML helpers ────────────────────────────────────────────
 
-/// Generate JS that sets `document.body` content, compatible with
-/// Chrome 146+ Trusted Types enforcement.
-///
-/// Uses `<template>` element whose `innerHTML` is exempt from
-/// TrustedTypes — no policy creation needed.
-#[allow(dead_code)]
-pub fn set_body_html_js(html: &str) -> String {
+fn trusted_types_template_js(html: &str, clear_body: bool) -> String {
     let escaped = html
         .replace('\\', "\\\\")
         .replace('\'', "\\'")
         .replace('\n', "\\n")
         .replace('\r', "\\r");
+    let clear = if clear_body {
+        "document.body.textContent='';"
+    } else {
+        ""
+    };
     format!(
-        "(function(){{ document.body.textContent=''; var t=document.createElement('template'); t.innerHTML='{}'; document.body.append(t.content); }})()",
-        escaped
+        "(function(){{ var html='{}'; var t=document.createElement('template'); var content=html; if (window.trustedTypes && window.trustedTypes.createPolicy) {{ if (!window.__actionbookE2eTrustedTypesPolicy) {{ try {{ window.__actionbookE2eTrustedTypesPolicy = window.trustedTypes.createPolicy('actionbook-e2e', {{ createHTML: function(s) {{ return s; }} }}); }} catch (e) {{}} }} if (window.__actionbookE2eTrustedTypesPolicy) {{ content = window.__actionbookE2eTrustedTypesPolicy.createHTML(html); }} }} {} t.innerHTML = content; document.body.append(t.content); }})()",
+        escaped, clear
     )
+}
+
+/// Generate JS that sets `document.body` content, compatible with
+/// Chrome 146+ Trusted Types enforcement.
+#[allow(dead_code)]
+pub fn set_body_html_js(html: &str) -> String {
+    trusted_types_template_js(html, true)
 }
 
 /// Generate JS that appends HTML to `document.body`, compatible
 /// with Chrome 146+ Trusted Types enforcement.
-///
-/// Uses `<template>` element whose `innerHTML` is exempt from
-/// TrustedTypes — no policy creation needed.
 #[allow(dead_code)]
 pub fn append_body_html_js(html: &str) -> String {
-    let escaped = html
-        .replace('\\', "\\\\")
-        .replace('\'', "\\'")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r");
-    format!(
-        "(function(){{ var t=document.createElement('template'); t.innerHTML='{}'; document.body.append(t.content); }})()",
-        escaped
-    )
+    trusted_types_template_js(html, false)
 }
 
 // ── Assertions ──────────────────────────────────────────────────────

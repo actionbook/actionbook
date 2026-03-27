@@ -513,6 +513,74 @@ fn int_fill_s1t2_isolation() {
     assert_success(&out, "close");
 }
 
+#[test]
+fn int_fill_helper_stays_trusted_types_safe() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let trusted_types_url = "data:text/html,%3Cmeta%20http-equiv%3D%22Content-Security-Policy%22%20content%3D%22require-trusted-types-for%20%27script%27%3B%20trusted-types%20actionbook-e2e%22%3Ett";
+
+    let out = headless(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            trusted_types_url,
+        ],
+        30,
+    );
+    assert_success(&out, "start trusted types page");
+
+    let out = headless(
+        &[
+            "browser",
+            "eval",
+            &set_body_html_js(r#"<input id="tt-fill" type="text" />"#),
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
+        ],
+        30,
+    );
+    assert_success(&out, "inject input on trusted types page");
+
+    let out = headless(
+        &[
+            "browser", "fill", "#tt-fill", "trusted", "-s", "local-1", "-t", "t0",
+        ],
+        30,
+    );
+    assert_success(&out, "fill trusted types input");
+
+    let out = headless(
+        &[
+            "browser",
+            "eval",
+            "document.querySelector('#tt-fill').value",
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
+        ],
+        15,
+    );
+    assert_success(&out, "verify trusted types input value");
+    assert!(
+        stdout_str(&out).contains("trusted"),
+        "trusted types fill should persist value, got: {}",
+        stdout_str(&out)
+    );
+
+    let out = headless(&["browser", "close", "-s", "local-1"], 30);
+    assert_success(&out, "close");
+}
+
 // ---------------------------------------------------------------------------
 // 6. int_fill_seq — SEQ: fill input_a "aaa" → fill input_b "bbb" → both correct
 // ---------------------------------------------------------------------------
