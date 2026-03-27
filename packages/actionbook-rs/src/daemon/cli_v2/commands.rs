@@ -151,6 +151,9 @@ pub(crate) enum ScrollCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// CSS selector of the element to scroll within (defaults to page)
+        #[arg(long)]
+        container: Option<String>,
     },
     /// Scroll down
     Down {
@@ -160,6 +163,9 @@ pub(crate) enum ScrollCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// CSS selector of the element to scroll within (defaults to page)
+        #[arg(long)]
+        container: Option<String>,
     },
     /// Scroll left
     Left {
@@ -169,6 +175,9 @@ pub(crate) enum ScrollCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// CSS selector of the element to scroll within (defaults to page)
+        #[arg(long)]
+        container: Option<String>,
     },
     /// Scroll right
     Right {
@@ -178,6 +187,9 @@ pub(crate) enum ScrollCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// CSS selector of the element to scroll within (defaults to page)
+        #[arg(long)]
+        container: Option<String>,
     },
     /// Scroll to top of page
     Top {
@@ -185,6 +197,9 @@ pub(crate) enum ScrollCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// CSS selector of the element to scroll within (defaults to page)
+        #[arg(long)]
+        container: Option<String>,
     },
     /// Scroll to bottom of page
     Bottom {
@@ -192,6 +207,9 @@ pub(crate) enum ScrollCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// CSS selector of the element to scroll within (defaults to page)
+        #[arg(long)]
+        container: Option<String>,
     },
     /// Scroll an element into view
     IntoView {
@@ -201,6 +219,12 @@ pub(crate) enum ScrollCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
+        /// CSS selector of the element to scroll within (defaults to page)
+        #[arg(long)]
+        container: Option<String>,
+        /// Alignment for scrollIntoView: start, center, end, nearest
+        #[arg(long, value_parser = ["start", "center", "end", "nearest"])]
+        align: Option<String>,
     },
 }
 

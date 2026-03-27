@@ -1206,70 +1206,98 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
                 amount,
                 session,
                 tab,
+                container,
             } => Action::Scroll {
                 session,
                 tab,
                 direction: "up".to_string(),
                 amount,
                 selector: None,
+                container,
+                align: None,
             },
             ScrollCmd::Down {
                 amount,
                 session,
                 tab,
+                container,
             } => Action::Scroll {
                 session,
                 tab,
                 direction: "down".to_string(),
                 amount,
                 selector: None,
+                container,
+                align: None,
             },
             ScrollCmd::Left {
                 amount,
                 session,
                 tab,
+                container,
             } => Action::Scroll {
                 session,
                 tab,
                 direction: "left".to_string(),
                 amount,
                 selector: None,
+                container,
+                align: None,
             },
             ScrollCmd::Right {
                 amount,
                 session,
                 tab,
+                container,
             } => Action::Scroll {
                 session,
                 tab,
                 direction: "right".to_string(),
                 amount,
                 selector: None,
+                container,
+                align: None,
             },
-            ScrollCmd::Top { session, tab } => Action::Scroll {
+            ScrollCmd::Top {
+                session,
+                tab,
+                container,
+            } => Action::Scroll {
                 session,
                 tab,
                 direction: "top".to_string(),
                 amount: None,
                 selector: None,
+                container,
+                align: None,
             },
-            ScrollCmd::Bottom { session, tab } => Action::Scroll {
+            ScrollCmd::Bottom {
+                session,
+                tab,
+                container,
+            } => Action::Scroll {
                 session,
                 tab,
                 direction: "bottom".to_string(),
                 amount: None,
                 selector: None,
+                container,
+                align: None,
             },
             ScrollCmd::IntoView {
                 selector,
                 session,
                 tab,
+                container,
+                align,
             } => Action::Scroll {
                 session,
                 tab,
                 direction: "into-view".to_string(),
                 amount: None,
                 selector: Some(selector),
+                container,
+                align,
             },
         },
         BrowserCmd::MouseMove {
@@ -2331,6 +2359,8 @@ mod tests {
             selector: "#target".into(),
             session: session.clone(),
             tab,
+            container: None,
+            align: None,
         }))
         .unwrap();
         assert!(
@@ -2341,6 +2371,7 @@ mod tests {
             amount: Some(240),
             session: session.clone(),
             tab,
+            container: None,
         }))
         .unwrap();
         assert!(
