@@ -154,3 +154,57 @@ impl ActionbookError {
 }
 
 pub type Result<T> = std::result::Result<T, ActionbookError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_code_maps_key_variants() {
+        assert_eq!(
+            ActionbookError::BrowserNotFound("chrome".into()).error_code(),
+            "browser_not_found"
+        );
+        assert_eq!(
+            ActionbookError::NavigationFailed("https://e.com".into(), "boom".into()).error_code(),
+            "navigation_failed"
+        );
+        assert_eq!(
+            ActionbookError::ElementNotFound("#missing".into()).error_code(),
+            "element_not_found"
+        );
+        assert_eq!(
+            ActionbookError::Timeout("slow".into()).error_code(),
+            "timeout"
+        );
+        assert_eq!(
+            ActionbookError::DaemonError("broken".into()).error_code(),
+            "daemon_error"
+        );
+        assert_eq!(
+            ActionbookError::Other("x".into()).error_code(),
+            "unknown_error"
+        );
+    }
+
+    #[test]
+    fn display_messages_include_context() {
+        assert!(ActionbookError::BrowserNotRunning
+            .to_string()
+            .contains("browser open"));
+        assert!(ActionbookError::ProfileNotFound("team".into())
+            .to_string()
+            .contains("team"));
+        assert!(
+            ActionbookError::FeatureNotEnabled("browser".into(), "install it".into())
+                .to_string()
+                .contains("install it")
+        );
+        assert!(ActionbookError::ExtensionAlreadyUpToDate {
+            current: "1.0.0".into(),
+            latest: "1.0.0".into()
+        }
+        .to_string()
+        .contains("already up to date"));
+    }
+}

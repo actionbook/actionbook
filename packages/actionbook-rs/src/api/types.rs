@@ -199,3 +199,73 @@ pub struct AreaActionDetail {
     #[serde(default)]
     pub elements: HashMap<String, AreaElement>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_type_display_and_default() {
+        assert!(matches!(SearchType::default(), SearchType::Hybrid));
+        assert_eq!(SearchType::Vector.to_string(), "vector");
+        assert_eq!(SearchType::Fulltext.to_string(), "fulltext");
+        assert_eq!(SearchType::Hybrid.to_string(), "hybrid");
+    }
+
+    #[test]
+    fn action_detail_deserializes_elements_from_string() {
+        let json = serde_json::json!({
+            "action_id": "a1",
+            "content": "demo",
+            "elements": "{\"login\":{\"css_selector\":\"#login\",\"description\":\"Login\"}}"
+        });
+
+        let detail: ActionDetail = serde_json::from_value(json).unwrap();
+        let elements = detail.elements.unwrap();
+        assert_eq!(elements["login"].css_selector.as_deref(), Some("#login"));
+        assert_eq!(elements["login"].description.as_deref(), Some("Login"));
+    }
+
+    #[test]
+    fn action_detail_deserializes_elements_from_object_or_null() {
+        let object_json = serde_json::json!({
+            "action_id": "a1",
+            "content": "demo",
+            "elements": {
+                "login": {
+                    "css_selector": "#login",
+                    "allow_methods": ["click"]
+                }
+            }
+        });
+        let object_detail: ActionDetail = serde_json::from_value(object_json).unwrap();
+        assert_eq!(
+            object_detail.elements.unwrap()["login"]
+                .allow_methods
+                .as_deref(),
+            Some(&["click".to_string()][..])
+        );
+
+        let null_json = serde_json::json!({
+            "action_id": "a1",
+            "content": "demo",
+            "elements": null
+        });
+        let null_detail: ActionDetail = serde_json::from_value(null_json).unwrap();
+        assert!(null_detail.elements.is_none());
+    }
+
+    #[test]
+    fn action_detail_rejects_invalid_elements_shape() {
+        let json = serde_json::json!({
+            "action_id": "a1",
+            "content": "demo",
+            "elements": 42
+        });
+
+        let err = serde_json::from_value::<ActionDetail>(json).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("Expected string or object for elements"));
+    }
+}

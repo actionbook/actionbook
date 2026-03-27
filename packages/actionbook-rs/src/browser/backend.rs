@@ -34,3 +34,36 @@ impl std::str::FromStr for BrowserBackend {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn browser_backend_display_and_default() {
+        assert_eq!(BrowserBackend::default(), BrowserBackend::Cdp);
+        assert_eq!(BrowserBackend::Cdp.to_string(), "cdp");
+        assert_eq!(BrowserBackend::Camofox.to_string(), "camofox");
+    }
+
+    #[test]
+    fn browser_backend_from_str_is_case_insensitive() {
+        assert_eq!(
+            "CDP".parse::<BrowserBackend>().unwrap(),
+            BrowserBackend::Cdp
+        );
+        assert_eq!(
+            "CamoFox".parse::<BrowserBackend>().unwrap(),
+            BrowserBackend::Camofox
+        );
+        assert!("unknown".parse::<BrowserBackend>().is_err());
+    }
+
+    #[test]
+    fn browser_backend_serde_uses_lowercase() {
+        let json = serde_json::to_string(&BrowserBackend::Camofox).unwrap();
+        assert_eq!(json, "\"camofox\"");
+        let decoded: BrowserBackend = serde_json::from_str("\"cdp\"").unwrap();
+        assert_eq!(decoded, BrowserBackend::Cdp);
+    }
+}

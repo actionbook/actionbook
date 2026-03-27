@@ -572,6 +572,105 @@ mod extension_command {
     }
 }
 
+#[cfg(unix)]
+mod daemon_command {
+    use super::*;
+    use std::os::unix::net::UnixListener;
+
+    fn daemon_socket_path(home: &str) -> std::path::PathBuf {
+        std::path::Path::new(home)
+            .join(".actionbook")
+            .join("daemons")
+            .join("v2.sock")
+    }
+
+    fn daemon_pid_path(home: &str) -> std::path::PathBuf {
+        std::path::Path::new(home)
+            .join(".actionbook")
+            .join("daemons")
+            .join("v2.pid")
+    }
+
+    #[test]
+    fn daemon_status_json_reports_not_running() {
+        let (_tmp, home, config_home, data_home) = create_isolated_env();
+        let output = actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["--json", "daemon", "status"])
+            .output()
+            .unwrap();
+
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let json: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(json["running"], false);
+        assert!(json["socket"].as_str().unwrap().contains("v2.sock"));
+    }
+
+    #[test]
+    fn daemon_status_reports_running_when_socket_exists() {
+        let (_tmp, home, config_home, data_home) = create_isolated_env();
+        let socket_path = daemon_socket_path(&home);
+        fs::create_dir_all(socket_path.parent().unwrap()).unwrap();
+        let _listener = UnixListener::bind(&socket_path).unwrap();
+
+        actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["daemon", "status"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Daemon is"))
+            .stdout(predicate::str::contains("running"));
+    }
+
+    #[test]
+    fn daemon_stop_json_reports_not_running() {
+        let (_tmp, home, config_home, data_home) = create_isolated_env();
+        let output = actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["--json", "daemon", "stop"])
+            .output()
+            .unwrap();
+
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let json: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(json["stopped"], false);
+        assert!(json["message"].as_str().unwrap().contains("not running"));
+    }
+
+    #[test]
+    fn daemon_stop_removes_socket_and_pid_files_when_running() {
+        let (_tmp, home, config_home, data_home) = create_isolated_env();
+        let socket_path = daemon_socket_path(&home);
+        let pid_path = daemon_pid_path(&home);
+        fs::create_dir_all(socket_path.parent().unwrap()).unwrap();
+        let _listener = UnixListener::bind(&socket_path).unwrap();
+        fs::write(&pid_path, "999999").unwrap();
+
+        let output = actionbook()
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .args(["--json", "daemon", "stop"])
+            .output()
+            .unwrap();
+
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let json: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(json["stopped"], true);
+        assert!(!socket_path.exists());
+        assert!(!pid_path.exists());
+    }
+}
+
 mod setup_command {
     use super::*;
 
