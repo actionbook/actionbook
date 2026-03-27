@@ -25,12 +25,15 @@ pub(super) async fn handle_goto(
 
     match backend.exec(op).await {
         Ok(_) => {
-            // Update the tab registry with the new URL
+            // Wait for page load to complete before fetching title
+            let post_load_url = wait_for_page_load(backend, &target_id, url.to_string()).await;
+
+            // Update the tab registry with the post-load URL
             if let Some(entry) = regs.tabs.get_mut(&tab) {
-                entry.url = url.to_string();
+                entry.url = post_load_url.clone();
             }
 
-            // Fetch page title for context
+            // Fetch page title after load
             let title = fetch_title(backend, &target_id).await;
             if let Some(ref t) = title {
                 if let Some(entry) = regs.tabs.get_mut(&tab) {
@@ -42,7 +45,7 @@ pub(super) async fn handle_goto(
                 "kind": "goto",
                 "requested_url": url,
                 "from_url": from_url,
-                "to_url": url,
+                "to_url": post_load_url,
                 "title": title.unwrap_or_default(),
             }))
         }
@@ -76,22 +79,14 @@ pub(super) async fn handle_history(
 
     match backend.exec(op).await {
         Ok(_) => {
-            // Update the tab registry URL after navigation.
-            let mut to_url = from_url.clone();
-            let url_op = BackendOp::Evaluate {
-                target_id: target_id.clone(),
-                expression: "window.location.href".to_string(),
-                return_by_value: true,
-            };
-            if let Ok(url_val) = backend.exec(url_op).await {
-                if let Some(url) = url_val.value.as_str() {
-                    to_url = url.to_string();
-                    if let Some(entry) = regs.tabs.get_mut(&tab) {
-                        entry.url = url.to_string();
-                    }
-                }
+            // Wait for navigation to complete, then get post-load URL
+            let to_url = wait_for_page_load(backend, &target_id, from_url.clone()).await;
+
+            if let Some(entry) = regs.tabs.get_mut(&tab) {
+                entry.url = to_url.clone();
             }
-            // Fetch page title for context
+
+            // Fetch page title after load
             let title = fetch_title(backend, &target_id).await;
             if let Some(ref t) = title {
                 if let Some(entry) = regs.tabs.get_mut(&tab) {
@@ -135,22 +130,14 @@ pub(super) async fn handle_reload(
 
     match backend.exec(op).await {
         Ok(_) => {
-            // Update the tab registry URL after reload (URL may have changed due to redirects).
-            let mut to_url = from_url.clone();
-            let url_op = BackendOp::Evaluate {
-                target_id: target_id.clone(),
-                expression: "window.location.href".to_string(),
-                return_by_value: true,
-            };
-            if let Ok(url_val) = backend.exec(url_op).await {
-                if let Some(url) = url_val.value.as_str() {
-                    to_url = url.to_string();
-                    if let Some(entry) = regs.tabs.get_mut(&tab) {
-                        entry.url = url.to_string();
-                    }
-                }
+            // Wait for reload to complete, then get post-load URL
+            let to_url = wait_for_page_load(backend, &target_id, from_url.clone()).await;
+
+            if let Some(entry) = regs.tabs.get_mut(&tab) {
+                entry.url = to_url.clone();
             }
-            // Fetch page title for context
+
+            // Fetch page title after load
             let title = fetch_title(backend, &target_id).await;
             if let Some(ref t) = title {
                 if let Some(entry) = regs.tabs.get_mut(&tab) {
@@ -166,6 +153,41 @@ pub(super) async fn handle_reload(
             }))
         }
         Err(e) => cdp_error_to_result(e),
+    }
+}
+
+/// Wait until `document.readyState === "complete"` (up to 10s), then return current URL.
+/// On timeout or error, returns the `fallback_url`.
+async fn wait_for_page_load(
+    backend: &mut dyn BackendSession,
+    target_id: &str,
+    fallback_url: String,
+) -> String {
+    let poll_interval = std::time::Duration::from_millis(150);
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+
+    loop {
+        let op = BackendOp::Evaluate {
+            target_id: target_id.to_string(),
+            expression: r#"(function(){ return { url: window.location.href, ready: document.readyState }; })()"#.to_string(),
+            return_by_value: true,
+        };
+        if let Ok(result) = backend.exec(op).await {
+            let val = extract_eval_value(&result.value);
+            let ready = val.get("ready").and_then(|v| v.as_str()).unwrap_or("");
+            let url = val
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if ready == "complete" {
+                return if url.is_empty() { fallback_url } else { url };
+            }
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return fallback_url;
+        }
+        tokio::time::sleep(poll_interval).await;
     }
 }
 
