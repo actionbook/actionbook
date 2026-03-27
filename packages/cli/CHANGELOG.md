@@ -1,5 +1,11 @@
 # @actionbookdev/cli
 
+## 0.11.7
+
+### Patch Changes
+
+- [#318](https://github.com/actionbook/actionbook/pull/318) [`15c2154`](https://github.com/actionbook/actionbook/commit/15c21541204db88f7604490f8effdffd27ee68db) Thanks [@asensagent](https://github.com/asensagent)! - Add explicit JavaScript dialog support to the browser CLI, including dialog status, accept, and dismiss commands plus daemon warnings when a dialog is blocking the page.
+
 ## 0.11.6
 
 ### Patch Changes
