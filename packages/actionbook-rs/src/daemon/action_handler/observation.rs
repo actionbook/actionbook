@@ -161,6 +161,16 @@ pub(super) async fn handle_snapshot(
 
     match backend.exec(op).await {
         Ok(result) => {
+            // Preserve the raw CDP nodes array before any stringification so
+            // the formatter can produce accurate node counts and a real nodes
+            // array in the PRD 10.1 shape.  CDP's Accessibility.getFullAXTree
+            // returns {"nodes": [...]}, so result.value is a JSON object.
+            let ax_nodes = result
+                .value
+                .get("nodes")
+                .cloned()
+                .unwrap_or(serde_json::Value::Array(vec![]));
+
             if !interactive && !compact && !cursor && depth.is_none() && selector.is_none() {
                 // Embed context metadata so the formatter can populate url/title.
                 let tree_str = match result.value {
@@ -170,7 +180,8 @@ pub(super) async fn handle_snapshot(
                 return ActionResult::ok(json!({
                     "__ctx_url": ctx_url,
                     "__ctx_title": ctx_title,
-                    "__tree": tree_str
+                    "__tree": tree_str,
+                    "__ax_nodes": ax_nodes
                 }));
             }
 
@@ -195,7 +206,8 @@ pub(super) async fn handle_snapshot(
             let mut data = json!({
                 "__ctx_url": ctx_url,
                 "__ctx_title": ctx_title,
-                "__tree": output
+                "__tree": output,
+                "__ax_nodes": ax_nodes
             });
             if cursor {
                 if let serde_json::Value::Object(ref mut map) = data {

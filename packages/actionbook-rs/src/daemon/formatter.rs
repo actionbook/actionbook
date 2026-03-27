@@ -1134,7 +1134,8 @@ fn observation_context(action: &Action, result: &ActionResult) -> Option<Value> 
 fn normalize_observation_data(action: &Action, data: &Value) -> Value {
     match action {
         Action::Snapshot { .. } => {
-            // Handler embeds __tree (string), __ctx_url, __ctx_title.
+            // Handler embeds __tree (string), __ctx_url, __ctx_title, and
+            // __ax_nodes (the raw CDP Accessibility.getFullAXTree nodes array).
             // __ctx_* are consumed by observation_context; strip them here.
             let content = data
                 .get("__tree")
@@ -1144,14 +1145,17 @@ fn normalize_observation_data(action: &Action, data: &Value) -> Value {
                     Value::String(s) => s.clone(),
                     other => other.to_string(),
                 });
-            // Preserve nodes/stats if already present in the raw data.
+
+            // Prefer the real CDP nodes array embedded by the handler under
+            // __ax_nodes.  Fall back to an empty array so the shape is always
+            // valid even when the backend returned something unexpected.
             let nodes = data
-                .get("nodes")
+                .get("__ax_nodes")
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!([]));
-            // Derive node_count from non-empty content lines when not already provided.
-            let derived_node_count = content.lines().filter(|l| !l.trim().is_empty()).count();
-            // Derive interactive_count from lines containing interactive ARIA roles.
+
+            // Compute accurate stats directly from the nodes array.
+            // Interactive ARIA roles that imply user-actionable elements.
             const INTERACTIVE_ROLES: &[&str] = &[
                 "button",
                 "link",
@@ -1169,24 +1173,26 @@ fn normalize_observation_data(action: &Action, data: &Value) -> Value {
                 "menuitemcheckbox",
                 "menuitemradio",
             ];
-            let derived_interactive_count = content
-                .lines()
-                .filter(|line| {
-                    let lower = line.to_lowercase();
-                    INTERACTIVE_ROLES.iter().any(|role| lower.contains(role))
+
+            let node_count = nodes.as_array().map(|a| a.len()).unwrap_or(0);
+            let interactive_count = nodes
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter(|node| {
+                            // CDP AX node role is {"value": "Button", ...}
+                            let role_value = node
+                                .get("role")
+                                .and_then(|r| r.get("value"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            let lower = role_value.to_lowercase();
+                            INTERACTIVE_ROLES.iter().any(|r| lower == *r)
+                        })
+                        .count() as u64
                 })
-                .count() as u64;
-            let node_count = data
-                .get("stats")
-                .and_then(|s| s.get("node_count"))
-                .and_then(|v| v.as_u64())
-                .map(|n| n as usize)
-                .unwrap_or(derived_node_count);
-            let interactive_count = data
-                .get("stats")
-                .and_then(|s| s.get("interactive_count"))
-                .and_then(|v| v.as_u64())
-                .unwrap_or(derived_interactive_count);
+                .unwrap_or(0);
+
             serde_json::json!({
                 "format": "snapshot",
                 "content": content,
