@@ -1181,6 +1181,14 @@ mod tests {
     }
 
     #[test]
+    fn format_compact_with_focused_attr() {
+        let mut node = make_node(Some("e0"), "textbox", "Search", 0);
+        node.focused = true;
+        let output = format_compact(&[node]);
+        assert_eq!(output, "- textbox \"Search\" [focused, ref=e0]\n");
+    }
+
+    #[test]
     fn ax_value_as_string_handles_various_types() {
         // String value
         let av = AxValue {
@@ -1209,5 +1217,283 @@ mod tests {
             value: None,
         };
         assert_eq!(av.as_string(), "");
+    }
+
+    #[test]
+    fn ax_value_as_string_formats_float_variants() {
+        let integer_like = AxValue {
+            value_type: Some("number".to_string()),
+            value: Some(serde_json::json!(42.0)),
+        };
+        assert_eq!(integer_like.as_string(), "42");
+
+        let decimal = AxValue {
+            value_type: Some("number".to_string()),
+            value: Some(serde_json::json!(3.25)),
+        };
+        assert_eq!(decimal.as_string(), "3.25");
+    }
+
+    #[test]
+    fn parse_ax_tree_promotes_wrappers_and_extracts_properties() {
+        let raw = serde_json::json!({
+            "nodes": [
+                {
+                    "nodeId": "1",
+                    "backendDOMNodeId": 1,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "RootWebArea" },
+                    "name": { "type": "computedString", "value": "Root" },
+                    "childIds": ["2", "3", "9", "14", "missing"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "2",
+                    "backendDOMNodeId": 2,
+                    "ignored": true,
+                    "role": { "type": "role", "value": "generic" },
+                    "name": { "type": "computedString", "value": "" },
+                    "childIds": ["4"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "3",
+                    "backendDOMNodeId": 3,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "WebArea" },
+                    "name": { "type": "computedString", "value": "Inner" },
+                    "childIds": ["5"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "4",
+                    "backendDOMNodeId": 4,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "button" },
+                    "name": { "type": "computedString", "value": "Submit" },
+                    "value": { "type": "string", "value": "submit" },
+                    "childIds": [],
+                    "properties": [
+                        { "name": "disabled", "value": { "type": "boolean", "value": true } },
+                        { "name": "focused", "value": { "type": "boolean", "value": true } },
+                        { "name": "required", "value": { "type": "boolean", "value": true } },
+                        { "name": "checked", "value": { "type": "boolean", "value": true } },
+                        { "name": "expanded", "value": { "type": "boolean", "value": false } }
+                    ]
+                },
+                {
+                    "nodeId": "5",
+                    "ignored": false,
+                    "role": { "type": "role", "value": "heading" },
+                    "name": { "type": "computedString", "value": "Title" },
+                    "childIds": ["6"],
+                    "properties": [
+                        { "name": "level", "value": { "type": "integer", "value": 2 } }
+                    ]
+                },
+                {
+                    "nodeId": "6",
+                    "backendDOMNodeId": 6,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "link" },
+                    "name": { "type": "computedString", "value": "Nested link" },
+                    "childIds": [],
+                    "properties": [
+                        { "name": "url", "value": { "type": "string", "value": "https://example.com/title" } }
+                    ]
+                },
+                {
+                    "nodeId": "9",
+                    "backendDOMNodeId": 9,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "StaticText" },
+                    "name": { "type": "computedString", "value": "ignored" },
+                    "childIds": ["10", "11"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "10",
+                    "backendDOMNodeId": 10,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "link" },
+                    "name": { "type": "computedString", "value": "Docs" },
+                    "childIds": [],
+                    "properties": [
+                        { "name": "selected", "value": { "type": "boolean", "value": true } },
+                        { "name": "url", "value": { "type": "string", "value": "https://example.com/docs" } }
+                    ]
+                },
+                {
+                    "nodeId": "11",
+                    "backendDOMNodeId": 11,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "checkbox" },
+                    "name": { "type": "computedString", "value": "Choice" },
+                    "childIds": [],
+                    "properties": [
+                        { "name": "checked", "value": { "type": "string", "value": "mixed" } },
+                        { "name": "url", "value": { "type": "string", "value": "" } }
+                    ]
+                },
+                {
+                    "nodeId": "14",
+                    "backendDOMNodeId": 14,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "generic" },
+                    "name": { "type": "computedString", "value": "" },
+                    "childIds": ["15"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "15",
+                    "backendDOMNodeId": 15,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "link" },
+                    "name": { "type": "computedString", "value": "Scoped only" },
+                    "childIds": ["16"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "16",
+                    "backendDOMNodeId": 16,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "button" },
+                    "name": { "type": "computedString", "value": "Too deep" },
+                    "childIds": [],
+                    "properties": []
+                }
+            ]
+        });
+
+        let (nodes, cache) = parse_ax_tree(raw, SnapshotFilter::All, Some(1), None).unwrap();
+        let button = nodes.iter().find(|node| node.name == "Submit").unwrap();
+        assert_eq!(button.depth, 0);
+        assert_eq!(button.value.as_deref(), Some("submit"));
+        assert!(button.disabled);
+        assert!(button.focused);
+        assert!(button.required);
+        assert_eq!(button.checked.as_deref(), Some("true"));
+        assert_eq!(button.expanded, Some(false));
+
+        let heading = nodes.iter().find(|node| node.name == "Title").unwrap();
+        assert_eq!(heading.level, Some(2));
+        assert!(heading.ref_id.is_some());
+        assert!(!cache.refs.contains_key(heading.ref_id.as_ref().unwrap()));
+
+        let nested_link = nodes
+            .iter()
+            .find(|node| node.name == "Nested link")
+            .unwrap();
+        assert_eq!(nested_link.depth, 1);
+        assert_eq!(
+            nested_link.url.as_deref(),
+            Some("https://example.com/title")
+        );
+
+        let docs_link = nodes.iter().find(|node| node.name == "Docs").unwrap();
+        assert!(docs_link.selected);
+        assert_eq!(docs_link.url.as_deref(), Some("https://example.com/docs"));
+
+        let checkbox = nodes.iter().find(|node| node.name == "Choice").unwrap();
+        assert_eq!(checkbox.checked.as_deref(), Some("mixed"));
+        assert_eq!(checkbox.url, None);
+
+        assert!(nodes.iter().all(|node| node.name != "Too deep"));
+        assert!(cache.refs.contains_key("e0"));
+        assert!(cache.next_ref >= cache.refs.len());
+    }
+
+    #[test]
+    fn parse_ax_tree_scope_filter_keeps_scoped_descendant_only() {
+        let raw = serde_json::json!({
+            "nodes": [
+                {
+                    "nodeId": "1",
+                    "backendDOMNodeId": 1,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "RootWebArea" },
+                    "name": { "type": "computedString", "value": "Root" },
+                    "childIds": ["2", "14"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "2",
+                    "backendDOMNodeId": 2,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "generic" },
+                    "name": { "type": "computedString", "value": "" },
+                    "childIds": ["3"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "3",
+                    "backendDOMNodeId": 3,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "button" },
+                    "name": { "type": "computedString", "value": "Outside scope" },
+                    "childIds": [],
+                    "properties": []
+                },
+                {
+                    "nodeId": "14",
+                    "backendDOMNodeId": 14,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "generic" },
+                    "name": { "type": "computedString", "value": "" },
+                    "childIds": ["15"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "15",
+                    "backendDOMNodeId": 15,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "link" },
+                    "name": { "type": "computedString", "value": "Scoped only" },
+                    "childIds": ["16"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "16",
+                    "backendDOMNodeId": 16,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "button" },
+                    "name": { "type": "computedString", "value": "Too deep" },
+                    "childIds": [],
+                    "properties": []
+                }
+            ]
+        });
+
+        let (nodes, cache) =
+            parse_ax_tree(raw, SnapshotFilter::Interactive, Some(0), Some(15)).unwrap();
+
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].name, "Scoped only");
+        assert_eq!(nodes[0].depth, 0);
+        assert!(cache.refs.values().all(|backend_id| *backend_id == 15));
+    }
+
+    #[test]
+    fn remove_empty_leaves_keeps_structural_nodes_with_value() {
+        let mut generic = make_node(None, "generic", "", 0);
+        generic.value = Some("summary".to_string());
+        let result = remove_empty_leaves(&[generic]);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].value.as_deref(), Some("summary"));
+    }
+
+    #[test]
+    fn estimate_node_tokens_json_and_compact_tree_root_break() {
+        let mut json_node = make_node(Some("e1"), "textbox", "Search", 3);
+        json_node.value = Some("query".to_string());
+        let json_cost = estimate_node_tokens(&json_node, SnapshotFormat::Json);
+        let compact_cost = estimate_node_tokens(&json_node, SnapshotFormat::Compact);
+        assert!(json_cost > compact_cost);
+
+        let mut second_root = make_node(None, "main", "", 0);
+        second_root.value = Some("kept".to_string());
+        let compacted = compact_tree_nodes(&[make_node(None, "banner", "", 0), second_root]);
+        assert_eq!(compacted.len(), 1);
+        assert_eq!(compacted[0].role, "main");
     }
 }

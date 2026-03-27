@@ -177,6 +177,31 @@ mod tests {
     }
 
     #[test]
+    fn random_start_offset_uses_both_offset_directions() {
+        let mut saw_left = false;
+        let mut saw_right = false;
+        let mut saw_up = false;
+        let mut saw_down = false;
+
+        for _ in 0..200 {
+            let (sx, sy) = random_start_offset(300.0, 300.0);
+            saw_left |= sx < 300.0;
+            saw_right |= sx > 300.0;
+            saw_up |= sy < 300.0;
+            saw_down |= sy > 300.0;
+
+            if saw_left && saw_right && saw_up && saw_down {
+                break;
+            }
+        }
+
+        assert!(saw_left, "never generated a negative x offset");
+        assert!(saw_right, "never generated a positive x offset");
+        assert!(saw_up, "never generated a negative y offset");
+        assert!(saw_down, "never generated a positive y offset");
+    }
+
+    #[test]
     fn pre_click_delay_ms_within_range() {
         for _ in 0..20 {
             let delay = pre_click_delay_ms();
@@ -202,6 +227,48 @@ mod tests {
     fn typing_delays_empty_text() {
         let delays = typing_delays("", false);
         assert!(delays.is_empty());
+    }
+
+    #[test]
+    fn typing_delays_non_alphabetic_text_never_inserts_typos() {
+        let expected: Vec<char> = "1234-=[]".chars().collect();
+
+        for _ in 0..50 {
+            let delays = typing_delays("1234-=[]", false);
+            let chars: Vec<char> = delays.iter().map(|(ch, _)| *ch).collect();
+            assert_eq!(chars, expected);
+            assert!(!chars.contains(&'\u{0008}'));
+        }
+    }
+
+    #[test]
+    fn typing_delays_eventually_emits_uppercase_typo_and_backspace() {
+        let mut typo_triplet = None;
+
+        for _ in 0..400 {
+            let delays = typing_delays("AAAAAAAAAAAAAAAAAAAA", false);
+            for window in delays.windows(3) {
+                let wrong = window[0].0;
+                let backspace = window[1].0;
+                let corrected = window[2].0;
+
+                if wrong != 'A' && backspace == '\u{0008}' && corrected == 'A' {
+                    typo_triplet = Some((wrong, window[1].1, window[2].1));
+                    break;
+                }
+            }
+
+            if typo_triplet.is_some() {
+                break;
+            }
+        }
+
+        let (wrong, backspace_delay, corrected_delay) =
+            typo_triplet.expect("expected at least one uppercase typo sequence");
+        assert!(wrong.is_ascii_uppercase());
+        assert_ne!(wrong, 'A');
+        assert!((50..100).contains(&backspace_delay));
+        assert!((30..60).contains(&corrected_delay));
     }
 
     #[test]
