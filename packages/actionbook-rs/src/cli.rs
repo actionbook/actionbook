@@ -478,4 +478,343 @@ mod tests {
         assert_ne!(SetupTarget::Claude, SetupTarget::Cursor);
         assert_eq!(SetupTarget::All, SetupTarget::All);
     }
+
+    #[test]
+    fn try_parse_from_parses_search_with_all_options() {
+        let parsed = Cli::try_parse_from([
+            "actionbook",
+            "search",
+            "airbnb login",
+            "--domain",
+            "airbnb.com",
+            "--url",
+            "https://airbnb.com/login",
+            "--page",
+            "2",
+            "--page-size",
+            "20",
+        ])
+        .unwrap();
+        if let Commands::Search {
+            query,
+            domain,
+            url,
+            page,
+            page_size,
+        } = parsed.command
+        {
+            assert_eq!(query, "airbnb login");
+            assert_eq!(domain.as_deref(), Some("airbnb.com"));
+            assert_eq!(url.as_deref(), Some("https://airbnb.com/login"));
+            assert_eq!(page, 2);
+            assert_eq!(page_size, 20);
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_search_defaults() {
+        let parsed = Cli::try_parse_from(["actionbook", "search", "google"]).unwrap();
+        if let Commands::Search {
+            page, page_size, ..
+        } = parsed.command
+        {
+            assert_eq!(page, 1);
+            assert_eq!(page_size, 10);
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_get() {
+        let parsed = Cli::try_parse_from(["actionbook", "get", "airbnb.com:/:default"]).unwrap();
+        if let Commands::Get { area_id } = parsed.command {
+            assert_eq!(area_id, "airbnb.com:/:default");
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_act() {
+        let parsed =
+            Cli::try_parse_from(["actionbook", "act", "github.com:/login:default"]).unwrap();
+        if let Commands::Act { area_id } = parsed.command {
+            assert_eq!(area_id, "github.com:/login:default");
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_sources_list() {
+        let parsed = Cli::try_parse_from(["actionbook", "sources", "list"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Sources {
+                command: SourcesCommands::List
+            }
+        ));
+    }
+
+    #[test]
+    fn try_parse_from_parses_sources_search() {
+        let parsed = Cli::try_parse_from(["actionbook", "sources", "search", "google"]).unwrap();
+        if let Commands::Sources {
+            command: SourcesCommands::Search { query },
+        } = parsed.command
+        {
+            assert_eq!(query, "google");
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_config_edit() {
+        let parsed = Cli::try_parse_from(["actionbook", "config", "edit"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Config {
+                command: ConfigCommands::Edit
+            }
+        ));
+    }
+
+    #[test]
+    fn try_parse_from_parses_config_reset() {
+        let parsed = Cli::try_parse_from(["actionbook", "config", "reset"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Config {
+                command: ConfigCommands::Reset
+            }
+        ));
+    }
+
+    #[test]
+    fn try_parse_from_parses_profile_create_with_port() {
+        let parsed = Cli::try_parse_from([
+            "actionbook",
+            "profile",
+            "create",
+            "work",
+            "--cdp-port",
+            "9333",
+        ])
+        .unwrap();
+        if let Commands::Profile {
+            command: ProfileCommands::Create { name, cdp_port },
+        } = parsed.command
+        {
+            assert_eq!(name, "work");
+            assert_eq!(cdp_port, Some(9333));
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_profile_create_without_port() {
+        let parsed = Cli::try_parse_from(["actionbook", "profile", "create", "test"]).unwrap();
+        if let Commands::Profile {
+            command: ProfileCommands::Create { name, cdp_port },
+        } = parsed.command
+        {
+            assert_eq!(name, "test");
+            assert_eq!(cdp_port, None);
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_profile_delete() {
+        let parsed = Cli::try_parse_from(["actionbook", "profile", "delete", "old"]).unwrap();
+        if let Commands::Profile {
+            command: ProfileCommands::Delete { name },
+        } = parsed.command
+        {
+            assert_eq!(name, "old");
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_profile_show() {
+        let parsed = Cli::try_parse_from(["actionbook", "profile", "show", "dev"]).unwrap();
+        if let Commands::Profile {
+            command: ProfileCommands::Show { name },
+        } = parsed.command
+        {
+            assert_eq!(name, "dev");
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_daemon_status() {
+        let parsed = Cli::try_parse_from(["actionbook", "daemon", "status"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Daemon {
+                command: DaemonCommands::Status
+            }
+        ));
+    }
+
+    #[test]
+    fn try_parse_from_parses_setup_non_interactive() {
+        let parsed = Cli::try_parse_from([
+            "actionbook",
+            "setup",
+            "--non-interactive",
+            "--target",
+            "claude",
+            "--browser",
+            "isolated",
+        ])
+        .unwrap();
+        if let Commands::Setup {
+            target,
+            non_interactive,
+            browser,
+            reset,
+            ..
+        } = parsed.command
+        {
+            assert_eq!(target, Some(SetupTarget::Claude));
+            assert!(non_interactive);
+            assert_eq!(browser, Some(BrowserMode::Isolated));
+            assert!(!reset);
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_setup_reset() {
+        let parsed = Cli::try_parse_from(["actionbook", "setup", "--reset"]).unwrap();
+        if let Commands::Setup { reset, .. } = parsed.command {
+            assert!(reset);
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_extension_status() {
+        let parsed =
+            Cli::try_parse_from(["actionbook", "extension", "status", "--port", "19333"]).unwrap();
+        if let Commands::Extension {
+            command: ExtensionCommands::Status { port },
+        } = parsed.command
+        {
+            assert_eq!(port, 19333);
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_extension_install_force() {
+        let parsed =
+            Cli::try_parse_from(["actionbook", "extension", "install", "--force"]).unwrap();
+        if let Commands::Extension {
+            command: ExtensionCommands::Install { force },
+        } = parsed.command
+        {
+            assert!(force);
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_extension_path() {
+        let parsed = Cli::try_parse_from(["actionbook", "extension", "path"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Extension {
+                command: ExtensionCommands::Path
+            }
+        ));
+    }
+
+    #[test]
+    fn try_parse_from_parses_extension_uninstall() {
+        let parsed = Cli::try_parse_from(["actionbook", "extension", "uninstall"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Extension {
+                command: ExtensionCommands::Uninstall
+            }
+        ));
+    }
+
+    #[test]
+    fn try_parse_from_api_key_flag() {
+        let parsed =
+            Cli::try_parse_from(["actionbook", "--api-key", "sk-secret", "config", "show"])
+                .unwrap();
+        assert_eq!(parsed.api_key.as_deref(), Some("sk-secret"));
+    }
+
+    #[test]
+    fn try_parse_from_no_json_by_default() {
+        let parsed = Cli::try_parse_from(["actionbook", "config", "show"]).unwrap();
+        assert!(!parsed.json);
+    }
+
+    #[test]
+    fn try_parse_from_no_profile_by_default() {
+        let parsed = Cli::try_parse_from(["actionbook", "config", "show"]).unwrap();
+        assert!(parsed.profile.is_none());
+    }
+
+    #[test]
+    fn try_parse_from_rejects_unknown_subcommand() {
+        let result = Cli::try_parse_from(["actionbook", "nonexistent"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn try_parse_from_search_requires_query() {
+        let result = Cli::try_parse_from(["actionbook", "search"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn try_parse_from_get_requires_area_id() {
+        let result = Cli::try_parse_from(["actionbook", "get"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn setup_target_all_variants() {
+        for target_str in [
+            "claude",
+            "codex",
+            "cursor",
+            "windsurf",
+            "antigravity",
+            "opencode",
+            "standalone",
+            "all",
+        ] {
+            let parsed =
+                Cli::try_parse_from(["actionbook", "setup", "--target", target_str]).unwrap();
+            assert!(matches!(parsed.command, Commands::Setup { .. }));
+        }
+    }
+
+    #[test]
+    fn browser_mode_invalid_deserialize() {
+        let result = serde_json::from_str::<BrowserMode>("\"invalid\"");
+        assert!(result.is_err());
+    }
 }
