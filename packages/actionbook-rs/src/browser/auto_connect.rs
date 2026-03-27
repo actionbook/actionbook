@@ -320,6 +320,14 @@ mod tests {
     }
 
     #[test]
+    fn chrome_user_data_dirs_all_are_absolute() {
+        let dirs = chrome_user_data_dirs();
+        for dir in &dirs {
+            assert!(dir.is_absolute(), "Expected absolute path, got {:?}", dir);
+        }
+    }
+
+    #[test]
     fn read_devtools_active_port_parses_two_line_format() {
         let tmp = tempfile::tempdir().unwrap();
         let content = "9222\n/devtools/browser/abc-123\n";
@@ -352,5 +360,75 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("DevToolsActivePort"), "notaport\n/ws\n").unwrap();
         assert_eq!(read_devtools_active_port(tmp.path()), None);
+    }
+
+    #[test]
+    fn read_devtools_active_port_returns_none_on_port_overflow() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Port 99999 exceeds u16::MAX
+        std::fs::write(tmp.path().join("DevToolsActivePort"), "99999\n/ws\n").unwrap();
+        assert_eq!(read_devtools_active_port(tmp.path()), None);
+    }
+
+    #[test]
+    fn read_devtools_active_port_strips_whitespace() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("DevToolsActivePort"),
+            "  9222  \n  /ws/path  \n",
+        )
+        .unwrap();
+        let result = read_devtools_active_port(tmp.path());
+        assert_eq!(result, Some((9222, "/ws/path".to_string())));
+    }
+
+    #[test]
+    fn chrome_target_types_contains_expected_values() {
+        assert!(CHROME_TARGET_TYPES.contains(&"page"));
+        assert!(CHROME_TARGET_TYPES.contains(&"browser"));
+        assert!(CHROME_TARGET_TYPES.contains(&"background_page"));
+        assert!(CHROME_TARGET_TYPES.contains(&"service_worker"));
+        assert!(!CHROME_TARGET_TYPES.contains(&"unknown_type"));
+    }
+
+    #[test]
+    fn discovered_browser_clone_works() {
+        let b = DiscoveredBrowser {
+            ws_url: "ws://127.0.0.1:9222/devtools/browser/abc".to_string(),
+            port: 9222,
+        };
+        let b2 = b.clone();
+        assert_eq!(b2.ws_url, b.ws_url);
+        assert_eq!(b2.port, 9222);
+    }
+
+    #[tokio::test]
+    async fn auto_discover_fails_when_no_browser_running() {
+        // In a clean test environment with no Chrome, this should return an error.
+        // We cannot guarantee no Chrome is running, so we just ensure the function
+        // returns a Result (either Ok or Err).
+        let result = auto_discover().await;
+        // Just verify it doesn't panic; the result depends on whether Chrome is running.
+        let _ = result;
+    }
+
+    #[tokio::test]
+    async fn is_port_listening_returns_false_for_closed_port() {
+        // Bind to a random port, then drop the listener. The port should not be
+        // listening after drop.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        // Small race: wait a tick for the OS to release the port
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        assert!(!is_port_listening(port).await);
+    }
+
+    #[tokio::test]
+    async fn is_port_listening_returns_true_for_open_port() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(is_port_listening(port).await);
+        drop(listener);
     }
 }

@@ -683,4 +683,174 @@ mod tests {
             SetupTarget::Standalone
         )));
     }
+
+    #[test]
+    fn no_target_runs_skills_install() {
+        assert!(should_install_skills_for_target(None));
+    }
+
+    #[test]
+    fn non_standalone_targets_run_skills_install() {
+        assert!(should_install_skills_for_target(Some(SetupTarget::Claude)));
+        assert!(should_install_skills_for_target(Some(SetupTarget::Codex)));
+        assert!(should_install_skills_for_target(Some(SetupTarget::Cursor)));
+        assert!(should_install_skills_for_target(Some(SetupTarget::All)));
+    }
+
+    #[test]
+    fn target_with_api_key_runs_full_setup() {
+        let mut args = base_args();
+        args.target = Some(SetupTarget::Codex);
+        args.api_key = Some("test-key");
+        assert!(!should_run_target_only(&args));
+    }
+
+    #[test]
+    fn target_with_reset_runs_full_setup() {
+        let mut args = base_args();
+        args.target = Some(SetupTarget::Codex);
+        args.reset = true;
+        assert!(!should_run_target_only(&args));
+    }
+
+    #[test]
+    fn no_target_never_quick_mode() {
+        let args = base_args();
+        assert!(!should_run_target_only(&args));
+    }
+
+    #[test]
+    fn shorten_browser_path_chrome() {
+        assert_eq!(
+            shorten_browser_path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            "Chrome"
+        );
+    }
+
+    #[test]
+    fn shorten_browser_path_brave() {
+        assert_eq!(
+            shorten_browser_path("/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"),
+            "Brave"
+        );
+    }
+
+    #[test]
+    fn shorten_browser_path_edge() {
+        assert_eq!(shorten_browser_path("/usr/bin/msedge"), "Edge");
+    }
+
+    #[test]
+    fn shorten_browser_path_chromium() {
+        assert_eq!(shorten_browser_path("/usr/bin/chromium"), "Chromium");
+    }
+
+    #[test]
+    fn shorten_browser_path_fallback_to_last_component() {
+        assert_eq!(shorten_browser_path("/usr/bin/firefox"), "firefox");
+    }
+
+    #[test]
+    fn shorten_browser_path_no_slash() {
+        assert_eq!(shorten_browser_path("chrome"), "Chrome");
+    }
+
+    #[test]
+    fn shorten_home_path_replaces_home() {
+        if let Some(home) = dirs::home_dir() {
+            let home_str = home.display().to_string();
+            let path = format!("{}/some/file.toml", home_str);
+            let shortened = shorten_home_path(&path);
+            assert!(
+                shortened.starts_with('~'),
+                "Expected '~' prefix, got: {}",
+                shortened
+            );
+        }
+        // Always succeeds regardless of home dir detection
+    }
+
+    #[test]
+    fn shorten_home_path_non_home() {
+        let path = "/etc/some/config.toml";
+        let shortened = shorten_home_path(path);
+        assert_eq!(shortened, path);
+    }
+
+    #[test]
+    fn create_spinner_returns_none_in_json_mode() {
+        let pb = create_spinner(true, false, "Loading...");
+        assert!(pb.is_none());
+    }
+
+    #[test]
+    fn create_spinner_returns_none_in_non_interactive_mode() {
+        let pb = create_spinner(false, true, "Loading...");
+        assert!(pb.is_none());
+    }
+
+    #[test]
+    fn finish_spinner_handles_none() {
+        // Should not panic when None is passed
+        finish_spinner(None, "done");
+    }
+
+    #[test]
+    fn setup_logo_symbol_returns_nonempty() {
+        let symbol = setup_logo_symbol();
+        assert!(!symbol.is_empty());
+    }
+
+    #[test]
+    fn setup_logo_symbol_utf8_locale() {
+        // Temporarily set LC_ALL to a UTF-8 locale string and verify result
+        std::env::set_var("LC_ALL", "en_US.UTF-8");
+        let symbol = setup_logo_symbol();
+        assert_eq!(symbol, "⋈");
+        std::env::remove_var("LC_ALL");
+    }
+
+    #[test]
+    fn setup_logo_symbol_non_utf8_locale() {
+        // Unset all locale vars; should fall back to "><"
+        std::env::remove_var("LC_ALL");
+        std::env::remove_var("LC_CTYPE");
+        std::env::remove_var("LANG");
+        let symbol = setup_logo_symbol();
+        assert_eq!(symbol, "><");
+    }
+
+    #[test]
+    fn handle_existing_config_reset_returns_default() {
+        let cli = crate::cli::Cli {
+            profile: None,
+            api_key: None,
+            json: true,
+            command: crate::cli::Commands::Config {
+                command: crate::cli::ConfigCommands::Show,
+            },
+        };
+        let result = handle_existing_config(&cli, false, true);
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        assert!(config.api.api_key.is_none());
+    }
+
+    #[test]
+    fn handle_existing_config_no_file_returns_default() {
+        // If there's no config file on disk, should get defaults back
+        // This test relies on Config::config_path not existing in most CI/test envs
+        // or simply works even if it does (non-interactive path)
+        let cli = crate::cli::Cli {
+            profile: None,
+            api_key: None,
+            json: true,
+            command: crate::cli::Commands::Config {
+                command: crate::cli::ConfigCommands::Show,
+            },
+        };
+        // reset=false, non_interactive=true → load existing or return default
+        let result = handle_existing_config(&cli, true, false);
+        assert!(result.is_ok());
+    }
 }

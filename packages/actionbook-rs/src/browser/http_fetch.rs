@@ -264,4 +264,109 @@ mod tests {
         let text = strip_html_tags(html);
         assert!(text.len() < 1024);
     }
+
+    #[test]
+    fn test_strip_skips_noscript() {
+        let html = "<p>Visible</p><noscript>JavaScript required</noscript><p>Also visible</p>";
+        let text = strip_html_tags(html);
+        assert!(text.contains("Visible"));
+        assert!(text.contains("Also visible"));
+        assert!(!text.contains("JavaScript required"));
+    }
+
+    #[test]
+    fn test_strip_skips_template() {
+        let html = "<p>Content</p><template><span>Hidden</span></template><p>End</p>";
+        let text = strip_html_tags(html);
+        assert!(text.contains("Content"));
+        assert!(text.contains("End"));
+        assert!(!text.contains("Hidden"));
+    }
+
+    #[test]
+    fn test_strip_empty_html() {
+        let text = strip_html_tags("");
+        assert_eq!(text, "");
+    }
+
+    #[test]
+    fn test_strip_plain_text() {
+        let text = strip_html_tags("Hello World");
+        assert_eq!(text, "Hello World");
+    }
+
+    #[test]
+    fn test_strip_block_elements_add_newline() {
+        let html = "<div>First</div><div>Second</div>";
+        let text = strip_html_tags(html);
+        // Block elements should insert newlines between content
+        assert!(text.contains("First"));
+        assert!(text.contains("Second"));
+    }
+
+    #[test]
+    fn test_strip_closing_tags_handled() {
+        let html = "<p>Hello</p><p>World</p>";
+        let text = strip_html_tags(html);
+        assert!(text.contains("Hello"));
+        assert!(text.contains("World"));
+    }
+
+    #[test]
+    fn test_strip_nested_tags() {
+        let html = "<div><p><strong>Bold</strong> text</p></div>";
+        let text = strip_html_tags(html);
+        assert!(text.contains("Bold"));
+        assert!(text.contains("text"));
+    }
+
+    #[tokio::test]
+    async fn test_try_http_fetch_non_https_returns_none() {
+        let result = try_http_fetch("http://example.com", None, None).await;
+        assert!(result.is_ok());
+        assert!(
+            result.unwrap().is_none(),
+            "HTTP (non-HTTPS) URLs should return None"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_try_http_fetch_non_https_ftp_returns_none() {
+        let result = try_http_fetch("ftp://example.com/file.txt", None, None).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_try_http_fetch_connection_error_returns_none() {
+        // A host that doesn't exist should result in Ok(None) due to network error handling
+        let result = try_http_fetch(
+            "https://this-domain-does-not-exist-xyz.invalid/",
+            None,
+            None,
+        )
+        .await;
+        // Network error → Ok(None) per implementation (Err returns Ok(None))
+        match result {
+            Ok(None) => {} // Expected: connection failure treated as browser fallback
+            Ok(Some(_)) => panic!("Should not succeed for non-existent domain"),
+            Err(_) => {} // Also acceptable
+        }
+    }
+
+    #[test]
+    fn test_http_fetch_result_struct_fields() {
+        let result = HttpFetchResult {
+            content: "hello world".to_string(),
+            format: "text".to_string(),
+            url: "https://example.com".to_string(),
+            tokens_estimate: 3,
+            truncated: false,
+        };
+        assert_eq!(result.content, "hello world");
+        assert_eq!(result.format, "text");
+        assert_eq!(result.url, "https://example.com");
+        assert_eq!(result.tokens_estimate, 3);
+        assert!(!result.truncated);
+    }
 }

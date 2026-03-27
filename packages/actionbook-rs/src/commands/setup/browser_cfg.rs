@@ -568,4 +568,157 @@ mod tests {
         assert_eq!(config.browser.mode, BrowserMode::Extension);
         assert_eq!(config.browser.extension.port, 19222);
     }
+
+    #[test]
+    fn test_apply_extension_mode_with_browsers_ignored() {
+        let cli = make_test_cli();
+        let browser = BrowserInfo {
+            browser_type: BrowserType::Chrome,
+            path: PathBuf::from("/usr/bin/chrome"),
+            version: None,
+        };
+        let env = make_env_with_browsers(vec![browser]);
+        let mut config = Config::default();
+
+        let result = apply_browser_mode(&cli, &env, BrowserMode::Extension, &mut config);
+        assert!(result.is_ok());
+        assert_eq!(config.browser.mode, BrowserMode::Extension);
+        // Extension mode should not set executable
+        assert!(config.browser.executable.is_none());
+    }
+
+    #[test]
+    fn test_apply_browser_mode_json_output_does_not_panic() {
+        let mut cli = make_test_cli();
+        cli.json = true;
+        let env = make_env_with_browsers(vec![]);
+        let mut config = Config::default();
+
+        let result = apply_browser_mode(&cli, &env, BrowserMode::Isolated, &mut config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_apply_browser_mode_json_extension_does_not_panic() {
+        let mut cli = make_test_cli();
+        cli.json = true;
+        let env = make_env_with_browsers(vec![]);
+        let mut config = Config::default();
+
+        let result = apply_browser_mode(&cli, &env, BrowserMode::Extension, &mut config);
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_configure_browser_with_isolated_flag_no_browsers() {
+        let cli = make_test_cli();
+        let env = make_env_with_browsers(vec![]);
+        let mut config = Config::default();
+
+        let result =
+            configure_browser(&cli, &env, Some(BrowserMode::Isolated), false, &mut config).await;
+        assert!(result.is_ok());
+        assert_eq!(config.browser.mode, BrowserMode::Isolated);
+    }
+
+    #[tokio::test]
+    async fn test_configure_browser_with_extension_flag() {
+        let cli = make_test_cli();
+        let env = make_env_with_browsers(vec![]);
+        let mut config = Config::default();
+
+        let result =
+            configure_browser(&cli, &env, Some(BrowserMode::Extension), false, &mut config).await;
+        assert!(result.is_ok());
+        assert_eq!(config.browser.mode, BrowserMode::Extension);
+    }
+
+    #[tokio::test]
+    async fn test_configure_browser_non_interactive_isolated_no_browsers() {
+        let cli = make_test_cli();
+        let env = make_env_with_browsers(vec![]);
+        let mut config = Config::default();
+        config.browser.mode = BrowserMode::Isolated;
+
+        let result = configure_browser(&cli, &env, None, true, &mut config).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_configure_browser_non_interactive_isolated_with_browser() {
+        let cli = make_test_cli();
+        let browser = BrowserInfo {
+            browser_type: BrowserType::Chrome,
+            path: PathBuf::from("/usr/bin/chrome"),
+            version: Some("131.0".to_string()),
+        };
+        let env = make_env_with_browsers(vec![browser]);
+        let mut config = Config::default();
+        config.browser.mode = BrowserMode::Isolated;
+
+        let result = configure_browser(&cli, &env, None, true, &mut config).await;
+        assert!(result.is_ok());
+        assert_eq!(
+            config.browser.executable,
+            Some("/usr/bin/chrome".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_configure_browser_non_interactive_extension_mode() {
+        let cli = make_test_cli();
+        let env = make_env_with_browsers(vec![]);
+        let mut config = Config::default();
+        config.browser.mode = BrowserMode::Extension;
+
+        let result = configure_browser(&cli, &env, None, true, &mut config).await;
+        assert!(result.is_ok());
+        assert_eq!(config.browser.mode, BrowserMode::Extension);
+    }
+
+    #[tokio::test]
+    async fn test_configure_browser_non_interactive_preserves_existing_executable() {
+        let cli = make_test_cli();
+        let browser = BrowserInfo {
+            browser_type: BrowserType::Chrome,
+            path: PathBuf::from("/usr/bin/chrome"),
+            version: None,
+        };
+        let env = make_env_with_browsers(vec![browser]);
+        let mut config = Config::default();
+        config.browser.mode = BrowserMode::Isolated;
+        config.browser.executable = Some("/custom/browser".to_string());
+
+        let result = configure_browser(&cli, &env, None, true, &mut config).await;
+        assert!(result.is_ok());
+        // Should preserve the existing executable
+        assert_eq!(
+            config.browser.executable,
+            Some("/custom/browser".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_configure_browser_json_non_interactive_isolated() {
+        let mut cli = make_test_cli();
+        cli.json = true;
+        let env = make_env_with_browsers(vec![]);
+        let mut config = Config::default();
+        config.browser.mode = BrowserMode::Isolated;
+
+        let result = configure_browser(&cli, &env, None, true, &mut config).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_configure_browser_json_non_interactive_extension() {
+        let mut cli = make_test_cli();
+        cli.json = true;
+        let env = make_env_with_browsers(vec![]);
+        let mut config = Config::default();
+        config.browser.mode = BrowserMode::Extension;
+
+        let result = configure_browser(&cli, &env, None, true, &mut config).await;
+        assert!(result.is_ok());
+    }
 }

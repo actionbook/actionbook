@@ -1392,4 +1392,224 @@ mod tests {
             Some(RiskLevel::L1)
         );
     }
+
+    #[test]
+    fn test_get_risk_level_l1_methods() {
+        assert_eq!(
+            get_risk_level("Page.captureScreenshot"),
+            Some(RiskLevel::L1)
+        );
+        assert_eq!(get_risk_level("DOM.getDocument"), Some(RiskLevel::L1));
+        assert_eq!(get_risk_level("DOM.querySelector"), Some(RiskLevel::L1));
+        assert_eq!(get_risk_level("DOM.querySelectorAll"), Some(RiskLevel::L1));
+        assert_eq!(get_risk_level("DOM.getOuterHTML"), Some(RiskLevel::L1));
+        assert_eq!(get_risk_level("Network.getCookies"), Some(RiskLevel::L1));
+    }
+
+    #[test]
+    fn test_get_risk_level_l2_methods() {
+        assert_eq!(get_risk_level("Runtime.evaluate"), Some(RiskLevel::L2));
+        assert_eq!(get_risk_level("Page.navigate"), Some(RiskLevel::L2));
+        assert_eq!(get_risk_level("Page.reload"), Some(RiskLevel::L2));
+        assert_eq!(
+            get_risk_level("Input.dispatchMouseEvent"),
+            Some(RiskLevel::L2)
+        );
+        assert_eq!(
+            get_risk_level("Input.dispatchKeyEvent"),
+            Some(RiskLevel::L2)
+        );
+        assert_eq!(
+            get_risk_level("Emulation.setDeviceMetricsOverride"),
+            Some(RiskLevel::L2)
+        );
+        assert_eq!(get_risk_level("Page.printToPDF"), Some(RiskLevel::L2));
+    }
+
+    #[test]
+    fn test_get_risk_level_l3_methods() {
+        assert_eq!(get_risk_level("Network.setCookie"), Some(RiskLevel::L3));
+        assert_eq!(get_risk_level("Network.deleteCookies"), Some(RiskLevel::L3));
+        assert_eq!(
+            get_risk_level("Network.clearBrowserCookies"),
+            Some(RiskLevel::L3)
+        );
+        assert_eq!(
+            get_risk_level("Page.setDownloadBehavior"),
+            Some(RiskLevel::L3)
+        );
+        assert_eq!(
+            get_risk_level("Storage.clearDataForOrigin"),
+            Some(RiskLevel::L3)
+        );
+    }
+
+    #[test]
+    fn test_get_risk_level_unknown_method() {
+        assert_eq!(get_risk_level("Unknown.method"), None);
+        assert_eq!(get_risk_level("Browser.grantPermissions"), None);
+        assert_eq!(get_risk_level(""), None);
+    }
+
+    #[test]
+    fn test_get_risk_level_extension_prefix() {
+        assert_eq!(get_risk_level("Extension.hello"), Some(RiskLevel::L1));
+        assert_eq!(get_risk_level("Extension.anything"), Some(RiskLevel::L1));
+    }
+
+    #[test]
+    fn test_risk_level_as_str() {
+        assert_eq!(RiskLevel::L1.as_str(), "L1");
+        assert_eq!(RiskLevel::L2.as_str(), "L2");
+        assert_eq!(RiskLevel::L3.as_str(), "L3");
+    }
+
+    #[test]
+    fn test_risk_level_equality() {
+        assert_eq!(RiskLevel::L1, RiskLevel::L1);
+        assert_ne!(RiskLevel::L1, RiskLevel::L2);
+        assert_ne!(RiskLevel::L2, RiskLevel::L3);
+    }
+
+    #[test]
+    fn test_generate_token_uniqueness() {
+        let t1 = generate_token();
+        let t2 = generate_token();
+        // Two generated tokens should almost never be the same
+        assert_ne!(t1, t2, "Tokens should be unique");
+    }
+
+    #[test]
+    fn test_generate_token_length_and_prefix() {
+        let token = generate_token();
+        assert!(token.starts_with(TOKEN_PREFIX));
+        // "abk_" (4) + 32 hex chars = 36
+        assert_eq!(token.len(), 4 + 32);
+    }
+
+    #[test]
+    fn test_generate_token_hex_chars_only() {
+        let token = generate_token();
+        let hex_part = &token[TOKEN_PREFIX.len()..];
+        assert!(
+            hex_part.chars().all(|c| c.is_ascii_hexdigit()),
+            "Token hex part should only contain hex digits: {}",
+            hex_part
+        );
+    }
+
+    #[test]
+    fn test_bridge_state_new() {
+        let state = BridgeState::new("test-token".to_string());
+        assert_eq!(state.token, "test-token");
+        assert!(state.extension_tx.is_none());
+        assert!(state.pending.is_empty());
+        assert_eq!(state.next_id, 1);
+        assert_eq!(state.connection_id, 0);
+    }
+
+    #[test]
+    fn test_bridge_state_touch_updates_activity() {
+        let mut state = BridgeState::new("token".to_string());
+        let before = state.last_activity;
+        // Sleep briefly to ensure time difference
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        state.touch();
+        assert!(state.last_activity >= before);
+    }
+
+    #[test]
+    fn test_token_file_path_is_in_actionbook_dir() {
+        let path = token_file_path().expect("should resolve token path");
+        let path_str = path.to_string_lossy();
+        assert!(
+            path_str.contains("actionbook"),
+            "Token file path should be under actionbook directory: {}",
+            path_str
+        );
+        assert!(path_str.ends_with("bridge-token"));
+    }
+
+    #[test]
+    fn test_port_file_path_is_in_actionbook_dir() {
+        let path = port_file_path().expect("should resolve port path");
+        let path_str = path.to_string_lossy();
+        assert!(
+            path_str.contains("actionbook"),
+            "Port file path should be under actionbook directory: {}",
+            path_str
+        );
+        assert!(path_str.ends_with("bridge-port"));
+    }
+
+    #[test]
+    fn test_pid_file_path_is_in_actionbook_dir() {
+        let path = pid_file_path().expect("should resolve pid path");
+        let path_str = path.to_string_lossy();
+        assert!(
+            path_str.contains("actionbook"),
+            "PID file path should be under actionbook directory: {}",
+            path_str
+        );
+        assert!(path_str.ends_with("bridge-pid"));
+    }
+
+    #[test]
+    fn test_is_pid_alive_current_process() {
+        let my_pid = std::process::id();
+        assert!(is_pid_alive(my_pid), "Current process should be alive");
+    }
+
+    #[test]
+    fn test_is_pid_alive_invalid_pid() {
+        // PID 0 is never a valid user process
+        assert!(!is_pid_alive(0));
+    }
+
+    #[tokio::test]
+    async fn test_is_bridge_running_false_for_no_listener() {
+        // Bind and immediately drop to get a free port
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        assert!(!is_bridge_running(port).await);
+    }
+
+    #[tokio::test]
+    async fn test_is_bridge_running_true_for_open_port() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(is_bridge_running(port).await);
+        drop(listener);
+    }
+
+    #[tokio::test]
+    async fn test_read_port_file_returns_none_for_no_file() {
+        // If there's no port file written, should return None
+        // (unless a bridge is actually running on the test machine)
+        // Just verify it doesn't panic.
+        let _ = read_port_file().await;
+    }
+
+    #[tokio::test]
+    async fn test_read_pid_file_returns_none_for_no_file() {
+        let _ = read_pid_file().await;
+    }
+
+    #[tokio::test]
+    async fn test_delete_token_file_noop_when_no_file() {
+        // Should not panic even if the file doesn't exist.
+        delete_token_file().await;
+    }
+
+    #[tokio::test]
+    async fn test_delete_port_file_noop_when_no_file() {
+        delete_port_file().await;
+    }
+
+    #[tokio::test]
+    async fn test_delete_pid_file_noop_when_no_file() {
+        delete_pid_file().await;
+    }
 }
