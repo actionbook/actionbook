@@ -266,4 +266,37 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn browser_type_names_are_correct() {
+        assert_eq!(BrowserType::Chrome.name(), "Google Chrome");
+        assert_eq!(BrowserType::Brave.name(), "Brave");
+        assert_eq!(BrowserType::Edge.name(), "Microsoft Edge");
+        assert_eq!(BrowserType::Arc.name(), "Arc");
+        assert_eq!(BrowserType::Chromium.name(), "Chromium");
+    }
+
+    #[test]
+    fn browser_info_new_sets_fields() {
+        let path = PathBuf::from("/usr/bin/chrome");
+        let info = BrowserInfo::new(BrowserType::Chrome, path.clone());
+        assert_eq!(info.browser_type.name(), "Google Chrome");
+        assert_eq!(info.path, path);
+        assert!(info.version.is_none());
+    }
+
+    #[test]
+    fn discover_all_browsers_returns_vec_without_panic() {
+        // Should not panic; result may be empty in CI
+        let browsers = discover_all_browsers();
+        for b in &browsers {
+            assert!(b.path.to_str().is_some());
+        }
+    }
+
+    #[test]
+    fn find_browser_in_path_returns_none_for_nonexistent() {
+        let result = find_browser_in_path("nonexistent_browser_xyz_12345");
+        assert!(result.is_none());
+    }
 }

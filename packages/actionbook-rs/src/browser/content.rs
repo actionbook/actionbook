@@ -238,4 +238,49 @@ mod tests {
         assert_eq!(opts.format, ContentFormat::Markdown);
         assert!(opts.optimize_for_ai);
     }
+
+    #[test]
+    fn content_format_display() {
+        assert_eq!(ContentFormat::Html.to_string(), "html");
+        assert_eq!(ContentFormat::Markdown.to_string(), "markdown");
+        assert_eq!(
+            ContentFormat::AccessibilityTree.to_string(),
+            "accessibility-tree"
+        );
+    }
+
+    #[test]
+    fn content_format_parse_error_on_unknown() {
+        let err = "xml".parse::<ContentFormat>().unwrap_err();
+        assert!(err.contains("xml"));
+    }
+
+    #[test]
+    fn content_format_parse_a11y_alias() {
+        assert_eq!(
+            "a11y-tree".parse::<ContentFormat>().unwrap(),
+            ContentFormat::AccessibilityTree
+        );
+    }
+
+    #[test]
+    fn content_options_for_debugging() {
+        let opts = ContentOptions::for_debugging();
+        assert_eq!(opts.format, ContentFormat::Html);
+        assert!(opts.include_metadata);
+        assert!(!opts.optimize_for_ai);
+    }
+
+    #[test]
+    fn content_options_default() {
+        let opts = ContentOptions::default();
+        assert_eq!(opts.format, ContentFormat::Html);
+        assert!(!opts.include_metadata);
+        assert!(!opts.optimize_for_ai);
+    }
+
+    #[test]
+    fn content_format_default_is_html() {
+        assert_eq!(ContentFormat::default(), ContentFormat::Html);
+    }
 }

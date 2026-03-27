@@ -1079,4 +1079,101 @@ mod tests {
             "got: {err}"
         );
     }
+
+    #[test]
+    fn op_to_cdp_remaining_variants() {
+        // GetDocument
+        let (method, _) = op_to_cdp(&BackendOp::GetDocument {
+            target_id: "T1".into(),
+        });
+        assert_eq!(method, "DOM.getDocument");
+
+        // QuerySelector
+        let (method, params) = op_to_cdp(&BackendOp::QuerySelector {
+            target_id: "T1".into(),
+            node_id: 1,
+            selector: ".btn".into(),
+        });
+        assert_eq!(method, "DOM.querySelector");
+        assert_eq!(params["selector"], ".btn");
+        assert_eq!(params["nodeId"], 1);
+
+        // DispatchMouseEvent
+        let (method, params) = op_to_cdp(&BackendOp::DispatchMouseEvent {
+            target_id: "T1".into(),
+            event_type: "mousePressed".into(),
+            x: 100.0,
+            y: 200.0,
+            button: "left".into(),
+            click_count: 1,
+        });
+        assert_eq!(method, "Input.dispatchMouseEvent");
+        assert_eq!(params["type"], "mousePressed");
+        assert_eq!(params["x"], 100.0);
+        assert_eq!(params["y"], 200.0);
+        assert_eq!(params["button"], "left");
+        assert_eq!(params["clickCount"], 1);
+
+        // DispatchKeyEvent
+        let (method, params) = op_to_cdp(&BackendOp::DispatchKeyEvent {
+            target_id: "T1".into(),
+            event_type: "keyDown".into(),
+            key: "Enter".into(),
+            text: "\r".into(),
+        });
+        assert_eq!(method, "Input.dispatchKeyEvent");
+        assert_eq!(params["key"], "Enter");
+        assert_eq!(params["text"], "\r");
+
+        // PrintToPdf
+        let (method, _) = op_to_cdp(&BackendOp::PrintToPdf {
+            target_id: "T1".into(),
+        });
+        assert_eq!(method, "Page.printToPDF");
+
+        // GetAccessibilityTree
+        let (method, _) = op_to_cdp(&BackendOp::GetAccessibilityTree {
+            target_id: "T1".into(),
+        });
+        assert_eq!(method, "Accessibility.getFullAXTree");
+
+        // GetCookies
+        let (method, _) = op_to_cdp(&BackendOp::GetCookies {
+            target_id: "T1".into(),
+        });
+        assert_eq!(method, "Network.getCookies");
+
+        // CreateTarget
+        let (method, params) = op_to_cdp(&BackendOp::CreateTarget {
+            url: "https://example.com".into(),
+            window_id: None,
+            new_window: true,
+        });
+        assert_eq!(method, "Target.createTarget");
+        assert_eq!(params["url"], "https://example.com");
+        assert_eq!(params["newWindow"], true);
+    }
+
+    #[test]
+    fn op_to_cdp_set_cookie_minimal_fields() {
+        let op = BackendOp::SetCookie {
+            target_id: "T1".into(),
+            name: "uid".into(),
+            value: "42".into(),
+            domain: ".example.com".into(),
+            path: "/".into(),
+            secure: None,
+            http_only: None,
+            same_site: None,
+            expires: None,
+        };
+        let (method, params) = op_to_cdp(&op);
+        assert_eq!(method, "Network.setCookie");
+        assert_eq!(params["name"], "uid");
+        assert_eq!(params["value"], "42");
+        assert!(params.get("secure").is_none());
+        assert!(params.get("httpOnly").is_none());
+        assert!(params.get("sameSite").is_none());
+        assert!(params.get("expires").is_none());
+    }
 }

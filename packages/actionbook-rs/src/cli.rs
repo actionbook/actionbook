@@ -364,16 +364,118 @@ impl Cli {
 
 #[cfg(test)]
 mod tests {
-    use super::Cli;
+    use super::*;
 
     #[test]
     fn try_parse_from_parses_config_path() {
         let parsed = Cli::try_parse_from(["actionbook", "config", "path"]).unwrap();
         assert!(matches!(
             parsed.command,
-            super::Commands::Config {
-                command: super::ConfigCommands::Path
+            Commands::Config {
+                command: ConfigCommands::Path
             }
         ));
+    }
+
+    #[test]
+    fn try_parse_from_parses_config_show() {
+        let parsed = Cli::try_parse_from(["actionbook", "config", "show"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Config {
+                command: ConfigCommands::Show
+            }
+        ));
+    }
+
+    #[test]
+    fn try_parse_from_parses_config_get() {
+        let parsed = Cli::try_parse_from(["actionbook", "config", "get", "api.base_url"]).unwrap();
+        if let Commands::Config {
+            command: ConfigCommands::Get { key },
+        } = parsed.command
+        {
+            assert_eq!(key, "api.base_url");
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_config_set() {
+        let parsed =
+            Cli::try_parse_from(["actionbook", "config", "set", "api.api_key", "sk-test-123"])
+                .unwrap();
+        if let Commands::Config {
+            command: ConfigCommands::Set { key, value },
+        } = parsed.command
+        {
+            assert_eq!(key, "api.api_key");
+            assert_eq!(value, "sk-test-123");
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_json_flag() {
+        let parsed = Cli::try_parse_from(["actionbook", "--json", "config", "show"]).unwrap();
+        assert!(parsed.json);
+    }
+
+    #[test]
+    fn try_parse_from_parses_profile_flag() {
+        let parsed =
+            Cli::try_parse_from(["actionbook", "--profile", "work", "config", "show"]).unwrap();
+        assert_eq!(parsed.profile.as_deref(), Some("work"));
+    }
+
+    #[test]
+    fn try_parse_from_parses_profile_list() {
+        let parsed = Cli::try_parse_from(["actionbook", "profile", "list"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Profile {
+                command: ProfileCommands::List
+            }
+        ));
+    }
+
+    #[test]
+    fn try_parse_from_parses_daemon_stop() {
+        let parsed = Cli::try_parse_from(["actionbook", "daemon", "stop"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Daemon {
+                command: DaemonCommands::Stop
+            }
+        ));
+    }
+
+    #[test]
+    fn browser_mode_serde_round_trip() {
+        for mode in [BrowserMode::Isolated, BrowserMode::Extension] {
+            let json = serde_json::to_string(&mode).unwrap();
+            let decoded: BrowserMode = serde_json::from_str(&json).unwrap();
+            assert_eq!(mode, decoded);
+        }
+    }
+
+    #[test]
+    fn browser_mode_aliases_deserialize() {
+        // "builtin" is an alias for Isolated
+        let mode: BrowserMode = serde_json::from_str("\"builtin\"").unwrap();
+        assert_eq!(mode, BrowserMode::Isolated);
+
+        // "system" is an alias for Extension
+        let mode: BrowserMode = serde_json::from_str("\"system\"").unwrap();
+        assert_eq!(mode, BrowserMode::Extension);
+    }
+
+    #[test]
+    fn setup_target_equality() {
+        assert_eq!(SetupTarget::Claude, SetupTarget::Claude);
+        assert_ne!(SetupTarget::Claude, SetupTarget::Cursor);
+        assert_eq!(SetupTarget::All, SetupTarget::All);
     }
 }

@@ -65,4 +65,35 @@ mod tests {
         let response: CdpResponse = serde_json::from_str(json).unwrap();
         assert_eq!(response.id, 3);
     }
+
+    #[test]
+    fn cdp_error_display_format() {
+        let err = CdpError {
+            code: -32001,
+            message: "Session not found".to_string(),
+            data: None,
+        };
+        assert_eq!(format!("{err}"), "CDP Error -32001: Session not found");
+    }
+
+    #[test]
+    fn cdp_error_with_data_field() {
+        let json = r#"{"code":-32000,"message":"Oops","data":{"detail":"extra info"}}"#;
+        let err: CdpError = serde_json::from_str(json).unwrap();
+        assert_eq!(err.code, -32000);
+        assert!(err.data.is_some());
+    }
+
+    #[test]
+    fn cdp_error_serialize_round_trip() {
+        let err = CdpError {
+            code: 1,
+            message: "test".to_string(),
+            data: None,
+        };
+        let json = serde_json::to_string(&err).unwrap();
+        let back: CdpError = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.code, err.code);
+        assert_eq!(back.message, err.message);
+    }
 }

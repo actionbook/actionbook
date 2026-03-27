@@ -199,3 +199,108 @@ pub struct AreaActionDetail {
     #[serde(default)]
     pub elements: HashMap<String, AreaElement>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_type_default_is_hybrid() {
+        assert_eq!(SearchType::default().to_string(), "hybrid");
+    }
+
+    #[test]
+    fn search_type_display() {
+        assert_eq!(SearchType::Vector.to_string(), "vector");
+        assert_eq!(SearchType::Fulltext.to_string(), "fulltext");
+        assert_eq!(SearchType::Hybrid.to_string(), "hybrid");
+    }
+
+    #[test]
+    fn search_type_serde_round_trip() {
+        for st in [SearchType::Vector, SearchType::Fulltext, SearchType::Hybrid] {
+            let original = st.to_string();
+            let json = serde_json::to_string(&st).unwrap();
+            let decoded: SearchType = serde_json::from_str(&json).unwrap();
+            assert_eq!(original, decoded.to_string());
+        }
+    }
+
+    #[test]
+    fn search_result_deserializes_correctly() {
+        let json = r#"{
+            "action_id": "site/github.com/page/home/element/search-btn",
+            "content": "Search button on GitHub",
+            "score": 0.95,
+            "createdAt": "2024-01-01T00:00:00Z"
+        }"#;
+        let result: SearchResult = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            result.action_id,
+            "site/github.com/page/home/element/search-btn"
+        );
+        assert!((result.score - 0.95).abs() < 1e-9);
+        assert_eq!(result.created_at.as_deref(), Some("2024-01-01T00:00:00Z"));
+    }
+
+    #[test]
+    fn action_detail_with_elements_as_json_string() {
+        // Construct JSON programmatically to avoid raw-string escaping issues.
+        let elements_obj = serde_json::json!({"btn": {"css_selector": ".submit-btn"}});
+        let elements_str = elements_obj.to_string();
+        let payload = serde_json::json!({
+            "action_id": "site/example.com/page/home/element/btn",
+            "content": "A button",
+            "elements": elements_str,
+        });
+        let detail: ActionDetail = serde_json::from_str(&payload.to_string()).unwrap();
+        let elements = detail.elements.unwrap();
+        let btn = elements.get("btn").unwrap();
+        assert_eq!(btn.css_selector.as_deref(), Some(".submit-btn"));
+    }
+
+    #[test]
+    fn action_detail_with_elements_as_null() {
+        let json = r#"{
+            "action_id": "site/example.com/page/home/element/btn",
+            "content": "A button",
+            "elements": null
+        }"#;
+        let detail: ActionDetail = serde_json::from_str(json).unwrap();
+        assert!(detail.elements.is_none());
+    }
+
+    #[test]
+    fn action_detail_with_elements_as_object() {
+        let json = r#"{
+            "action_id": "site/example.com/page/home/element/link",
+            "content": "A link",
+            "elements": {"link": {"xpath_selector": "//a[@id='main']"}}
+        }"#;
+        let detail: ActionDetail = serde_json::from_str(json).unwrap();
+        let elements = detail.elements.unwrap();
+        let link = elements.get("link").unwrap();
+        assert_eq!(link.xpath_selector.as_deref(), Some("//a[@id='main']"));
+    }
+
+    #[test]
+    fn search_actions_params_default() {
+        let params = SearchActionsParams::default();
+        assert!(params.query.is_empty());
+        assert!(params.domain.is_none());
+        assert!(params.background.is_none());
+        assert!(params.url.is_none());
+        assert!(params.page.is_none());
+        assert!(params.page_size.is_none());
+    }
+
+    #[test]
+    fn search_actions_legacy_params_default() {
+        let params = SearchActionsLegacyParams::default();
+        assert!(params.query.is_empty());
+        assert!(params.search_type.is_none());
+        assert!(params.limit.is_none());
+        assert!(params.source_ids.is_none());
+        assert!(params.min_score.is_none());
+    }
+}

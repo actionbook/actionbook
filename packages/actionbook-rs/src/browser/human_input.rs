@@ -171,4 +171,42 @@ mod tests {
         let dist = ((sx - 100.0).powi(2) + (sy - 100.0).powi(2)).sqrt();
         assert!(dist >= 50.0);
     }
+
+    #[test]
+    fn pre_click_delay_ms_within_range() {
+        for _ in 0..20 {
+            let delay = pre_click_delay_ms();
+            assert!(delay >= 50 && delay < 200, "delay out of range: {delay}");
+        }
+    }
+
+    #[test]
+    fn click_hold_ms_within_range() {
+        for _ in 0..20 {
+            let hold = click_hold_ms();
+            assert!(hold >= 30 && hold < 120, "hold out of range: {hold}");
+        }
+    }
+
+    #[test]
+    fn typing_delays_fast_mode_generates_entries() {
+        let delays = typing_delays("world", true);
+        assert!(delays.len() >= 5);
+    }
+
+    #[test]
+    fn typing_delays_empty_text() {
+        let delays = typing_delays("", false);
+        assert!(delays.is_empty());
+    }
+
+    #[test]
+    fn bezier_path_endpoints_reasonable() {
+        let path = bezier_mouse_path(10.0, 20.0, 110.0, 120.0);
+        assert!(!path.is_empty());
+        // Path should contain coordinate values in a reasonable range
+        for (x, y) in &path {
+            assert!(x.is_finite() && y.is_finite());
+        }
+    }
 }

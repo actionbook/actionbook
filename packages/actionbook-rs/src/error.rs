@@ -154,3 +154,180 @@ impl ActionbookError {
 }
 
 pub type Result<T> = std::result::Result<T, ActionbookError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_codes_are_correct() {
+        assert_eq!(
+            ActionbookError::BrowserNotFound("chrome".into()).error_code(),
+            "browser_not_found"
+        );
+        assert_eq!(
+            ActionbookError::BrowserLaunchFailed("timeout".into()).error_code(),
+            "browser_launch_failed"
+        );
+        assert_eq!(
+            ActionbookError::CdpConnectionFailed("refused".into()).error_code(),
+            "cdp_connection_failed"
+        );
+        assert_eq!(
+            ActionbookError::BrowserConnectionFailed("lost".into()).error_code(),
+            "browser_connection_failed"
+        );
+        assert_eq!(
+            ActionbookError::NavigationFailed("https://x.com".into(), "timeout".into())
+                .error_code(),
+            "navigation_failed"
+        );
+        assert_eq!(
+            ActionbookError::ScreenshotFailed("io".into()).error_code(),
+            "screenshot_failed"
+        );
+        assert_eq!(
+            ActionbookError::ElementActionFailed("btn".into(), "click".into(), "err".into())
+                .error_code(),
+            "element_action_failed"
+        );
+        assert_eq!(
+            ActionbookError::ContentRetrievalFailed("timeout".into()).error_code(),
+            "content_retrieval_failed"
+        );
+        assert_eq!(
+            ActionbookError::BrowserNotRunning.error_code(),
+            "browser_not_running"
+        );
+        assert_eq!(
+            ActionbookError::ElementNotFound("#btn".into()).error_code(),
+            "element_not_found"
+        );
+        assert_eq!(
+            ActionbookError::JavaScriptError("TypeError".into()).error_code(),
+            "javascript_error"
+        );
+        assert_eq!(
+            ActionbookError::ConfigError("missing field".into()).error_code(),
+            "config_error"
+        );
+        assert_eq!(
+            ActionbookError::ProfileNotFound("dev".into()).error_code(),
+            "profile_not_found"
+        );
+        assert_eq!(
+            ActionbookError::ProfileExists("dev".into()).error_code(),
+            "profile_exists"
+        );
+        assert_eq!(
+            ActionbookError::ApiError("401".into()).error_code(),
+            "api_error"
+        );
+        assert_eq!(
+            ActionbookError::SetupError("step failed".into()).error_code(),
+            "setup_error"
+        );
+        assert_eq!(
+            ActionbookError::ExtensionError("not found".into()).error_code(),
+            "extension_error"
+        );
+        assert_eq!(
+            ActionbookError::ExtensionAlreadyUpToDate {
+                current: "1.0.0".into(),
+                latest: "1.0.0".into()
+            }
+            .error_code(),
+            "extension_already_up_to_date"
+        );
+        assert_eq!(
+            ActionbookError::Timeout("30s".into()).error_code(),
+            "timeout"
+        );
+        assert_eq!(
+            ActionbookError::CamofoxServerUnreachable("127.0.0.1:9377".into()).error_code(),
+            "camofox_server_unreachable"
+        );
+        assert_eq!(
+            ActionbookError::ElementRefResolution("#x".into(), "not found".into()).error_code(),
+            "element_ref_resolution"
+        );
+        assert_eq!(
+            ActionbookError::TabNotFound("t5".into()).error_code(),
+            "tab_not_found"
+        );
+        assert_eq!(
+            ActionbookError::BrowserOperation("failed".into()).error_code(),
+            "browser_operation"
+        );
+        assert_eq!(
+            ActionbookError::FeatureNotEnabled("stealth".into(), "compile flag".into())
+                .error_code(),
+            "feature_not_enabled"
+        );
+        assert_eq!(
+            ActionbookError::FeatureNotSupported("screenshot".into()).error_code(),
+            "feature_not_supported"
+        );
+        assert_eq!(
+            ActionbookError::PageNotFound("about:blank".into()).error_code(),
+            "page_not_found"
+        );
+        assert_eq!(
+            ActionbookError::InvalidOperation("read-only".into()).error_code(),
+            "invalid_operation"
+        );
+        assert_eq!(
+            ActionbookError::CdpError("send failed".into()).error_code(),
+            "cdp_error"
+        );
+        assert_eq!(
+            ActionbookError::InvalidArgument("--tab".into()).error_code(),
+            "invalid_argument"
+        );
+        assert_eq!(
+            ActionbookError::DaemonError("crashed".into()).error_code(),
+            "daemon_error"
+        );
+        assert_eq!(
+            ActionbookError::DaemonNotRunning("no socket".into()).error_code(),
+            "daemon_not_running"
+        );
+        assert_eq!(
+            ActionbookError::Other("misc".into()).error_code(),
+            "unknown_error"
+        );
+    }
+
+    #[test]
+    fn error_codes_for_from_impls() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let ab_err: ActionbookError = io_err.into();
+        assert_eq!(ab_err.error_code(), "io_error");
+
+        let json_err: ActionbookError = serde_json::from_str::<serde_json::Value>("{bad json")
+            .unwrap_err()
+            .into();
+        assert_eq!(json_err.error_code(), "json_error");
+    }
+
+    #[test]
+    fn error_display_messages_include_context() {
+        let err = ActionbookError::BrowserNotFound("chromium".into());
+        assert!(err.to_string().contains("chromium"));
+
+        let err = ActionbookError::NavigationFailed("https://foo.com".into(), "timeout".into());
+        assert!(err.to_string().contains("https://foo.com"));
+        assert!(err.to_string().contains("timeout"));
+
+        let err = ActionbookError::ExtensionAlreadyUpToDate {
+            current: "1.2.3".into(),
+            latest: "1.2.3".into(),
+        };
+        assert!(err.to_string().contains("1.2.3"));
+
+        assert_eq!(
+            ActionbookError::BrowserNotRunning.to_string(),
+            "Browser not running. Use 'actionbook browser open <url>' first."
+        );
+    }
+}

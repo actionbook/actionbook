@@ -74,3 +74,64 @@ impl ProfileConfig {
         self.cdp_url.is_some()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_profile_config_has_expected_values() {
+        let profile = ProfileConfig::default();
+        assert_eq!(profile.cdp_port, 9222);
+        assert!(!profile.headless);
+        assert!(profile.user_data_dir.is_none());
+        assert!(profile.browser_path.is_none());
+        assert!(profile.cdp_url.is_none());
+        assert!(profile.extra_args.is_empty());
+        assert!(profile.backend.is_none());
+        assert!(profile.camofox_port.is_none());
+    }
+
+    #[test]
+    fn with_cdp_port_sets_port_and_keeps_defaults() {
+        let profile = ProfileConfig::with_cdp_port(9333);
+        assert_eq!(profile.cdp_port, 9333);
+        assert!(!profile.headless);
+        assert!(profile.user_data_dir.is_none());
+    }
+
+    #[test]
+    fn remote_profile_sets_cdp_url() {
+        let url = "ws://127.0.0.1:9222/json/version".to_string();
+        let profile = ProfileConfig::remote(url.clone());
+        assert_eq!(profile.cdp_url.as_deref(), Some(url.as_str()));
+        assert_eq!(profile.cdp_port, 9222);
+    }
+
+    #[test]
+    fn is_remote_returns_true_when_cdp_url_set() {
+        let profile = ProfileConfig::remote("ws://host:1234".to_string());
+        assert!(profile.is_remote());
+    }
+
+    #[test]
+    fn is_remote_returns_false_for_default_profile() {
+        let profile = ProfileConfig::default();
+        assert!(!profile.is_remote());
+    }
+
+    #[test]
+    fn profile_config_serde_round_trip() {
+        let profile = ProfileConfig {
+            cdp_port: 9300,
+            headless: true,
+            extra_args: vec!["--no-sandbox".into()],
+            ..ProfileConfig::default()
+        };
+        let json = serde_json::to_string(&profile).unwrap();
+        let decoded: ProfileConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.cdp_port, 9300);
+        assert!(decoded.headless);
+        assert_eq!(decoded.extra_args, vec!["--no-sandbox"]);
+    }
+}

@@ -406,3 +406,80 @@ pub(super) async fn handle_storage_clear(
         Err(e) => cdp_error_to_result(e),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_cookie_domain_strips_leading_dot() {
+        assert_eq!(normalize_cookie_domain(".example.com"), "example.com");
+        assert_eq!(normalize_cookie_domain("example.com"), "example.com");
+    }
+
+    #[test]
+    fn normalize_cookie_domain_lowercases() {
+        assert_eq!(normalize_cookie_domain("EXAMPLE.COM"), "example.com");
+        assert_eq!(normalize_cookie_domain(".Example.COM"), "example.com");
+    }
+
+    #[test]
+    fn normalize_cookie_domain_trims_whitespace() {
+        assert_eq!(normalize_cookie_domain("  example.com  "), "example.com");
+    }
+
+    #[test]
+    fn cookie_matches_domain_no_domain_filter_always_matches() {
+        let cookie = serde_json::json!({"domain": "example.com"});
+        assert!(cookie_matches_domain(&cookie, None));
+    }
+
+    #[test]
+    fn cookie_matches_domain_exact_match() {
+        let cookie = serde_json::json!({"domain": "example.com"});
+        assert!(cookie_matches_domain(&cookie, Some("example.com")));
+        assert!(cookie_matches_domain(&cookie, Some(".example.com")));
+    }
+
+    #[test]
+    fn cookie_matches_domain_different_domain() {
+        let cookie = serde_json::json!({"domain": "other.com"});
+        assert!(!cookie_matches_domain(&cookie, Some("example.com")));
+    }
+
+    #[test]
+    fn cookie_matches_domain_missing_domain_field() {
+        let cookie = serde_json::json!({"name": "session"});
+        assert!(!cookie_matches_domain(&cookie, Some("example.com")));
+    }
+
+    #[test]
+    fn filter_cookies_by_domain_keeps_matching() {
+        let cookies = vec![
+            serde_json::json!({"domain": "example.com", "name": "a"}),
+            serde_json::json!({"domain": "other.com", "name": "b"}),
+            serde_json::json!({"domain": ".example.com", "name": "c"}),
+        ];
+        let result = filter_cookies_by_domain(cookies, Some("example.com"));
+        assert_eq!(result.len(), 2);
+        let names: Vec<&str> = result.iter().map(|c| c["name"].as_str().unwrap()).collect();
+        assert!(names.contains(&"a"));
+        assert!(names.contains(&"c"));
+    }
+
+    #[test]
+    fn filter_cookies_by_domain_none_returns_all() {
+        let cookies = vec![
+            serde_json::json!({"domain": "example.com", "name": "a"}),
+            serde_json::json!({"domain": "other.com", "name": "b"}),
+        ];
+        let result = filter_cookies_by_domain(cookies, None);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn storage_js_name_returns_correct_names() {
+        assert_eq!(storage_js_name(StorageKind::Local), "localStorage");
+        assert_eq!(storage_js_name(StorageKind::Session), "sessionStorage");
+    }
+}

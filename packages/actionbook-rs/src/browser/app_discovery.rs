@@ -229,3 +229,48 @@ fn detect_app(app_def: &AppDefinition) -> Option<ElectronAppInfo> {
 fn detect_app(_app_def: &AppDefinition) -> Option<ElectronAppInfo> {
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discover_electron_apps_returns_vec_without_panic() {
+        // Just ensure the function runs without panicking on the current platform.
+        let apps = discover_electron_apps();
+        // apps may be empty (CI environment), but should not panic.
+        for app in &apps {
+            assert!(!app.name.is_empty());
+            assert!(app.path.to_str().is_some());
+        }
+    }
+
+    #[test]
+    fn electron_app_info_serde_round_trip_with_version() {
+        let info = ElectronAppInfo {
+            name: "Visual Studio Code".to_string(),
+            path: PathBuf::from("/Applications/Visual Studio Code.app/Contents/MacOS/Electron"),
+            version: Some("1.85.0".to_string()),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("Visual Studio Code"));
+        assert!(json.contains("1.85.0"));
+        let decoded: ElectronAppInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.name, "Visual Studio Code");
+        assert_eq!(decoded.version.as_deref(), Some("1.85.0"));
+    }
+
+    #[test]
+    fn electron_app_info_serde_omits_none_version() {
+        let info = ElectronAppInfo {
+            name: "Slack".to_string(),
+            path: PathBuf::from("/Applications/Slack.app/Contents/MacOS/Slack"),
+            version: None,
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        // skip_serializing_if = "Option::is_none" should omit version
+        assert!(!json.contains("version"));
+        let decoded: ElectronAppInfo = serde_json::from_str(&json).unwrap();
+        assert!(decoded.version.is_none());
+    }
+}

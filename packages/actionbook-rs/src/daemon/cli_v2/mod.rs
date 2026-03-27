@@ -2425,4 +2425,210 @@ mod tests {
         .unwrap_err();
         assert!(err.contains("expected format 'x,y'"));
     }
+
+    #[test]
+    fn build_scroll_all_directions() {
+        let session = SessionId::new_unchecked("local-1");
+        let tab = TabId(0);
+
+        let (action, _) = build_action(BrowserCmd::Scroll(ScrollCmd::Up {
+            amount: Some(100),
+            session: session.clone(),
+            tab,
+        }))
+        .unwrap();
+        assert!(
+            matches!(action, Action::Scroll { direction, amount: Some(100), .. } if direction == "up")
+        );
+
+        let (action, _) = build_action(BrowserCmd::Scroll(ScrollCmd::Left {
+            amount: None,
+            session: session.clone(),
+            tab,
+        }))
+        .unwrap();
+        assert!(
+            matches!(action, Action::Scroll { direction, amount: None, .. } if direction == "left")
+        );
+
+        let (action, _) = build_action(BrowserCmd::Scroll(ScrollCmd::Right {
+            amount: None,
+            session: session.clone(),
+            tab,
+        }))
+        .unwrap();
+        assert!(
+            matches!(action, Action::Scroll { direction, amount: None, .. } if direction == "right")
+        );
+
+        let (action, _) = build_action(BrowserCmd::Scroll(ScrollCmd::Top {
+            session: session.clone(),
+            tab,
+        }))
+        .unwrap();
+        assert!(
+            matches!(action, Action::Scroll { direction, amount: None, .. } if direction == "top")
+        );
+
+        let (action, _) =
+            build_action(BrowserCmd::Scroll(ScrollCmd::Bottom { session, tab })).unwrap();
+        assert!(
+            matches!(action, Action::Scroll { direction, amount: None, .. } if direction == "bottom")
+        );
+    }
+
+    #[test]
+    fn build_logs_subcommand() {
+        let session = SessionId::new_unchecked("local-1");
+        let tab = TabId(2);
+
+        let (action, _) = build_action(BrowserCmd::Logs(LogsCmd::Console {
+            session: session.to_string(),
+            tab: tab.to_string(),
+            level: Some("error".into()),
+            tail: Some(10),
+            since: Some(100),
+            clear: false,
+            source: None,
+            json: false,
+        }))
+        .unwrap();
+        assert!(matches!(
+            action,
+            Action::LogsConsole {
+                level: Some(l),
+                tail: Some(10),
+                ..
+            } if l == "error"
+        ));
+
+        let (action, _) = build_action(BrowserCmd::Logs(LogsCmd::Errors {
+            session: session.to_string(),
+            tab: tab.to_string(),
+            source: Some("network".into()),
+            tail: None,
+            since: None,
+            clear: true,
+            json: false,
+        }))
+        .unwrap();
+        assert!(matches!(
+            action,
+            Action::LogsErrors {
+                source: Some(src),
+                clear: true,
+                ..
+            } if src == "network"
+        ));
+    }
+
+    #[test]
+    fn build_cookies_get_set_delete() {
+        let session = SessionId::new_unchecked("local-1");
+
+        let (action, _) = build_action(BrowserCmd::Cookies(CookiesCmd::Get {
+            name: "session_id".into(),
+            session: session.clone(),
+        }))
+        .unwrap();
+        assert!(matches!(action, Action::CookiesGet { name, .. } if name == "session_id"));
+
+        let (action, _) = build_action(BrowserCmd::Cookies(CookiesCmd::Set {
+            name: "my_cookie".into(),
+            value: "my_value".into(),
+            session: session.clone(),
+            domain: Some("example.com".into()),
+            path: None,
+            secure: true,
+            http_only: false,
+            same_site: None,
+            expires: Some(1234567890.0),
+        }))
+        .unwrap();
+        assert!(
+            matches!(action, Action::CookiesSet { name, secure: Some(true), expires: Some(e), .. } if name == "my_cookie" && e == 1234567890.0)
+        );
+
+        let (action, _) = build_action(BrowserCmd::Cookies(CookiesCmd::Delete {
+            name: "old_cookie".into(),
+            session,
+        }))
+        .unwrap();
+        assert!(matches!(action, Action::CookiesDelete { name, .. } if name == "old_cookie"));
+    }
+
+    #[test]
+    fn build_type_and_fill_actions() {
+        let session = SessionId::new_unchecked("local-1");
+        let tab = TabId(0);
+
+        let (action, _) = build_action(BrowserCmd::Type {
+            text: "hello world".into(),
+            session: session.clone(),
+            tab,
+            selector: Some("#input".into()),
+        })
+        .unwrap();
+        assert!(
+            matches!(action, Action::Type { text, selector, .. } if text == "hello world" && selector == "#input")
+        );
+
+        let (action, _) = build_action(BrowserCmd::Fill {
+            selector: "#email".into(),
+            text: "user@example.com".into(),
+            session,
+            tab,
+        })
+        .unwrap();
+        assert!(
+            matches!(action, Action::Fill { selector, value, .. } if selector == "#email" && value == "user@example.com")
+        );
+    }
+
+    #[test]
+    fn inspect_point_rejects_invalid_coords() {
+        let err = build_action(BrowserCmd::InspectPoint {
+            coords: "not-valid".into(),
+            parent_depth: None,
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        })
+        .unwrap_err();
+        assert!(err.contains("invalid coords"));
+    }
+
+    #[test]
+    fn inspect_point_rejects_bad_x_value() {
+        let err = build_action(BrowserCmd::InspectPoint {
+            coords: "abc,100".into(),
+            parent_depth: None,
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        })
+        .unwrap_err();
+        assert!(err.contains("invalid x coordinate"));
+    }
+
+    #[test]
+    fn inspect_point_rejects_bad_y_value() {
+        let err = build_action(BrowserCmd::InspectPoint {
+            coords: "100,abc".into(),
+            parent_depth: None,
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        })
+        .unwrap_err();
+        assert!(err.contains("invalid y coordinate"));
+    }
+
+    #[test]
+    fn mouse_move_rejects_missing_y_coordinate() {
+        let err = build_action(BrowserCmd::MouseMove {
+            coords: "100".into(),
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        })
+        .unwrap_err();
+        assert!(err.contains("expected format 'x,y'"));
+    }
 }

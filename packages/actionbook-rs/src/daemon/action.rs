@@ -823,4 +823,387 @@ mod tests {
             _ => panic!("wrong variant"),
         }
     }
+
+    #[test]
+    fn session_id_returns_none_for_global_actions() {
+        assert!(Action::ListSessions.session_id().is_none());
+        let start = Action::StartSession {
+            mode: Mode::Local,
+            profile: None,
+            headless: false,
+            open_url: None,
+            cdp_endpoint: None,
+            ws_headers: None,
+            set_session_id: None,
+        };
+        assert!(start.session_id().is_none());
+    }
+
+    #[test]
+    fn session_id_returns_some_for_session_actions() {
+        let session = SessionId::new_unchecked("local-1");
+        let tab = TabId(0);
+
+        let goto = Action::Goto {
+            session: session.clone(),
+            tab,
+            url: "https://example.com".into(),
+        };
+        assert_eq!(goto.session_id().unwrap().as_str(), "local-1");
+
+        let close = Action::CloseSession {
+            session: session.clone(),
+        };
+        assert_eq!(close.session_id().unwrap().as_str(), "local-1");
+
+        let list_tabs = Action::ListTabs {
+            session: session.clone(),
+        };
+        assert_eq!(list_tabs.session_id().unwrap().as_str(), "local-1");
+    }
+
+    #[test]
+    fn screenshot_round_trip() {
+        let action = Action::Screenshot {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            full_page: true,
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        let decoded: Action = serde_json::from_str(&json).unwrap();
+        match decoded {
+            Action::Screenshot { full_page, .. } => assert!(full_page),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn new_tab_round_trip() {
+        let action = Action::NewTab {
+            session: SessionId::new_unchecked("local-1"),
+            url: "https://example.com".into(),
+            new_window: false,
+            window: None,
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        let decoded: Action = serde_json::from_str(&json).unwrap();
+        match decoded {
+            Action::NewTab { url, .. } => assert_eq!(url, "https://example.com"),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn session_id_for_all_tab_level_actions() {
+        let s = SessionId::new_unchecked("local-5");
+        let tab = TabId(2);
+
+        let actions: Vec<Action> = vec![
+            Action::Back {
+                session: s.clone(),
+                tab,
+            },
+            Action::Forward {
+                session: s.clone(),
+                tab,
+            },
+            Action::Reload {
+                session: s.clone(),
+                tab,
+            },
+            Action::Open {
+                session: s.clone(),
+                tab,
+                url: "https://example.com".into(),
+            },
+            Action::Html {
+                session: s.clone(),
+                tab,
+                selector: None,
+            },
+            Action::Text {
+                session: s.clone(),
+                tab,
+                selector: None,
+                mode: None,
+            },
+            Action::Pdf {
+                session: s.clone(),
+                tab,
+                path: "/tmp/out.pdf".into(),
+            },
+            Action::Title {
+                session: s.clone(),
+                tab,
+            },
+            Action::Url {
+                session: s.clone(),
+                tab,
+            },
+            Action::Value {
+                session: s.clone(),
+                tab,
+                selector: "#field".into(),
+            },
+            Action::Attr {
+                session: s.clone(),
+                tab,
+                selector: "#field".into(),
+                name: "aria-label".into(),
+            },
+            Action::Attrs {
+                session: s.clone(),
+                tab,
+                selector: "#field".into(),
+            },
+            Action::Describe {
+                session: s.clone(),
+                tab,
+                selector: "#field".into(),
+                nearby: false,
+            },
+            Action::State {
+                session: s.clone(),
+                tab,
+                selector: "#field".into(),
+            },
+            Action::Box_ {
+                session: s.clone(),
+                tab,
+                selector: "#field".into(),
+            },
+            Action::Styles {
+                session: s.clone(),
+                tab,
+                selector: "#field".into(),
+                names: vec![],
+            },
+            Action::Viewport {
+                session: s.clone(),
+                tab,
+            },
+            Action::Query {
+                session: s.clone(),
+                tab,
+                selector: ".item".into(),
+                mode: QueryMode::Css,
+                cardinality: QueryCardinality::All,
+                nth_index: None,
+            },
+            Action::InspectPoint {
+                session: s.clone(),
+                tab,
+                x: 10.0,
+                y: 20.0,
+                parent_depth: None,
+            },
+            Action::LogsConsole {
+                session: s.clone(),
+                tab,
+                level: None,
+                tail: None,
+                since: None,
+                clear: false,
+            },
+            Action::LogsErrors {
+                session: s.clone(),
+                tab,
+                source: None,
+                tail: None,
+                since: None,
+                clear: false,
+            },
+            Action::CookiesList {
+                session: s.clone(),
+                domain: None,
+            },
+            Action::CookiesGet {
+                session: s.clone(),
+                name: "test".into(),
+            },
+            Action::CookiesSet {
+                session: s.clone(),
+                name: "x".into(),
+                value: "y".into(),
+                domain: None,
+                path: None,
+                secure: None,
+                http_only: None,
+                same_site: None,
+                expires: None,
+            },
+            Action::CookiesDelete {
+                session: s.clone(),
+                name: "x".into(),
+            },
+            Action::CookiesClear {
+                session: s.clone(),
+                domain: None,
+            },
+            Action::StorageList {
+                session: s.clone(),
+                tab,
+                kind: StorageKind::Local,
+            },
+            Action::StorageGet {
+                session: s.clone(),
+                tab,
+                kind: StorageKind::Local,
+                key: "k".into(),
+            },
+            Action::StorageSet {
+                session: s.clone(),
+                tab,
+                kind: StorageKind::Local,
+                key: "k".into(),
+                value: "v".into(),
+            },
+            Action::StorageDelete {
+                session: s.clone(),
+                tab,
+                kind: StorageKind::Session,
+                key: "k".into(),
+            },
+            Action::StorageClear {
+                session: s.clone(),
+                tab,
+                kind: StorageKind::Session,
+            },
+            Action::Select {
+                session: s.clone(),
+                tab,
+                selector: "#sel".into(),
+                value: "opt".into(),
+                by_text: false,
+            },
+            Action::Hover {
+                session: s.clone(),
+                tab,
+                selector: "#hover".into(),
+            },
+            Action::Focus {
+                session: s.clone(),
+                tab,
+                selector: "#focus".into(),
+            },
+            Action::Press {
+                session: s.clone(),
+                tab,
+                key_or_chord: "Enter".into(),
+            },
+            Action::Drag {
+                session: s.clone(),
+                tab,
+                from_selector: "#from".into(),
+                to_selector: "#to".into(),
+            },
+            Action::Upload {
+                session: s.clone(),
+                tab,
+                selector: "#file".into(),
+                files: vec![],
+            },
+            Action::Scroll {
+                session: s.clone(),
+                tab,
+                direction: "down".into(),
+                amount: None,
+                selector: None,
+            },
+            Action::MouseMove {
+                session: s.clone(),
+                tab,
+                x: 10.0,
+                y: 20.0,
+            },
+            Action::CursorPosition {
+                session: s.clone(),
+                tab,
+            },
+            Action::WaitNavigation {
+                session: s.clone(),
+                tab,
+                timeout_ms: None,
+            },
+            Action::WaitNetworkIdle {
+                session: s.clone(),
+                tab,
+                timeout_ms: None,
+                idle_time_ms: None,
+            },
+            Action::WaitCondition {
+                session: s.clone(),
+                tab,
+                expression: "true".into(),
+                timeout_ms: None,
+            },
+            Action::RestartSession { session: s.clone() },
+            Action::ListWindows { session: s.clone() },
+            Action::CloseTab {
+                session: s.clone(),
+                tab,
+            },
+            Action::Close { session: s.clone() },
+            Action::SessionStatus { session: s.clone() },
+        ];
+
+        for action in &actions {
+            assert_eq!(
+                action.session_id().as_ref().map(|id| id.as_str()),
+                Some("local-5"),
+                "session_id() failed for {action:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn fill_round_trip() {
+        let action = Action::Fill {
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            selector: "#email".into(),
+            value: "test@example.com".into(),
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        let decoded: Action = serde_json::from_str(&json).unwrap();
+        match decoded {
+            Action::Fill {
+                selector, value, ..
+            } => {
+                assert_eq!(selector, "#email");
+                assert_eq!(value, "test@example.com");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn cookies_set_with_all_fields_round_trip() {
+        let action = Action::CookiesSet {
+            session: SessionId::new_unchecked("local-1"),
+            name: "my_cookie".into(),
+            value: "my_value".into(),
+            domain: Some(".example.com".into()),
+            path: Some("/".into()),
+            secure: Some(true),
+            http_only: Some(false),
+            same_site: Some(SameSite::Lax),
+            expires: Some(1234567890.0),
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        let decoded: Action = serde_json::from_str(&json).unwrap();
+        match decoded {
+            Action::CookiesSet {
+                name,
+                value,
+                secure,
+                ..
+            } => {
+                assert_eq!(name, "my_cookie");
+                assert_eq!(value, "my_value");
+                assert_eq!(secure, Some(true));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
 }

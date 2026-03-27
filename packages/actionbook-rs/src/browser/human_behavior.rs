@@ -444,4 +444,47 @@ mod tests {
         assert_eq!(normal.mouse_speed, 1.0);
         assert_eq!(normal.typing_wpm, 60);
     }
+
+    #[test]
+    fn random_pause_disabled_returns_zero() {
+        let config = HumanBehaviorConfig::fast(); // fast has enable_random_pauses = false
+        let pause = random_pause(&config);
+        assert_eq!(pause.as_millis(), 0);
+    }
+
+    #[test]
+    fn random_pause_enabled_returns_nonzero() {
+        let config = HumanBehaviorConfig::slow(); // slow has enable_random_pauses = true
+        let pause = random_pause(&config);
+        assert!(
+            pause.as_millis() >= config.pause_min_ms as u128,
+            "pause too short: {pause:?}"
+        );
+        assert!(
+            pause.as_millis() <= config.pause_max_ms as u128,
+            "pause too long: {pause:?}"
+        );
+    }
+
+    #[test]
+    fn point_new_and_fields() {
+        let p = Point::new(1.5, 2.5);
+        assert!((p.x - 1.5).abs() < 1e-9);
+        assert!((p.y - 2.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn generate_scroll_delays_zero_steps_returns_empty() {
+        let delays = generate_scroll_delays(0, true);
+        assert!(delays.is_empty());
+    }
+
+    #[test]
+    fn generate_mouse_trajectory_zero_steps() {
+        let start = Point::new(0.0, 0.0);
+        let end = Point::new(100.0, 100.0);
+        let trajectory = generate_mouse_trajectory(start, end, 0);
+        // Should still have start + end
+        assert_eq!(trajectory.len(), 2);
+    }
 }
