@@ -164,6 +164,8 @@ pub async fn handle_action(
             selector,
             button,
             count,
+            new_tab,
+            coordinates,
             ..
         } => {
             interaction::handle_click(
@@ -174,6 +176,8 @@ pub async fn handle_action(
                 &selector,
                 button.as_deref(),
                 count,
+                new_tab,
+                coordinates,
             )
             .await
         }
@@ -413,6 +417,7 @@ pub async fn handle_action(
             from_selector,
             to_selector,
             button,
+            to_coordinates,
             ..
         } => {
             interaction::handle_drag(
@@ -423,6 +428,7 @@ pub async fn handle_action(
                 &from_selector,
                 &to_selector,
                 button.as_deref(),
+                to_coordinates,
             )
             .await
         }
@@ -988,6 +994,8 @@ mod tests {
                 selector: "#btn".into(),
                 button: None,
                 count: None,
+                new_tab: false,
+                coordinates: None,
             },
         )
         .await;
@@ -1024,6 +1032,8 @@ mod tests {
                 selector: "#nonexistent".into(),
                 button: None,
                 count: None,
+                new_tab: false,
+                coordinates: None,
             },
         )
         .await;
@@ -2160,6 +2170,7 @@ mod tests {
                 from_selector: "#source".into(),
                 to_selector: "#target".into(),
                 button: None,
+                to_coordinates: None,
             },
         )
         .await;

@@ -406,6 +406,8 @@ async fn e2e_missing_tab_returns_fatal() {
             selector: "#submit".into(),
             button: None,
             count: None,
+            new_tab: false,
+            coordinates: None,
         },
         "tab_not_found",
     )

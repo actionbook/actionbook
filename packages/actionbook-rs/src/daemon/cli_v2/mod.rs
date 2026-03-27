@@ -224,10 +224,10 @@ enum BrowserCmd {
         tab: TabId,
     },
 
-    /// Click an element by selector
+    /// Click an element by selector or at coordinates (x,y)
     Click {
-        /// CSS selector
-        selector: String,
+        /// CSS selector or coordinates (e.g. "100,200")
+        target: String,
         /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
@@ -240,6 +240,9 @@ enum BrowserCmd {
         /// Number of clicks (1 = single, 2 = double)
         #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
         count: Option<u32>,
+        /// Open the clicked element's link in a new tab
+        #[arg(long)]
+        new_tab: bool,
     },
 
     /// Type text (character by character with key events)
@@ -596,11 +599,11 @@ enum BrowserCmd {
         tab: TabId,
     },
 
-    /// Drag an element to another element
+    /// Drag an element to another element or coordinates
     Drag {
         /// Selector of the element to drag
         from: String,
-        /// Selector of the drop target
+        /// Drop target: CSS selector or coordinates (e.g. "100,200")
         to: String,
         /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
@@ -716,6 +719,21 @@ pub enum LogsCmd {
 }
 
 // ---------------------------------------------------------------------------
+// Coordinate parsing
+// ---------------------------------------------------------------------------
+
+/// Parse a target string as coordinates ("x,y") or return None if it's a selector.
+fn parse_coordinates(target: &str) -> Option<(f64, f64)> {
+    let parts: Vec<&str> = target.split(',').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    let x = parts[0].trim().parse::<f64>().ok()?;
+    let y = parts[1].trim().parse::<f64>().ok()?;
+    Some((x, y))
+}
+
+// ---------------------------------------------------------------------------
 // Action construction — pure mapping, no logic
 // ---------------------------------------------------------------------------
 
@@ -811,18 +829,27 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
         },
         // NOTE: screenshot_path is extracted above and returned alongside the action.
         BrowserCmd::Click {
-            selector,
+            target,
             session,
             tab,
             button,
             count,
-        } => Action::Click {
-            session,
-            tab,
-            selector,
-            button,
-            count,
-        },
+            new_tab,
+        } => {
+            let coordinates = parse_coordinates(&target);
+            if new_tab && coordinates.is_some() {
+                return Err("--new-tab cannot be used with coordinate targets".into());
+            }
+            Action::Click {
+                session,
+                tab,
+                selector: target,
+                button,
+                count,
+                new_tab,
+                coordinates,
+            }
+        }
         BrowserCmd::Type {
             selector,
             text,
@@ -1194,13 +1221,17 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             session,
             tab,
             button,
-        } => Action::Drag {
-            session,
-            tab,
-            from_selector: from,
-            to_selector: to,
-            button,
-        },
+        } => {
+            let to_coordinates = parse_coordinates(&to);
+            Action::Drag {
+                session,
+                tab,
+                from_selector: from,
+                to_selector: to,
+                button,
+                to_coordinates,
+            }
+        }
         BrowserCmd::Upload {
             files,
             selector,
@@ -1764,11 +1795,12 @@ mod tests {
     #[test]
     fn build_click_action() {
         let (action, _) = build_action(BrowserCmd::Click {
-            selector: "#btn".into(),
+            target: "#btn".into(),
             session: SessionId::new_unchecked("local-1"),
             tab: TabId(0),
             button: None,
             count: None,
+            new_tab: false,
         })
         .unwrap();
         match action {
@@ -1789,11 +1821,12 @@ mod tests {
     #[test]
     fn build_click_action_with_button_and_count() {
         let (action, _) = build_action(BrowserCmd::Click {
-            selector: "#btn".into(),
+            target: "#btn".into(),
             session: SessionId::new_unchecked("local-1"),
             tab: TabId(0),
             button: Some("right".into()),
             count: Some(2),
+            new_tab: false,
         })
         .unwrap();
         match action {
@@ -1849,6 +1882,115 @@ mod tests {
                 assert_eq!(from_selector, "#source");
                 assert_eq!(to_selector, "#target");
                 assert_eq!(button.as_deref(), Some("middle"));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn parse_coordinates_valid() {
+        assert_eq!(parse_coordinates("100,200"), Some((100.0, 200.0)));
+        assert_eq!(parse_coordinates("10.5,20.3"), Some((10.5, 20.3)));
+        assert_eq!(parse_coordinates(" 50 , 75 "), Some((50.0, 75.0)));
+    }
+
+    #[test]
+    fn parse_coordinates_invalid() {
+        assert_eq!(parse_coordinates("#btn"), None);
+        assert_eq!(parse_coordinates("div.class"), None);
+        assert_eq!(parse_coordinates("100"), None);
+        assert_eq!(parse_coordinates("100,200,300"), None);
+        assert_eq!(parse_coordinates(""), None);
+    }
+
+    #[test]
+    fn build_click_action_with_coordinates() {
+        let (action, _) = build_action(BrowserCmd::Click {
+            target: "100,200".into(),
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            button: None,
+            count: None,
+            new_tab: false,
+        })
+        .unwrap();
+        match action {
+            Action::Click {
+                selector,
+                coordinates,
+                new_tab,
+                ..
+            } => {
+                assert_eq!(selector, "100,200");
+                assert_eq!(coordinates, Some((100.0, 200.0)));
+                assert!(!new_tab);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn build_click_action_new_tab_with_coordinates_errors() {
+        let result = build_action(BrowserCmd::Click {
+            target: "100,200".into(),
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            button: None,
+            count: None,
+            new_tab: true,
+        });
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("--new-tab cannot be used with coordinate targets"));
+    }
+
+    #[test]
+    fn build_click_action_new_tab_with_selector() {
+        let (action, _) = build_action(BrowserCmd::Click {
+            target: "#link".into(),
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            button: None,
+            count: None,
+            new_tab: true,
+        })
+        .unwrap();
+        match action {
+            Action::Click {
+                selector,
+                coordinates,
+                new_tab,
+                ..
+            } => {
+                assert_eq!(selector, "#link");
+                assert!(coordinates.is_none());
+                assert!(new_tab);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn build_drag_action_with_coordinates_target() {
+        let (action, _) = build_action(BrowserCmd::Drag {
+            from: "#source".into(),
+            to: "300,400".into(),
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            button: None,
+        })
+        .unwrap();
+        match action {
+            Action::Drag {
+                from_selector,
+                to_selector,
+                to_coordinates,
+                ..
+            } => {
+                assert_eq!(from_selector, "#source");
+                assert_eq!(to_selector, "300,400");
+                assert_eq!(to_coordinates, Some((300.0, 400.0)));
             }
             _ => panic!("wrong variant"),
         }

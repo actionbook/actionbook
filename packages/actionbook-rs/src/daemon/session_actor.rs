@@ -465,6 +465,8 @@ mod tests {
                 selector: "#submit".into(),
                 button: None,
                 count: None,
+                new_tab: false,
+                coordinates: None,
             },
             response_tx: resp_tx,
         })

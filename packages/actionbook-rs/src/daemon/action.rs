@@ -144,7 +144,7 @@ pub enum Action {
     /// Close the session's browser entirely.
     Close { session: SessionId },
 
-    /// Click an element by selector.
+    /// Click an element by selector or at coordinates.
     Click {
         session: SessionId,
         tab: TabId,
@@ -155,6 +155,12 @@ pub enum Action {
         /// Number of clicks (1 = single, 2 = double).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         count: Option<u32>,
+        /// If true, extract href from element and open in a new tab.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        new_tab: bool,
+        /// Direct coordinates (x, y) instead of selector-based targeting.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        coordinates: Option<(f64, f64)>,
     },
 
     /// Type text character by character (with key events).
@@ -471,17 +477,20 @@ pub enum Action {
         key_or_chord: String,
     },
 
-    /// Drag an element to another element.
+    /// Drag an element to another element or coordinates.
     Drag {
         session: SessionId,
         tab: TabId,
         /// Selector of the element to drag from.
         from_selector: String,
-        /// Selector of the element to drop onto.
+        /// Selector of the drop target (empty if to_coordinates is set).
         to_selector: String,
         /// Mouse button: "left" (default), "right", "middle".
         #[serde(default, skip_serializing_if = "Option::is_none")]
         button: Option<String>,
+        /// Direct coordinates (x, y) for the drop target.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        to_coordinates: Option<(f64, f64)>,
     },
 
     /// Upload files to a file input element.
@@ -726,6 +735,8 @@ mod tests {
             selector: "#submit".into(),
             button: Some("right".into()),
             count: Some(2),
+            new_tab: false,
+            coordinates: None,
         };
         let json = serde_json::to_string(&action).unwrap();
         let decoded: Action = serde_json::from_str(&json).unwrap();
@@ -1100,6 +1111,7 @@ mod tests {
                 from_selector: "#from".into(),
                 to_selector: "#to".into(),
                 button: None,
+                to_coordinates: None,
             },
             Action::Upload {
                 session: s.clone(),
