@@ -200,9 +200,7 @@ impl BrowserCommands {
             Self::Goto(cmd) => navigation::goto::context(cmd, result),
             Self::Snapshot(cmd) => observation::snapshot::context(cmd, result),
             Self::Eval(cmd) => interaction::eval::context(cmd, result),
-            Self::Back(a) | Self::Forward(a) | Self::Reload(a) => {
-                tab_context(&a.session, &a.tab)
-            }
+            Self::Back(a) | Self::Forward(a) | Self::Reload(a) => tab_context(&a.session, &a.tab),
             Self::Screenshot { session, tab, .. }
             | Self::Click { session, tab, .. }
             | Self::Fill { session, tab, .. }

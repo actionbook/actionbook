@@ -97,8 +97,7 @@ async fn handle_browser(
             let duration = start.elapsed();
             let context = command.context(&result);
             if json_mode {
-                let envelope =
-                    JsonEnvelope::from_result(&command_name, context, &result, duration);
+                let envelope = JsonEnvelope::from_result(&command_name, context, &result, duration);
                 println!("{}", serde_json::to_string(&envelope)?);
             } else {
                 let text = output::format_text(&command_name, &context, &result);
@@ -117,8 +116,7 @@ async fn handle_browser(
     let context = command.context(&result);
 
     if json_mode {
-        let envelope =
-            JsonEnvelope::from_result(&command_name, context.clone(), &result, duration);
+        let envelope = JsonEnvelope::from_result(&command_name, context.clone(), &result, duration);
         println!("{}", serde_json::to_string(&envelope)?);
     } else {
         let text = output::format_text(&command_name, &context, &result);

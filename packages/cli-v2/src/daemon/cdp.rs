@@ -27,7 +27,10 @@ pub fn resolve_tab_ws_url(
     entry: &SessionEntry,
 ) -> Result<String, crate::action_result::ActionResult> {
     let parsed_tab: TabId = tab_id.parse().map_err(|e| {
-        crate::action_result::ActionResult::fatal("INVALID_ARGUMENT", format!("invalid tab id: {e}"))
+        crate::action_result::ActionResult::fatal(
+            "INVALID_ARGUMENT",
+            format!("invalid tab id: {e}"),
+        )
     })?;
     let tab = entry
         .tabs

@@ -97,9 +97,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                     for target in &targets {
                         let tid = target.get("id").and_then(|v| v.as_str()).unwrap_or("");
                         if tid == tab_info.1 {
-                            if let Some(tab) =
-                                entry.tabs.iter_mut().find(|t| t.id == tab_info.0)
-                            {
+                            if let Some(tab) = entry.tabs.iter_mut().find(|t| t.id == tab_info.0) {
                                 tab.url = target
                                     .get("url")
                                     .and_then(|v| v.as_str())
@@ -157,10 +155,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }));
     }
 
-    let session_id = match reg.generate_session_id(cmd.set_session_id.as_deref(), cmd.profile.as_deref()) {
-        Ok(id) => id,
-        Err(e) => return ActionResult::fatal(e.error_code(), e.to_string()),
-    };
+    let session_id =
+        match reg.generate_session_id(cmd.set_session_id.as_deref(), cmd.profile.as_deref()) {
+            Ok(id) => id,
+            Err(e) => return ActionResult::fatal(e.error_code(), e.to_string()),
+        };
 
     let executable = match browser::find_chrome() {
         Ok(e) => e,
@@ -188,13 +187,17 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }
     }
 
-    let (mut chrome, port) =
-        match browser::launch_chrome(&executable, cmd.headless, &user_data_dir, cmd.open_url.as_deref())
-            .await
-        {
-            Ok(c) => c,
-            Err(e) => return ActionResult::fatal(e.error_code(), e.to_string()),
-        };
+    let (mut chrome, port) = match browser::launch_chrome(
+        &executable,
+        cmd.headless,
+        &user_data_dir,
+        cmd.open_url.as_deref(),
+    )
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => return ActionResult::fatal(e.error_code(), e.to_string()),
+    };
 
     let ws_url = match browser::discover_ws_url(port).await {
         Ok(ws) => ws,
