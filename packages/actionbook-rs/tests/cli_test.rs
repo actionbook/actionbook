@@ -50,7 +50,7 @@ mod help {
             .arg("--version")
             .assert()
             .success()
-            .stdout(predicate::str::contains("actionbook"));
+            .stdout("1.0.0\n");
     }
 
     #[test]
@@ -77,6 +77,54 @@ mod help {
             .stdout(predicate::str::contains("--profile"))
             .stdout(predicate::str::contains("--api-key"))
             .stdout(predicate::str::contains("--json"));
+    }
+
+    #[test]
+    fn help_subcommand_outputs_browser_surface() {
+        actionbook()
+            .arg("help")
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("actionbook browser"))
+            .stdout(predicate::str::contains("start"))
+            .stdout(predicate::str::contains("snapshot"));
+    }
+
+    #[test]
+    fn help_browser_routes_to_browser_surface() {
+        actionbook()
+            .args(["help", "browser"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("actionbook browser"))
+            .stdout(predicate::str::contains("start"))
+            .stdout(predicate::str::contains("list-tabs"))
+            .stdout(predicate::str::contains("snapshot"));
+    }
+
+    #[test]
+    fn json_help_outputs_browser_help_string() {
+        let output = actionbook()
+            .args(["--json", "help"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let text = String::from_utf8(output).unwrap();
+        let help: String = serde_json::from_str(text.trim()).unwrap();
+        assert!(help.contains("actionbook browser"));
+        assert!(help.contains("start"));
+        assert!(help.contains("list-tabs"));
+    }
+
+    #[test]
+    fn json_version_outputs_prd_string() {
+        actionbook()
+            .args(["--json", "--version"])
+            .assert()
+            .success()
+            .stdout("\"1.0.0\"\n");
     }
 }
 

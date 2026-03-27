@@ -8,10 +8,81 @@ mod daemon;
 mod error;
 mod update_notifier;
 
+use std::ffi::OsString;
+
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use cli::Cli;
 use error::{ActionbookError, Result};
+
+const ROOT_PRD_VERSION: &str = "1.0.0";
+
+fn print_root_contract_output(json: bool, text: &str) {
+    let text = text.trim_end();
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string(text).expect("serialize root contract string")
+        );
+    } else {
+        println!("{text}");
+    }
+}
+
+#[cfg(unix)]
+fn render_browser_help(path: &[String]) -> Option<String> {
+    let mut args = vec![OsString::from("actionbook"), OsString::from("browser")];
+    args.extend(path.iter().cloned().map(OsString::from));
+    args.push(OsString::from("--help"));
+    daemon::cli_v2::CliV2::render_augmented_help(args)
+}
+
+fn maybe_handle_root_help_or_version(args: &[String]) -> bool {
+    let json = args.iter().skip(1).any(|arg| arg == "--json");
+    let positionals: Vec<&str> = args
+        .iter()
+        .skip(1)
+        .filter(|arg| arg.as_str() != "--json")
+        .map(String::as_str)
+        .collect();
+
+    match positionals.as_slice() {
+        ["--version"] | ["-V"] => {
+            print_root_contract_output(json, ROOT_PRD_VERSION);
+            true
+        }
+        ["help"] => {
+            #[cfg(unix)]
+            if let Some(help) = render_browser_help(&[]) {
+                print_root_contract_output(json, &help);
+                return true;
+            }
+            false
+        }
+        ["help", "browser"] => {
+            #[cfg(unix)]
+            if let Some(help) = render_browser_help(&[]) {
+                print_root_contract_output(json, &help);
+                return true;
+            }
+            false
+        }
+        [first, second, rest @ ..] if *first == "help" && *second == "browser" => {
+            #[cfg(unix)]
+            if let Some(help) = render_browser_help(
+                &rest
+                    .iter()
+                    .map(|segment| (*segment).to_string())
+                    .collect::<Vec<_>>(),
+            ) {
+                print_root_contract_output(json, &help);
+                return true;
+            }
+            false
+        }
+        _ => false,
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -39,6 +110,10 @@ async fn main() -> Result<()> {
         .with(fmt::layer())
         .with(filter)
         .init();
+
+    if maybe_handle_root_help_or_version(&args) {
+        return Ok(());
+    }
 
     // Route browser commands through the daemon (Unix only).
     // If args contain "browser", always use the daemon CLI — never fall through
