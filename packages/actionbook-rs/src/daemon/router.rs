@@ -231,19 +231,20 @@ impl Router {
                     .map(|s| s.id.clone())
                     .collect();
                 for id in &lost_ids {
-                    tracing::info!("Auto-removing lost session {} for profile '{}'", id, profile_name);
+                    tracing::info!(
+                        "Auto-removing lost session {} for profile '{}'",
+                        id,
+                        profile_name
+                    );
                     registry.remove(id);
                 }
 
                 // Re-check: if a non-Lost, non-Closed session still exists, block.
-                let still_active = registry
-                    .list_sessions()
-                    .iter()
-                    .any(|s| {
-                        s.profile == profile_name
-                            && s.state != SessionState::Closed
-                            && s.state != SessionState::Lost
-                    });
+                let still_active = registry.list_sessions().iter().any(|s| {
+                    s.profile == profile_name
+                        && s.state != SessionState::Closed
+                        && s.state != SessionState::Lost
+                });
                 if still_active {
                     return ActionResult::fatal(
                         "session_exists",

@@ -520,7 +520,13 @@ fn lifecycle_port_fallback_when_9222_occupied() {
     // Verify session is functional: goto + snapshot
     let out = headless(
         &[
-            "browser", "goto", "https://example.com", "-s", "local-1", "-t", "t0",
+            "browser",
+            "goto",
+            "https://example.com",
+            "-s",
+            "local-1",
+            "-t",
+            "t0",
         ],
         30,
     );
