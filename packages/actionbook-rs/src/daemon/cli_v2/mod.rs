@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{Duration, Instant};
 
-use clap::{Parser, Subcommand};
+use clap::{error::ErrorKind, Parser, Subcommand};
 use tokio::net::UnixStream;
 use tracing::{debug, info};
 
@@ -127,6 +127,42 @@ where
     }
 
     normalized
+}
+
+fn is_help_flag(arg: &str) -> bool {
+    matches!(arg, "--help" | "-h")
+}
+
+fn browser_help_request_kind(args: &[OsString]) -> Option<bool> {
+    let args: Vec<&str> = args.iter().filter_map(|arg| arg.to_str()).collect();
+    if !args.iter().any(|arg| is_help_flag(arg)) {
+        return None;
+    }
+
+    let browser_index = args
+        .iter()
+        .position(|arg| matches!(*arg, "browser" | "b"))?;
+    let wait_index = args
+        .iter()
+        .skip(browser_index + 1)
+        .position(|arg| *arg == "wait")
+        .map(|index| browser_index + 1 + index);
+
+    Some(wait_index.is_some())
+}
+
+fn augment_browser_help(help: &str, wait_help: bool) -> String {
+    let mut rendered = help.trim_end().to_string();
+    rendered.push_str(
+        "\n\nBrowser Global Option:\n      --timeout <TIMEOUT>  Timeout in milliseconds for browser commands",
+    );
+    if wait_help {
+        rendered.push_str(
+            "\n\nPrecedence:\n  wait-local --timeout > browser-global --timeout > 30000ms",
+        );
+    }
+    rendered.push('\n');
+    rendered
 }
 
 #[derive(Subcommand, Debug)]
@@ -1630,6 +1666,21 @@ pub async fn run_daemon_foreground() -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 impl CliV2 {
+    pub fn render_augmented_help<I, T>(iter: I) -> Option<String>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<OsString>,
+    {
+        let raw_args: Vec<OsString> = iter.into_iter().map(Into::into).collect();
+        let wait_help = browser_help_request_kind(&raw_args)?;
+        match <Self as Parser>::try_parse_from(normalize_browser_timeout_args(raw_args)) {
+            Err(err) if err.kind() == ErrorKind::DisplayHelp => {
+                Some(augment_browser_help(&err.to_string(), wait_help))
+            }
+            _ => None,
+        }
+    }
+
     pub fn try_parse() -> Result<Self, clap::Error> {
         Self::try_parse_from(std::env::args_os())
     }
@@ -2928,6 +2979,24 @@ mod tests {
         .unwrap();
 
         assert_eq!(cli.browser_timeout, Some(3456));
+    }
+
+    #[test]
+    fn browser_goto_help_surfaces_global_timeout() {
+        let help = CliV2::render_augmented_help(["actionbook", "browser", "goto", "--help"])
+            .expect("browser help");
+        assert!(help.contains("Browser Global Option:"));
+        assert!(help.contains("--timeout <TIMEOUT>"));
+    }
+
+    #[test]
+    fn browser_wait_help_surfaces_global_timeout_and_precedence() {
+        let help =
+            CliV2::render_augmented_help(["actionbook", "browser", "wait", "navigation", "--help"])
+                .expect("wait help");
+        assert!(help.contains("--timeout <TIMEOUT_MS>"));
+        assert!(help.contains("Browser Global Option:"));
+        assert!(help.contains("wait-local --timeout > browser-global --timeout > 30000ms"));
     }
 
     #[test]

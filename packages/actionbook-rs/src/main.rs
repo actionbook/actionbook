@@ -45,13 +45,18 @@ async fn main() -> Result<()> {
     // to the legacy CLI (which no longer has a browser subcommand).
     #[cfg(unix)]
     {
-        use clap::Parser as _;
         // Only check the first positional arg (subcommand position), not all argv.
         // This avoids misrouting when "browser" or "b" appears as a search query value.
         let has_browser_arg = args
             .get(1)
             .map(|a| a.as_str() == "browser" || a.as_str() == "b")
             .unwrap_or(false);
+        if has_browser_arg {
+            if let Some(help) = daemon::cli_v2::CliV2::render_augmented_help(std::env::args_os()) {
+                print!("{help}");
+                std::process::exit(0);
+            }
+        }
         match daemon::cli_v2::CliV2::try_parse() {
             Ok(cli_v2) => {
                 cli_v2.run().await;
