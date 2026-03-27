@@ -235,14 +235,11 @@ enum BrowserCmd {
         #[arg(short = 't', long)]
         tab: TabId,
         /// Mouse button: left (default), right, middle
-        #[arg(long)]
+        #[arg(long, value_parser = ["left", "right", "middle"])]
         button: Option<String>,
         /// Number of clicks (1 = single, 2 = double)
-        #[arg(long)]
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
         count: Option<u32>,
-        /// Open the link in a new tab
-        #[arg(long)]
-        new_tab: bool,
     },
 
     /// Type text (character by character with key events)
@@ -612,7 +609,7 @@ enum BrowserCmd {
         #[arg(short = 't', long)]
         tab: TabId,
         /// Mouse button: left (default), right, middle
-        #[arg(long)]
+        #[arg(long, value_parser = ["left", "right", "middle"])]
         button: Option<String>,
     },
 
@@ -819,7 +816,6 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
             tab,
             button,
             count,
-            new_tab: _, // TODO: handler support for new_tab
         } => Action::Click {
             session,
             tab,
@@ -1773,7 +1769,6 @@ mod tests {
             tab: TabId(0),
             button: None,
             count: None,
-            new_tab: false,
         })
         .unwrap();
         match action {
@@ -1786,6 +1781,74 @@ mod tests {
                 assert_eq!(selector, "#btn");
                 assert!(button.is_none());
                 assert!(count.is_none());
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn build_click_action_with_button_and_count() {
+        let (action, _) = build_action(BrowserCmd::Click {
+            selector: "#btn".into(),
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            button: Some("right".into()),
+            count: Some(2),
+        })
+        .unwrap();
+        match action {
+            Action::Click {
+                selector,
+                button,
+                count,
+                ..
+            } => {
+                assert_eq!(selector, "#btn");
+                assert_eq!(button.as_deref(), Some("right"));
+                assert_eq!(count, Some(2));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn build_type_action() {
+        let (action, _) = build_action(BrowserCmd::Type {
+            selector: "#input".into(),
+            text: "hello".into(),
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+        })
+        .unwrap();
+        match action {
+            Action::Type { selector, text, .. } => {
+                assert_eq!(selector, "#input");
+                assert_eq!(text, "hello");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn build_drag_action_with_button() {
+        let (action, _) = build_action(BrowserCmd::Drag {
+            from: "#source".into(),
+            to: "#target".into(),
+            session: SessionId::new_unchecked("local-1"),
+            tab: TabId(0),
+            button: Some("middle".into()),
+        })
+        .unwrap();
+        match action {
+            Action::Drag {
+                from_selector,
+                to_selector,
+                button,
+                ..
+            } => {
+                assert_eq!(from_selector, "#source");
+                assert_eq!(to_selector, "#target");
+                assert_eq!(button.as_deref(), Some("middle"));
             }
             _ => panic!("wrong variant"),
         }
