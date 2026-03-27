@@ -233,6 +233,9 @@ async fn fetch_title(backend: &mut dyn BackendSession, target_id: &str) -> Optio
         .exec(op)
         .await
         .ok()
-        .and_then(|v| v.value.as_str().map(String::from))
+        .and_then(|v| {
+            let val = extract_eval_value(&v.value);
+            val.as_str().map(String::from)
+        })
         .filter(|s| !s.is_empty())
 }
