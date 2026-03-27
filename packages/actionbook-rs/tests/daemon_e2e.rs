@@ -565,7 +565,9 @@ async fn e2e_start_extension_session_mock() {
     )
     .await;
 
-    let session_id = data["session_id"].as_str().expect("session_id");
+    let session_id = data["session"]["session_id"]
+        .as_str()
+        .expect("session.session_id");
     assert_eq!(session_id, "local-1");
 
     // Verify the session appears in list-sessions with Extension mode
@@ -601,7 +603,9 @@ async fn e2e_start_cloud_session_mock() {
     )
     .await;
 
-    let session_id = data["session_id"].as_str().expect("session_id");
+    let session_id = data["session"]["session_id"]
+        .as_str()
+        .expect("session.session_id");
     assert_eq!(session_id, "local-1");
 
     // Verify the session appears in list-sessions with Cloud mode
@@ -640,7 +644,10 @@ async fn e2e_multi_mode_sessions() {
         },
     )
     .await;
-    assert_eq!(data["session_id"].as_str().unwrap(), "local-profile");
+    assert_eq!(
+        data["session"]["session_id"].as_str().unwrap(),
+        "local-profile"
+    );
 
     // Start a cloud session simultaneously
     let data = send_ok(
@@ -656,7 +663,10 @@ async fn e2e_multi_mode_sessions() {
         },
     )
     .await;
-    assert_eq!(data["session_id"].as_str().unwrap(), "cloud-profile");
+    assert_eq!(
+        data["session"]["session_id"].as_str().unwrap(),
+        "cloud-profile"
+    );
 
     // Verify both appear in list-sessions with correct modes
     let data = send_ok(&daemon, Action::ListSessions).await;
@@ -723,7 +733,7 @@ async fn e2e_extension_single_session_constraint() {
         },
     )
     .await;
-    assert_eq!(data["session_id"].as_str().unwrap(), "local-1");
+    assert_eq!(data["session"]["session_id"].as_str().unwrap(), "local-1");
 
     // Start second extension session -> should fail with extension_session_exists
     send_fatal(

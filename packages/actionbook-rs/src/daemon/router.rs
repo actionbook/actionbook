@@ -395,11 +395,14 @@ impl Router {
         let tab_ids: Vec<String> = page_targets.iter().map(|t| t.target_id.clone()).collect();
 
         // Capture first tab info for the response before moving targets.
+        // native_tab_id is not available via CDP (Chrome's internal tab integer
+        // is only exposed through the Extensions API); included as null per PRD.
         let first_tab = page_targets.first().map(|t| {
             serde_json::json!({
                 "tab_id": format!("t{}", 0),
                 "url": t.url,
                 "title": t.title,
+                "native_tab_id": null,
             })
         });
 
@@ -430,21 +433,35 @@ impl Router {
         // If open_url was specified, send a Goto to update the tab registry URL.
         // The backend already navigated during start, but the tab registry
         // recorded the pre-navigation URL from target discovery.
-        if let Some(ref url) = open_url_for_registry {
+        let goto_title = if let Some(ref url) = open_url_for_registry {
             let goto = Action::Goto {
                 session: session_id.clone(),
                 tab: TabId(0),
                 url: url.clone(),
             };
-            let _ = self.forward_to_session(&session_id, goto).await;
-        }
+            let goto_result = self.forward_to_session(&session_id, goto).await;
+            // Extract title from Goto result (handler fetches it post-navigation).
+            match &goto_result {
+                ActionResult::Ok { data } => data
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .filter(|t| !t.is_empty())
+                    .map(|t| t.to_string()),
+                _ => None,
+            }
+        } else {
+            None
+        };
 
         // Build PRD-compliant response with session/tab/reused structure.
         let tab_value = match first_tab {
             Some(mut tab) => {
-                // Override URL if open_url was used (backend navigated).
+                // Override URL and title if open_url was used (backend navigated).
                 if let Some(ref url) = open_url_for_registry {
                     tab["url"] = serde_json::Value::String(url.clone());
+                }
+                if let Some(ref title) = goto_title {
+                    tab["title"] = serde_json::Value::String(title.clone());
                 }
                 tab
             }
