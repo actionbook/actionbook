@@ -1,5 +1,11 @@
 # @actionbookdev/cli
 
+## 0.11.6
+
+### Patch Changes
+
+- [#305](https://github.com/actionbook/actionbook/pull/305) [`53b1603`](https://github.com/actionbook/actionbook/commit/53b1603466d7db14c9cca53a66982b1b8e7dc2e5) Thanks [@ZhangHanDong](https://github.com/ZhangHanDong)! - Fix screenshot CDP timeout: extend daemon timeout from 30s to 120s for Page.captureScreenshot and Page.printToPDF, and add timeout-only fallback to direct WS for idempotent read-only methods
+
 ## 0.11.5
 
 ### Patch Changes
