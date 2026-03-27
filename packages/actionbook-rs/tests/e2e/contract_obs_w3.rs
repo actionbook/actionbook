@@ -355,12 +355,17 @@ fn contract_obs_w3_logs_console_items() {
     let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start");
 
-    let out = goto(
-        "local-1",
-        "t0",
-        "data:text/html,<script>console.log('hello-w3')</script>",
-    );
+    let out = goto("local-1", "t0", "data:text/html,<html>");
     assert_success(&out, "goto");
+
+    // Prime the capture hook (ENSURE_LOG_CAPTURE_JS runs on first logs call)
+    let _ = headless_json(
+        &["browser", "logs", "console", "-s", "local-1", "-t", "t0"],
+        15,
+    );
+    // Fire the log after the hook is in place
+    let out = eval_js("local-1", "t0", "console.log('hello-w3')");
+    assert_success(&out, "eval log");
 
     // Poll for log to appear
     let mut v = Value::Null;
@@ -456,12 +461,16 @@ fn contract_obs_w3_logs_console_cleared() {
     let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start");
 
-    let out = goto(
-        "local-1",
-        "t0",
-        "data:text/html,<script>console.log('to-clear')</script>",
-    );
+    let out = goto("local-1", "t0", "data:text/html,<html>");
     assert_success(&out, "goto");
+
+    // Prime the capture hook, then fire log after hook is installed
+    let _ = headless_json(
+        &["browser", "logs", "console", "-s", "local-1", "-t", "t0"],
+        15,
+    );
+    let out = eval_js("local-1", "t0", "console.log('to-clear')");
+    assert_success(&out, "eval log");
 
     // Wait for log to appear
     for _ in 0..10 {
@@ -529,12 +538,16 @@ fn contract_obs_w3_logs_console_tail() {
     let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start");
 
-    let out = goto(
-        "local-1",
-        "t0",
-        "data:text/html,<script>for(let i=0;i<5;i++) console.log('msg'+i);</script>",
-    );
+    let out = goto("local-1", "t0", "data:text/html,<html>");
     assert_success(&out, "goto");
+
+    // Prime hook, then fire 5 logs after hook is installed
+    let _ = headless_json(
+        &["browser", "logs", "console", "-s", "local-1", "-t", "t0"],
+        15,
+    );
+    let out = eval_js("local-1", "t0", "for(let i=0;i<5;i++) console.log('msg'+i)");
+    assert_success(&out, "eval logs");
 
     // Wait for all 5 logs
     for _ in 0..15 {
@@ -590,12 +603,20 @@ fn contract_obs_w3_logs_console_since() {
     let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start");
 
-    let out = goto(
+    let out = goto("local-1", "t0", "data:text/html,<html>");
+    assert_success(&out, "goto");
+
+    // Prime hook, then fire 3 logs after hook is installed
+    let _ = headless_json(
+        &["browser", "logs", "console", "-s", "local-1", "-t", "t0"],
+        15,
+    );
+    let out = eval_js(
         "local-1",
         "t0",
-        "data:text/html,<script>console.log('first');console.log('second');console.log('third');</script>",
+        "console.log('first');console.log('second');console.log('third')",
     );
-    assert_success(&out, "goto");
+    assert_success(&out, "eval logs");
 
     // Wait for all 3 logs and capture them
     let mut all_items = vec![];
@@ -660,12 +681,20 @@ fn contract_obs_w3_logs_console_level() {
     let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start");
 
-    let out = goto(
+    let out = goto("local-1", "t0", "data:text/html,<html>");
+    assert_success(&out, "goto");
+
+    // Prime hook, then fire log + warn after hook is installed
+    let _ = headless_json(
+        &["browser", "logs", "console", "-s", "local-1", "-t", "t0"],
+        15,
+    );
+    let out = eval_js(
         "local-1",
         "t0",
-        "data:text/html,<script>console.log('a-log');console.warn('a-warn');</script>",
+        "console.log('a-log');console.warn('a-warn')",
     );
-    assert_success(&out, "goto");
+    assert_success(&out, "eval logs");
 
     // Wait for both logs
     for _ in 0..15 {
@@ -727,13 +756,16 @@ fn contract_obs_w3_logs_errors_items() {
     let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start");
 
-    // Navigate to page that calls console.error
-    let out = goto(
-        "local-1",
-        "t0",
-        "data:text/html,<script>console.error('err-w3')</script>",
-    );
+    // Navigate to blank page, prime the error capture hook, then fire error after hook is installed
+    let out = goto("local-1", "t0", "data:text/html,<html>");
     assert_success(&out, "goto");
+
+    let _ = headless_json(
+        &["browser", "logs", "errors", "-s", "local-1", "-t", "t0"],
+        15,
+    );
+    let out = eval_js("local-1", "t0", "console.error('err-w3')");
+    assert_success(&out, "eval error");
 
     // Poll for error log
     let mut v = Value::Null;
@@ -822,12 +854,16 @@ fn contract_obs_w3_logs_errors_clear() {
     let out = headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start");
 
-    let out = goto(
-        "local-1",
-        "t0",
-        "data:text/html,<script>console.error('clear-test')</script>",
-    );
+    let out = goto("local-1", "t0", "data:text/html,<html>");
     assert_success(&out, "goto");
+
+    // Prime hook, then fire error after hook is installed
+    let _ = headless_json(
+        &["browser", "logs", "errors", "-s", "local-1", "-t", "t0"],
+        15,
+    );
+    let out = eval_js("local-1", "t0", "console.error('clear-test')");
+    assert_success(&out, "eval error");
 
     // Wait for error to appear
     for _ in 0..10 {
