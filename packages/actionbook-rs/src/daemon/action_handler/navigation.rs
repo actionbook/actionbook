@@ -156,8 +156,15 @@ pub(super) async fn handle_reload(
     }
 }
 
-/// Wait until `document.readyState === "complete"` (up to 10s), then return current URL.
-/// On timeout or error, returns the `fallback_url`.
+/// Wait until the page finishes loading (up to 10s).
+///
+/// Guards against the old-page race: after a navigation, the old document may
+/// still answer `Runtime.evaluate`, so we only accept `readyState === "complete"`
+/// once the URL has changed from `fallback_url` (which is the pre-navigation URL).
+/// Reload is the exception — URL stays the same — so for reload the condition
+/// degenerates to just waiting for `readyState === "complete"`.
+///
+/// On timeout, returns the last URL observed during polling (not `fallback_url`).
 async fn wait_for_page_load(
     backend: &mut dyn BackendSession,
     target_id: &str,
@@ -165,6 +172,9 @@ async fn wait_for_page_load(
 ) -> String {
     let poll_interval = std::time::Duration::from_millis(150);
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+
+    let mut last_seen_url = fallback_url.clone();
+    let mut url_has_changed = false;
 
     loop {
         let op = BackendOp::Evaluate {
@@ -180,13 +190,27 @@ async fn wait_for_page_load(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            if ready == "complete" {
-                return if url.is_empty() { fallback_url } else { url };
+
+            if !url.is_empty() {
+                last_seen_url = url.clone();
+                if url != fallback_url {
+                    url_has_changed = true;
+                }
+            }
+
+            // Accept "complete" only after the URL has changed from the pre-nav URL
+            // (prevents old-page race on goto/back/forward). For reload, URL stays
+            // the same, so `last_seen_url == fallback_url` acts as the fallback gate.
+            if ready == "complete" && (url_has_changed || last_seen_url == fallback_url) {
+                return last_seen_url;
             }
         }
+
         if tokio::time::Instant::now() >= deadline {
-            return fallback_url;
+            // P2 fix: return last-observed URL, not the stale pre-navigation fallback
+            return last_seen_url;
         }
+
         tokio::time::sleep(poll_interval).await;
     }
 }
