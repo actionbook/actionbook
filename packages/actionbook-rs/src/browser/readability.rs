@@ -39,8 +39,11 @@ pub const READABILITY_JS: &str = r#"
             }
         }
 
-        // 3. Remove scripts, styles, hidden elements
-        var removeSelectors = ['script', 'style', 'noscript', 'template', 'svg',
+        // 3. Remove scripts, styles, hidden elements, and obvious chrome
+        var removeSelectors = ['nav', 'footer', 'aside', 'header',
+                               '[role="navigation"]', '[role="banner"]',
+                               '[role="contentinfo"]', '[role="complementary"]',
+                               'script', 'style', 'noscript', 'template', 'svg',
                                '[hidden]', '[aria-hidden="true"]',
                                '[style*="display:none"]', '[style*="display: none"]'];
         for (var k = 0; k < removeSelectors.length; k++) {

@@ -241,6 +241,70 @@ fn contract_read_text_raw_and_readability() {
 }
 
 #[test]
+fn contract_read_text_page_readability_without_selector() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (session_id, tab_id) = start_session();
+    setup_fixture(&session_id, &tab_id);
+
+    let readable_out = headless_json(
+        &[
+            "browser",
+            "text",
+            "--mode",
+            "readability",
+            "-s",
+            &session_id,
+            "-t",
+            &tab_id,
+        ],
+        15,
+    );
+    assert_success(&readable_out, "browser text page readability --json");
+    let readable_json: serde_json::Value =
+        serde_json::from_str(&stdout_str(&readable_out)).expect("valid JSON from page readability");
+    assert_eq!(readable_json["command"], "browser.text");
+    assert_context(&readable_json, &session_id, &tab_id);
+    assert!(
+        readable_json["data"]["target"]["selector"].is_null(),
+        "page-level readability must expose a null selector target, got: {}",
+        readable_json["data"]
+    );
+    let readable_value = readable_json["data"]["value"]
+        .as_str()
+        .expect("page readability text string");
+    assert!(
+        !readable_value.contains("Skip nav"),
+        "page-level readability must strip nav text, got:\n{readable_value}"
+    );
+    assert!(readable_value.contains("Story Title"));
+    assert!(readable_value.contains("Primary article copy."));
+
+    let readable_text_out = headless(
+        &[
+            "browser",
+            "text",
+            "--mode",
+            "readability",
+            "-s",
+            &session_id,
+            "-t",
+            &tab_id,
+        ],
+        15,
+    );
+    assert_success(&readable_text_out, "browser text page readability");
+    let readable_text = stdout_str(&readable_text_out);
+    assert_prefixed_header(&readable_text, &session_id, &tab_id);
+    assert!(readable_text.contains("Story Title"));
+    assert!(!readable_text.contains("Skip nav"));
+
+    let _ = headless(&["browser", "close", "-s", &session_id], 15);
+}
+
+#[test]
 fn contract_read_value_attr_attrs_json_and_text() {
     if skip() {
         return;

@@ -119,6 +119,7 @@ async fn live_tab_context(
                 .map(|s| s.to_string())
                 .or(fallback.0);
             let title = match val.get("title").and_then(|v| v.as_str()) {
+                Some("") => fallback.1,
                 Some(title) => Some(title.to_string()),
                 None => fallback.1,
             };

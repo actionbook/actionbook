@@ -458,8 +458,8 @@ enum BrowserCmd {
     /// Get the inner text of an element
     #[command(name = "text")]
     TextCmd {
-        /// CSS selector
-        selector: String,
+        /// Optional CSS selector. Omit to read page-level text.
+        selector: Option<String>,
         /// Session ID (e.g. local-1)
         #[arg(short = 's', long)]
         session: SessionId,
@@ -1061,7 +1061,7 @@ fn build_action_with_timeout(
         } => Action::Text {
             session,
             tab,
-            selector: Some(selector),
+            selector,
             mode,
         },
         BrowserCmd::Value {
@@ -2565,13 +2565,29 @@ mod tests {
         assert!(matches!(action, Action::Html { selector: Some(sel), .. } if sel == "#root"));
 
         let (action, _) = build_action(BrowserCmd::TextCmd {
-            selector: "#copy".into(),
+            selector: Some("#copy".into()),
             session: session.clone(),
             tab,
             mode: None,
         })
         .unwrap();
         assert!(matches!(action, Action::Text { selector: Some(sel), .. } if sel == "#copy"));
+
+        let (action, _) = build_action(BrowserCmd::TextCmd {
+            selector: None,
+            session: session.clone(),
+            tab,
+            mode: Some("readability".into()),
+        })
+        .unwrap();
+        assert!(matches!(
+            action,
+            Action::Text {
+                selector: None,
+                mode: Some(mode),
+                ..
+            } if mode == "readability"
+        ));
 
         let (action, _) = build_action(BrowserCmd::Value {
             selector: "#field".into(),
