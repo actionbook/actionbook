@@ -219,9 +219,6 @@ pub(crate) enum ScrollCmd {
         session: SessionId,
         #[arg(short = 't', long)]
         tab: TabId,
-        /// CSS selector of the element to scroll within (defaults to page)
-        #[arg(long)]
-        container: Option<String>,
         /// Alignment for scrollIntoView: start, center, end, nearest
         #[arg(long, value_parser = ["start", "center", "end", "nearest"])]
         align: Option<String>,
@@ -373,9 +370,6 @@ pub(crate) enum WaitCmd {
         /// Timeout in milliseconds (default: 30000)
         #[arg(long)]
         timeout: Option<u64>,
-        /// Idle time in milliseconds (default: 500)
-        #[arg(long)]
-        idle_time: Option<u64>,
     },
     /// Wait for a JS expression to become truthy
     Condition {

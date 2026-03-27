@@ -41,6 +41,7 @@ pub fn format_result_json(result: &ActionResult) -> String {
 /// Format an [`ActionResult`] for CLI output, applying Phase A lifecycle
 /// normalization where requested and falling back to the legacy formatter
 /// for all other commands.
+#[allow(dead_code)]
 pub fn format_cli_result(action: &Action, result: &ActionResult) -> String {
     format_cli_result_with_duration(action, result, None)
 }

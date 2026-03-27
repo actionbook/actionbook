@@ -1288,7 +1288,6 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
                 selector,
                 session,
                 tab,
-                container,
                 align,
             } => Action::Scroll {
                 session,
@@ -1296,7 +1295,7 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
                 direction: "into-view".to_string(),
                 amount: None,
                 selector: Some(selector),
-                container,
+                container: None,
                 align,
             },
         },
@@ -1348,12 +1347,11 @@ fn build_action(cmd: BrowserCmd) -> Result<(Action, Option<PathBuf>), String> {
                 session,
                 tab,
                 timeout,
-                idle_time,
             } => Action::WaitNetworkIdle {
                 session,
                 tab,
                 timeout_ms: timeout,
-                idle_time_ms: idle_time,
+                idle_time_ms: None,
             },
             WaitCmd::Condition {
                 expression,
@@ -2359,7 +2357,6 @@ mod tests {
             selector: "#target".into(),
             session: session.clone(),
             tab,
-            container: None,
             align: None,
         }))
         .unwrap();
@@ -2422,14 +2419,12 @@ mod tests {
             session: session.clone(),
             tab,
             timeout: Some(9000),
-            idle_time: Some(800),
         }))
         .unwrap();
         assert!(matches!(
             action,
             Action::WaitNetworkIdle {
                 timeout_ms: Some(9000),
-                idle_time_ms: Some(800),
                 ..
             }
         ));

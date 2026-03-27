@@ -513,6 +513,7 @@ pub(super) async fn handle_upload(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn handle_scroll(
     session_id: SessionId,
     backend: &mut dyn BackendSession,
