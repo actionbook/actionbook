@@ -7,6 +7,7 @@
 /// Wait hint categories with associated millisecond durations.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum WaitHint {
     /// Static pages, no JS needed (0 ms extra wait)
     Instant,

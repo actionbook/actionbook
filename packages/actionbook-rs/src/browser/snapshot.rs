@@ -16,6 +16,7 @@ use crate::error::Result;
 /// CDP Accessibility.getFullAXTree response envelope
 #[allow(dead_code)]
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 pub struct AxTreeResponse {
     pub nodes: Vec<AxNode>,
 }
@@ -23,6 +24,7 @@ pub struct AxTreeResponse {
 /// Single node in the CDP accessibility tree
 #[allow(dead_code)]
 #[derive(Deserialize, Debug, Clone)]
+#[allow(dead_code)]
 pub struct AxNode {
     #[serde(rename = "nodeId")]
     pub node_id: String,
@@ -47,6 +49,7 @@ pub struct AxNode {
 /// CDP AXValue structure: { type: "...", value: "..." }
 #[allow(dead_code)]
 #[derive(Deserialize, Debug, Clone)]
+#[allow(dead_code)]
 pub struct AxValue {
     #[serde(rename = "type")]
     #[allow(dead_code)]
@@ -85,6 +88,7 @@ impl AxValue {
 /// CDP AXProperty structure
 #[allow(dead_code)]
 #[derive(Deserialize, Debug, Clone)]
+#[allow(dead_code)]
 pub struct AxProperty {
     pub name: String,
     pub value: Option<AxValue>,
@@ -93,6 +97,7 @@ pub struct AxProperty {
 /// A single node in the accessibility tree
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct A11yNode {
     /// Stable reference ID ("e0", "e1", ...) — only set for interactive/named content nodes
     #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
@@ -138,6 +143,7 @@ pub struct A11yNode {
 /// Cached ref→backendNodeId mapping for action resolution
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct RefCache {
     /// "e0" → backend_node_id
     pub refs: HashMap<String, i64>,
@@ -151,6 +157,7 @@ pub struct RefCache {
 /// Snapshot filter options
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum SnapshotFilter {
     All,
     Interactive,
@@ -159,6 +166,7 @@ pub enum SnapshotFilter {
 /// Snapshot output format
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum SnapshotFormat {
     /// Indented tree format: `- role "name" [ref=eN]` (~60-70% fewer tokens than JSON)
     Compact,
@@ -838,6 +846,7 @@ pub fn compact_tree_nodes(nodes: &[A11yNode]) -> Vec<A11yNode> {
 /// A cursor-interactive element detected via DOM inspection
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct CursorElement {
     pub selector: String,
     pub text: String,

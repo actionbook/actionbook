@@ -50,6 +50,7 @@ impl Default for StealthProfile {
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum StealthOs {
+    #[allow(dead_code)]
     Windows,
     MacOsIntel,
     MacOsArm,
@@ -61,6 +62,7 @@ pub enum StealthOs {
 #[derive(Debug, Clone, Copy)]
 pub enum StealthGpu {
     // NVIDIA
+    #[allow(dead_code)]
     NvidiaRtx4080,
     NvidiaRtx3080,
     NvidiaGtx1660,

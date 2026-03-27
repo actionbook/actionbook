@@ -9,6 +9,7 @@ use std::path::PathBuf;
 /// Information about a discovered Electron application.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct ElectronAppInfo {
     /// Application name (e.g., "Visual Studio Code")
     pub name: String,

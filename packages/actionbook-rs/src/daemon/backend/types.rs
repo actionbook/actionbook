@@ -39,6 +39,7 @@ impl std::fmt::Display for BackendKind {
 /// Declares what a backend can and cannot do.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct Capabilities {
     /// Backend can launch a new browser process.
     pub can_launch: bool,
@@ -90,6 +91,7 @@ pub struct AttachSpec {
 /// hands it back via `BackendFactory::resume()` after a restart.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct Checkpoint {
     /// Which backend produced this checkpoint.
     pub kind: BackendKind,
@@ -195,6 +197,7 @@ pub struct TargetInfo {
 /// Health status returned by `BackendSession::health()`.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct Health {
     /// Whether the backend connection is alive.
     pub connected: bool,
