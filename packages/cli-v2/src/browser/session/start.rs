@@ -154,13 +154,36 @@ async fn execute_cloud(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                         );
                     }
                 };
-                let first_tab_id = entry.tabs.first().map(|t| t.id.0.clone()).unwrap_or_default();
+                let mut first_tab_id = entry.tabs.first().map(|t| t.id.0.clone()).unwrap_or_default();
+
+                // Zero-tab fallback: create a tab if browser has none
+                if first_tab_id.is_empty() {
+                    let url = cmd.open_url.as_deref().unwrap_or("about:blank");
+                    let url = match ensure_scheme_or_fatal(url) {
+                        Ok(u) => u,
+                        Err(e) => return e,
+                    };
+                    drop(reg);
+                    match create_tab_via_cdp(&cdp, &url).await {
+                        Ok(tab) => {
+                            first_tab_id = tab.id.0.clone();
+                            let mut reg = registry.lock().await;
+                            if let Some(entry) = reg.get_mut(&session_id) {
+                                entry.tabs.push(tab);
+                            }
+                        }
+                        Err(e) => return e,
+                    }
+                    let reg = registry.lock().await;
+                    if let Some(entry) = reg.get(&session_id) {
+                        return make_session_response(entry, &first_tab_id, "", "", true);
+                    }
+                    return ActionResult::fatal("SESSION_NOT_FOUND", format!("session '{session_id}' gone"));
+                }
 
                 // Re-attach first tab (may be stale after reconnect)
-                if !first_tab_id.is_empty() {
-                    if let Err(e) = cdp.attach(&first_tab_id).await {
-                        tracing::warn!("cloud reuse: failed to re-attach tab {first_tab_id}: {e}");
-                    }
+                if let Err(e) = cdp.attach(&first_tab_id).await {
+                    tracing::warn!("cloud reuse: failed to re-attach tab {first_tab_id}: {e}");
                 }
 
                 // Navigate if --open-url

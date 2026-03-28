@@ -55,7 +55,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             )
             .await
         {
-            return ActionResult::fatal("NAVIGATION_FAILED", e.to_string());
+            return crate::daemon::cdp_session::cdp_error_to_result(e, "NAVIGATION_FAILED");
         }
     }
 

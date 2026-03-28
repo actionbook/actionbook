@@ -55,17 +55,19 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         let entry = match reg.get(&cmd.session) {
             Some(e) => e,
             None => {
-                return ActionResult::fatal(
+                return ActionResult::fatal_with_hint(
                     "SESSION_NOT_FOUND",
                     format!("session '{}' not found", cmd.session),
+                    "run `actionbook browser list-sessions` to see available sessions",
                 );
             }
         };
 
         if !entry.tabs.iter().any(|t| t.id.0 == cmd.tab) {
-            return ActionResult::fatal(
+            return ActionResult::fatal_with_hint(
                 "TAB_NOT_FOUND",
                 format!("tab '{}' not found in session '{}'", cmd.tab, cmd.session),
+                "run `actionbook browser list-tabs --session <SID>` to see available tabs",
             );
         }
 
@@ -98,10 +100,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => {
             let msg = e.to_string();
             if !msg.contains("No target with given id") && !msg.contains("Target closed") {
-                return ActionResult::fatal(
-                    "CDP_ERROR",
-                    format!("Target.closeTarget failed: {e}"),
-                );
+                return crate::daemon::cdp_session::cdp_error_to_result(e, "CDP_ERROR");
             }
             // Target already gone — proceed with cleanup
         }

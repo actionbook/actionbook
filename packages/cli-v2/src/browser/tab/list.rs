@@ -36,9 +36,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         let entry = match reg.get(&cmd.session) {
             Some(e) => e,
             None => {
-                return ActionResult::fatal(
+                return ActionResult::fatal_with_hint(
                     "SESSION_NOT_FOUND",
                     format!("session '{}' not found", cmd.session),
+                    "run `actionbook browser list-sessions` to see available sessions",
                 );
             }
         };
@@ -57,7 +58,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let targets = match cdp.execute_browser("Target.getTargets", json!({})).await {
         Ok(resp) => resp,
         Err(e) => {
-            return ActionResult::fatal("CDP_ERROR", format!("Target.getTargets failed: {e}"));
+            return crate::daemon::cdp_session::cdp_error_to_result(e, "CDP_ERROR");
         }
     };
 
@@ -74,9 +75,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         let entry = match reg.get(&cmd.session) {
             Some(e) => e,
             None => {
-                return ActionResult::fatal(
+                return ActionResult::fatal_with_hint(
                     "SESSION_NOT_FOUND",
                     format!("session '{}' not found", cmd.session),
+                    "run `actionbook browser list-sessions` to see available sessions",
                 );
             }
         };
