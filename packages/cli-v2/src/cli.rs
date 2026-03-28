@@ -129,14 +129,7 @@ pub enum BrowserCommands {
         tab: String,
     },
     /// Type text (keystroke by keystroke)
-    Type {
-        /// Text to type
-        text: String,
-        #[arg(long)]
-        session: String,
-        #[arg(long)]
-        tab: String,
-    },
+    Type(interaction::type_text::Cmd),
 }
 
 impl BrowserCommands {
@@ -167,6 +160,7 @@ impl BrowserCommands {
             Self::Snapshot(cmd) => Action::Snapshot(cmd.clone()),
             Self::Eval(cmd) => Action::Eval(cmd.clone()),
             Self::Click(cmd) => Action::Click(cmd.clone()),
+            Self::Type(cmd) => Action::Type(cmd.clone()),
             _ => return None,
         })
     }
@@ -191,7 +185,7 @@ impl BrowserCommands {
             Self::Eval(_) => interaction::eval::COMMAND_NAME,
             Self::Click(_) => interaction::click::COMMAND_NAME,
             Self::Fill { .. } => "browser.fill",
-            Self::Type { .. } => "browser.type",
+            Self::Type(_) => interaction::type_text::COMMAND_NAME,
         }
     }
 
@@ -231,9 +225,9 @@ impl BrowserCommands {
                 result,
             ),
             Self::Click(cmd) => interaction::click::context(cmd, result),
+            Self::Type(cmd) => interaction::type_text::context(cmd, result),
             Self::Screenshot { session, tab, .. }
-            | Self::Fill { session, tab, .. }
-            | Self::Type { session, tab, .. } => tab_context(session, tab),
+            | Self::Fill { session, tab, .. } => tab_context(session, tab),
         }
     }
 }

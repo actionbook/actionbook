@@ -30,6 +30,7 @@ pub enum Action {
     // ── Interaction ────────────────────────────────────────────
     Eval(interaction::eval::Cmd),
     Click(interaction::click::Cmd),
+    Type(interaction::type_text::Cmd),
 }
 
 impl Action {
@@ -51,6 +52,7 @@ impl Action {
             Action::Snapshot(_) => observation::snapshot::COMMAND_NAME,
             Action::Eval(_) => interaction::eval::COMMAND_NAME,
             Action::Click(_) => interaction::click::COMMAND_NAME,
+            Action::Type(_) => interaction::type_text::COMMAND_NAME,
         }
     }
 }

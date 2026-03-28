@@ -22,5 +22,6 @@ pub async fn route(action: &Action, registry: &SharedRegistry) -> ActionResult {
         Action::Snapshot(cmd) => browser::observation::snapshot::execute(cmd, registry).await,
         Action::Eval(cmd) => browser::interaction::eval::execute(cmd, registry).await,
         Action::Click(cmd) => browser::interaction::click::execute(cmd, registry).await,
+        Action::Type(cmd) => browser::interaction::type_text::execute(cmd, registry).await,
     }
 }

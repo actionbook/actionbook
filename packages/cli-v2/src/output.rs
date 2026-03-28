@@ -178,6 +178,7 @@ pub fn format_text(
                     | "browser.forward"
                     | "browser.reload"
                     | "browser.click"
+                    | "browser.type"
                     | "browser.fill"
                     | "browser.new-tab"
                     | "browser.close-tab"
@@ -308,6 +309,17 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
         "browser.goto" | "browser.back" | "browser.forward" | "browser.reload" => {
             if let Some(title) = data.get("title").and_then(|v| v.as_str()) {
                 lines.push(format!("title: {title}"));
+            }
+        }
+        "browser.type" | "browser.fill" => {
+            if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
+                lines.push(format!("target: {sel}"));
+            }
+            if let Some(len) = data
+                .pointer("/value_summary/text_length")
+                .and_then(|v| v.as_u64())
+            {
+                lines.push(format!("text_length: {len}"));
             }
         }
         "browser.click" => {
