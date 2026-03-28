@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::browser::element;
+use crate::browser::{element, navigation};
 use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target};
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
@@ -33,12 +33,25 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     {
         return None;
     }
+    let (url, title) = match result {
+        ActionResult::Ok { data } => (
+            data.get("post_url")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(String::from),
+            data.get("post_title")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(String::from),
+        ),
+        _ => (None, None),
+    };
     Some(ResponseContext {
         session_id: cmd.session.clone(),
         tab_id: Some(cmd.tab.clone()),
         window_id: None,
-        url: None,
-        title: None,
+        url,
+        title,
     })
 }
 
@@ -106,9 +119,14 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }
     }
 
+    let url = navigation::get_tab_url(&cdp, &target_id).await;
+    let title = navigation::get_tab_title(&cdp, &target_id).await;
+
     ActionResult::ok(json!({
         "action": "type",
         "target": { "selector": cmd.selector },
-        "value_summary": { "text_length": cmd.text.len() },
+        "value_summary": { "text_length": cmd.text.chars().count() },
+        "post_url": url,
+        "post_title": title,
     }))
 }
