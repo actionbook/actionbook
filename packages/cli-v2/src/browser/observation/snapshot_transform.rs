@@ -8,13 +8,71 @@
 //! - `nodes`: array with ref/role/name/value fields
 //! - `stats`: node_count / interactive_count
 
+use std::collections::{HashMap, HashSet};
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+// ── Role classification ───────────────────────────────────────────────────────
+
+/// Roles that are always assigned a [ref=eN] label and count as interactive.
+const INTERACTIVE_ROLES: &[&str] = &[
+    "button",
+    "checkbox",
+    "combobox",
+    "link",
+    "listbox",
+    "menuitem",
+    "menuitemcheckbox",
+    "menuitemradio",
+    "option",
+    "radio",
+    "searchbox",
+    "slider",
+    "spinbutton",
+    "switch",
+    "tab",
+    "textbox",
+    "treeitem",
+];
+
+/// Roles that receive a [ref=eN] label only when they have a non-empty accessible name.
+const CONTENT_ROLES: &[&str] = &[
+    "heading",
+    "cell",
+    "gridcell",
+    "columnheader",
+    "rowheader",
+    "listitem",
+    "article",
+    "region",
+    "main",
+    "navigation",
+];
+
+/// Roles that are skipped during rendering; their children are promoted to the
+/// same effective depth (transparent / pass-through nodes).
+const SKIP_ROLES: &[&str] = &[
+    "InlineTextBox",
+    "StaticText",
+    "LineBreak",
+    "ListMarker",
+    "strong",
+    "emphasis",
+    "subscript",
+    "superscript",
+    "mark",
+];
+
+/// Root roles that wrap the page — transparent like SKIP_ROLES.
+const ROOT_ROLES: &[&str] = &["RootWebArea", "WebArea"];
+
+// ── Public type definitions ───────────────────────────────────────────────────
 
 /// A normalised accessibility node.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AXNode {
-    /// Stable reference label, e.g. "e1", "e2", ...
+    /// Stable reference label, e.g. "e1", "e2", ...  Empty when no ref assigned.
     pub ref_id: String,
     /// ARIA role string (e.g. "button", "textbox")
     pub role: String,
@@ -22,11 +80,14 @@ pub struct AXNode {
     pub name: String,
     /// Current value (inputs, text areas); empty string if not applicable
     pub value: String,
-    /// Whether this node is considered interactive
+    /// Whether this node's role is in INTERACTIVE_ROLES
     pub interactive: bool,
-    /// Tree depth (0 = root)
+    /// Effective tree depth in the rendered output (0 = top-level after unwrapping roots)
     pub depth: usize,
-    /// Children
+    /// CDP backendDOMNodeId — used for selector-based subtree filtering in execute()
+    #[serde(default)]
+    pub backend_node_id: Option<i64>,
+    /// Children (unused in flat output; reserved for future tree mode)
     pub children: Vec<AXNode>,
 }
 
@@ -41,6 +102,9 @@ pub struct SnapshotOptions {
     pub depth: Option<usize>,
     /// CSS selector to limit subtree (None = whole page)
     pub selector: Option<String>,
+    /// Resolved selector root backendDOMNodeId — set by execute() after a DOM query.
+    /// When Some(id), the flat list is filtered to the subtree rooted at that node.
+    pub selector_backend_id: Option<i64>,
 }
 
 /// Snapshot output ready to serialise as §10.1 data.
@@ -61,32 +125,29 @@ pub struct NodeEntry {
     pub value: String,
 }
 
-/// Roles considered interactive per §10.1.
+// ── Role classification helpers ───────────────────────────────────────────────
+
+/// Returns true when the role is in INTERACTIVE_ROLES.
 pub fn is_interactive_role(role: &str) -> bool {
-    matches!(
-        role,
-        "button"
-            | "checkbox"
-            | "combobox"
-            | "link"
-            | "listbox"
-            | "menuitem"
-            | "menuitemcheckbox"
-            | "menuitemradio"
-            | "option"
-            | "radio"
-            | "searchbox"
-            | "slider"
-            | "spinbutton"
-            | "switch"
-            | "tab"
-            | "textbox"
-            | "treeitem"
-    )
+    INTERACTIVE_ROLES.contains(&role)
 }
 
-/// Filter: keep only interactive nodes (and their ancestors for context).
-/// In flat-list context: simply keep nodes where `interactive == true`.
+/// Returns true when the role is in CONTENT_ROLES.
+pub fn is_content_role(role: &str) -> bool {
+    CONTENT_ROLES.contains(&role)
+}
+
+fn is_skip_role(role: &str) -> bool {
+    SKIP_ROLES.contains(&role)
+}
+
+fn is_root_role(role: &str) -> bool {
+    ROOT_ROLES.contains(&role)
+}
+
+// ── Filter functions (also used standalone; all unit-tested) ─────────────────
+
+/// Filter: keep only interactive nodes (where `interactive == true`).
 pub fn filter_interactive(nodes: Vec<AXNode>) -> Vec<AXNode> {
     nodes.into_iter().filter(|n| n.interactive).collect()
 }
@@ -127,8 +188,41 @@ pub fn apply_selector(nodes: Vec<AXNode>, allowed_ref_ids: &[String]) -> Vec<AXN
         .collect()
 }
 
+/// Filter: keep the subtree rooted at the node with the given `backend_node_id`.
+///
+/// Walks the flat DFS-ordered list: finds the root by backendNodeId, then collects
+/// the root node and all following nodes at a strictly greater depth.  If the root
+/// is not found (e.g. it is a transparent wrapper node), all nodes are returned unchanged.
+pub fn filter_selector_subtree(nodes: Vec<AXNode>, root_backend_id: i64) -> Vec<AXNode> {
+    let root_pos = nodes
+        .iter()
+        .position(|n| n.backend_node_id == Some(root_backend_id));
+
+    let Some(root_pos) = root_pos else {
+        // Selector root not visible in AX tree (transparent wrapper) — return all
+        return nodes;
+    };
+
+    let root_depth = nodes[root_pos].depth;
+    let mut result = Vec::new();
+    for (i, n) in nodes.into_iter().enumerate() {
+        if i < root_pos {
+            continue;
+        }
+        if i == root_pos || n.depth > root_depth {
+            result.push(n);
+        } else {
+            break; // back to same or shallower depth — subtree ends
+        }
+    }
+    result
+}
+
+// ── Content rendering ─────────────────────────────────────────────────────────
+
 /// Render a flat node list to `content` string with `[ref=eN]` labels.
 /// Format per §10.1: `- role "name" [ref=eN]` with depth-based indentation.
+/// Nodes without a ref label render as `- role "name" []`.
 pub fn render_content(nodes: &[AXNode]) -> String {
     let mut lines = Vec::new();
     for node in nodes {
@@ -145,6 +239,8 @@ pub fn render_content(nodes: &[AXNode]) -> String {
     lines.join("\n")
 }
 
+// ── Stats ─────────────────────────────────────────────────────────────────────
+
 /// Build stats from a flat node list.
 pub fn build_stats(nodes: &[AXNode]) -> (usize, usize) {
     let node_count = nodes.len();
@@ -152,63 +248,200 @@ pub fn build_stats(nodes: &[AXNode]) -> (usize, usize) {
     (node_count, interactive_count)
 }
 
-/// Parse CDP Accessibility.getFullAXTree response into a flat AXNode list.
+// ── Truncation ────────────────────────────────────────────────────────────────
+
+/// Token budget: ~100 000 chars ≈ 25 000 tokens (4 chars/token for compact text).
+const MAX_CONTENT_CHARS: usize = 100_000;
+
+/// If `nodes` would produce content exceeding the token budget, truncate and
+/// return `(truncated_nodes, true)`.  Otherwise return `(nodes, false)`.
+pub fn maybe_truncate(nodes: Vec<AXNode>) -> (Vec<AXNode>, bool) {
+    let estimated: usize = nodes.iter().map(|n| n.role.len() + n.name.len() + 20).sum();
+    if estimated <= MAX_CONTENT_CHARS {
+        return (nodes, false);
+    }
+    // Binary-search for the largest prefix that fits
+    let mut budget = MAX_CONTENT_CHARS;
+    let mut kept = Vec::new();
+    for n in nodes {
+        let cost = n.role.len() + n.name.len() + 20;
+        if cost > budget {
+            return (kept, true);
+        }
+        budget -= cost;
+        kept.push(n);
+    }
+    (kept, false)
+}
+
+// ── Core parse function ───────────────────────────────────────────────────────
+
+/// Parse CDP `Accessibility.getFullAXTree` response into a flat `AXNode` list.
 ///
 /// The CDP response has shape:
 /// ```json
-/// { "result": { "nodes": [ { "nodeId": "1", "role": {"value":"button"}, "name": {"value":"Submit"}, ... } ] } }
+/// { "result": { "nodes": [ { "nodeId": "1", "role": {"value":"button"}, ... } ] } }
 /// ```
+///
+/// Implementation (per agent-browser reference):
+/// 1. Index nodes by `nodeId` into a HashMap.
+/// 2. Find root nodes (not referenced by any `childIds`).
+/// 3. DFS traversal: transparent nodes (ignored / SKIP_ROLES / ROOT_ROLES) promote
+///    their children to the same effective depth.
+/// 4. Assign `[ref=eN]` to interactive roles (always) and content roles (when named).
+/// 5. Apply filters from `options` (interactive, compact, depth, selector_backend_id).
 pub fn parse_ax_tree(response: &Value, options: &SnapshotOptions) -> Vec<AXNode> {
-    let nodes_json = response["result"]["nodes"].as_array();
-    let Some(nodes_json) = nodes_json else {
-        return vec![];
+    let nodes_json = match response["result"]["nodes"].as_array() {
+        Some(a) if !a.is_empty() => a,
+        _ => return vec![],
     };
 
-    let mut counter = 0usize;
-    let mut result = Vec::new();
+    // ── Parse raw node data ───────────────────────────────────────────────────
+    struct RawNode {
+        node_id: String,
+        backend_dom_node_id: Option<i64>,
+        ignored: bool,
+        role: String,
+        name: String,
+        value: String,
+        child_ids: Vec<String>,
+    }
 
-    // Build a flat list — CDP provides nodes in tree order
-    for node_json in nodes_json {
-        let role = node_json["role"]["value"]
-            .as_str()
-            .unwrap_or("generic")
-            .to_string();
-        let name = node_json["name"]["value"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
-        let value = node_json["value"]["value"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
-        let interactive = is_interactive_role(&role);
+    let raw: Vec<RawNode> = nodes_json
+        .iter()
+        .map(|n| {
+            let role = n["role"]["value"].as_str().unwrap_or("generic").to_string();
+            let name = n["name"]["value"].as_str().unwrap_or("").to_string();
+            let value = n["value"]["value"].as_str().unwrap_or("").to_string();
+            let ignored = n["ignored"].as_bool().unwrap_or(false);
+            let backend_dom_node_id = n["backendDOMNodeId"].as_i64();
+            let node_id = n["nodeId"].as_str().unwrap_or("").to_string();
+            let child_ids = n["childIds"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            RawNode {
+                node_id,
+                backend_dom_node_id,
+                ignored,
+                role,
+                name,
+                value,
+                child_ids,
+            }
+        })
+        .collect();
 
-        // Depth from parent chain would require tree traversal;
-        // use CDP-provided implicit depth via ignored/hidden flags for now.
-        // Implementation will compute actual depth from parentId chain.
-        let depth = 0; // placeholder — implementation fills real depth
+    // ── Build index + find roots ──────────────────────────────────────────────
+    let id_to_idx: HashMap<&str, usize> = raw
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| !n.node_id.is_empty())
+        .map(|(i, n)| (n.node_id.as_str(), i))
+        .collect();
 
-        counter += 1;
+    // All nodeIds that appear as a child of some other node
+    let mut is_child: HashSet<&str> = HashSet::new();
+    for n in &raw {
+        for child_id in &n.child_ids {
+            is_child.insert(child_id.as_str());
+        }
+    }
+
+    // Roots: non-empty nodeId, not referenced as a child
+    let roots: Vec<usize> = raw
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| !n.node_id.is_empty() && !is_child.contains(n.node_id.as_str()))
+        .map(|(i, _)| i)
+        .collect();
+
+    // ── DFS traversal ─────────────────────────────────────────────────────────
+    // Stack entries: (node_idx, effective_depth)
+    // effective_depth accounts for transparent nodes that don't contribute to depth.
+    let mut result: Vec<AXNode> = Vec::new();
+    let mut ref_counter = 0usize;
+
+    // Push roots in reverse so first root is processed first
+    let mut stack: Vec<(usize, usize)> = roots.iter().rev().map(|&i| (i, 0)).collect();
+
+    while let Some((idx, eff_depth)) = stack.pop() {
+        let node = &raw[idx];
+
+        // Depth limit — stop descending when at or beyond max depth
+        if let Some(max_d) = options.depth
+            && eff_depth > max_d
+        {
+            continue;
+        }
+
+        // Transparent nodes: skip self, promote children to same effective depth
+        let is_transparent = node.ignored || is_skip_role(&node.role) || is_root_role(&node.role);
+
+        if is_transparent {
+            for child_id in node.child_ids.iter().rev() {
+                if let Some(&child_idx) = id_to_idx.get(child_id.as_str()) {
+                    stack.push((child_idx, eff_depth));
+                }
+            }
+            continue;
+        }
+
+        let interactive = is_interactive_role(&node.role);
+        let has_content_ref = is_content_role(&node.role) && !node.name.is_empty();
+
+        // In --interactive mode: skip non-interactive nodes (flatten children to same depth)
+        if options.interactive && !interactive {
+            for child_id in node.child_ids.iter().rev() {
+                if let Some(&child_idx) = id_to_idx.get(child_id.as_str()) {
+                    stack.push((child_idx, eff_depth));
+                }
+            }
+            continue;
+        }
+
+        // Assign ref to interactive nodes and to named content nodes
+        let has_ref = interactive || has_content_ref;
+        let ref_id = if has_ref {
+            ref_counter += 1;
+            format!("e{ref_counter}")
+        } else {
+            String::new()
+        };
+
         result.push(AXNode {
-            ref_id: format!("e{counter}"),
-            role,
-            name,
-            value,
+            ref_id,
+            role: node.role.clone(),
+            name: node.name.clone(),
+            value: node.value.clone(),
             interactive,
-            depth,
+            depth: eff_depth,
+            backend_node_id: node.backend_dom_node_id,
             children: vec![],
         });
+
+        // Push children (reversed so they are processed in document order)
+        for child_id in node.child_ids.iter().rev() {
+            if let Some(&child_idx) = id_to_idx.get(child_id.as_str()) {
+                stack.push((child_idx, eff_depth + 1));
+            }
+        }
     }
 
-    // Apply options
-    if options.interactive {
-        result = filter_interactive(result);
+    // ── Post-DFS filters ──────────────────────────────────────────────────────
+
+    // Selector subtree filter (applied before compact so structural parents are preserved)
+    if let Some(root_backend_id) = options.selector_backend_id {
+        result = filter_selector_subtree(result, root_backend_id);
     }
+
+    // Compact: remove empty structural nodes
     if options.compact {
         result = filter_compact(result);
-    }
-    if let Some(max_depth) = options.depth {
-        result = apply_depth(result, max_depth);
     }
 
     result
@@ -220,6 +453,7 @@ pub fn build_output(nodes: Vec<AXNode>) -> SnapshotOutput {
     let (node_count, interactive_count) = build_stats(&nodes);
     let entries = nodes
         .iter()
+        .filter(|n| !n.ref_id.is_empty())
         .map(|n| NodeEntry {
             r#ref: n.ref_id.clone(),
             role: n.role.clone(),
@@ -235,7 +469,7 @@ pub fn build_output(nodes: Vec<AXNode>) -> SnapshotOutput {
     }
 }
 
-// ── Unit Tests ────────────────────────────────────────────────────────
+// ── Unit Tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -249,6 +483,7 @@ mod tests {
             value: String::new(),
             interactive,
             depth,
+            backend_node_id: None,
             children: vec![],
         }
     }
@@ -268,6 +503,7 @@ mod tests {
             value: value.to_string(),
             interactive,
             depth,
+            backend_node_id: None,
             children: vec![],
         }
     }
@@ -654,6 +890,7 @@ mod tests {
             ..Default::default()
         };
         let nodes = parse_ax_tree(&response, &opts);
+        // --interactive: only interactive roles (button + link); heading excluded
         assert_eq!(nodes.len(), 2);
         assert!(nodes.iter().all(|n| n.interactive));
     }
@@ -679,19 +916,17 @@ mod tests {
 
     #[test]
     fn test_parse_ax_tree_depth_filter() {
-        // TDD: defines the expected contract after real depth computation from parentId
-        // chains is implemented.
-        //
-        // Current stub assigns depth=0 to all nodes, so apply_depth(_, 0) keeps all
-        // nodes (0 <= 0). This test asserts the CONTRACT: with depth=Some(0) only the
-        // root-level node should survive. It currently FAILS — that is intentional and
-        // makes the placeholder gap visible for the implementer.
+        // With real depth computation: roots have depth=0, their children depth=1, etc.
+        // Two flat nodes (no childIds) both appear as roots → both get depth=0.
+        // A depth=Some(0) filter should keep only nodes at depth 0.
+        // Since these two nodes ARE the roots (depth=0), both are kept.
+        // This test verifies that depth filtering works correctly for root-level nodes.
         let response = serde_json::json!({
             "result": {
                 "nodes": [
-                    { "nodeId": "1", "role": {"value": "generic"}, "name": {"value": "root"} },
-                    { "nodeId": "2", "role": {"value": "button"}, "name": {"value": "OK"} },
-                    { "nodeId": "3", "role": {"value": "link"}, "name": {"value": "Home"} },
+                    { "nodeId": "1", "role": {"value": "button"}, "name": {"value": "A"} },
+                    { "nodeId": "2", "role": {"value": "button"}, "name": {"value": "B"} },
+                    { "nodeId": "3", "role": {"value": "button"}, "name": {"value": "C"} },
                 ]
             }
         });
@@ -700,14 +935,37 @@ mod tests {
             ..Default::default()
         };
         let nodes = parse_ax_tree(&response, &opts);
-        // After real depth impl: only root (depth=0) survives → 1 node.
-        // With placeholder (all depth=0): all 3 pass (0 <= 0) → returns 3.
+        // All 3 nodes are roots (no childIds, so all unparented), all at depth=0.
+        // depth=Some(0) keeps nodes where depth <= 0, i.e. all 3.
         assert_eq!(
             nodes.len(),
-            1,
-            "depth=0 must return only root node; got {} (stub assigns all depth=0)",
-            nodes.len()
+            3,
+            "three root nodes at depth=0 all survive depth=Some(0) filter"
         );
+    }
+
+    #[test]
+    fn test_parse_ax_tree_depth_filter_with_children() {
+        // Verify real depth propagation: parent at depth=0, child at depth=1.
+        // depth=Some(0) should keep only the parent.
+        let response = serde_json::json!({
+            "result": {
+                "nodes": [
+                    { "nodeId": "1", "role": {"value": "navigation"}, "name": {"value": "Nav"}, "childIds": ["2", "3"] },
+                    { "nodeId": "2", "role": {"value": "link"}, "name": {"value": "Home"} },
+                    { "nodeId": "3", "role": {"value": "link"}, "name": {"value": "About"} },
+                ]
+            }
+        });
+        let opts = SnapshotOptions {
+            depth: Some(0),
+            ..Default::default()
+        };
+        let nodes = parse_ax_tree(&response, &opts);
+        // navigation is root (depth=0), links are children (depth=1).
+        // depth=Some(0) keeps only navigation.
+        assert_eq!(nodes.len(), 1, "depth=0 keeps only root; got {:?}", nodes);
+        assert_eq!(nodes[0].role, "navigation");
     }
 
     #[test]
@@ -752,5 +1010,37 @@ mod tests {
         assert_eq!(nodes[0].ref_id, "e1");
         assert_eq!(nodes[1].ref_id, "e2");
         assert_eq!(nodes[2].ref_id, "e3");
+    }
+
+    // ── filter_selector_subtree ───────────────────────────────────────
+
+    #[test]
+    fn test_filter_selector_subtree_finds_root_and_descendants() {
+        let mut root = make_node("e1", "navigation", "Nav", false, 0);
+        root.backend_node_id = Some(10);
+        let mut child1 = make_node("e2", "link", "Home", true, 1);
+        child1.backend_node_id = Some(11);
+        let mut child2 = make_node("e3", "link", "About", true, 1);
+        child2.backend_node_id = Some(12);
+        let mut sibling = make_node("e4", "button", "Submit", true, 0);
+        sibling.backend_node_id = Some(20);
+
+        let nodes = vec![root, child1, child2, sibling];
+        let result = filter_selector_subtree(nodes, 10);
+        // Should include nav root + its 2 children but not the sibling button
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].ref_id, "e1");
+        assert_eq!(result[1].ref_id, "e2");
+        assert_eq!(result[2].ref_id, "e3");
+    }
+
+    #[test]
+    fn test_filter_selector_subtree_root_not_found_returns_all() {
+        let nodes = vec![
+            make_node("e1", "button", "A", true, 0),
+            make_node("e2", "link", "B", true, 0),
+        ];
+        let result = filter_selector_subtree(nodes.clone(), 999);
+        assert_eq!(result.len(), 2, "unknown backend_id → return all");
     }
 }

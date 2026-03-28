@@ -100,7 +100,15 @@ impl JsonEnvelope {
         duration: Duration,
     ) -> Self {
         match result {
-            ActionResult::Ok { data } => Self::success(command, context, data.clone(), duration),
+            ActionResult::Ok { data } => {
+                // Strip __* private metadata fields; extract __meta_truncated
+                let (clean_data, truncated) = strip_private_fields(data.clone());
+                let mut envelope = Self::success(command, context, clean_data, duration);
+                if truncated {
+                    envelope.meta.truncated = true;
+                }
+                envelope
+            }
             ActionResult::Fatal {
                 code,
                 message,
@@ -310,6 +318,12 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("title: {title}"));
             }
         }
+        "browser.snapshot" => {
+            // Render content field directly (already formatted with [ref=eN] labels)
+            if let Some(content) = data.get("content").and_then(|v| v.as_str()) {
+                lines.push(content.to_string());
+            }
+        }
         "browser.eval" => {
             if let Some(val) = data.get("value") {
                 lines.push(val.as_str().unwrap_or(&val.to_string()).to_string());
@@ -322,4 +336,19 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
             }
         }
     }
+}
+
+/// Strip `__*` private metadata fields from a data Value.
+/// Returns `(cleaned_value, truncated)` where `truncated` reflects `__meta_truncated`.
+fn strip_private_fields(mut data: Value) -> (Value, bool) {
+    let truncated = data
+        .get("__meta_truncated")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if let Some(obj) = data.as_object_mut() {
+        obj.retain(|k, _| !k.starts_with("__"));
+    }
+
+    (data, truncated)
 }
