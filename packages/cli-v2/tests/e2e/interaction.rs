@@ -136,13 +136,15 @@ fn install_click_fixture(session_id: &str, tab_id: &str) {
 
   window.__ab_clicks = 0;
   window.__ab_dblclicks = 0;
+  window.__ab_middle_clicks = 0;
   window.__ab_right_clicks = 0;
+  window.__ab_last_click_button = -1;
 
   const root = document.createElement('div');
   root.id = 'ab-click-fixture';
   root.innerHTML = `
     <style>
-      #ab-click-btn, #ab-link, #ab-right-target {
+      #ab-click-btn, #ab-link, #ab-right-target, #ab-middle-target {
         position: fixed;
         left: 40px;
         width: 180px;
@@ -165,17 +167,27 @@ fn install_click_fixture(session_id: &str, tab_id: &str) {
         justify-content: center;
         background: #e5e7eb;
       }
+      #ab-middle-target {
+        top: 220px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #dbeafe;
+      }
     </style>
     <button id="ab-click-btn" type="button">Click target</button>
     <a id="ab-link" href="https://example.org/#ab-click-target">Open link</a>
     <div id="ab-right-target" tabindex="0">Right click target</div>
+    <div id="ab-middle-target" tabindex="0">Middle click target</div>
   `;
   document.body.appendChild(root);
 
   const btn = document.getElementById('ab-click-btn');
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', (event) => {
     window.__ab_clicks += 1;
+    window.__ab_last_click_button = event.button;
     document.body.setAttribute('data-clicks', String(window.__ab_clicks));
+    document.body.setAttribute('data-last-click-button', String(window.__ab_last_click_button));
   });
   btn.addEventListener('dblclick', () => {
     window.__ab_dblclicks += 1;
@@ -187,6 +199,14 @@ fn install_click_fixture(session_id: &str, tab_id: &str) {
     event.preventDefault();
     window.__ab_right_clicks += 1;
     document.body.setAttribute('data-right-clicks', String(window.__ab_right_clicks));
+  });
+
+  const middleTarget = document.getElementById('ab-middle-target');
+  middleTarget.addEventListener('auxclick', (event) => {
+    if (event.button === 1) {
+      window.__ab_middle_clicks += 1;
+      document.body.setAttribute('data-middle-clicks', String(window.__ab_middle_clicks));
+    }
   });
 
   return 'ok';
@@ -225,6 +245,10 @@ fn click_selector_json() {
 
     assert_click_success(&v, &sid, &tid, Some("#ab-click-btn"));
     assert_eq!(eval_value(&sid, &tid, "String(window.__ab_clicks)"), "1");
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_last_click_button)"),
+        "0"
+    );
 
     close_session(&sid);
 }
@@ -279,6 +303,38 @@ fn click_coordinates_json() {
 
     assert_click_success(&v, &sid, &tid, None);
     assert_eq!(eval_value(&sid, &tid, "String(window.__ab_clicks)"), "1");
+
+    close_session(&sid);
+}
+
+#[test]
+fn click_coordinates_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_click_fixture(&sid, &tid);
+
+    let out = headless(
+        &["browser", "click", "60,60", "--session", &sid, "--tab", &tid],
+        15,
+    );
+    assert_success(&out, "click coordinates text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser.click"),
+        "must contain ok browser.click"
+    );
+    assert!(
+        text.contains("target: 60,60"),
+        "must contain target line with coordinates"
+    );
 
     close_session(&sid);
 }
@@ -352,6 +408,38 @@ fn click_right_button_dispatches_contextmenu() {
 }
 
 #[test]
+fn click_middle_button_dispatches_auxclick() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_click_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "click",
+            "#ab-middle-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--button",
+            "middle",
+        ],
+        15,
+    );
+    assert_success(&out, "click button=middle");
+    let v = parse_json(&out);
+
+    assert_click_success(&v, &sid, &tid, Some("#ab-middle-target"));
+    assert_eq!(eval_value(&sid, &tid, "String(window.__ab_middle_clicks)"), "1");
+
+    close_session(&sid);
+}
+
+#[test]
 fn click_new_tab_opens_link_in_new_tab() {
     if skip() {
         return;
@@ -393,6 +481,41 @@ fn click_new_tab_opens_link_in_new_tab() {
         .iter()
         .any(|tab| tab["url"].as_str().unwrap_or("").contains("example.org"));
     assert!(any_new_tab, "one tab should load the clicked link URL");
+
+    close_session(&sid);
+}
+
+#[test]
+fn click_new_tab_coordinates_without_href_does_not_open_new_tab() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_click_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "click",
+            "60,60",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--new-tab",
+        ],
+        15,
+    );
+    assert_success(&out, "click new-tab coordinates without href");
+    let v = parse_json(&out);
+
+    assert_click_success(&v, &sid, &tid, None);
+    assert_eq!(v["data"]["changed"]["url_changed"], false);
+    assert_eq!(eval_value(&sid, &tid, "String(window.__ab_clicks)"), "1");
+
+    let tabs = list_tabs(&sid);
+    assert_eq!(tabs["data"]["total_tabs"], serde_json::json!(1));
 
     close_session(&sid);
 }
@@ -439,6 +562,127 @@ fn click_navigation_updates_context_url() {
 // ========================================================================
 
 #[test]
+fn click_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "click",
+            "#ab-click-btn",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "click nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.click");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn click_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless(
+        &[
+            "browser",
+            "click",
+            "#ab-click-btn",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "click nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn click_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "click",
+            "#ab-click-btn",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "click nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.click");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn click_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "click",
+            "#ab-click-btn",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "click nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
 fn click_missing_selector_json() {
     if skip() {
         return;
@@ -472,4 +716,78 @@ fn click_missing_selector_json() {
     );
 
     close_session(&sid);
+}
+
+#[test]
+fn click_missing_selector_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "click",
+            "#definitely-missing-element",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "click missing selector text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error ELEMENT_NOT_FOUND:"),
+        "text must contain error ELEMENT_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn click_invalid_coordinates_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    // These cases are intentionally coordinate-like but malformed, so they
+    // should be rejected as invalid coordinates rather than treated as selectors.
+    for target in ["10,", ",10", "10,abc", ",,,"] {
+        let (sid, tid) = start_session(TEST_URL);
+        let out = headless_json(
+            &[
+                "browser",
+                "click",
+                target,
+                "--session",
+                &sid,
+                "--tab",
+                &tid,
+            ],
+            10,
+        );
+        assert_failure(&out, &format!("click invalid coordinates json: {target}"));
+        let v = parse_json(&out);
+
+        assert_eq!(v["command"], "browser.click");
+        assert_error_envelope(&v, "INVALID_ARGUMENT");
+        assert!(
+            v["context"].is_object(),
+            "context must be present when session and tab are valid"
+        );
+        assert_eq!(v["context"]["session_id"], sid);
+        assert_eq!(v["context"]["tab_id"], tid);
+
+        close_session(&sid);
+    }
 }
