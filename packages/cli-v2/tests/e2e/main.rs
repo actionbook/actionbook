@@ -10,5 +10,6 @@
 //!   RUN_E2E_TESTS=true cargo test --test e2e -- --test-threads=1 --nocapture
 
 mod browser_lifecycle;
+mod cloud_mode;
 mod harness;
 mod tab_management;
