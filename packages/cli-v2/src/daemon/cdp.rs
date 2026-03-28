@@ -169,7 +169,6 @@ pub fn ensure_scheme(url: &str) -> Result<String, crate::error::CliError> {
 
 /// Ensure scheme, returning the URL or a fatal ActionResult.
 pub fn ensure_scheme_or_fatal(url: &str) -> Result<String, crate::action_result::ActionResult> {
-    ensure_scheme(url).map_err(|e| {
-        crate::action_result::ActionResult::fatal("INVALID_ARGUMENT", e.to_string())
-    })
+    ensure_scheme(url)
+        .map_err(|e| crate::action_result::ActionResult::fatal("INVALID_ARGUMENT", e.to_string()))
 }

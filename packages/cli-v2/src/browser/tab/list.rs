@@ -57,10 +57,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     // Real-time fetch via CDP Target.getTargets (works for both local and cloud)
-    let resp = match cdp
-        .execute_browser("Target.getTargets", json!({}))
-        .await
-    {
+    let resp = match cdp.execute_browser("Target.getTargets", json!({})).await {
         Ok(r) => r,
         Err(e) => return cdp_error_to_result(e, "CDP_CONNECTION_FAILED"),
     };

@@ -9,7 +9,7 @@ use crate::config;
 use crate::config::DEFAULT_PROFILE;
 use crate::daemon::browser;
 use crate::daemon::cdp::{cdp_navigate, ensure_scheme, ensure_scheme_or_fatal};
-use crate::daemon::cdp_session::{cdp_error_to_result, CdpSession};
+use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result};
 use crate::daemon::registry::{SessionState, SharedRegistry, TabEntry};
 use crate::output::ResponseContext;
 use crate::types::{Mode, SessionId, TabId};
@@ -104,7 +104,15 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // ── Cloud mode ──────────────────────────────────────────────────
     if mode == Mode::Cloud {
-        return execute_cloud(cmd, registry, cdp_endpoint.unwrap(), &headers, profile_name, headless).await;
+        return execute_cloud(
+            cmd,
+            registry,
+            cdp_endpoint.unwrap(),
+            &headers,
+            profile_name,
+            headless,
+        )
+        .await;
     }
 
     // ── Local / Extension mode (unchanged) ──────────────────────────
@@ -193,7 +201,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 .and_then(|v| v.as_str())
         {
             let page_ws = format!("ws://127.0.0.1:{port}/devtools/page/{target_id}");
-            if let Err(e) = cdp_navigate(&page_ws, &ensure_scheme(url).unwrap_or_else(|_| url.to_string())).await {
+            if let Err(e) = cdp_navigate(
+                &page_ws,
+                &ensure_scheme(url).unwrap_or_else(|_| url.to_string()),
+            )
+            .await
+            {
                 return fail_reserved_start(registry, &session_id, e.error_code(), e.to_string())
                     .await;
             }
@@ -562,13 +575,7 @@ async fn execute_cloud(
     let cdp = match CdpSession::connect_with_headers(&ws_url, headers).await {
         Ok(c) => c,
         Err(e) => {
-            return fail_reserved_start(
-                registry,
-                &session_id,
-                e.error_code(),
-                e.to_string(),
-            )
-            .await;
+            return fail_reserved_start(registry, &session_id, e.error_code(), e.to_string()).await;
         }
     };
 
@@ -576,22 +583,13 @@ async fn execute_cloud(
     let tabs = match discover_tabs_via_cdp(&cdp).await {
         Ok(t) => t,
         Err(e) => {
-            return fail_reserved_start(
-                registry,
-                &session_id,
-                "CDP_ERROR",
-                e.to_string(),
-            )
-            .await;
+            return fail_reserved_start(registry, &session_id, "CDP_ERROR", e.to_string()).await;
         }
     };
 
     // ── Zero-tab fallback: create a new page ──
     let tabs = if tabs.is_empty() {
-        let open_url = cmd
-            .open_url
-            .as_deref()
-            .unwrap_or("about:blank");
+        let open_url = cmd.open_url.as_deref().unwrap_or("about:blank");
         match create_tab_via_cdp(&cdp, open_url).await {
             Ok(tab) => vec![tab],
             Err(e) => {
@@ -641,10 +639,7 @@ async fn execute_cloud(
         .first()
         .map(|t| t.url.clone())
         .unwrap_or_else(|| "about:blank".to_string());
-    let first_title = tabs
-        .first()
-        .map(|t| t.title.clone())
-        .unwrap_or_default();
+    let first_title = tabs.first().map(|t| t.title.clone()).unwrap_or_default();
 
     // ── Finalize registry entry ──
     let mut reg = registry.lock().await;
@@ -687,12 +682,8 @@ async fn execute_cloud(
 }
 
 /// Discover page tabs via CDP Target.getTargets.
-async fn discover_tabs_via_cdp(
-    cdp: &CdpSession,
-) -> Result<Vec<TabEntry>, crate::error::CliError> {
-    let resp = cdp
-        .execute_browser("Target.getTargets", json!({}))
-        .await?;
+async fn discover_tabs_via_cdp(cdp: &CdpSession) -> Result<Vec<TabEntry>, crate::error::CliError> {
+    let resp = cdp.execute_browser("Target.getTargets", json!({})).await?;
     let target_infos = resp
         .pointer("/result/targetInfos")
         .and_then(|v| v.as_array())

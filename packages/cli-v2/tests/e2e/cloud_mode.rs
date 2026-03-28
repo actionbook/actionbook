@@ -17,8 +17,8 @@
 //!     cargo test --test e2e cloud_real_ -- --test-threads=1 --nocapture
 
 use crate::harness::{
-    assert_failure, assert_success, headless, headless_json, parse_json, skip, stdout_str,
-    SessionGuard,
+    SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
+    stdout_str,
 };
 use std::env;
 use std::process::Command as StdCommand;
@@ -117,10 +117,22 @@ fn skip_cloud_real() -> bool {
 
 /// Assert full meta structure per §2.4.
 fn assert_meta(v: &serde_json::Value) {
-    assert!(v["meta"]["duration_ms"].is_number(), "meta.duration_ms must be a number");
-    assert!(v["meta"]["warnings"].is_array(), "meta.warnings must be an array");
-    assert!(v["meta"]["pagination"].is_null(), "meta.pagination must be null");
-    assert!(v["meta"]["truncated"].is_boolean(), "meta.truncated must be a boolean");
+    assert!(
+        v["meta"]["duration_ms"].is_number(),
+        "meta.duration_ms must be a number"
+    );
+    assert!(
+        v["meta"]["warnings"].is_array(),
+        "meta.warnings must be an array"
+    );
+    assert!(
+        v["meta"]["pagination"].is_null(),
+        "meta.pagination must be null"
+    );
+    assert!(
+        v["meta"]["truncated"].is_boolean(),
+        "meta.truncated must be a boolean"
+    );
 }
 
 /// Assert full error envelope per §3.1 (including meta).
@@ -128,8 +140,14 @@ fn assert_error_envelope(v: &serde_json::Value, expected_code: &str) {
     assert_eq!(v["ok"], false, "ok must be false on error");
     assert!(v["data"].is_null(), "data must be null on failure");
     assert_eq!(v["error"]["code"], expected_code);
-    assert!(v["error"]["message"].is_string(), "error.message must be a string");
-    assert!(v["error"]["retryable"].is_boolean(), "error.retryable must be a boolean");
+    assert!(
+        v["error"]["message"].is_string(),
+        "error.message must be a string"
+    );
+    assert!(
+        v["error"]["retryable"].is_boolean(),
+        "error.retryable must be a boolean"
+    );
     assert!(
         v["error"]["details"].is_object() || v["error"]["details"].is_null(),
         "error.details must be object or null"
@@ -160,7 +178,10 @@ fn assert_context_with_tab(v: &serde_json::Value, expected_sid: &str, expected_t
 /// Assert a tab_id is a non-empty string (native Chrome target ID).
 fn assert_tab_id(tab_id: &serde_json::Value) {
     assert!(tab_id.is_string(), "tab_id must be a string");
-    assert!(!tab_id.as_str().unwrap().is_empty(), "tab_id must not be empty");
+    assert!(
+        !tab_id.as_str().unwrap().is_empty(),
+        "tab_id must not be empty"
+    );
 }
 
 /// Assert cloud session JSON response structure.
@@ -171,11 +192,13 @@ fn assert_cloud_session(v: &serde_json::Value) {
     let session = &v["data"]["session"];
     assert_eq!(session["mode"], "cloud");
     assert_eq!(session["status"], "running");
-    assert!(session["cdp_endpoint"].is_string(), "cloud session must include cdp_endpoint");
+    assert!(
+        session["cdp_endpoint"].is_string(),
+        "cloud session must include cdp_endpoint"
+    );
     // Headers must NOT be exposed
     assert!(
-        session.get("headers").is_none()
-            || session["headers"].is_null(),
+        session.get("headers").is_none() || session["headers"].is_null(),
         "headers must not be exposed in session output"
     );
     assert_meta(v);
@@ -186,19 +209,39 @@ fn assert_cloud_session(v: &serde_json::Value) {
 /// Start a cloud session, return (session_id, first_tab_id).
 fn start_cloud_json(ws_url: &str) -> (String, String) {
     let out = headless_json(
-        &["browser", "start", "--mode", "cloud", "--cdp-endpoint", ws_url],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "cloud",
+            "--cdp-endpoint",
+            ws_url,
+        ],
         30,
     );
     assert_success(&out, "cloud start");
     let v = parse_json(&out);
-    let sid = v["data"]["session"]["session_id"].as_str().unwrap().to_string();
-    let tid = v["data"]["tab"]["tab_id"].as_str().unwrap_or("").to_string();
+    let sid = v["data"]["session"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let tid = v["data"]["tab"]["tab_id"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
     (sid, tid)
 }
 
 /// Start a cloud session with headers, return (session_id, first_tab_id).
 fn start_cloud_with_headers_json(ws_url: &str, headers: &[&str]) -> (String, String) {
-    let mut args = vec!["browser", "start", "--mode", "cloud", "--cdp-endpoint", ws_url];
+    let mut args = vec![
+        "browser",
+        "start",
+        "--mode",
+        "cloud",
+        "--cdp-endpoint",
+        ws_url,
+    ];
     for h in headers {
         args.push("--header");
         args.push(h);
@@ -206,17 +249,20 @@ fn start_cloud_with_headers_json(ws_url: &str, headers: &[&str]) -> (String, Str
     let out = headless_json(&args, 30);
     assert_success(&out, "cloud start with headers");
     let v = parse_json(&out);
-    let sid = v["data"]["session"]["session_id"].as_str().unwrap().to_string();
-    let tid = v["data"]["tab"]["tab_id"].as_str().unwrap_or("").to_string();
+    let sid = v["data"]["session"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let tid = v["data"]["tab"]["tab_id"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
     (sid, tid)
 }
 
 /// Open a new tab in a cloud session, return tab_id.
 fn open_cloud_tab_json(sid: &str, url: &str) -> String {
-    let out = headless_json(
-        &["browser", "new-tab", url, "--session", sid],
-        15,
-    );
+    let out = headless_json(&["browser", "new-tab", url, "--session", sid], 15);
     assert_success(&out, "cloud new-tab");
     let v = parse_json(&out);
     v["data"]["tab"]["tab_id"].as_str().unwrap().to_string()
@@ -240,23 +286,41 @@ fn kill_chrome(child: &mut std::process::Child) {
 
 #[test]
 fn cloud_start_and_close_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
 
     let out = headless_json(
-        &["browser", "start", "--mode", "cloud", "--cdp-endpoint", &ws_url],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "cloud",
+            "--cdp-endpoint",
+            &ws_url,
+        ],
         30,
     );
     assert_success(&out, "cloud start");
     let v = parse_json(&out);
     assert_cloud_session(&v);
 
-    let sid = v["data"]["session"]["session_id"].as_str().unwrap().to_string();
-    let tab_id = v["data"]["tab"]["tab_id"].as_str().unwrap_or("").to_string();
+    let sid = v["data"]["session"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let tab_id = v["data"]["tab"]["tab_id"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
     assert!(!sid.is_empty(), "session_id should not be empty");
     assert!(!tab_id.is_empty(), "should discover at least one tab");
-    assert!(!v["data"]["reused"].as_bool().unwrap_or(true), "first start should not be reused");
+    assert!(
+        !v["data"]["reused"].as_bool().unwrap_or(true),
+        "first start should not be reused"
+    );
 
     // context should have session_id and tab_id
     assert_context_with_tab(&v, &sid, &tab_id);
@@ -276,17 +340,29 @@ fn cloud_start_and_close_json() {
 
 #[test]
 fn cloud_start_and_close_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
 
     let out = headless(
-        &["browser", "start", "--mode", "cloud", "--cdp-endpoint", &ws_url],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "cloud",
+            "--cdp-endpoint",
+            &ws_url,
+        ],
         30,
     );
     assert_success(&out, "cloud start text");
     let text = stdout_str(&out);
-    assert!(text.contains("ok browser.start"), "should contain ok browser.start");
+    assert!(
+        text.contains("ok browser.start"),
+        "should contain ok browser.start"
+    );
     assert!(text.contains("mode: cloud"), "should show mode: cloud");
 
     // Extract session ID from text header: [session-id tab-id] url
@@ -314,7 +390,9 @@ fn cloud_start_and_close_text() {
 
 #[test]
 fn cloud_reuse_same_endpoint_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
 
@@ -322,15 +400,28 @@ fn cloud_reuse_same_endpoint_json() {
 
     // Second start with SAME endpoint — must reuse (single-connection constraint)
     let out = headless_json(
-        &["browser", "start", "--mode", "cloud", "--cdp-endpoint", &ws_url],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "cloud",
+            "--cdp-endpoint",
+            &ws_url,
+        ],
         30,
     );
     assert_success(&out, "cloud start 2 (reuse)");
     let v = parse_json(&out);
-    let sid2 = v["data"]["session"]["session_id"].as_str().unwrap().to_string();
+    let sid2 = v["data"]["session"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     assert_eq!(sid1, sid2, "same endpoint must reuse session");
-    assert!(v["data"]["reused"].as_bool().unwrap_or(false), "second start must be reused=true");
+    assert!(
+        v["data"]["reused"].as_bool().unwrap_or(false),
+        "second start must be reused=true"
+    );
     assert_meta(&v);
 
     close_session(&sid1);
@@ -339,7 +430,9 @@ fn cloud_reuse_same_endpoint_json() {
 
 #[test]
 fn cloud_reuse_same_endpoint_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
 
@@ -347,7 +440,14 @@ fn cloud_reuse_same_endpoint_text() {
 
     // Reuse via text output
     let out = headless(
-        &["browser", "start", "--mode", "cloud", "--cdp-endpoint", &ws_url],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "cloud",
+            "--cdp-endpoint",
+            &ws_url,
+        ],
         30,
     );
     assert_success(&out, "cloud reuse text");
@@ -360,7 +460,9 @@ fn cloud_reuse_same_endpoint_text() {
 
 #[test]
 fn cloud_reuse_with_different_headers_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
 
@@ -370,17 +472,28 @@ fn cloud_reuse_with_different_headers_json() {
     // Second start, same endpoint, different header — should reuse and update headers
     let out = headless_json(
         &[
-            "browser", "start", "--mode", "cloud",
-            "--cdp-endpoint", &ws_url,
-            "--header", "Authorization:Bearer new-token",
+            "browser",
+            "start",
+            "--mode",
+            "cloud",
+            "--cdp-endpoint",
+            &ws_url,
+            "--header",
+            "Authorization:Bearer new-token",
         ],
         30,
     );
     assert_success(&out, "cloud reuse different headers");
     let v = parse_json(&out);
-    let sid2 = v["data"]["session"]["session_id"].as_str().unwrap().to_string();
+    let sid2 = v["data"]["session"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
-    assert_eq!(sid1, sid2, "same endpoint with different headers should still reuse");
+    assert_eq!(
+        sid1, sid2,
+        "same endpoint with different headers should still reuse"
+    );
     assert!(v["data"]["reused"].as_bool().unwrap_or(false));
 
     close_session(&sid1);
@@ -393,7 +506,9 @@ fn cloud_reuse_with_different_headers_json() {
 
 #[test]
 fn cloud_missing_cdp_endpoint_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
 
     let out = headless_json(&["browser", "start", "--mode", "cloud"], 10);
@@ -405,7 +520,9 @@ fn cloud_missing_cdp_endpoint_json() {
 
 #[test]
 fn cloud_missing_cdp_endpoint_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
 
     let out = headless(&["browser", "start", "--mode", "cloud"], 10);
@@ -419,11 +536,20 @@ fn cloud_missing_cdp_endpoint_text() {
 
 #[test]
 fn cloud_invalid_endpoint_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
 
     let out = headless_json(
-        &["browser", "start", "--mode", "cloud", "--cdp-endpoint", "ws://127.0.0.1:1/invalid"],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "cloud",
+            "--cdp-endpoint",
+            "ws://127.0.0.1:1/invalid",
+        ],
         15,
     );
     assert_failure(&out, "cloud invalid endpoint");
@@ -439,16 +565,23 @@ fn cloud_invalid_endpoint_json() {
 
 #[test]
 fn cloud_invalid_header_format_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
 
     // Header without colon separator — should be rejected
     let out = headless_json(
         &[
-            "browser", "start", "--mode", "cloud",
-            "--cdp-endpoint", &ws_url,
-            "--header", "InvalidHeaderNoColon",
+            "browser",
+            "start",
+            "--mode",
+            "cloud",
+            "--cdp-endpoint",
+            &ws_url,
+            "--header",
+            "InvalidHeaderNoColon",
         ],
         15,
     );
@@ -466,16 +599,23 @@ fn cloud_invalid_header_format_json() {
 
 #[test]
 fn cloud_header_with_colon_in_value_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
 
     // Header value contains colons (e.g., "Authorization:Bearer abc:def:ghi") — should work
     let out = headless_json(
         &[
-            "browser", "start", "--mode", "cloud",
-            "--cdp-endpoint", &ws_url,
-            "--header", "Authorization:Bearer abc:def:ghi",
+            "browser",
+            "start",
+            "--mode",
+            "cloud",
+            "--cdp-endpoint",
+            &ws_url,
+            "--header",
+            "Authorization:Bearer abc:def:ghi",
         ],
         30,
     );
@@ -483,7 +623,10 @@ fn cloud_header_with_colon_in_value_json() {
     let v = parse_json(&out);
     assert_cloud_session(&v);
 
-    let sid = v["data"]["session"]["session_id"].as_str().unwrap().to_string();
+    let sid = v["data"]["session"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     close_session(&sid);
     kill_chrome(&mut chrome);
 }
@@ -494,7 +637,9 @@ fn cloud_header_with_colon_in_value_json() {
 
 #[test]
 fn cloud_list_tabs_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _) = start_cloud_json(&ws_url);
@@ -507,7 +652,10 @@ fn cloud_list_tabs_json() {
     assert!(v["error"].is_null());
     assert_eq!(v["command"], "browser.list-tabs");
     assert_context_with_session(&v, &sid);
-    assert!(v["data"]["total_tabs"].as_u64().unwrap_or(0) >= 1, "should have >=1 tab");
+    assert!(
+        v["data"]["total_tabs"].as_u64().unwrap_or(0) >= 1,
+        "should have >=1 tab"
+    );
     let tabs = v["data"]["tabs"].as_array().expect("tabs should be array");
     for tab in tabs {
         assert_tab_id(&tab["tab_id"]);
@@ -520,7 +668,9 @@ fn cloud_list_tabs_json() {
 
 #[test]
 fn cloud_list_tabs_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _) = start_cloud_json(&ws_url);
@@ -536,15 +686,14 @@ fn cloud_list_tabs_text() {
 
 #[test]
 fn cloud_new_tab_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _) = start_cloud_json(&ws_url);
 
-    let out = headless_json(
-        &["browser", "new-tab", TEST_URL, "--session", &sid],
-        15,
-    );
+    let out = headless_json(&["browser", "new-tab", TEST_URL, "--session", &sid], 15);
     assert_success(&out, "cloud new-tab");
     let v = parse_json(&out);
 
@@ -554,13 +703,19 @@ fn cloud_new_tab_json() {
     assert_eq!(v["data"]["created"], true);
     assert_tab_id(&v["data"]["tab"]["tab_id"]);
     assert_context_with_session(&v, &sid);
-    assert!(v["context"]["tab_id"].is_string(), "context should have tab_id for new-tab");
+    assert!(
+        v["context"]["tab_id"].is_string(),
+        "context should have tab_id for new-tab"
+    );
     assert_meta(&v);
 
     // Verify tab count increased
     let out = headless_json(&["browser", "list-tabs", "--session", &sid], 10);
     let v = parse_json(&out);
-    assert!(v["data"]["total_tabs"].as_u64().unwrap_or(0) >= 2, "should have >=2 tabs");
+    assert!(
+        v["data"]["total_tabs"].as_u64().unwrap_or(0) >= 2,
+        "should have >=2 tabs"
+    );
 
     close_session(&sid);
     kill_chrome(&mut chrome);
@@ -568,7 +723,9 @@ fn cloud_new_tab_json() {
 
 #[test]
 fn cloud_new_tab_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _) = start_cloud_json(&ws_url);
@@ -577,7 +734,7 @@ fn cloud_new_tab_text() {
     assert_success(&out, "cloud new-tab text");
     let text = stdout_str(&out);
     // new-tab text output varies by upstream format
-assert!(!text.is_empty(), "new-tab text should not be empty: {text}");
+    assert!(!text.is_empty(), "new-tab text should not be empty: {text}");
 
     close_session(&sid);
     kill_chrome(&mut chrome);
@@ -585,7 +742,9 @@ assert!(!text.is_empty(), "new-tab text should not be empty: {text}");
 
 #[test]
 fn cloud_new_tab_sequential_ids_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, t1) = start_cloud_json(&ws_url);
@@ -604,7 +763,9 @@ fn cloud_new_tab_sequential_ids_json() {
 
 #[test]
 fn cloud_close_tab_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _t1) = start_cloud_json(&ws_url);
@@ -628,11 +789,15 @@ fn cloud_close_tab_json() {
     let out = headless_json(&["browser", "list-tabs", "--session", &sid], 10);
     let v = parse_json(&out);
     let tab_ids: Vec<&str> = v["data"]["tabs"]
-        .as_array().unwrap()
+        .as_array()
+        .unwrap()
         .iter()
         .filter_map(|t| t["tab_id"].as_str())
         .collect();
-    assert!(!tab_ids.contains(&t2.as_str()), "closed tab should not appear");
+    assert!(
+        !tab_ids.contains(&t2.as_str()),
+        "closed tab should not appear"
+    );
 
     close_session(&sid);
     kill_chrome(&mut chrome);
@@ -640,16 +805,24 @@ fn cloud_close_tab_json() {
 
 #[test]
 fn cloud_close_tab_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _) = start_cloud_json(&ws_url);
     let t2 = open_cloud_tab_json(&sid, TEST_URL);
 
-    let out = headless(&["browser", "close-tab", "--session", &sid, "--tab", &t2], 15);
+    let out = headless(
+        &["browser", "close-tab", "--session", &sid, "--tab", &t2],
+        15,
+    );
     assert_success(&out, "cloud close-tab text");
     let text = stdout_str(&out);
-    assert!(!text.is_empty(), "close-tab text should not be empty: {text}");
+    assert!(
+        !text.is_empty(),
+        "close-tab text should not be empty: {text}"
+    );
 
     close_session(&sid);
     kill_chrome(&mut chrome);
@@ -661,7 +834,9 @@ fn cloud_close_tab_text() {
 
 #[test]
 fn cloud_list_tabs_nonexistent_session_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
 
     let out = headless_json(&["browser", "list-tabs", "--session", "ghost-cloud"], 10);
@@ -670,12 +845,17 @@ fn cloud_list_tabs_nonexistent_session_json() {
     assert_eq!(v["command"], "browser.list-tabs");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     // context should be absent — session not located
-    assert!(v["context"].is_null(), "context should be null for SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context should be null for SESSION_NOT_FOUND"
+    );
 }
 
 #[test]
 fn cloud_list_tabs_nonexistent_session_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
 
     let out = headless(&["browser", "list-tabs", "--session", "ghost-cloud"], 10);
@@ -686,7 +866,9 @@ fn cloud_list_tabs_nonexistent_session_text() {
 
 #[test]
 fn cloud_new_tab_nonexistent_session_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
 
     let out = headless_json(
@@ -701,10 +883,15 @@ fn cloud_new_tab_nonexistent_session_json() {
 
 #[test]
 fn cloud_new_tab_nonexistent_session_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
 
-    let out = headless(&["browser", "new-tab", TEST_URL, "--session", "ghost-cloud"], 10);
+    let out = headless(
+        &["browser", "new-tab", TEST_URL, "--session", "ghost-cloud"],
+        10,
+    );
     assert_failure(&out, "new-tab nonexistent session text");
     let text = stdout_str(&out);
     assert!(text.contains("SESSION_NOT_FOUND"), "text: {text}");
@@ -712,11 +899,20 @@ fn cloud_new_tab_nonexistent_session_text() {
 
 #[test]
 fn cloud_close_tab_nonexistent_session_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
 
     let out = headless_json(
-        &["browser", "close-tab", "--session", "ghost-cloud", "--tab", "FAKE-ID"],
+        &[
+            "browser",
+            "close-tab",
+            "--session",
+            "ghost-cloud",
+            "--tab",
+            "FAKE-ID",
+        ],
         10,
     );
     assert_failure(&out, "close-tab nonexistent session");
@@ -727,11 +923,20 @@ fn cloud_close_tab_nonexistent_session_json() {
 
 #[test]
 fn cloud_close_tab_nonexistent_session_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
 
     let out = headless(
-        &["browser", "close-tab", "--session", "ghost-cloud", "--tab", "FAKE-ID"],
+        &[
+            "browser",
+            "close-tab",
+            "--session",
+            "ghost-cloud",
+            "--tab",
+            "FAKE-ID",
+        ],
         10,
     );
     assert_failure(&out, "close-tab nonexistent session text");
@@ -741,13 +946,22 @@ fn cloud_close_tab_nonexistent_session_text() {
 
 #[test]
 fn cloud_close_tab_nonexistent_tab_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _) = start_cloud_json(&ws_url);
 
     let out = headless_json(
-        &["browser", "close-tab", "--session", &sid, "--tab", "FAKE-TARGET-ID"],
+        &[
+            "browser",
+            "close-tab",
+            "--session",
+            &sid,
+            "--tab",
+            "FAKE-TARGET-ID",
+        ],
         10,
     );
     assert_failure(&out, "close-tab nonexistent tab");
@@ -763,13 +977,22 @@ fn cloud_close_tab_nonexistent_tab_json() {
 
 #[test]
 fn cloud_close_tab_nonexistent_tab_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _) = start_cloud_json(&ws_url);
 
     let out = headless(
-        &["browser", "close-tab", "--session", &sid, "--tab", "FAKE-TARGET-ID"],
+        &[
+            "browser",
+            "close-tab",
+            "--session",
+            &sid,
+            "--tab",
+            "FAKE-TARGET-ID",
+        ],
         10,
     );
     assert_failure(&out, "close-tab nonexistent tab text");
@@ -782,7 +1005,9 @@ fn cloud_close_tab_nonexistent_tab_text() {
 
 #[test]
 fn cloud_close_tab_double_close_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _) = start_cloud_json(&ws_url);
@@ -814,13 +1039,23 @@ fn cloud_close_tab_double_close_json() {
 
 #[test]
 fn cloud_goto_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, tid) = start_cloud_json(&ws_url);
 
     let out = headless_json(
-        &["browser", "goto", TEST_URL, "--session", &sid, "--tab", &tid],
+        &[
+            "browser",
+            "goto",
+            TEST_URL,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
         15,
     );
     assert_success(&out, "cloud goto");
@@ -837,13 +1072,23 @@ fn cloud_goto_json() {
 
 #[test]
 fn cloud_goto_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, tid) = start_cloud_json(&ws_url);
 
     let out = headless(
-        &["browser", "goto", TEST_URL, "--session", &sid, "--tab", &tid],
+        &[
+            "browser",
+            "goto",
+            TEST_URL,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
         15,
     );
     assert_success(&out, "cloud goto text");
@@ -856,13 +1101,26 @@ fn cloud_goto_text() {
 
 #[test]
 fn cloud_snapshot_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, tid) = start_cloud_json(&ws_url);
 
     // Navigate first so snapshot has content
-    let _ = headless(&["browser", "goto", TEST_URL, "--session", &sid, "--tab", &tid], 15);
+    let _ = headless(
+        &[
+            "browser",
+            "goto",
+            TEST_URL,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
     std::thread::sleep(std::time::Duration::from_secs(1));
 
     let out = headless_json(
@@ -884,12 +1142,25 @@ fn cloud_snapshot_json() {
 
 #[test]
 fn cloud_snapshot_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, tid) = start_cloud_json(&ws_url);
 
-    let _ = headless(&["browser", "goto", TEST_URL, "--session", &sid, "--tab", &tid], 15);
+    let _ = headless(
+        &[
+            "browser",
+            "goto",
+            TEST_URL,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
     std::thread::sleep(std::time::Duration::from_secs(1));
 
     let out = headless(
@@ -898,7 +1169,10 @@ fn cloud_snapshot_text() {
     );
     assert_success(&out, "cloud snapshot text");
     let text = stdout_str(&out);
-    assert!(!text.is_empty(), "snapshot text should not be empty: {text}");
+    assert!(
+        !text.is_empty(),
+        "snapshot text should not be empty: {text}"
+    );
 
     close_session(&sid);
     kill_chrome(&mut chrome);
@@ -906,7 +1180,9 @@ fn cloud_snapshot_text() {
 
 #[test]
 fn cloud_eval_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, tid) = start_cloud_json(&ws_url);
@@ -921,7 +1197,10 @@ fn cloud_eval_json() {
     assert!(v["error"].is_null());
     assert_eq!(v["command"], "browser.eval");
     let result = v["data"]["value"].as_str().unwrap_or("");
-    assert!(result.contains('4'), "eval 2+2 should return 4, got: {result}");
+    assert!(
+        result.contains('4'),
+        "eval 2+2 should return 4, got: {result}"
+    );
     assert_context_with_tab(&v, &sid, &tid);
     assert_meta(&v);
 
@@ -931,7 +1210,9 @@ fn cloud_eval_json() {
 
 #[test]
 fn cloud_eval_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, tid) = start_cloud_json(&ws_url);
@@ -954,13 +1235,18 @@ fn cloud_eval_text() {
 
 #[test]
 fn cloud_start_with_multiple_headers_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
 
     let (sid, _) = start_cloud_with_headers_json(
         &ws_url,
-        &["Authorization:Bearer test-token-123", "X-Api-Key:my-api-key"],
+        &[
+            "Authorization:Bearer test-token-123",
+            "X-Api-Key:my-api-key",
+        ],
     );
 
     // Status should show cloud mode but NOT expose headers
@@ -985,7 +1271,9 @@ fn cloud_start_with_multiple_headers_json() {
 
 #[test]
 fn cloud_status_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _) = start_cloud_json(&ws_url);
@@ -1010,7 +1298,9 @@ fn cloud_status_json() {
 
 #[test]
 fn cloud_status_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _) = start_cloud_json(&ws_url);
@@ -1018,7 +1308,10 @@ fn cloud_status_text() {
     let out = headless(&["browser", "status", "--session", &sid], 10);
     assert_success(&out, "cloud status text");
     let text = stdout_str(&out);
-    assert!(text.contains("mode: cloud"), "status text should show mode: cloud: {text}");
+    assert!(
+        text.contains("mode: cloud"),
+        "status text should show mode: cloud: {text}"
+    );
     assert!(text.contains("mode: cloud"), "should show mode: cloud");
 
     close_session(&sid);
@@ -1027,7 +1320,9 @@ fn cloud_status_text() {
 
 #[test]
 fn cloud_list_sessions_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _) = start_cloud_json(&ws_url);
@@ -1038,13 +1333,17 @@ fn cloud_list_sessions_json() {
 
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
-    assert!(v["context"].is_null(), "global command should have null context");
+    assert!(
+        v["context"].is_null(),
+        "global command should have null context"
+    );
     let sessions = v["data"]["sessions"].as_array().expect("sessions array");
-    let cloud_sessions: Vec<&serde_json::Value> = sessions
-        .iter()
-        .filter(|s| s["mode"] == "cloud")
-        .collect();
-    assert!(!cloud_sessions.is_empty(), "should have at least 1 cloud session");
+    let cloud_sessions: Vec<&serde_json::Value> =
+        sessions.iter().filter(|s| s["mode"] == "cloud").collect();
+    assert!(
+        !cloud_sessions.is_empty(),
+        "should have at least 1 cloud session"
+    );
     assert_eq!(cloud_sessions[0]["session_id"], sid);
     // cdp_endpoint should be present in listing
     assert!(
@@ -1064,7 +1363,9 @@ fn cloud_list_sessions_json() {
 
 #[test]
 fn cloud_list_sessions_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _) = start_cloud_json(&ws_url);
@@ -1084,7 +1385,9 @@ fn cloud_list_sessions_text() {
 
 #[test]
 fn cloud_close_does_not_kill_browser() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _) = start_cloud_json(&ws_url);
@@ -1095,13 +1398,23 @@ fn cloud_close_does_not_kill_browser() {
     // Chrome should still be alive — verify by connecting again
     std::thread::sleep(std::time::Duration::from_millis(500));
     let out = headless_json(
-        &["browser", "start", "--mode", "cloud", "--cdp-endpoint", &ws_url],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "cloud",
+            "--cdp-endpoint",
+            &ws_url,
+        ],
         15,
     );
     assert_success(&out, "reconnect after close — browser should be alive");
     let v = parse_json(&out);
     assert_cloud_session(&v);
-    let sid2 = v["data"]["session"]["session_id"].as_str().unwrap().to_string();
+    let sid2 = v["data"]["session"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     close_session(&sid2);
     kill_chrome(&mut chrome);
@@ -1113,7 +1426,9 @@ fn cloud_close_does_not_kill_browser() {
 
 #[test]
 fn cloud_connection_drop_returns_error() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, tid) = start_cloud_json(&ws_url);
@@ -1131,7 +1446,10 @@ fn cloud_connection_drop_returns_error() {
     let stdout = stdout_str(&out);
     if stdout.is_empty() {
         // Daemon may have crashed — command failed with no output
-        assert!(!out.status.success(), "command after disconnect should fail");
+        assert!(
+            !out.status.success(),
+            "command after disconnect should fail"
+        );
     } else {
         let v = parse_json(&out);
         assert_eq!(v["ok"], false, "command after disconnect should fail");
@@ -1152,7 +1470,9 @@ fn cloud_connection_drop_returns_error() {
 
 #[test]
 fn cloud_restart_preserves_endpoint_and_headers_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
 
@@ -1178,15 +1498,17 @@ fn cloud_restart_preserves_endpoint_and_headers_json() {
     // Headers must NOT be exposed (but must be preserved internally —
     // verified by the session still being functional with the same endpoint)
     assert!(
-        v["data"]["session"].get("headers").is_none()
-            || v["data"]["session"]["headers"].is_null(),
+        v["data"]["session"].get("headers").is_none() || v["data"]["session"]["headers"].is_null(),
         "headers must not be exposed after restart"
     );
     assert_meta(&v);
 
     // Session should still be usable — proves connection works,
     // which means headers were preserved (cloud endpoint requires them)
-    let tid = v["data"]["tab"]["tab_id"].as_str().unwrap_or("").to_string();
+    let tid = v["data"]["tab"]["tab_id"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
     // After restart, session should be usable if tab exists
     if !tid.is_empty() {
         let out = headless_json(
@@ -1206,7 +1528,9 @@ fn cloud_restart_preserves_endpoint_and_headers_json() {
 
 #[test]
 fn cloud_crash_recovery_reconnect() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _) = start_cloud_json(&ws_url);
@@ -1222,13 +1546,23 @@ fn cloud_crash_recovery_reconnect() {
     // The session should be recoverable if state was persisted.
     // For now, verify that starting a NEW session to same endpoint works cleanly.
     let out = headless_json(
-        &["browser", "start", "--mode", "cloud", "--cdp-endpoint", &ws_url2],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "cloud",
+            "--cdp-endpoint",
+            &ws_url2,
+        ],
         30,
     );
     assert_success(&out, "start after daemon crash");
     let v = parse_json(&out);
     assert_cloud_session(&v);
-    let sid2 = v["data"]["session"]["session_id"].as_str().unwrap().to_string();
+    let sid2 = v["data"]["session"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     close_session(&sid2);
     kill_chrome(&mut chrome2);
@@ -1236,7 +1570,9 @@ fn cloud_crash_recovery_reconnect() {
 
 #[test]
 fn cloud_crash_recovery_endpoint_gone() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _) = start_cloud_json(&ws_url);
@@ -1247,7 +1583,14 @@ fn cloud_crash_recovery_endpoint_gone() {
 
     // Try to connect to the now-dead endpoint — should fail gracefully
     let out = headless_json(
-        &["browser", "start", "--mode", "cloud", "--cdp-endpoint", &ws_url],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "cloud",
+            "--cdp-endpoint",
+            &ws_url,
+        ],
         15,
     );
     assert_failure(&out, "connect to dead endpoint after crash");
@@ -1266,7 +1609,9 @@ fn cloud_crash_recovery_endpoint_gone() {
 
 #[test]
 fn cloud_concurrent_eval_multi_tab() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, t1) = start_cloud_json(&ws_url);
@@ -1276,12 +1621,34 @@ fn cloud_concurrent_eval_multi_tab() {
     let sid_a = sid.clone();
     let t1_a = t1.clone();
     let ha = std::thread::spawn(move || {
-        headless_json(&["browser", "eval", "1+1", "--session", &sid_a, "--tab", &t1_a], 10)
+        headless_json(
+            &[
+                "browser",
+                "eval",
+                "1+1",
+                "--session",
+                &sid_a,
+                "--tab",
+                &t1_a,
+            ],
+            10,
+        )
     });
     let sid_b = sid.clone();
     let t2_b = t2.clone();
     let hb = std::thread::spawn(move || {
-        headless_json(&["browser", "eval", "2+2", "--session", &sid_b, "--tab", &t2_b], 10)
+        headless_json(
+            &[
+                "browser",
+                "eval",
+                "2+2",
+                "--session",
+                &sid_b,
+                "--tab",
+                &t2_b,
+            ],
+            10,
+        )
     });
 
     let out_a = ha.join().unwrap();
@@ -1292,8 +1659,14 @@ fn cloud_concurrent_eval_multi_tab() {
 
     let va = parse_json(&out_a);
     let vb = parse_json(&out_b);
-    assert!(va["data"]["value"].as_str().unwrap_or("").contains('2'), "1+1=2");
-    assert!(vb["data"]["value"].as_str().unwrap_or("").contains('4'), "2+2=4");
+    assert!(
+        va["data"]["value"].as_str().unwrap_or("").contains('2'),
+        "1+1=2"
+    );
+    assert!(
+        vb["data"]["value"].as_str().unwrap_or("").contains('4'),
+        "2+2=4"
+    );
 
     close_session(&sid);
     kill_chrome(&mut chrome);
@@ -1301,7 +1674,9 @@ fn cloud_concurrent_eval_multi_tab() {
 
 #[test]
 fn cloud_concurrent_tab_create() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _) = start_cloud_json(&ws_url);
@@ -1326,7 +1701,10 @@ fn cloud_concurrent_tab_create() {
     // Should have at least 4 tabs (1 initial + 3 created)
     let out = headless_json(&["browser", "list-tabs", "--session", &sid], 10);
     let v = parse_json(&out);
-    assert!(v["data"]["total_tabs"].as_u64().unwrap_or(0) >= 4, "should have >=4 tabs");
+    assert!(
+        v["data"]["total_tabs"].as_u64().unwrap_or(0) >= 4,
+        "should have >=4 tabs"
+    );
 
     close_session(&sid);
     kill_chrome(&mut chrome);
@@ -1338,7 +1716,9 @@ fn cloud_concurrent_tab_create() {
 
 #[test]
 fn cloud_double_close_session_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
     let (sid, _) = start_cloud_json(&ws_url);
@@ -1363,14 +1743,19 @@ fn cloud_double_close_session_json() {
 
 #[test]
 fn cloud_real_start_and_close() {
-    if skip() || skip_cloud_real() { return; }
+    if skip() || skip_cloud_real() {
+        return;
+    }
     let _guard = SessionGuard::new();
 
     let (endpoint, headers) = cloud_endpoint().unwrap();
     let mut args = vec![
-        "browser".to_string(), "start".to_string(),
-        "--mode".to_string(), "cloud".to_string(),
-        "--cdp-endpoint".to_string(), endpoint.clone(),
+        "browser".to_string(),
+        "start".to_string(),
+        "--mode".to_string(),
+        "cloud".to_string(),
+        "--cdp-endpoint".to_string(),
+        endpoint.clone(),
     ];
     for h in &headers {
         args.push("--header".to_string());
@@ -1383,12 +1768,23 @@ fn cloud_real_start_and_close() {
     let v = parse_json(&out);
     assert_cloud_session(&v);
 
-    let sid = v["data"]["session"]["session_id"].as_str().unwrap().to_string();
+    let sid = v["data"]["session"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let tid = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
 
     // Eval basic JS
     let out = headless_json(
-        &["browser", "eval", "navigator.userAgent", "--session", &sid, "--tab", &tid],
+        &[
+            "browser",
+            "eval",
+            "navigator.userAgent",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
         15,
     );
     assert_success(&out, "real cloud eval");
@@ -1398,15 +1794,21 @@ fn cloud_real_start_and_close() {
 
 #[test]
 fn cloud_real_goto_and_snapshot() {
-    if skip() || skip_cloud_real() { return; }
+    if skip() || skip_cloud_real() {
+        return;
+    }
     let _guard = SessionGuard::new();
 
     let (endpoint, headers) = cloud_endpoint().unwrap();
     let mut args = vec![
-        "browser".to_string(), "start".to_string(),
-        "--mode".to_string(), "cloud".to_string(),
-        "--cdp-endpoint".to_string(), endpoint.clone(),
-        "--open-url".to_string(), TEST_URL.to_string(),
+        "browser".to_string(),
+        "start".to_string(),
+        "--mode".to_string(),
+        "cloud".to_string(),
+        "--cdp-endpoint".to_string(),
+        endpoint.clone(),
+        "--open-url".to_string(),
+        TEST_URL.to_string(),
     ];
     for h in &headers {
         args.push("--header".to_string());
@@ -1417,7 +1819,10 @@ fn cloud_real_goto_and_snapshot() {
     let out = headless_json(&args_ref, 30);
     assert_success(&out, "real cloud start with url");
     let v = parse_json(&out);
-    let sid = v["data"]["session"]["session_id"].as_str().unwrap().to_string();
+    let sid = v["data"]["session"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let tid = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
 
     std::thread::sleep(std::time::Duration::from_secs(2));
@@ -1433,14 +1838,19 @@ fn cloud_real_goto_and_snapshot() {
 
 #[test]
 fn cloud_real_tab_management() {
-    if skip() || skip_cloud_real() { return; }
+    if skip() || skip_cloud_real() {
+        return;
+    }
     let _guard = SessionGuard::new();
 
     let (endpoint, headers) = cloud_endpoint().unwrap();
     let mut args = vec![
-        "browser".to_string(), "start".to_string(),
-        "--mode".to_string(), "cloud".to_string(),
-        "--cdp-endpoint".to_string(), endpoint.clone(),
+        "browser".to_string(),
+        "start".to_string(),
+        "--mode".to_string(),
+        "cloud".to_string(),
+        "--cdp-endpoint".to_string(),
+        endpoint.clone(),
     ];
     for h in &headers {
         args.push("--header".to_string());
@@ -1451,13 +1861,13 @@ fn cloud_real_tab_management() {
     let out = headless_json(&args_ref, 30);
     assert_success(&out, "real cloud start");
     let v = parse_json(&out);
-    let sid = v["data"]["session"]["session_id"].as_str().unwrap().to_string();
+    let sid = v["data"]["session"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     // New tab
-    let out = headless_json(
-        &["browser", "new-tab", TEST_URL, "--session", &sid],
-        15,
-    );
+    let out = headless_json(&["browser", "new-tab", TEST_URL, "--session", &sid], 15);
     assert_success(&out, "real cloud new-tab");
     let v = parse_json(&out);
     let t2 = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();

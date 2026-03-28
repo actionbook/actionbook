@@ -80,18 +80,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Ok(r) => r,
         Err(e) => return cdp_error_to_result(e, "CDP_ERROR"),
     };
-    let target_id = match resp
-        .pointer("/result/targetId")
-        .and_then(|v| v.as_str())
-    {
+    let target_id = match resp.pointer("/result/targetId").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
         None => {
             return ActionResult::fatal(
                 "CDP_ERROR",
-                format!(
-                    "Target.createTarget did not return targetId: {}",
-                    resp
-                ),
+                format!("Target.createTarget did not return targetId: {}", resp),
             );
         }
     };

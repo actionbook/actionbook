@@ -59,8 +59,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     });
     // Include cdp_endpoint for cloud sessions (redacted), never expose headers
     if let Some(ref ep) = entry.cdp_endpoint {
-        session["cdp_endpoint"] =
-            json!(crate::browser::session::start::redact_endpoint(ep));
+        session["cdp_endpoint"] = json!(crate::browser::session::start::redact_endpoint(ep));
     }
     ActionResult::ok(json!({
         "session": session,
