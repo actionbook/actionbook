@@ -1920,6 +1920,19 @@ impl SessionManager {
                     // Post-send failure (DaemonError): the command may have already been
                     // forwarded to the browser. Do NOT fall back — that would risk
                     // duplicating non-idempotent operations (click, navigate, etc.).
+                    //
+                    // Exception: if the error is specifically a CDP timeout AND the method
+                    // is idempotent read-only, fall back to direct WS. We only match
+                    // timeout — other daemon errors (read failure, socket close, ID mismatch)
+                    // indicate a real protocol issue that should be surfaced, not retried.
+                    if is_cdp_timeout_error(&e) && is_idempotent_readonly_method(method) {
+                        tracing::warn!(
+                            "CDP timeout for idempotent method '{}', falling back to direct WS: {}",
+                            method,
+                            e
+                        );
+                        return None;
+                    }
                     tracing::warn!("Daemon error after command may have been sent: {}", e);
                     return Some(Err(e));
                 }
@@ -2413,6 +2426,73 @@ impl SessionManager {
                 "button": "left",
                 "clickCount": 1
             }),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// Drag from one element to another on the active page
+    pub async fn drag_on_page(
+        &self,
+        profile_name: Option<&str>,
+        from_selector: &str,
+        to_selector: &str,
+        human: bool,
+    ) -> Result<()> {
+        // Resolve source element center
+        let (x1, y1) = self.get_element_center(profile_name, from_selector).await?;
+        // Resolve target element center
+        let (x2, y2) = self.get_element_center(profile_name, to_selector).await?;
+
+        // Move to source
+        self.send_cdp_command(
+            profile_name,
+            "Input.dispatchMouseEvent",
+            serde_json::json!({"type": "mouseMoved", "x": x1, "y": y1}),
+        )
+        .await?;
+
+        // Press at source
+        self.send_cdp_command(
+            profile_name,
+            "Input.dispatchMouseEvent",
+            serde_json::json!({"type": "mousePressed", "x": x1, "y": y1, "button": "left", "clickCount": 1}),
+        )
+        .await?;
+
+        tokio::time::sleep(std::time::Duration::from_millis(
+            crate::browser::human_input::click_hold_ms(),
+        ))
+        .await;
+
+        // Move to target (with button held)
+        if human {
+            let path =
+                crate::browser::human_input::bezier_mouse_path(x1, y1, x2, y2);
+            for (px, py) in &path {
+                self.send_cdp_command(
+                    profile_name,
+                    "Input.dispatchMouseEvent",
+                    serde_json::json!({"type": "mouseMoved", "x": px, "y": py, "button": "left", "buttons": 1}),
+                )
+                .await?;
+                tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+            }
+        } else {
+            self.send_cdp_command(
+                profile_name,
+                "Input.dispatchMouseEvent",
+                serde_json::json!({"type": "mouseMoved", "x": x2, "y": y2, "button": "left", "buttons": 1}),
+            )
+            .await?;
+        }
+
+        // Release at target
+        self.send_cdp_command(
+            profile_name,
+            "Input.dispatchMouseEvent",
+            serde_json::json!({"type": "mouseReleased", "x": x2, "y": y2, "button": "left", "clickCount": 1}),
         )
         .await?;
 
@@ -4313,6 +4393,76 @@ impl SessionManager {
         Ok(())
     }
 
+    /// Handle a JavaScript dialog by accepting or dismissing it via CDP.
+    /// Uses the daemon's internal method when available for reliable state tracking,
+    /// or falls back to direct CDP `Page.handleJavaScriptDialog`.
+    pub async fn handle_dialog(
+        &self,
+        profile_name: Option<&str>,
+        accept: bool,
+        prompt_text: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        // Try daemon path first — it also clears the pending_dialog state
+        let resolved_profile = self.resolve_profile_name(profile_name);
+        #[cfg(unix)]
+        {
+            if self.daemon_enabled {
+                let sock_path = crate::daemon::lifecycle::socket_path(&resolved_profile);
+                if sock_path.exists() {
+                    let mut params = serde_json::json!({ "accept": accept });
+                    if let Some(text) = prompt_text {
+                        params["promptText"] = serde_json::json!(text);
+                    }
+                    let client = crate::daemon::client::DaemonClient::with_session(
+                        resolved_profile.clone(),
+                        self.active_session.clone(),
+                    );
+                    return client
+                        .send_cdp("__actionbook.handleDialog", params)
+                        .await;
+                }
+            }
+        }
+
+        // Fallback: direct CDP
+        let mut params = serde_json::json!({ "accept": accept });
+        if let Some(text) = prompt_text {
+            params["promptText"] = serde_json::json!(text);
+        }
+        self.send_cdp_command(profile_name, "Page.handleJavaScriptDialog", params)
+            .await
+    }
+
+    /// Get the status of any pending JavaScript dialog.
+    /// Uses the daemon's internal tracking when available, or returns unknown.
+    pub async fn get_dialog_status(
+        &self,
+        profile_name: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        let resolved_profile = self.resolve_profile_name(profile_name);
+        #[cfg(unix)]
+        {
+            if self.daemon_enabled {
+                let sock_path = crate::daemon::lifecycle::socket_path(&resolved_profile);
+                if sock_path.exists() {
+                    let client = crate::daemon::client::DaemonClient::with_session(
+                        resolved_profile.clone(),
+                        self.active_session.clone(),
+                    );
+                    return client
+                        .send_cdp("__actionbook.dialogStatus", serde_json::json!({}))
+                        .await;
+                }
+            }
+        }
+
+        // Without daemon, we can't track dialog state
+        Ok(serde_json::json!({
+            "hasDialog": false,
+            "note": "Dialog tracking requires daemon mode (default). Use --no-daemon to disable."
+        }))
+    }
+
     // ========== H4: Element Info ==========
 
     /// Get detailed information about an element by CSS selector
@@ -4681,6 +4831,28 @@ pub enum TextExtractionMode {
     Readability,
 }
 
+/// Strict allowlist of CDP methods that are idempotent and read-only.
+///
+/// These methods are safe to retry via a direct WS connection when the daemon
+/// times out, because executing them twice has no side effects.
+/// This list must NOT be expanded to include commands with side effects
+/// (click, navigate, type, etc.) — see `try_send_via_daemon` for context.
+fn is_idempotent_readonly_method(method: &str) -> bool {
+    matches!(
+        method,
+        "Page.captureScreenshot" | "Page.printToPDF" | "Page.getLayoutMetrics"
+    )
+}
+
+/// Returns true only if the error is a CDP command timeout from the daemon.
+///
+/// This deliberately does NOT match other DaemonError variants (read failure,
+/// socket close, ID mismatch, invalid response) — those indicate real protocol
+/// issues that should be surfaced, not silently retried.
+fn is_cdp_timeout_error(e: &ActionbookError) -> bool {
+    matches!(e, ActionbookError::DaemonError(msg) if msg.contains("CDP command timed out"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4698,6 +4870,62 @@ mod tests {
             active_profile: None,
             active_session: None,
         }
+    }
+
+    #[test]
+    fn idempotent_readonly_allowlist() {
+        // These methods are safe to retry via direct WS on timeout
+        assert!(is_idempotent_readonly_method("Page.captureScreenshot"));
+        assert!(is_idempotent_readonly_method("Page.printToPDF"));
+        assert!(is_idempotent_readonly_method("Page.getLayoutMetrics"));
+        // Side-effectful methods must NOT be in the allowlist
+        assert!(!is_idempotent_readonly_method("Input.dispatchMouseEvent"));
+        assert!(!is_idempotent_readonly_method("Page.navigate"));
+        assert!(!is_idempotent_readonly_method("Runtime.evaluate"));
+        assert!(!is_idempotent_readonly_method("DOM.setFileInputFiles"));
+        assert!(!is_idempotent_readonly_method("Input.dispatchKeyEvent"));
+    }
+
+    #[test]
+    fn cdp_timeout_error_detection() {
+        // Only CDP timeout errors should trigger fallback
+        let timeout_err = ActionbookError::DaemonError(
+            "CDP command timed out after 120s".to_string(),
+        );
+        assert!(is_cdp_timeout_error(&timeout_err));
+
+        let timeout_30s = ActionbookError::DaemonError(
+            "CDP command timed out after 30s".to_string(),
+        );
+        assert!(is_cdp_timeout_error(&timeout_30s));
+
+        // Other DaemonError variants must NOT be treated as timeout
+        let read_err = ActionbookError::DaemonError(
+            "Read error (command may have been executed): connection reset".to_string(),
+        );
+        assert!(!is_cdp_timeout_error(&read_err));
+
+        let closed_err = ActionbookError::DaemonError(
+            "Daemon closed connection without response (command may have been executed)"
+                .to_string(),
+        );
+        assert!(!is_cdp_timeout_error(&closed_err));
+
+        let id_mismatch = ActionbookError::DaemonError(
+            "Response ID mismatch: expected 5, got 3".to_string(),
+        );
+        assert!(!is_cdp_timeout_error(&id_mismatch));
+
+        let channel_dropped = ActionbookError::DaemonError(
+            "Response channel dropped".to_string(),
+        );
+        assert!(!is_cdp_timeout_error(&channel_dropped));
+
+        // DaemonNotRunning is a pre-send error, not a timeout
+        let not_running = ActionbookError::DaemonNotRunning(
+            "CDP command timed out after 30s".to_string(),
+        );
+        assert!(!is_cdp_timeout_error(&not_running));
     }
 
     #[test]

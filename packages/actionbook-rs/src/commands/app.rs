@@ -62,6 +62,9 @@ pub async fn run(cli: &Cli, command: &AppCommands) -> Result<()> {
             )
             .await
         }
+        AppCommands::Drag { from, to, human } => {
+            crate::commands::browser::drag(cli, &config, from, to, *human).await
+        }
         AppCommands::Type {
             selector,
             text,

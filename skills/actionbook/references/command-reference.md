@@ -112,6 +112,19 @@ actionbook browser inspect <x> <y>                     # Inspect DOM element at 
 actionbook browser inspect <x> <y> --desc "login btn"  # With description hint
 ```
 
+### Dialog Handling
+
+Handle JavaScript dialogs (alert, confirm, prompt, beforeunload). When a dialog is open, all other browser commands will block until it is resolved.
+
+```bash
+actionbook browser dialog status               # Check if a dialog is currently open
+actionbook browser dialog accept               # Accept dialog (OK / confirm)
+actionbook browser dialog accept "my input"    # Accept prompt dialog with text
+actionbook browser dialog dismiss              # Dismiss/cancel dialog
+```
+
+The CLI automatically warns on stderr when a pending dialog is detected during any command. If commands start timing out, check `dialog status` first.
+
 ### Cookie Management
 
 ```bash

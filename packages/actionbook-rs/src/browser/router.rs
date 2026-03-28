@@ -191,6 +191,27 @@ impl BrowserDriver {
         }
     }
 
+    /// Drag from one element to another
+    pub async fn drag(
+        &mut self,
+        from_selector: &str,
+        to_selector: &str,
+        human: bool,
+    ) -> Result<()> {
+        match self {
+            Self::Cdp(mgr) => {
+                mgr.drag_on_page(None, from_selector, to_selector, human)
+                    .await
+            }
+            #[cfg(feature = "camoufox")]
+            Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
+                Err(crate::error::ActionbookError::FeatureNotSupported(
+                    "drag is not yet supported for Camoufox backend".to_string(),
+                ))
+            }
+        }
+    }
+
     /// Fill (clear + type) text into an element
     pub async fn fill(&mut self, selector: &str, text: &str) -> Result<()> {
         match self {
@@ -573,6 +594,36 @@ impl BrowserDriver {
             Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
                 Err(ActionbookError::FeatureNotSupported(
                     "Dialog auto-dismiss is only supported on CDP backend".to_string(),
+                ))
+            }
+        }
+    }
+
+    /// Handle a JavaScript dialog by accepting or dismissing it.
+    pub async fn handle_dialog(
+        &mut self,
+        accept: bool,
+        prompt_text: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        match self {
+            Self::Cdp(mgr) => mgr.handle_dialog(None, accept, prompt_text).await,
+            #[cfg(feature = "camoufox")]
+            Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
+                Err(ActionbookError::FeatureNotSupported(
+                    "Dialog handling is only supported on CDP backend".to_string(),
+                ))
+            }
+        }
+    }
+
+    /// Get the status of any pending JavaScript dialog.
+    pub async fn get_dialog_status(&mut self) -> Result<serde_json::Value> {
+        match self {
+            Self::Cdp(mgr) => mgr.get_dialog_status(None).await,
+            #[cfg(feature = "camoufox")]
+            Self::Camofox(_) | Self::CamofoxWebDriver(_) => {
+                Err(ActionbookError::FeatureNotSupported(
+                    "Dialog status is only supported on CDP backend".to_string(),
                 ))
             }
         }

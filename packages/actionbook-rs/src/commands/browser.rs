@@ -15,8 +15,8 @@ use crate::browser::{
     BrowserDriver, ResourceBlockLevel, SessionManager, SessionStatus, StealthConfig,
 };
 use crate::cli::{
-    BrowserCommands, BrowserMode, Cli, CookiesCommands, FingerprintCommands, SessionCommands,
-    StorageCommands, TabCommands,
+    BrowserCommands, BrowserMode, Cli, CookiesCommands, DialogCommands, FingerprintCommands,
+    SessionCommands, StorageCommands, TabCommands,
 };
 use crate::config::{Config, DEFAULT_EXTENSION_PORT};
 use crate::error::{ActionbookError, Result};
@@ -924,6 +924,9 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
             )
             .await
         }
+        BrowserCommands::Drag { from, to, human } => {
+            drag(cli, &config, from, to, *human).await
+        }
         BrowserCommands::Type {
             selector,
             text,
@@ -1055,6 +1058,7 @@ pub async fn run(cli: &Cli, command: &BrowserCommands) -> Result<()> {
         BrowserCommands::Tab { command } => tab_command(cli, &config, command).await,
         BrowserCommands::SwitchFrame { target } => switch_frame(cli, &config, target).await,
         BrowserCommands::Session { command } => session_command(cli, &config, command).await,
+        BrowserCommands::Dialog { command } => dialog_command(cli, &config, command).await,
     }
 }
 
@@ -1928,6 +1932,29 @@ pub(crate) async fn click(
             ""
         };
         println!("{} Clicked: {}{}", "✓".green(), selector, backend_label);
+    }
+
+    Ok(())
+}
+
+pub(crate) async fn drag(
+    cli: &Cli,
+    config: &Config,
+    from: &str,
+    to: &str,
+    human: bool,
+) -> Result<()> {
+    let mut driver = create_browser_driver(cli, config).await?;
+    apply_resource_blocking(cli, &mut driver).await;
+    driver.drag(from, to, human).await?;
+
+    if cli.json {
+        println!(
+            "{}",
+            serde_json::json!({"success": true, "from": from, "to": to})
+        );
+    } else {
+        println!("{} Dragged: {} → {}", "✓".green(), from, to);
     }
 
     Ok(())
@@ -5566,6 +5593,75 @@ async fn session_command(cli: &Cli, config: &Config, cmd: &SessionCommands) -> R
         SessionCommands::List => session_list(cli, config).await,
         SessionCommands::Active => session_active(cli, config),
         SessionCommands::Destroy { name } => session_destroy(cli, config, name).await,
+    }
+}
+
+async fn dialog_command(cli: &Cli, config: &Config, cmd: &DialogCommands) -> Result<()> {
+    let mut driver = create_browser_driver(cli, config).await?;
+
+    match cmd {
+        DialogCommands::Status => {
+            let result = driver.get_dialog_status().await?;
+            let has_dialog = result
+                .get("hasDialog")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&result).unwrap_or_default());
+            } else if has_dialog {
+                let dtype = result
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let message = result
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                println!(
+                    "{} JavaScript {} dialog is open: \"{}\"",
+                    "⚠".yellow(),
+                    dtype.bold(),
+                    message
+                );
+                if let Some(default_prompt) = result
+                    .get("defaultPrompt")
+                    .and_then(|v| v.as_str())
+                {
+                    println!("  Default prompt text: \"{}\"", default_prompt);
+                }
+                println!(
+                    "  Use {} or {} to resolve it",
+                    "browser dialog accept [text]".bold(),
+                    "browser dialog dismiss".bold()
+                );
+            } else {
+                println!("{} No dialog is currently open", "✓".green());
+            }
+            Ok(())
+        }
+        DialogCommands::Accept { text } => {
+            let result = driver
+                .handle_dialog(true, text.as_deref())
+                .await?;
+
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&result).unwrap_or_default());
+            } else {
+                println!("{} Dialog accepted", "✓".green());
+            }
+            Ok(())
+        }
+        DialogCommands::Dismiss => {
+            let result = driver.handle_dialog(false, None).await?;
+
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&result).unwrap_or_default());
+            } else {
+                println!("{} Dialog dismissed", "✓".green());
+            }
+            Ok(())
+        }
     }
 }
 

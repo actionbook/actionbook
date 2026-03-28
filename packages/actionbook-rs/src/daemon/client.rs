@@ -104,6 +104,11 @@ impl DaemonClient {
             return Err(ActionbookError::DaemonError(error));
         }
 
+        // Print dialog warning to stderr so agents/users can see it
+        if let Some(warning) = response.warning {
+            eprintln!("\x1b[33m⚠\x1b[0m {}", warning);
+        }
+
         Ok(response.result.unwrap_or(Value::Null))
     }
 
