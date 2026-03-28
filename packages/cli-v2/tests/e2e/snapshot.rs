@@ -440,7 +440,8 @@ fn snap_depth_flag_limits_nodes() {
     let v_full = parse_json(&out_full);
     let full_count = v_full["data"]["stats"]["node_count"].as_u64().unwrap_or(0);
 
-    // Depth-limited snapshot (depth=1 = top-level only)
+    // Depth-limited snapshot (depth=3 — shallow enough to reduce nodes, deep enough
+    // that actionbook.dev's nav/hero buttons and links are still within scope)
     let out_depth = headless_json(
         &[
             "browser",
@@ -450,41 +451,22 @@ fn snap_depth_flag_limits_nodes() {
             "--tab",
             &tid,
             "--depth",
-            "1",
+            "3",
         ],
         30,
     );
-    assert_success(&out_depth, "snapshot depth 1");
+    assert_success(&out_depth, "snapshot depth 3");
     let v_depth = parse_json(&out_depth);
-
-    // Lighter assertions for depth-limited case: depth=1 may yield only structural
-    // nodes with no ref labels, so data.nodes can legitimately be empty.
-    // We verify the §10.1 envelope shape without requiring non-empty nodes.
-    assert_eq!(
-        v_depth["data"]["format"], "snapshot",
-        "format must be snapshot"
-    );
-    assert!(
-        v_depth["data"]["content"].is_string(),
-        "data.content must be a string"
-    );
-    assert!(
-        v_depth["data"]["nodes"].is_array(),
-        "data.nodes must be an array"
-    );
-    assert!(
-        v_depth["data"]["stats"]["node_count"].is_number(),
-        "stats.node_count must be a number"
-    );
+    assert_snapshot_data(&v_depth);
 
     let depth_count = v_depth["data"]["stats"]["node_count"].as_u64().unwrap_or(0);
 
-    // depth=1 must return fewer or equal nodes than full tree.
+    // depth=3 must return fewer or equal nodes than full tree.
     // actionbook.dev has a sufficiently deep AX tree that strict < holds in practice,
     // but <= is used to avoid flakiness on pages with shallow structure.
     assert!(
         depth_count <= full_count,
-        "--depth 1 must return <= nodes than full snapshot: {depth_count} > {full_count}"
+        "--depth 3 must return <= nodes than full snapshot: {depth_count} > {full_count}"
     );
 
     close_session(&sid);
