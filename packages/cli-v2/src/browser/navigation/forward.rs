@@ -89,6 +89,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         return ActionResult::fatal("NAVIGATION_FAILED", e.to_string());
     }
 
+    // Clear snapshot RefCache — page changed
+    {
+        let mut reg = registry.lock().await;
+        reg.clear_ref_cache(&cmd.session, &cmd.tab);
+    }
+
     ActionResult::ok(json!({
         "kind": "forward",
         "requested_url": null,

@@ -113,12 +113,13 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }
     }
 
-    // Remove from registry
+    // Remove from registry + clean up snapshot RefCache
     {
         let mut reg = registry.lock().await;
         if let Some(entry) = reg.get_mut(&cmd.session) {
             entry.tabs.retain(|t| t.id.0 != cmd.tab);
         }
+        reg.clear_ref_cache(&cmd.session, &cmd.tab);
     }
 
     ActionResult::ok(json!({

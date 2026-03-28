@@ -86,6 +86,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let to_url = super::get_tab_url(&cdp, &target_id).await;
     let title = super::get_tab_title(&cdp, &target_id).await;
 
+    // Clear snapshot RefCache — page changed, old backendNodeIds are invalid
+    {
+        let mut reg = registry.lock().await;
+        reg.clear_ref_cache(&cmd.session, &cmd.tab);
+    }
+
     ActionResult::ok(json!({
         "kind": "goto",
         "requested_url": cmd.url,

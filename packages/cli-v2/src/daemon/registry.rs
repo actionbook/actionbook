@@ -4,6 +4,7 @@ use std::process::Child;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use crate::browser::observation::snapshot_transform::RefCache;
 use crate::daemon::cdp_session::CdpSession;
 use crate::error::CliError;
 use crate::types::{Mode, SessionId, TabId};
@@ -85,6 +86,8 @@ impl SessionEntry {
 pub struct SessionRegistry {
     sessions: HashMap<String, SessionEntry>,
     next_auto_id: u32,
+    /// Tab-scoped RefCache for stable snapshot refs. Key: "session_id\0tab_id"
+    ref_caches: HashMap<String, RefCache>,
 }
 
 impl Default for SessionRegistry {
@@ -98,6 +101,7 @@ impl SessionRegistry {
         SessionRegistry {
             sessions: HashMap::new(),
             next_auto_id: 0,
+            ref_caches: HashMap::new(),
         }
     }
 
@@ -200,6 +204,43 @@ impl SessionRegistry {
 
     pub fn list(&self) -> Vec<&SessionEntry> {
         self.sessions.values().collect()
+    }
+
+    /// Get url and title for a tab.
+    pub fn get_tab_url_title(
+        &self,
+        session_id: &str,
+        tab_id: &str,
+    ) -> (Option<String>, Option<String>) {
+        self.get(session_id)
+            .and_then(|entry| entry.tabs.iter().find(|t| t.id.0 == tab_id))
+            .map(|tab| (Some(tab.url.clone()), Some(tab.title.clone())))
+            .unwrap_or((None, None))
+    }
+
+    /// Get or create a tab-scoped RefCache for stable snapshot refs.
+    pub fn take_ref_cache(&mut self, session_id: &str, tab_id: &str) -> RefCache {
+        let key = format!("{}\0{}", session_id, tab_id);
+        self.ref_caches.remove(&key).unwrap_or_default()
+    }
+
+    /// Store a tab-scoped RefCache back after snapshot.
+    pub fn put_ref_cache(&mut self, session_id: &str, tab_id: &str, cache: RefCache) {
+        let key = format!("{}\0{}", session_id, tab_id);
+        self.ref_caches.insert(key, cache);
+    }
+
+    /// Clear the RefCache for a tab (call on navigation/reload/back/forward).
+    /// When the page changes, old backendNodeIds are no longer valid.
+    pub fn clear_ref_cache(&mut self, session_id: &str, tab_id: &str) {
+        let key = format!("{}\0{}", session_id, tab_id);
+        self.ref_caches.remove(&key);
+    }
+
+    /// Clear all RefCaches for a session (call on session close/restart).
+    pub fn clear_session_ref_caches(&mut self, session_id: &str) {
+        let prefix = format!("{}\0", session_id);
+        self.ref_caches.retain(|k, _| !k.starts_with(&prefix));
     }
 }
 

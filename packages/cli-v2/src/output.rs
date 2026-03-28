@@ -40,9 +40,18 @@ impl JsonEnvelope {
     pub fn success(
         command: &str,
         context: Option<ResponseContext>,
-        data: Value,
+        mut data: Value,
         duration: Duration,
     ) -> Self {
+        // Extract internal fields before stripping
+        let truncated = data
+            .get("__truncated")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        // Strip internal __* fields from data (used by context/meta extraction only)
+        if let Some(obj) = data.as_object_mut() {
+            obj.retain(|k, _| !k.starts_with("__"));
+        }
         JsonEnvelope {
             ok: true,
             command: command.to_string(),
@@ -53,7 +62,7 @@ impl JsonEnvelope {
                 duration_ms: duration.as_millis() as u64,
                 warnings: vec![],
                 pagination: Value::Null,
-                truncated: false,
+                truncated,
             },
         }
     }
@@ -347,6 +356,12 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 data.pointer("/target/coordinates").and_then(|v| v.as_str())
             {
                 lines.push(format!("target: {coords}"));
+            }
+        }
+        "browser.snapshot" => {
+            // §10.1: text mode outputs content directly (no "ok" prefix)
+            if let Some(content) = data.get("content").and_then(|v| v.as_str()) {
+                lines.push(content.to_string());
             }
         }
         "browser.eval" => {
