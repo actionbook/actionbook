@@ -475,7 +475,15 @@ fn click_selector_json() {
     install_click_fixture(&sid, &tid);
 
     let out = headless_json(
-        &["browser", "click", "#ab-click-btn", "--session", &sid, "--tab", &tid],
+        &[
+            "browser",
+            "click",
+            "#ab-click-btn",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
         15,
     );
     assert_success(&out, "click selector json");
@@ -501,7 +509,15 @@ fn click_text() {
     install_click_fixture(&sid, &tid);
 
     let out = headless(
-        &["browser", "click", "#ab-click-btn", "--session", &sid, "--tab", &tid],
+        &[
+            "browser",
+            "click",
+            "#ab-click-btn",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
         15,
     );
     assert_success(&out, "click text");
@@ -533,7 +549,15 @@ fn click_coordinates_json() {
     install_click_fixture(&sid, &tid);
 
     let out = headless_json(
-        &["browser", "click", "60,60", "--session", &sid, "--tab", &tid],
+        &[
+            "browser",
+            "click",
+            "60,60",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
         15,
     );
     assert_success(&out, "click coordinates json");
@@ -555,7 +579,15 @@ fn click_coordinates_text() {
     install_click_fixture(&sid, &tid);
 
     let out = headless(
-        &["browser", "click", "60,60", "--session", &sid, "--tab", &tid],
+        &[
+            "browser",
+            "click",
+            "60,60",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
         15,
     );
     assert_success(&out, "click coordinates text");
@@ -640,7 +672,10 @@ fn click_right_button_dispatches_contextmenu() {
     let v = parse_json(&out);
 
     assert_click_success(&v, &sid, &tid, Some("#ab-right-target"));
-    assert_eq!(eval_value(&sid, &tid, "String(window.__ab_right_clicks)"), "1");
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_right_clicks)"),
+        "1"
+    );
 
     close_session(&sid);
 }
@@ -672,7 +707,10 @@ fn click_middle_button_dispatches_auxclick() {
     let v = parse_json(&out);
 
     assert_click_success(&v, &sid, &tid, Some("#ab-middle-target"));
-    assert_eq!(eval_value(&sid, &tid, "String(window.__ab_middle_clicks)"), "1");
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_middle_clicks)"),
+        "1"
+    );
 
     close_session(&sid);
 }
@@ -772,7 +810,15 @@ fn click_navigation_updates_context_url() {
     install_click_fixture(&sid, &tid);
 
     let out = headless_json(
-        &["browser", "click", "#ab-link", "--session", &sid, "--tab", &tid],
+        &[
+            "browser",
+            "click",
+            "#ab-link",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
         30,
     );
     assert_success(&out, "click navigation");
@@ -1003,15 +1049,7 @@ fn click_invalid_coordinates_json() {
     for target in ["10,", ",10", "10,abc", ",,,"] {
         let (sid, tid) = start_session(TEST_URL);
         let out = headless_json(
-            &[
-                "browser",
-                "click",
-                target,
-                "--session",
-                &sid,
-                "--tab",
-                &tid,
-            ],
+            &["browser", "click", target, "--session", &sid, "--tab", &tid],
             10,
         );
         assert_failure(&out, &format!("click invalid coordinates json: {target}"));
@@ -1060,11 +1098,30 @@ fn type_json() {
     let v = parse_json(&out);
 
     assert_type_success(&v, &sid, &tid, "#ab-type-input", 3);
-    assert_eq!(eval_value(&sid, &tid, "document.querySelector('#ab-type-input').value"), "seed-abc");
-    assert_eq!(eval_value(&sid, &tid, "String(window.__ab_type_keydown_count)"), "3");
-    assert_eq!(eval_value(&sid, &tid, "String(window.__ab_type_input_count)"), "3");
-    assert_eq!(eval_value(&sid, &tid, "String(window.__ab_type_keyup_count)"), "3");
-    assert_eq!(eval_value(&sid, &tid, "document.activeElement && document.activeElement.id"), "ab-type-input");
+    assert_eq!(
+        eval_value(&sid, &tid, "document.querySelector('#ab-type-input').value"),
+        "seed-abc"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_type_keydown_count)"),
+        "3"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_type_input_count)"),
+        "3"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_type_keyup_count)"),
+        "3"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "document.activeElement && document.activeElement.id"
+        ),
+        "ab-type-input"
+    );
 
     close_session(&sid);
 }
@@ -1098,12 +1155,18 @@ fn type_text() {
         text.contains(&format!("[{sid} {tid}]")),
         "header must contain [session_id tab_id]: got {text}"
     );
-    assert!(text.contains("ok browser.type"), "must contain ok browser.type");
+    assert!(
+        text.contains("ok browser.type"),
+        "must contain ok browser.type"
+    );
     assert!(
         text.contains("target: #ab-type-input"),
         "must contain target line with selector"
     );
-    assert!(text.contains("text_length: 3"), "must contain text_length: 3");
+    assert!(
+        text.contains("text_length: 3"),
+        "must contain text_length: 3"
+    );
 
     close_session(&sid);
 }
@@ -1379,7 +1442,10 @@ fn fill_json() {
         eval_value(&sid, &tid, "document.querySelector('#ab-fill-input').value"),
         "abc"
     );
-    assert_eq!(eval_value(&sid, &tid, "String(window.__ab_fill_input_count)"), "1");
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_fill_input_count)"),
+        "1"
+    );
     assert_eq!(
         eval_value(&sid, &tid, "String(window.__ab_fill_keydown_count)"),
         "0"
@@ -1421,12 +1487,18 @@ fn fill_text() {
         text.contains(&format!("[{sid} {tid}]")),
         "header must contain [session_id tab_id]: got {text}"
     );
-    assert!(text.contains("ok browser.fill"), "must contain ok browser.fill");
+    assert!(
+        text.contains("ok browser.fill"),
+        "must contain ok browser.fill"
+    );
     assert!(
         text.contains("target: #ab-fill-input"),
         "must contain target line with selector"
     );
-    assert!(text.contains("text_length: 3"), "must contain text_length: 3");
+    assert!(
+        text.contains("text_length: 3"),
+        "must contain text_length: 3"
+    );
 
     close_session(&sid);
 }
@@ -1466,7 +1538,10 @@ fn fill_textarea_json() {
         ),
         fill_text
     );
-    assert_eq!(eval_value(&sid, &tid, "String(window.__ab_fill_input_count)"), "1");
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_fill_input_count)"),
+        "1"
+    );
     assert_eq!(
         eval_value(&sid, &tid, "String(window.__ab_fill_keydown_count)"),
         "0"
@@ -1510,7 +1585,10 @@ fn fill_replaces_existing_value_json() {
         eval_value(&sid, &tid, "document.querySelector('#ab-fill-input').value"),
         fill_text
     );
-    assert_eq!(eval_value(&sid, &tid, "String(window.__ab_fill_input_count)"), "1");
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_fill_input_count)"),
+        "1"
+    );
 
     close_session(&sid);
 }
@@ -1800,7 +1878,10 @@ fn select_text() {
         text.contains("target: #ab-select"),
         "must contain target line with selector"
     );
-    assert!(text.contains("value: banana"), "must contain selected value");
+    assert!(
+        text.contains("value: banana"),
+        "must contain selected value"
+    );
     assert!(
         text.contains("by_text: false"),
         "must contain by_text: false"

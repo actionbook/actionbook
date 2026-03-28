@@ -110,10 +110,16 @@ fn parse_target(input: &str) -> Result<ClickTarget, ActionResult> {
     }
 
     let x = parts[0].trim().parse::<f64>().map_err(|_| {
-        ActionResult::fatal("INVALID_ARGUMENT", format!("invalid coordinates: '{input}'"))
+        ActionResult::fatal(
+            "INVALID_ARGUMENT",
+            format!("invalid coordinates: '{input}'"),
+        )
     })?;
     let y = parts[1].trim().parse::<f64>().map_err(|_| {
-        ActionResult::fatal("INVALID_ARGUMENT", format!("invalid coordinates: '{input}'"))
+        ActionResult::fatal(
+            "INVALID_ARGUMENT",
+            format!("invalid coordinates: '{input}'"),
+        )
     })?;
 
     Ok(ClickTarget::Coordinates(x, y))
@@ -153,10 +159,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Resolve element to (x, y) coordinates
     let (x, y) = match &target {
         ClickTarget::Coordinates(cx, cy) => (*cx, *cy),
-        ClickTarget::Selector(sel) => match element::resolve_element_center(&cdp, &target_id, sel).await {
-            Ok(coords) => coords,
-            Err(e) => return e,
-        },
+        ClickTarget::Selector(sel) => {
+            match element::resolve_element_center(&cdp, &target_id, sel).await {
+                Ok(coords) => coords,
+                Err(e) => return e,
+            }
+        }
     };
 
     // Handle --new-tab: if the target is a link, open href in a new tab
@@ -263,11 +271,7 @@ async fn get_element_href(
             let node_id = element::resolve_node(cdp, target_id, sel).await.ok()?;
             // Resolve the DOM node to a JS object, then check for href.
             let resp = cdp
-                .execute_on_tab(
-                    target_id,
-                    "DOM.resolveNode",
-                    json!({ "nodeId": node_id }),
-                )
+                .execute_on_tab(target_id, "DOM.resolveNode", json!({ "nodeId": node_id }))
                 .await
                 .ok()?;
             let object_id = resp

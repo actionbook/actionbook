@@ -73,11 +73,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Convert nodeId to a remote JS object for callFunctionOn
     let resolve_resp = match cdp
-        .execute_on_tab(
-            &target_id,
-            "DOM.resolveNode",
-            json!({ "nodeId": node_id }),
-        )
+        .execute_on_tab(&target_id, "DOM.resolveNode", json!({ "nodeId": node_id }))
         .await
     {
         Ok(v) => v,

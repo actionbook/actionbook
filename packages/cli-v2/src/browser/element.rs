@@ -126,11 +126,7 @@ async fn resolve_xpath(
     );
 
     let eval = cdp
-        .execute_on_tab(
-            target_id,
-            "Runtime.evaluate",
-            json!({ "expression": js }),
-        )
+        .execute_on_tab(target_id, "Runtime.evaluate", json!({ "expression": js }))
         .await
         .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
 
