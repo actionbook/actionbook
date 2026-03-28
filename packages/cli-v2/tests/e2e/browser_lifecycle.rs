@@ -8,6 +8,7 @@ use crate::harness::{
     SessionGuard, assert_failure, assert_success, config_path, headless, headless_json,
     headless_json_with_env, parse_json, skip, stdout_str,
 };
+use std::sync::{Arc, Barrier};
 
 const TEST_URL: &str = "https://example.com";
 
@@ -1147,4 +1148,87 @@ fn lifecycle_start_cli_over_env_json() {
 
     assert_eq!(v["data"]["session"]["headless"], true);
     close_session(session_id);
+}
+
+#[test]
+fn lifecycle_start_concurrent_same_profile_rejects_second_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless_json(&["browser", "list-sessions"], 10);
+    assert_success(&out, "warm daemon");
+
+    let barrier = Arc::new(Barrier::new(3));
+    let mut handles = Vec::new();
+
+    for _ in 0..2 {
+        let barrier = Arc::clone(&barrier);
+        handles.push(std::thread::spawn(move || {
+            barrier.wait();
+            headless_json(
+                &[
+                    "browser",
+                    "start",
+                    "--mode",
+                    "local",
+                    "--headless",
+                    "--profile",
+                    "testrace",
+                ],
+                30,
+            )
+        }));
+    }
+
+    barrier.wait();
+
+    let outputs: Vec<_> = handles
+        .into_iter()
+        .map(|handle| handle.join().expect("join start thread"))
+        .collect();
+
+    let successes: Vec<_> = outputs
+        .iter()
+        .filter(|output| output.status.success())
+        .collect();
+    let failures: Vec<_> = outputs
+        .iter()
+        .filter(|output| !output.status.success())
+        .collect();
+
+    assert_eq!(
+        successes.len(),
+        1,
+        "expected exactly one successful create\noutputs: {outputs:#?}"
+    );
+    assert_eq!(
+        failures.len(),
+        1,
+        "expected exactly one rejected concurrent start\noutputs: {outputs:#?}"
+    );
+
+    let success = parse_json(successes[0]);
+    assert_eq!(success["data"]["reused"], false);
+    let session_id = success["data"]["session"]["session_id"]
+        .as_str()
+        .expect("successful session id")
+        .to_string();
+
+    let failure = parse_json(failures[0]);
+    assert_eq!(failure["ok"], false);
+    assert_eq!(failure["command"], "browser.start");
+    assert_eq!(failure["error"]["code"], "SESSION_STARTING");
+    assert_eq!(
+        failure["error"]["hint"],
+        "retry after a few seconds or use browser status to check"
+    );
+
+    let out = headless_json(&["browser", "list-sessions"], 10);
+    assert_success(&out, "list-sessions after concurrent start");
+    let v = parse_json(&out);
+    assert_eq!(v["data"]["total_sessions"], serde_json::json!(1));
+
+    close_session(&session_id);
 }

@@ -25,7 +25,7 @@ pub async fn execute(_cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             json!({
                 "session_id": s.id.as_str(),
                 "mode": s.mode.to_string(),
-                "status": s.status,
+                "status": s.status.to_string(),
                 "headless": s.headless,
                 "tabs_count": s.tabs_count(),
             })

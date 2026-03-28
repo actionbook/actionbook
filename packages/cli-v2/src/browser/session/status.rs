@@ -54,7 +54,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         "session": {
             "session_id": entry.id.as_str(),
             "mode": entry.mode.to_string(),
-            "status": entry.status,
+            "status": entry.status.to_string(),
             "headless": entry.headless,
             "tabs_count": entry.tabs_count(),
         },
