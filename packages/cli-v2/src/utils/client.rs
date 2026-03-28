@@ -38,6 +38,7 @@ impl DaemonClient {
             if ready_path.exists()
                 && let Ok(stream) = UnixStream::connect(&path).await
             {
+                check_version(&ready_path)?;
                 let (reader, writer) = tokio::io::split(stream);
                 return Ok(DaemonClient { reader, writer });
             }

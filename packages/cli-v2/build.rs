@@ -16,5 +16,18 @@ fn main() {
     };
 
     println!("cargo:rustc-env=BUILD_VERSION={build_version}");
-    println!("cargo:rerun-if-changed=.git/HEAD");
+
+    // Resolve repo root .git/HEAD for monorepo — relative paths are resolved
+    // from the package directory (packages/cli-v2/), not the repo root.
+    let git_dir = std::process::Command::new("git")
+        .args(["rev-parse", "--git-dir"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !git_dir.is_empty() {
+        println!("cargo:rerun-if-changed={git_dir}/HEAD");
+    }
 }
