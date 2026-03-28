@@ -5,8 +5,8 @@
 //! requests are multiplexed using incrementing message IDs.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -15,6 +15,9 @@ use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::error::CliError;
+
+type PendingResponseTx = oneshot::Sender<Result<Value, CliError>>;
+type PendingRequests = Arc<Mutex<HashMap<u64, PendingResponseTx>>>;
 
 /// Persistent CDP connection for a single browser session.
 ///
@@ -26,7 +29,7 @@ pub struct CdpSession {
     /// Channel to send raw WS text messages to the writer task.
     writer_tx: mpsc::Sender<String>,
     /// In-flight requests keyed by message ID.
-    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, CliError>>>>>,
+    pending: PendingRequests,
     /// Atomic counter for generating unique message IDs.
     next_id: Arc<AtomicU64>,
     /// Mapping from CDP target_id → CDP sessionId (from Target.attachToTarget).
@@ -41,8 +44,7 @@ impl CdpSession {
             .map_err(|e| CliError::CdpConnectionFailed(e.to_string()))?;
 
         let (ws_writer, ws_reader) = ws.split();
-        let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, CliError>>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let pending: PendingRequests = Arc::new(Mutex::new(HashMap::new()));
         let next_id = Arc::new(AtomicU64::new(1));
         let (writer_tx, writer_rx) = mpsc::channel::<String>(64);
 
@@ -135,11 +137,7 @@ impl CdpSession {
     }
 
     /// Execute a browser-level CDP command (no sessionId).
-    pub async fn execute_browser(
-        &self,
-        method: &str,
-        params: Value,
-    ) -> Result<Value, CliError> {
+    pub async fn execute_browser(&self, method: &str, params: Value) -> Result<Value, CliError> {
         self.execute(method, params, None).await
     }
 
@@ -187,7 +185,7 @@ impl CdpSession {
     }
 
     /// Background task: read WS messages and route responses to pending callers.
-    async fn reader_loop<S>(mut reader: S, pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, CliError>>>>>)
+    async fn reader_loop<S>(mut reader: S, pending: PendingRequests)
     where
         S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
     {
@@ -287,10 +285,7 @@ mod tests {
             futures_util::stream::SplitStream<
                 tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
             >,
-            SplitSink<
-                tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
-                Message,
-            >,
+            SplitSink<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, Message>,
         )>,
     ) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -320,7 +315,7 @@ mod tests {
         loop {
             let msg = reader.next().await.unwrap().unwrap();
             if let Message::Text(t) = msg {
-                return serde_json::from_str(&t.to_string()).unwrap();
+                return serde_json::from_str(t.as_ref()).unwrap();
             }
         }
     }
@@ -348,14 +343,15 @@ mod tests {
         for expected_id in 1..=3u64 {
             let cdp = cdp.clone();
             let method = format!("Test.method{expected_id}");
-            let handle = tokio::spawn(async move {
-                cdp.execute(&method, json!({}), None).await
-            });
+            let handle = tokio::spawn(async move { cdp.execute(&method, json!({}), None).await });
 
             let msg = read_json(&mut reader).await;
             assert_eq!(msg["id"], expected_id, "message id should be {expected_id}");
             assert_eq!(msg["method"], format!("Test.method{expected_id}"));
-            assert!(msg.get("sessionId").is_none(), "no sessionId for browser-level");
+            assert!(
+                msg.get("sessionId").is_none(),
+                "no sessionId for browser-level"
+            );
 
             // Reply
             send_json(&mut writer, json!({"id": expected_id, "result": {}})).await;
@@ -373,13 +369,9 @@ mod tests {
 
         // Send 2 requests concurrently
         let cdp1 = cdp.clone();
-        let h1 = tokio::spawn(async move {
-            cdp1.execute("Method.A", json!({}), None).await
-        });
+        let h1 = tokio::spawn(async move { cdp1.execute("Method.A", json!({}), None).await });
         let cdp2 = cdp.clone();
-        let h2 = tokio::spawn(async move {
-            cdp2.execute("Method.B", json!({}), None).await
-        });
+        let h2 = tokio::spawn(async move { cdp2.execute("Method.B", json!({}), None).await });
 
         // Read both requests
         let msg1 = read_json(&mut reader).await;
@@ -408,9 +400,7 @@ mod tests {
 
         // Attach
         let cdp_clone = cdp.clone();
-        let attach_handle = tokio::spawn(async move {
-            cdp_clone.attach("TARGET_ABC").await
-        });
+        let attach_handle = tokio::spawn(async move { cdp_clone.attach("TARGET_ABC").await });
 
         let msg = read_json(&mut reader).await;
         assert_eq!(msg["method"], "Target.attachToTarget");
@@ -430,21 +420,27 @@ mod tests {
         let cdp_clone = cdp.clone();
         let exec_handle = tokio::spawn(async move {
             cdp_clone
-                .execute_on_tab("TARGET_ABC", "Runtime.evaluate", json!({"expression": "1+1"}))
+                .execute_on_tab(
+                    "TARGET_ABC",
+                    "Runtime.evaluate",
+                    json!({"expression": "1+1"}),
+                )
                 .await
         });
 
         let msg = read_json(&mut reader).await;
         assert_eq!(msg["sessionId"], "CDP_SESS_1");
         assert_eq!(msg["method"], "Runtime.evaluate");
-        send_json(&mut writer, json!({"id": msg["id"], "result": {"result": {"value": 2}}})).await;
+        send_json(
+            &mut writer,
+            json!({"id": msg["id"], "result": {"result": {"value": 2}}}),
+        )
+        .await;
         exec_handle.await.unwrap().unwrap();
 
         // Detach
         let cdp_clone = cdp.clone();
-        let detach_handle = tokio::spawn(async move {
-            cdp_clone.detach("TARGET_ABC").await
-        });
+        let detach_handle = tokio::spawn(async move { cdp_clone.detach("TARGET_ABC").await });
 
         let msg = read_json(&mut reader).await;
         assert_eq!(msg["method"], "Target.detachFromTarget");
@@ -495,7 +491,10 @@ mod tests {
         // Verify each has a unique id and correct sessionId
         let ids: Vec<u64> = requests.iter().map(|r| r["id"].as_u64().unwrap()).collect();
         assert_eq!(ids.len(), 3);
-        assert!(ids[0] != ids[1] && ids[1] != ids[2] && ids[0] != ids[2], "IDs must be unique");
+        assert!(
+            ids[0] != ids[1] && ids[1] != ids[2] && ids[0] != ids[2],
+            "IDs must be unique"
+        );
 
         let session_ids: Vec<&str> = requests
             .iter()
@@ -509,11 +508,7 @@ mod tests {
         for req in &requests {
             let id = req["id"].as_u64().unwrap();
             let sid = req["sessionId"].as_str().unwrap();
-            send_json(
-                &mut writer,
-                json!({"id": id, "result": {"value": sid}}),
-            )
-            .await;
+            send_json(&mut writer, json!({"id": id, "result": {"value": sid}})).await;
         }
 
         // Verify each handle resolves with correct value
@@ -533,9 +528,8 @@ mod tests {
 
         // Start a request, then drop the full server-side connection
         let cdp_clone = cdp.clone();
-        let handle = tokio::spawn(async move {
-            cdp_clone.execute("Test.method", json!({}), None).await
-        });
+        let handle =
+            tokio::spawn(async move { cdp_clone.execute("Test.method", json!({}), None).await });
 
         // Give a moment for the request to be sent
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -545,13 +539,10 @@ mod tests {
         drop(writer);
 
         // Caller should get an error, not hang forever
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            handle,
-        )
-        .await
-        .expect("should not timeout")
-        .unwrap();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
+            .await
+            .expect("should not timeout")
+            .unwrap();
 
         assert!(result.is_err(), "should return error when connection drops");
     }

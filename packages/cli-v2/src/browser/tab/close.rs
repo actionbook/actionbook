@@ -82,10 +82,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
 
     // Close the CDP target
-    let close_url = format!(
-        "http://127.0.0.1:{}/json/close/{}",
-        cdp_port, cmd.tab
-    );
+    let close_url = format!("http://127.0.0.1:{}/json/close/{}", cdp_port, cmd.tab);
     let _ = reqwest::Client::new().put(&close_url).send().await;
 
     // Remove from registry

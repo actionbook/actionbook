@@ -5,15 +5,12 @@ use tracing::{info, warn};
 
 use super::registry::{SharedRegistry, new_shared_registry};
 use super::router;
+use crate::config;
 use crate::utils::wire;
 
 /// Get daemon socket path.
 pub fn socket_path() -> PathBuf {
-    let data_dir = std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        format!("{home}/.local/share")
-    });
-    let dir = PathBuf::from(&data_dir).join("actionbook");
+    let dir = config::actionbook_home();
     // Create directory with restrictive permissions (0700)
     std::fs::create_dir_all(&dir).ok();
     #[cfg(unix)]

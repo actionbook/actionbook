@@ -269,10 +269,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
             }
         }
         "browser.list-tabs" => {
-            let total = data
-                .get("total_tabs")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+            let total = data.get("total_tabs").and_then(|v| v.as_u64()).unwrap_or(0);
             let label = if total == 1 { "tab" } else { "tabs" };
             lines.push(format!("{total} {label}"));
             if let Some(tabs) = data.get("tabs").and_then(|v| v.as_array()) {

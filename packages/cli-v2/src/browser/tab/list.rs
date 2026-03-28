@@ -68,9 +68,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 // Find real-time url/title from Chrome targets
                 let (url, title) = targets
                     .iter()
-                    .find(|tgt| {
-                        tgt.get("id").and_then(|v| v.as_str()) == Some(target_id)
-                    })
+                    .find(|tgt| tgt.get("id").and_then(|v| v.as_str()) == Some(target_id))
                     .map(|tgt| {
                         let url = tgt.get("url").and_then(|v| v.as_str()).unwrap_or("");
                         let title = tgt.get("title").and_then(|v| v.as_str()).unwrap_or("");

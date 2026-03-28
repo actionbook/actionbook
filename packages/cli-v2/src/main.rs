@@ -5,6 +5,7 @@ use serde_json::json;
 
 use actionbook_cli::action_result::ActionResult;
 use actionbook_cli::cli::{BrowserCommands, Cli, Commands};
+use actionbook_cli::config;
 use actionbook_cli::output::{self, JsonEnvelope};
 use actionbook_cli::utils::client::DaemonClient;
 
@@ -84,6 +85,42 @@ async fn handle_browser(
     json_mode: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
+    let command = match command {
+        BrowserCommands::Start(cmd) => match config::resolve_start_command(cmd) {
+            Ok(cmd) => BrowserCommands::Start(cmd),
+            Err(err) => {
+                let failed_command =
+                    BrowserCommands::Start(actionbook_cli::browser::session::start::Cmd {
+                        mode: None,
+                        headless: None,
+                        profile: None,
+                        open_url: None,
+                        cdp_endpoint: None,
+                        header: None,
+                        set_session_id: None,
+                        effective_mode: None,
+                        effective_headless: None,
+                        effective_profile: None,
+                        effective_executable: None,
+                        effective_cdp_endpoint: None,
+                    });
+                let result = ActionResult::fatal(err.error_code(), err.to_string());
+                let duration = start.elapsed();
+                let context = failed_command.context(&result);
+                if json_mode {
+                    let envelope =
+                        JsonEnvelope::from_result("browser.start", context, &result, duration);
+                    println!("{}", serde_json::to_string(&envelope)?);
+                } else {
+                    let text = output::format_text("browser.start", &context, &result);
+                    println!("{text}");
+                }
+                std::process::exit(1);
+            }
+        },
+        other => other,
+    };
+
     let command_name = command.command_name().to_string();
 
     // Build action from CLI args

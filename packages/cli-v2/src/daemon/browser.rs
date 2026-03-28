@@ -114,7 +114,11 @@ pub async fn launch_chrome(
 
 /// Discover the WebSocket debugger URL from Chrome's /json/version endpoint.
 pub async fn discover_ws_url(port: u16) -> Result<String, CliError> {
-    let url = format!("http://127.0.0.1:{port}/json/version");
+    discover_ws_url_from_base(&format!("http://127.0.0.1:{port}")).await
+}
+
+pub async fn discover_ws_url_from_base(base_url: &str) -> Result<String, CliError> {
+    let url = format!("{}/json/version", base_url.trim_end_matches('/'));
 
     // Up to 15 seconds (75 × 200ms)
     for attempt in 0..75 {
@@ -133,13 +137,17 @@ pub async fn discover_ws_url(port: u16) -> Result<String, CliError> {
         }
     }
     Err(CliError::CdpConnectionFailed(format!(
-        "Chrome did not expose CDP on port {port} within 15s"
+        "Chrome did not expose CDP at {base_url} within 15s"
     )))
 }
 
 /// Get list of targets (tabs) from Chrome.
 pub async fn list_targets(port: u16) -> Result<Vec<serde_json::Value>, CliError> {
-    let url = format!("http://127.0.0.1:{port}/json/list");
+    list_targets_from_base(&format!("http://127.0.0.1:{port}")).await
+}
+
+pub async fn list_targets_from_base(base_url: &str) -> Result<Vec<serde_json::Value>, CliError> {
+    let url = format!("{}/json/list", base_url.trim_end_matches('/'));
     let resp = reqwest::get(&url)
         .await
         .map_err(|e| CliError::CdpConnectionFailed(e.to_string()))?;
@@ -151,6 +159,72 @@ pub async fn list_targets(port: u16) -> Result<Vec<serde_json::Value>, CliError>
         .into_iter()
         .filter(|t| t.get("type").and_then(|v| v.as_str()) == Some("page"))
         .collect())
+}
+
+pub async fn resolve_cdp_endpoint(endpoint: &str) -> Result<(String, u16), CliError> {
+    let trimmed = endpoint.trim();
+    if trimmed.is_empty() {
+        return Err(CliError::InvalidArgument(
+            "cdp endpoint cannot be empty".to_string(),
+        ));
+    }
+
+    if let Ok(port) = trimmed.parse::<u16>() {
+        let ws_url = discover_ws_url(port).await?;
+        return Ok((ws_url, port));
+    }
+
+    if trimmed.starts_with("ws://") || trimmed.starts_with("wss://") {
+        let port = parse_endpoint_port(trimmed)?;
+        return Ok((trimmed.to_string(), port));
+    }
+
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        let port = parse_endpoint_port(trimmed)?;
+        let origin = endpoint_origin(trimmed)?;
+        let ws_url = discover_ws_url_from_base(&origin).await?;
+        return Ok((ws_url, port));
+    }
+
+    Err(CliError::InvalidArgument(format!(
+        "unsupported cdp endpoint: {trimmed}"
+    )))
+}
+
+fn endpoint_origin(endpoint: &str) -> Result<String, CliError> {
+    let scheme_end = endpoint
+        .find("://")
+        .ok_or_else(|| CliError::InvalidArgument(format!("invalid endpoint: {endpoint}")))?;
+    let after_scheme = &endpoint[scheme_end + 3..];
+    let authority = after_scheme
+        .split('/')
+        .next()
+        .ok_or_else(|| CliError::InvalidArgument(format!("invalid endpoint: {endpoint}")))?;
+    if authority.is_empty() {
+        return Err(CliError::InvalidArgument(format!(
+            "invalid endpoint: {endpoint}"
+        )));
+    }
+    Ok(format!("{}://{}", &endpoint[..scheme_end], authority))
+}
+
+fn parse_endpoint_port(endpoint: &str) -> Result<u16, CliError> {
+    let scheme_end = endpoint
+        .find("://")
+        .ok_or_else(|| CliError::InvalidArgument(format!("invalid endpoint: {endpoint}")))?;
+    let after_scheme = &endpoint[scheme_end + 3..];
+    let authority = after_scheme
+        .split('/')
+        .next()
+        .ok_or_else(|| CliError::InvalidArgument(format!("invalid endpoint: {endpoint}")))?;
+    let host_port = authority.rsplit('@').next().unwrap_or(authority);
+    let port_str = host_port
+        .rsplit_once(':')
+        .map(|(_, port)| port)
+        .ok_or_else(|| CliError::InvalidArgument(format!("endpoint missing port: {endpoint}")))?;
+    port_str.parse::<u16>().map_err(|_| {
+        CliError::InvalidArgument(format!("invalid endpoint port in {endpoint}: {port_str}"))
+    })
 }
 
 fn ensure_scheme(url: &str) -> String {

@@ -2,6 +2,7 @@ pub mod action;
 pub mod action_result;
 pub mod browser;
 pub mod cli;
+pub mod config;
 pub mod daemon;
 pub mod error;
 pub mod output;

@@ -63,16 +63,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         urlencoding::encode(&final_url)
     );
     let client = reqwest::Client::new();
-    let resp = client
-        .put(&create_url)
-        .send()
-        .await
-        .map_err(|e| {
-            ActionResult::fatal(
-                "CDP_ERROR",
-                format!("failed to create tab via /json/new: {e}"),
-            )
-        });
+    let resp = client.put(&create_url).send().await.map_err(|e| {
+        ActionResult::fatal(
+            "CDP_ERROR",
+            format!("failed to create tab via /json/new: {e}"),
+        )
+    });
     let resp = match resp {
         Ok(r) => r,
         Err(e) => return e,
@@ -114,13 +110,13 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     // Attach the new tab to the persistent CDP session
-    if let Some(ref cdp) = cdp {
-        if let Err(e) = cdp.attach(&target_id).await {
-            return ActionResult::fatal(
-                "CDP_ERROR",
-                format!("failed to attach tab to CDP session: {e}"),
-            );
-        }
+    if let Some(ref cdp) = cdp
+        && let Err(e) = cdp.attach(&target_id).await
+    {
+        return ActionResult::fatal(
+            "CDP_ERROR",
+            format!("failed to attach tab to CDP session: {e}"),
+        );
     }
 
     ActionResult::ok(json!({

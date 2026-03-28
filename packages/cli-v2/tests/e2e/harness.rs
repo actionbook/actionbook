@@ -14,8 +14,7 @@ use std::time::Duration;
 /// Isolated XDG environment so tests never touch real config.
 pub struct IsolatedEnv {
     _tmp: tempfile::TempDir,
-    pub config_home: String,
-    pub data_home: String,
+    pub actionbook_home: String,
 }
 
 static ENV: OnceLock<IsolatedEnv> = OnceLock::new();
@@ -23,15 +22,11 @@ static ENV: OnceLock<IsolatedEnv> = OnceLock::new();
 pub fn shared_env() -> &'static IsolatedEnv {
     ENV.get_or_init(|| {
         let tmp = tempfile::tempdir().expect("create temp dir");
-        let config_home = tmp.path().join("config");
-        let data_home = tmp.path().join("data");
-
-        fs::create_dir_all(&config_home).unwrap();
-        fs::create_dir_all(&data_home).unwrap();
+        let actionbook_home = tmp.path().join("actionbook-home");
+        fs::create_dir_all(&actionbook_home).unwrap();
 
         IsolatedEnv {
-            config_home: config_home.to_string_lossy().to_string(),
-            data_home: data_home.to_string_lossy().to_string(),
+            actionbook_home: actionbook_home.to_string_lossy().to_string(),
             _tmp: tmp,
         }
     })
@@ -50,29 +45,43 @@ pub fn skip() -> bool {
 
 /// Run `actionbook <args>` with the isolated environment.
 pub fn headless(args: &[&str], timeout_secs: u64) -> Output {
+    headless_with_env(args, &[], timeout_secs)
+}
+
+pub fn headless_with_env(args: &[&str], extra_env: &[(&str, &str)], timeout_secs: u64) -> Output {
     let env = shared_env();
-    Command::cargo_bin("actionbook")
-        .expect("binary exists")
-        .env("XDG_CONFIG_HOME", &env.config_home)
-        .env("XDG_DATA_HOME", &env.data_home)
+    let mut command = Command::cargo_bin("actionbook").expect("binary exists");
+    command
+        .env("ACTIONBOOK_HOME", &env.actionbook_home)
         .args(args)
-        .timeout(Duration::from_secs(timeout_secs))
-        .output()
-        .expect("failed to execute command")
+        .timeout(Duration::from_secs(timeout_secs));
+    for (key, value) in extra_env {
+        command.env(key, value);
+    }
+    command.output().expect("failed to execute command")
 }
 
 /// Run `actionbook --json <args>` with the isolated environment.
 pub fn headless_json(args: &[&str], timeout_secs: u64) -> Output {
+    headless_json_with_env(args, &[], timeout_secs)
+}
+
+pub fn headless_json_with_env(
+    args: &[&str],
+    extra_env: &[(&str, &str)],
+    timeout_secs: u64,
+) -> Output {
     let env = shared_env();
-    Command::cargo_bin("actionbook")
-        .expect("binary exists")
-        .env("XDG_CONFIG_HOME", &env.config_home)
-        .env("XDG_DATA_HOME", &env.data_home)
+    let mut command = Command::cargo_bin("actionbook").expect("binary exists");
+    command
+        .env("ACTIONBOOK_HOME", &env.actionbook_home)
         .arg("--json")
         .args(args)
-        .timeout(Duration::from_secs(timeout_secs))
-        .output()
-        .expect("failed to execute command")
+        .timeout(Duration::from_secs(timeout_secs));
+    for (key, value) in extra_env {
+        command.env(key, value);
+    }
+    command.output().expect("failed to execute command")
 }
 
 // ── Cleanup helpers ─────────────────────────────────────────────────
@@ -100,14 +109,14 @@ pub fn ensure_no_sessions() {
     // Kill the daemon entirely between tests for clean state.
     // The daemon auto-starts on next CLI command.
     kill_daemon();
+    reset_home();
     std::thread::sleep(Duration::from_millis(500));
 }
 
 /// Kill the daemon process and clean up socket/PID files.
 fn kill_daemon() {
     let env = shared_env();
-    let data_dir = &env.data_home;
-    let dir = std::path::Path::new(data_dir).join("actionbook");
+    let dir = std::path::Path::new(&env.actionbook_home);
 
     // Read PID and kill
     let pid_path = dir.join("daemon.pid");
@@ -132,6 +141,22 @@ fn kill_daemon() {
             .args(["-f", &format!("--user-data-dir={}", profiles_dir.display())])
             .output();
     }
+}
+
+fn reset_home() {
+    let env = shared_env();
+    let dir = std::path::Path::new(&env.actionbook_home);
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let _ = std::fs::remove_dir_all(&path);
+            } else {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+    let _ = std::fs::create_dir_all(dir);
 }
 
 // ── Assertions ──────────────────────────────────────────────────────
@@ -172,4 +197,8 @@ pub fn parse_json(out: &Output) -> serde_json::Value {
     serde_json::from_str(&text).unwrap_or_else(|e| {
         panic!("failed to parse JSON: {e}\nraw stdout: {text}");
     })
+}
+
+pub fn config_path() -> std::path::PathBuf {
+    std::path::Path::new(&shared_env().actionbook_home).join("config.toml")
 }
