@@ -27,14 +27,19 @@ pub struct Cmd {
 
 pub const COMMAND_NAME: &str = "browser.new-tab";
 
-pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
-    Some(ResponseContext {
-        session_id: cmd.session.clone(),
-        tab_id: None,
-        window_id: None,
-        url: None,
-        title: None,
-    })
+pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
+    // Special case like browser start: returns context with newly created tab_id
+    if let ActionResult::Ok { data } = result {
+        Some(ResponseContext {
+            session_id: cmd.session.clone(),
+            tab_id: data["tab"]["tab_id"].as_str().map(|s| s.to_string()),
+            window_id: None,
+            url: data["tab"]["url"].as_str().map(|s| s.to_string()),
+            title: data["tab"]["title"].as_str().map(|s| s.to_string()),
+        })
+    } else {
+        None
+    }
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
@@ -58,14 +63,25 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         cdp_port,
         urlencoding::encode(&final_url)
     );
-    let target_id = match reqwest::get(&create_url).await {
-        Ok(resp) => resp
-            .json::<serde_json::Value>()
-            .await
-            .ok()
-            .and_then(|v| v.get("id").and_then(|i| i.as_str()).map(|s| s.to_string()))
-            .unwrap_or_default(),
-        Err(_) => String::new(),
+    let (target_id, title) = match reqwest::get(&create_url).await {
+        Ok(resp) => {
+            let v = resp
+                .json::<serde_json::Value>()
+                .await
+                .unwrap_or(serde_json::Value::Null);
+            let id = v
+                .get("id")
+                .and_then(|i| i.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            let t = v
+                .get("title")
+                .and_then(|t| t.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            (id, t)
+        }
+        Err(_) => (String::new(), String::new()),
     };
 
     let tab_id = {
@@ -83,15 +99,27 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         entry.next_tab_id += 1;
         entry.tabs.push(TabEntry {
             id: tid,
-            target_id,
+            target_id: target_id.clone(),
             url: final_url.clone(),
-            title: String::new(),
+            title: title.clone(),
         });
         tid
     };
 
+    let native_tab_id: serde_json::Value = if target_id.is_empty() {
+        serde_json::Value::Null
+    } else {
+        json!(target_id)
+    };
+
     ActionResult::ok(json!({
-        "tab_id": tab_id.to_string(),
-        "url": final_url,
+        "tab": {
+            "tab_id": tab_id.to_string(),
+            "url": final_url,
+            "title": title,
+            "native_tab_id": native_tab_id,
+        },
+        "created": true,
+        "new_window": cmd.new_window,
     }))
 }

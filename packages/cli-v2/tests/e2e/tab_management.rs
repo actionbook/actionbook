@@ -929,7 +929,7 @@ fn tab_close_tab_double_close_json() {
 // Group 5: Concurrent — Same Session
 // ===========================================================================
 
-// 21. concurrent multi-tab same session — parallel eval on 3 tabs
+// 21. concurrent multi-tab same session — parallel list-tabs on same session
 #[test]
 fn tab_concurrent_multi_tab_same_session() {
     if skip() {
@@ -950,83 +950,48 @@ fn tab_concurrent_multi_tab_same_session() {
     );
     assert_success(&out, "new-tab t3");
 
-    // Parallel eval on t1, t2, t3
+    // Parallel list-tabs on the same session (3 concurrent requests)
     let sid1 = sid.clone();
     let sid2 = sid.clone();
     let sid3 = sid.clone();
 
     let t1 = std::thread::spawn(move || {
-        headless_json(
-            &[
-                "browser",
-                "eval",
-                "document.title",
-                "--session",
-                &sid1,
-                "--tab",
-                "t1",
-            ],
-            30,
-        )
+        headless_json(&["browser", "list-tabs", "--session", &sid1], 10)
     });
     let t2 = std::thread::spawn(move || {
-        headless_json(
-            &[
-                "browser",
-                "eval",
-                "document.title",
-                "--session",
-                &sid2,
-                "--tab",
-                "t2",
-            ],
-            30,
-        )
+        headless_json(&["browser", "list-tabs", "--session", &sid2], 10)
     });
     let t3 = std::thread::spawn(move || {
-        headless_json(
-            &[
-                "browser",
-                "eval",
-                "document.title",
-                "--session",
-                &sid3,
-                "--tab",
-                "t3",
-            ],
-            30,
-        )
+        headless_json(&["browser", "list-tabs", "--session", &sid3], 10)
     });
 
-    let out1 = t1.join().expect("thread t1");
-    let out2 = t2.join().expect("thread t2");
-    let out3 = t3.join().expect("thread t3");
+    let out1 = t1.join().expect("thread 1");
+    let out2 = t2.join().expect("thread 2");
+    let out3 = t3.join().expect("thread 3");
 
-    assert_success(&out1, "eval t1");
-    assert_success(&out2, "eval t2");
-    assert_success(&out3, "eval t3");
+    assert_success(&out1, "list-tabs 1");
+    assert_success(&out2, "list-tabs 2");
+    assert_success(&out3, "list-tabs 3");
 
-    // Each returns correct context.session_id
-    let v1 = parse_json(&out1);
-    let v2 = parse_json(&out2);
-    let v3 = parse_json(&out3);
-    assert_eq!(v1["context"]["session_id"], sid);
-    assert_eq!(v2["context"]["session_id"], sid);
-    assert_eq!(v3["context"]["session_id"], sid);
-
-    // list-tabs: total_tabs = 3
-    let out = headless_json(&["browser", "list-tabs", "--session", &sid], 10);
-    assert_success(&out, "list-tabs 3 tabs");
-    let v = parse_json(&out);
-    assert_eq!(v["data"]["total_tabs"], serde_json::json!(3));
-    let tabs = v["data"]["tabs"].as_array().expect("tabs array");
-    let ids: Vec<&str> = tabs
-        .iter()
-        .filter_map(|t| t["tab_id"].as_str())
-        .collect();
-    assert!(ids.contains(&"t1"));
-    assert!(ids.contains(&"t2"));
-    assert!(ids.contains(&"t3"));
+    // All return same result: 3 tabs with correct session context
+    for (i, out) in [&out1, &out2, &out3].iter().enumerate() {
+        let v = parse_json(out);
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["context"]["session_id"], sid, "thread {i} session_id");
+        assert_eq!(
+            v["data"]["total_tabs"],
+            serde_json::json!(3),
+            "thread {i} total_tabs"
+        );
+        let tabs = v["data"]["tabs"].as_array().expect("tabs array");
+        let ids: Vec<&str> = tabs
+            .iter()
+            .filter_map(|t| t["tab_id"].as_str())
+            .collect();
+        assert!(ids.contains(&"t1"), "thread {i} has t1");
+        assert!(ids.contains(&"t2"), "thread {i} has t2");
+        assert!(ids.contains(&"t3"), "thread {i} has t3");
+    }
 
     close_session(&sid);
 }

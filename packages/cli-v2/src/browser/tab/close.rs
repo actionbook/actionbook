@@ -1,6 +1,9 @@
 use clap::Args;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
+use crate::action_result::ActionResult;
+use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
 /// Close a tab
@@ -18,12 +21,82 @@ pub struct Cmd {
 
 pub const COMMAND_NAME: &str = "browser.close-tab";
 
-pub fn context(cmd: &Cmd, _result: &crate::action_result::ActionResult) -> Option<ResponseContext> {
-    Some(ResponseContext {
-        session_id: cmd.session.clone(),
-        tab_id: Some(cmd.tab.clone()),
-        window_id: None,
-        url: None,
-        title: None,
-    })
+pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
+    match result {
+        ActionResult::Ok { .. } => Some(ResponseContext {
+            session_id: cmd.session.clone(),
+            tab_id: Some(cmd.tab.clone()),
+            window_id: None,
+            url: None,
+            title: None,
+        }),
+        ActionResult::Fatal { code, .. } => {
+            // §4: return context.session_id as long as the session has been located
+            if code == "TAB_NOT_FOUND" {
+                Some(ResponseContext {
+                    session_id: cmd.session.clone(),
+                    tab_id: None,
+                    window_id: None,
+                    url: None,
+                    title: None,
+                })
+            } else {
+                // SESSION_NOT_FOUND: session not located, no context
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
+    let cdp_port;
+    let target_id;
+
+    {
+        let reg = registry.lock().await;
+        let entry = match reg.get(&cmd.session) {
+            Some(e) => e,
+            None => {
+                return ActionResult::fatal(
+                    "SESSION_NOT_FOUND",
+                    format!("session '{}' not found", cmd.session),
+                );
+            }
+        };
+
+        let tab = match entry.tabs.iter().find(|t| t.id.to_string() == cmd.tab) {
+            Some(t) => t,
+            None => {
+                return ActionResult::fatal(
+                    "TAB_NOT_FOUND",
+                    format!("tab '{}' not found in session '{}'", cmd.tab, cmd.session),
+                );
+            }
+        };
+
+        cdp_port = entry.cdp_port;
+        target_id = tab.target_id.clone();
+    }
+
+    // Close the CDP target
+    if !target_id.is_empty() {
+        let close_url = format!(
+            "http://127.0.0.1:{}/json/close/{}",
+            cdp_port, target_id
+        );
+        let _ = reqwest::get(&close_url).await;
+    }
+
+    // Remove from registry
+    {
+        let mut reg = registry.lock().await;
+        if let Some(entry) = reg.get_mut(&cmd.session) {
+            entry.tabs.retain(|t| t.id.to_string() != cmd.tab);
+        }
+    }
+
+    ActionResult::ok(json!({
+        "closed_tab_id": cmd.tab,
+    }))
 }
