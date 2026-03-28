@@ -100,8 +100,6 @@ pub struct SnapshotOptions {
     pub compact: bool,
     /// Maximum tree depth (None = unlimited)
     pub depth: Option<usize>,
-    /// CSS selector to limit subtree (None = whole page)
-    pub selector: Option<String>,
     /// Resolved selector root backendDOMNodeId — set by execute() after a DOM query.
     /// When Some(id), the flat list is filtered to the subtree rooted at that node.
     pub selector_backend_id: Option<i64>,
@@ -168,26 +166,6 @@ pub fn apply_depth(nodes: Vec<AXNode>, max_depth: usize) -> Vec<AXNode> {
     nodes.into_iter().filter(|n| n.depth <= max_depth).collect()
 }
 
-/// Filter: keep only nodes belonging to the subtree rooted at `selector`.
-///
-/// CSS selector → AX subtree matching requires a nodeId lookup via CDP, which is
-/// performed in `execute()` before calling this function. The matching node IDs are
-/// passed in as `allowed_ref_ids`. An empty set means selector matched nothing —
-/// return an empty list.
-///
-/// When called from `parse_ax_tree` without DOM context, `allowed_ref_ids` is empty
-/// and the filter is a no-op (all nodes returned) until execute() wires the subtree.
-pub fn apply_selector(nodes: Vec<AXNode>, allowed_ref_ids: &[String]) -> Vec<AXNode> {
-    if allowed_ref_ids.is_empty() {
-        // No selector resolved yet (pure parse context) — return all nodes unchanged.
-        return nodes;
-    }
-    nodes
-        .into_iter()
-        .filter(|n| allowed_ref_ids.contains(&n.ref_id))
-        .collect()
-}
-
 /// Filter: keep the subtree rooted at the node with the given `backend_node_id`.
 ///
 /// Walks the flat DFS-ordered list: finds the root by backendNodeId, then collects
@@ -222,15 +200,17 @@ pub fn filter_selector_subtree(nodes: Vec<AXNode>, root_backend_id: i64) -> Vec<
 
 /// Render a flat node list to `content` string with `[ref=eN]` labels.
 /// Format per §10.1: `- role "name" [ref=eN]` with depth-based indentation.
-/// Nodes without a ref label render as `- role "name" []`.
+/// Nodes without a ref label render as `- role "name"` (no ref tag).
 pub fn render_content(nodes: &[AXNode]) -> String {
     let mut lines = Vec::new();
     for node in nodes {
         let indent = "  ".repeat(node.depth);
-        let mut line = format!(
-            "{indent}- {} \"{}\" [ref={}]",
-            node.role, node.name, node.ref_id
-        );
+        let ref_tag = if node.ref_id.is_empty() {
+            String::new()
+        } else {
+            format!(" [ref={}]", node.ref_id)
+        };
+        let mut line = format!("{indent}- {} \"{}\"{ref_tag}", node.role, node.name);
         if !node.value.is_empty() {
             line.push_str(&format!(" value=\"{}\"", node.value));
         }
@@ -394,7 +374,11 @@ pub fn parse_ax_tree(response: &Value, options: &SnapshotOptions) -> Vec<AXNode>
         let interactive = is_interactive_role(&node.role);
         let has_content_ref = is_content_role(&node.role) && !node.name.is_empty();
 
-        // In --interactive mode: skip non-interactive nodes (flatten children to same depth)
+        // In --interactive mode: skip non-interactive nodes and promote their children
+        // to the same eff_depth, so interactive descendants appear as direct children
+        // of the nearest interactive ancestor.  This is intentional: the non-interactive
+        // wrapper is transparent at render time, so children inherit the wrapper's depth
+        // (not wrapper+1), keeping interactive siblings at the correct relative level.
         if options.interactive && !interactive {
             for child_id in node.child_ids.iter().rev() {
                 if let Some(&child_idx) = id_to_idx.get(child_id.as_str()) {
@@ -643,50 +627,6 @@ mod tests {
     #[test]
     fn test_apply_depth_empty_list() {
         let result = apply_depth(vec![], 5);
-        assert!(result.is_empty());
-    }
-
-    // ── apply_selector ───────────────────────────────────────────────
-
-    #[test]
-    fn test_apply_selector_empty_allowed_ids_returns_all() {
-        // No DOM context: allowed_ref_ids is empty → no-op, all nodes returned.
-        let nodes = vec![
-            make_node("e1", "button", "A", true, 0),
-            make_node("e2", "link", "B", true, 0),
-        ];
-        let result = apply_selector(nodes, &[]);
-        assert_eq!(result.len(), 2);
-    }
-
-    #[test]
-    fn test_apply_selector_filters_to_allowed_ids() {
-        let nodes = vec![
-            make_node("e1", "button", "A", true, 0),
-            make_node("e2", "link", "B", true, 0),
-            make_node("e3", "heading", "C", false, 0),
-        ];
-        let allowed = vec!["e1".to_string(), "e3".to_string()];
-        let result = apply_selector(nodes, &allowed);
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].ref_id, "e1");
-        assert_eq!(result[1].ref_id, "e3");
-    }
-
-    #[test]
-    fn test_apply_selector_no_match_returns_empty() {
-        let nodes = vec![
-            make_node("e1", "button", "A", true, 0),
-            make_node("e2", "link", "B", true, 0),
-        ];
-        let allowed = vec!["e99".to_string()];
-        let result = apply_selector(nodes, &allowed);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_apply_selector_empty_list() {
-        let result = apply_selector(vec![], &["e1".to_string()]);
         assert!(result.is_empty());
     }
 
@@ -984,7 +924,7 @@ mod tests {
             }
         });
         let opts = SnapshotOptions {
-            selector: Some("body".to_string()),
+            selector_backend_id: None, // selector resolved to None → no subtree filter
             ..Default::default()
         };
         // Must not panic; actual subtree filtering handled in execute() via CDP node lookup

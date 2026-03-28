@@ -323,6 +323,11 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
             if let Some(content) = data.get("content").and_then(|v| v.as_str()) {
                 lines.push(content.to_string());
             }
+            // Surface truncation in text mode — __meta_truncated is read from raw data
+            // before strip_private_fields runs (format_text receives the original result)
+            if data["__meta_truncated"].as_bool().unwrap_or(false) {
+                lines.push("[truncated: snapshot exceeded size limit]".to_string());
+            }
         }
         "browser.eval" => {
             if let Some(val) = data.get("value") {

@@ -95,7 +95,6 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         interactive: cmd.interactive,
         compact: cmd.compact,
         depth: cmd.depth,
-        selector: cmd.selector.clone(),
         selector_backend_id,
     };
 
