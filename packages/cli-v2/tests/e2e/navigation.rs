@@ -226,11 +226,18 @@ fn nav_goto_context_url_updated() {
     assert_success(&out, "goto url_b");
     let v = parse_json(&out);
 
-    // context.url must reflect the new URL, not URL_A
+    // §5.6: context.url must reflect the post-navigation URL
     let ctx_url = v["context"]["url"].as_str().unwrap_or("");
     assert!(
         ctx_url.contains("example.com"),
         "context.url must be updated to destination: got '{ctx_url}'"
+    );
+
+    // §5.6: context.title is updated synchronously when known
+    let ctx_title = v["context"]["title"].as_str().unwrap_or("");
+    assert!(
+        !ctx_title.is_empty(),
+        "context.title must be updated after goto: got empty string"
     );
 
     close_session(&sid);
@@ -438,10 +445,14 @@ fn nav_back_json() {
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
 
-    // context.url updated to post-navigation URL per §5.6
+    // §5.6: context.url and context.title both updated post-navigation
     assert!(
         v["context"]["url"].is_string(),
         "context.url must be updated after back"
+    );
+    assert!(
+        !v["context"]["title"].as_str().unwrap_or("").is_empty(),
+        "context.title must be updated after back"
     );
 
     // data fields per §9.2 (no requested_url for back)
@@ -597,9 +608,15 @@ fn nav_forward_json() {
     assert!(v["context"].is_object(), "context must be present");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
+
+    // §5.6: context.url and context.title both updated post-navigation
     assert!(
         v["context"]["url"].is_string(),
         "context.url must be updated after forward"
+    );
+    assert!(
+        !v["context"]["title"].as_str().unwrap_or("").is_empty(),
+        "context.title must be updated after forward"
     );
 
     // data fields per §9.3 (no requested_url for forward)
@@ -747,9 +764,15 @@ fn nav_reload_json() {
     assert!(v["context"].is_object(), "context must be present");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
+
+    // §5.6: context.url and context.title both updated post-navigation
     assert!(
         v["context"]["url"].is_string(),
         "context.url must be present after reload"
+    );
+    assert!(
+        !v["context"]["title"].as_str().unwrap_or("").is_empty(),
+        "context.title must be updated after reload"
     );
 
     // data fields per §9.4 (no requested_url for reload)
