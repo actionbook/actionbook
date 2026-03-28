@@ -331,16 +331,23 @@ fn install_fill_fixture(session_id: &str, tab_id: &str) {
   root.id = 'ab-fill-fixture';
   root.innerHTML = `
     <style>
-      #ab-fill-input {
+      #ab-fill-input, #ab-fill-textarea {
         position: fixed;
-        top: 340px;
         left: 40px;
         width: 240px;
         height: 36px;
         z-index: 2147483647;
       }
+      #ab-fill-input {
+        top: 340px;
+      }
+      #ab-fill-textarea {
+        top: 390px;
+        height: 72px;
+      }
     </style>
     <input id="ab-fill-input" type="text" value="seed-" />
+    <textarea id="ab-fill-textarea">seed-area</textarea>
   `;
   document.body.appendChild(root);
 
@@ -1342,6 +1349,54 @@ fn fill_text() {
         "must contain target line with selector"
     );
     assert!(text.contains("text_length: 3"), "must contain text_length: 3");
+
+    close_session(&sid);
+}
+
+#[test]
+fn fill_textarea_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_fill_fixture(&sid, &tid);
+    let fill_text = "textarea value";
+
+    let out = headless_json(
+        &[
+            "browser",
+            "fill",
+            "#ab-fill-textarea",
+            fill_text,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "fill textarea json");
+    let v = parse_json(&out);
+
+    assert_fill_success(&v, &sid, &tid, "#ab-fill-textarea", fill_text.len() as u64);
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "document.querySelector('#ab-fill-textarea').value"
+        ),
+        fill_text
+    );
+    assert_eq!(eval_value(&sid, &tid, "String(window.__ab_fill_input_count)"), "1");
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_fill_keydown_count)"),
+        "0"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_fill_keyup_count)"),
+        "0"
+    );
 
     close_session(&sid);
 }
