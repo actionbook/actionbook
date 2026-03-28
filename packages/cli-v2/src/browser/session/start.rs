@@ -113,9 +113,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                     cdp_port: existing.cdp_port,
                 }),
                 SessionState::Starting => {
-                    return ActionResult::fatal(
+                    return ActionResult::fatal_with_hint(
                         "SESSION_STARTING",
                         format!("session for profile '{profile_name}' is starting, please wait"),
+                        "retry after a few seconds or use browser status to check",
                     );
                 }
                 SessionState::Closed => unreachable!("closed sessions are excluded from lookup"),
