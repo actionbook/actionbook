@@ -247,6 +247,10 @@ fn build_response(
 // ── CDP helpers ────────────────────────────────────────────────────
 
 /// Check whether the element at the target position has an `href`.
+///
+/// For selectors, resolves via `element::resolve_node` (supports CSS, XPath,
+/// future @eN refs) and then inspects the node. For coordinates, uses
+/// `document.elementFromPoint`.
 async fn get_element_href(
     cdp: &CdpSession,
     target_id: &str,
@@ -254,21 +258,39 @@ async fn get_element_href(
     x: f64,
     y: f64,
 ) -> Option<String> {
-    let js = match target {
+    match target {
         ClickTarget::Selector(sel) => {
-            let sel_json = serde_json::to_string(sel).unwrap_or_default();
-            format!(
-                r#"(() => {{
-                    const el = document.querySelector({sel_json});
-                    if (!el) return null;
-                    if (el.tagName === 'A' && el.href) return el.href;
-                    const link = el.closest('a[href]');
-                    return link ? link.href : null;
-                }})()"#
-            )
+            let node_id = element::resolve_node(cdp, target_id, sel).await.ok()?;
+            // Resolve the DOM node to a JS object, then check for href.
+            let resp = cdp
+                .execute_on_tab(
+                    target_id,
+                    "DOM.resolveNode",
+                    json!({ "nodeId": node_id }),
+                )
+                .await
+                .ok()?;
+            let object_id = resp
+                .pointer("/result/object/objectId")
+                .and_then(|v| v.as_str())?;
+            let eval = cdp
+                .execute_on_tab(
+                    target_id,
+                    "Runtime.callFunctionOn",
+                    json!({
+                        "objectId": object_id,
+                        "functionDeclaration": "function() { if (this.tagName === 'A' && this.href) return this.href; const link = this.closest && this.closest('a[href]'); return link ? link.href : null; }",
+                        "returnByValue": true,
+                    }),
+                )
+                .await
+                .ok()?;
+            eval.pointer("/result/result/value")
+                .and_then(|v| v.as_str())
+                .map(String::from)
         }
         ClickTarget::Coordinates(_, _) => {
-            format!(
+            let js = format!(
                 r#"(() => {{
                     const el = document.elementFromPoint({x}, {y});
                     if (!el) return null;
@@ -276,22 +298,21 @@ async fn get_element_href(
                     const link = el.closest('a[href]');
                     return link ? link.href : null;
                 }})()"#
+            );
+            cdp.execute_on_tab(
+                target_id,
+                "Runtime.evaluate",
+                json!({ "expression": js, "returnByValue": true }),
             )
+            .await
+            .ok()
+            .and_then(|v| {
+                v.pointer("/result/result/value")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+            })
         }
-    };
-
-    cdp.execute_on_tab(
-        target_id,
-        "Runtime.evaluate",
-        json!({ "expression": js, "returnByValue": true }),
-    )
-    .await
-    .ok()
-    .and_then(|v| {
-        v.pointer("/result/result/value")
-            .and_then(|v| v.as_str())
-            .map(String::from)
-    })
+    }
 }
 
 /// Create a new tab pointing to `url` and register it in the session.

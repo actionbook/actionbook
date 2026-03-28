@@ -186,7 +186,7 @@ fn handle_version(json_mode: bool) {
 }
 
 fn handle_help(json_mode: bool) {
-    let help_text = "actionbook browser <subcommand>\n\nstart         Start or attach a browser session\nlist-sessions List all active sessions\nstatus        Show session status\nclose         Close a session\nrestart       Restart a session\nlist-tabs     List tabs in a session\nnew-tab       Open a new tab\ngoto          Navigate to URL\nsnapshot      Capture accessibility snapshot\neval          Evaluate JavaScript";
+    let help_text = "actionbook browser <subcommand>\n\nstart         Start or attach a browser session\nlist-sessions List all active sessions\nstatus        Show session status\nclose         Close a session\nrestart       Restart a session\nlist-tabs     List tabs in a session\nnew-tab       Open a new tab\ngoto          Navigate to URL\nsnapshot      Capture accessibility snapshot\neval          Evaluate JavaScript\nclick         Click an element";
 
     if json_mode {
         let envelope =
