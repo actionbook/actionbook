@@ -185,10 +185,11 @@ impl CdpSession {
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.insert(id, tx);
 
-        self.writer_tx
-            .send(msg.to_string())
-            .await
-            .map_err(|_| CliError::CdpError("writer channel closed".to_string()))?;
+        if self.writer_tx.send(msg.to_string()).await.is_err() {
+            // Clean up pending entry to avoid leak
+            self.pending.lock().await.remove(&id);
+            return Err(CliError::CdpError("writer channel closed".to_string()));
+        }
 
         let resp = rx
             .await

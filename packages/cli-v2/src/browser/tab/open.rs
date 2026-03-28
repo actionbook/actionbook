@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::daemon::cdp::ensure_scheme;
+use crate::daemon::cdp::ensure_scheme_or_fatal;
 use crate::daemon::registry::{SharedRegistry, TabEntry};
 use crate::output::ResponseContext;
 use crate::types::TabId;
@@ -42,7 +42,10 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let final_url = ensure_scheme(&cmd.url);
+    let final_url = match ensure_scheme_or_fatal(&cmd.url) {
+        Ok(u) => u,
+        Err(e) => return e,
+    };
 
     let cdp = {
         let reg = registry.lock().await;
@@ -93,6 +96,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Attach the new tab to the persistent CDP session
     if let Err(e) = cdp.attach(&target_id).await {
+        // Rollback: close the orphaned tab in the browser
+        let _ = cdp
+            .execute_browser("Target.closeTarget", json!({ "targetId": target_id }))
+            .await;
         return ActionResult::fatal(
             "CDP_ERROR",
             format!("failed to attach tab to CDP session: {e}"),

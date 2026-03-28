@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::action_result::ActionResult;
 use crate::daemon::browser;
-use crate::daemon::cdp::ensure_scheme;
+use crate::daemon::cdp::ensure_scheme_or_fatal;
 use crate::daemon::cdp_session::CdpSession;
 use crate::daemon::registry::{SessionEntry, SharedRegistry, TabEntry};
 use crate::output::ResponseContext;
@@ -91,55 +91,134 @@ async fn execute_cloud(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         .find(|s| s.mode == Mode::Cloud && s.cdp_endpoint.as_deref() == Some(endpoint))
         .map(|s| s.id.as_str().to_string())
     {
+        // If session is still connecting (placeholder), tell caller to retry
+        if let Some(entry) = reg.get(&session_id) {
+            if entry.status == "connecting" {
+                return ActionResult::Retryable {
+                    reason: "session is still connecting to cloud endpoint".to_string(),
+                    hint: "retry in a moment".to_string(),
+                };
+            }
+        }
+
         // Update headers silently if they changed
         if let Some(entry) = reg.get_mut(&session_id) {
             if entry.headers != headers {
-                entry.headers = headers;
+                entry.headers = headers.clone();
             }
         }
 
         let entry = reg.get(&session_id).unwrap();
         let first_tab_id = entry.tabs.first().map(|t| t.id.0.clone()).unwrap_or_default();
 
-        // If --open-url, navigate the first tab
-        if let Some(url) = &cmd.open_url {
-            let final_url = ensure_scheme(url);
-            if let Some(ref cdp) = entry.cdp {
-                if !first_tab_id.is_empty() {
-                    let cdp = cdp.clone();
-                    drop(reg);
-                    let _ = cdp
-                        .execute_on_tab(&first_tab_id, "Page.navigate", json!({ "url": final_url }))
-                        .await;
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    let reg = registry.lock().await;
-                    let entry = reg.get(&session_id).unwrap();
-                    return make_session_response(entry, &first_tab_id, "", "", true);
+        // Health check: verify CDP connection is still alive
+        if let Some(ref cdp) = entry.cdp {
+            let cdp = cdp.clone();
+            drop(reg);
+            if let Err(_) = cdp.execute_browser("Target.getTargets", json!({})).await {
+                // Connection dead — remove session and return error
+                let mut reg = registry.lock().await;
+                reg.remove(&session_id);
+                return ActionResult::fatal_with_hint(
+                    "CLOUD_CONNECTION_LOST",
+                    "cloud browser connection lost",
+                    "run `actionbook browser start --mode cloud ...` to reconnect",
+                );
+            }
+            let mut reg = registry.lock().await;
+            // Update headers if changed (after health check passed)
+            if let Some(entry) = reg.get_mut(&session_id) {
+                if entry.headers != headers {
+                    entry.headers = headers;
                 }
             }
+            let entry = match reg.get(&session_id) {
+                Some(e) => e,
+                None => {
+                    return ActionResult::fatal(
+                        "SESSION_NOT_FOUND",
+                        format!("session '{session_id}' was closed during health check"),
+                    );
+                }
+            };
+            let first_tab_id = entry.tabs.first().map(|t| t.id.0.clone()).unwrap_or_default();
+
+            // If --open-url, navigate the first tab
+            if let Some(url) = &cmd.open_url {
+                let final_url = match ensure_scheme_or_fatal(url) {
+                    Ok(u) => u,
+                    Err(e) => return e,
+                };
+                if !first_tab_id.is_empty() {
+                    if let Some(ref cdp) = entry.cdp {
+                        let cdp = cdp.clone();
+                        drop(reg);
+                        let _ = cdp
+                            .execute_on_tab(&first_tab_id, "Page.navigate", json!({ "url": final_url }))
+                            .await;
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        let reg = registry.lock().await;
+                        if let Some(entry) = reg.get(&session_id) {
+                            return make_session_response(entry, &first_tab_id, "", "", true);
+                        }
+                        return ActionResult::fatal(
+                            "SESSION_NOT_FOUND",
+                            format!("session '{session_id}' was closed during reuse"),
+                        );
+                    }
+                }
+            }
+
+            return make_session_response(entry, &first_tab_id, "", "", true);
         }
 
+        // No CDP connection (should not happen for running sessions)
         return make_session_response(entry, &first_tab_id, "", "", true);
     }
 
-    // New cloud session
+    // New cloud session — insert placeholder to prevent concurrent duplicate connections
     let session_id =
         match reg.generate_session_id(cmd.set_session_id.as_deref(), cmd.profile.as_deref()) {
             Ok(id) => id,
             Err(e) => return ActionResult::fatal(e.error_code(), e.to_string()),
         };
+    let profile_name = cmd.profile.as_deref().unwrap_or("actionbook");
+    let placeholder = SessionEntry {
+        id: session_id.clone(),
+        mode: Mode::Cloud,
+        headless: cmd.headless,
+        profile: profile_name.to_string(),
+        status: "connecting".to_string(),
+        cdp_port: None,
+        ws_url: endpoint.to_string(),
+        cdp_endpoint: Some(endpoint.to_string()),
+        headers: headers.clone(),
+        tabs: Vec::new(),
+        chrome_process: None,
+        cdp: None,
+    };
+    reg.insert(placeholder);
     drop(reg);
 
     // Connect to cloud endpoint with headers
     let cdp = match CdpSession::connect_with_headers(endpoint, &headers).await {
         Ok(c) => c,
-        Err(e) => return ActionResult::fatal(e.error_code(), e.to_string()),
+        Err(e) => {
+            // Remove placeholder on failure
+            let mut reg = registry.lock().await;
+            reg.remove(session_id.as_str());
+            return ActionResult::fatal(e.error_code(), e.to_string());
+        }
     };
 
     // Discover existing tabs via CDP Target.getTargets
     let tabs = match discover_tabs_via_cdp(&cdp).await {
         Ok(t) => t,
-        Err(e) => return e,
+        Err(e) => {
+            let mut reg = registry.lock().await;
+            reg.remove(session_id.as_str());
+            return e;
+        }
     };
 
     // Zero-page handling: create a tab if none exist
@@ -158,7 +237,10 @@ async fn execute_cloud(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }
         // Navigate first tab if --open-url
         if let Some(url) = &cmd.open_url {
-            let final_url = ensure_scheme(url);
+            let final_url = match ensure_scheme_or_fatal(url) {
+                Ok(u) => u,
+                Err(e) => return e,
+            };
             if let Some(first) = tabs.first() {
                 let _ = cdp
                     .execute_on_tab(&first.id.0, "Page.navigate", json!({ "url": final_url }))
@@ -173,7 +255,7 @@ async fn execute_cloud(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let first_url = tabs.first().map(|t| t.url.clone()).unwrap_or_default();
     let first_title = tabs.first().map(|t| t.title.clone()).unwrap_or_default();
 
-    let profile_name = cmd.profile.as_deref().unwrap_or("actionbook");
+    // Replace placeholder with fully initialized entry
     let entry = SessionEntry {
         id: session_id.clone(),
         mode: Mode::Cloud,
@@ -198,7 +280,7 @@ async fn execute_cloud(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             "mode": "cloud",
             "status": "running",
             "headless": cmd.headless,
-            "cdp_endpoint": endpoint,
+            "cdp_endpoint": redact_endpoint(endpoint),
         },
         "tab": {
             "tab_id": first_tab_id,
@@ -223,7 +305,10 @@ async fn execute_local(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         .map(|s| s.id.as_str().to_string())
     {
         if let Some(url) = &cmd.open_url {
-            let final_url = ensure_scheme(url);
+            let final_url = match ensure_scheme_or_fatal(url) {
+                Ok(u) => u,
+                Err(e) => return e,
+            };
             let entry = reg.get(&session_id).unwrap();
             let first_tab_id = entry.tabs.first().map(|t| t.id.0.clone()).unwrap_or_default();
             let cdp = entry.cdp.clone();
@@ -258,7 +343,42 @@ async fn execute_local(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             let (tab_url, tab_title) = get_tab_info_from_targets(&targets, &first_tab_id);
 
             let reg = registry.lock().await;
-            let entry = reg.get(&session_id).unwrap();
+            if let Some(entry) = reg.get(&session_id) {
+                return ActionResult::ok(json!({
+                    "session": {
+                        "session_id": entry.id.as_str(),
+                        "mode": entry.mode.to_string(),
+                        "status": entry.status,
+                        "headless": entry.headless,
+                        "cdp_endpoint": entry.ws_url,
+                    },
+                    "tab": {
+                        "tab_id": first_tab_id,
+                        "url": tab_url,
+                        "title": tab_title,
+                    },
+                    "reused": true,
+                }));
+            }
+            return ActionResult::fatal(
+                "SESSION_NOT_FOUND",
+                format!("session '{session_id}' was closed during reuse"),
+            );
+        }
+
+        // Reuse without open-url: fetch real-time info
+        let entry = reg.get(&session_id).unwrap();
+        let first_tab_id = entry.tabs.first().map(|t| t.id.0.clone()).unwrap_or_default();
+        let cdp_port = entry.cdp_port;
+        drop(reg);
+        let targets = if let Some(port) = cdp_port {
+            browser::list_targets(port).await.unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let (tab_url, tab_title) = get_tab_info_from_targets(&targets, &first_tab_id);
+        let reg = registry.lock().await;
+        if let Some(entry) = reg.get(&session_id) {
             return ActionResult::ok(json!({
                 "session": {
                     "session_id": entry.id.as_str(),
@@ -275,35 +395,10 @@ async fn execute_local(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 "reused": true,
             }));
         }
-
-        // Reuse without open-url: fetch real-time info
-        let entry = reg.get(&session_id).unwrap();
-        let first_tab_id = entry.tabs.first().map(|t| t.id.0.clone()).unwrap_or_default();
-        let cdp_port = entry.cdp_port;
-        drop(reg);
-        let targets = if let Some(port) = cdp_port {
-            browser::list_targets(port).await.unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        let (tab_url, tab_title) = get_tab_info_from_targets(&targets, &first_tab_id);
-        let reg = registry.lock().await;
-        let entry = reg.get(&session_id).unwrap();
-        return ActionResult::ok(json!({
-            "session": {
-                "session_id": entry.id.as_str(),
-                "mode": entry.mode.to_string(),
-                "status": entry.status,
-                "headless": entry.headless,
-                "cdp_endpoint": entry.ws_url,
-            },
-            "tab": {
-                "tab_id": first_tab_id,
-                "url": tab_url,
-                "title": tab_title,
-            },
-            "reused": true,
-        }));
+        return ActionResult::fatal(
+            "SESSION_NOT_FOUND",
+            format!("session '{session_id}' was closed during reuse"),
+        );
     }
 
     let session_id =
@@ -459,10 +554,18 @@ fn parse_headers(raw: &[String]) -> Result<Vec<(String, String)>, ActionResult> 
             let (key, value) = h.split_once(':').ok_or_else(|| {
                 ActionResult::fatal(
                     "INVALID_ARGUMENT",
-                    format!("invalid header format: '{h}', expected KEY:VALUE"),
+                    format!("invalid header format, expected KEY:VALUE"),
                 )
             })?;
-            Ok((key.trim().to_string(), value.trim().to_string()))
+            let key = key.trim().to_string();
+            let value = value.trim().to_string();
+            if key.is_empty() {
+                return Err(ActionResult::fatal(
+                    "INVALID_ARGUMENT",
+                    "header key must not be empty".to_string(),
+                ));
+            }
+            Ok((key, value))
         })
         .collect()
 }
@@ -540,7 +643,7 @@ fn make_session_response(
             "mode": entry.mode.to_string(),
             "status": entry.status,
             "headless": entry.headless,
-            "cdp_endpoint": entry.cdp_endpoint.as_deref().unwrap_or(&entry.ws_url),
+            "cdp_endpoint": redact_endpoint(entry.cdp_endpoint.as_deref().unwrap_or(&entry.ws_url)),
         },
         "tab": {
             "tab_id": tab_id,
@@ -549,6 +652,16 @@ fn make_session_response(
         },
         "reused": reused,
     }))
+}
+
+/// Redact query parameters from endpoint URLs to prevent credential leaks.
+/// Cloud providers often encode auth tokens in signed URLs.
+pub fn redact_endpoint(url: &str) -> String {
+    if let Some(idx) = url.find('?') {
+        format!("{}?[REDACTED]", &url[..idx])
+    } else {
+        url.to_string()
+    }
 }
 
 /// Extract url/title for a target_id from a targets list.

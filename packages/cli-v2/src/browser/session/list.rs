@@ -29,9 +29,9 @@ pub async fn execute(_cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 "headless": s.headless,
                 "tabs_count": s.tabs_count(),
             });
-            // Include cdp_endpoint for cloud sessions, never expose headers
+            // Include cdp_endpoint for cloud sessions (redacted), never expose headers
             if let Some(ref ep) = s.cdp_endpoint {
-                v["cdp_endpoint"] = json!(ep);
+                v["cdp_endpoint"] = json!(crate::browser::session::start::redact_endpoint(ep));
             }
             v
         })
