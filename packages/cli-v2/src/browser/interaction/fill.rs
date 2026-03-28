@@ -81,11 +81,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         r#"(() => {{
             const el = document.activeElement;
             if (!el) return 'no active element';
-            const nativeSet = Object.getOwnPropertyDescriptor(
-                window.HTMLInputElement.prototype, 'value'
-            )?.set || Object.getOwnPropertyDescriptor(
-                window.HTMLTextAreaElement.prototype, 'value'
-            )?.set;
+            const proto = el instanceof HTMLTextAreaElement
+                ? HTMLTextAreaElement.prototype
+                : HTMLInputElement.prototype;
+            const nativeSet = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
             if (nativeSet) {{
                 nativeSet.call(el, {value_json});
             }} else {{
