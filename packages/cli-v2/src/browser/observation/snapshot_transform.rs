@@ -68,6 +68,7 @@ pub fn is_interactive_role(role: &str) -> bool {
         "button"
             | "checkbox"
             | "combobox"
+            | "Iframe"
             | "link"
             | "listbox"
             | "menuitem"
@@ -404,9 +405,11 @@ pub fn build_output(nodes: Vec<AXNode>) -> SnapshotOutput {
 
 /// Noise roles to skip entirely during tree traversal.
 /// Children of skipped nodes are promoted to the parent level.
+/// Roles to skip entirely — internal rendering detail, redundant with parent content.
+/// NOTE: StaticText is NOT skipped — it carries visible text content agents need.
+/// InlineTextBox is the internal rendering detail that duplicates StaticText content.
 const SKIP_ROLES: &[&str] = &[
     "InlineTextBox",
-    "StaticText",
     "LineBreak",
     "ListMarker",
     "strong",
@@ -1222,11 +1225,12 @@ mod tests {
     #[test]
     fn test_is_skip_role_noise_roles() {
         assert!(is_skip_role("InlineTextBox"));
-        assert!(is_skip_role("StaticText"));
         assert!(is_skip_role("LineBreak"));
         assert!(is_skip_role("ListMarker"));
         assert!(is_skip_role("strong"));
         assert!(is_skip_role("emphasis"));
+        // StaticText is NOT skipped — it carries visible text content
+        assert!(!is_skip_role("StaticText"));
     }
 
     #[test]
@@ -1374,7 +1378,8 @@ mod tests {
 
     #[test]
     fn test_parse_noise_roles_skipped() {
-        // Contract: InlineTextBox, StaticText, etc. are skipped entirely
+        // InlineTextBox is skipped (internal rendering detail).
+        // StaticText is KEPT (carries visible text content).
         let response = serde_json::json!({
             "result": {
                 "nodes": [
@@ -1386,11 +1391,21 @@ mod tests {
                     {
                         "nodeId": "2",
                         "role": {"value": "heading"}, "name": {"value": "Title"},
-                        "childIds": ["3"]
+                        "childIds": ["3", "4"]
                     },
                     {
                         "nodeId": "3",
                         "role": {"value": "StaticText"}, "name": {"value": "Title"},
+                        "childIds": ["5"]
+                    },
+                    {
+                        "nodeId": "4",
+                        "role": {"value": "InlineTextBox"}, "name": {"value": "Title"},
+                        "childIds": []
+                    },
+                    {
+                        "nodeId": "5",
+                        "role": {"value": "InlineTextBox"}, "name": {"value": "Title"},
                         "childIds": []
                     },
                 ]
@@ -1398,9 +1413,15 @@ mod tests {
         });
         let nodes = parse_ax_tree(&response, &SnapshotOptions::default(), &mut RefCache::new());
 
+        // InlineTextBox must be filtered out
         assert!(
-            !nodes.iter().any(|n| n.role == "StaticText"),
-            "StaticText must be filtered out: {nodes:?}"
+            !nodes.iter().any(|n| n.role == "InlineTextBox"),
+            "InlineTextBox must be filtered out: {nodes:?}"
+        );
+        // StaticText must be kept (visible text)
+        assert!(
+            nodes.iter().any(|n| n.role == "StaticText"),
+            "StaticText must be kept: {nodes:?}"
         );
         assert!(
             nodes.iter().any(|n| n.role == "heading"),
