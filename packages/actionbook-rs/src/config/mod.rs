@@ -3,7 +3,7 @@ mod profile;
 pub use profile::ProfileConfig;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use figment::providers::{Env, Format, Serialized, Toml};
 use figment::Figment;
@@ -229,6 +229,14 @@ impl Config {
         normalize_default_profile_name(&self.browser.default_profile)
     }
 
+    /// Create the primary config file with defaults when neither the primary
+    /// nor legacy config file exists yet.
+    pub fn bootstrap_default_if_missing() -> Result<bool> {
+        let config_path = Self::config_path();
+        let legacy_config_path = Self::legacy_config_path();
+        Self::bootstrap_default_if_missing_at(&config_path, &legacy_config_path)
+    }
+
     /// Load configuration from all sources (file, env, defaults)
     pub fn load() -> Result<Self> {
         let config_path = Self::config_path();
@@ -274,7 +282,22 @@ impl Config {
     /// Save configuration to file
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path();
+        self.write_to_path(&path)
+    }
 
+    fn bootstrap_default_if_missing_at(
+        config_path: &Path,
+        legacy_config_path: &Path,
+    ) -> Result<bool> {
+        if config_path.exists() || legacy_config_path.exists() {
+            return Ok(false);
+        }
+
+        Config::default().write_to_path(config_path)?;
+        Ok(true)
+    }
+
+    fn write_to_path(&self, path: &Path) -> Result<()> {
         // Ensure parent directory exists
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -432,6 +455,51 @@ mod tests {
     fn config_path_falls_back_to_current_directory_without_home() {
         let path = Config::config_path_from_home(None);
         assert_eq!(path, PathBuf::from("./.actionbook/config.toml"));
+    }
+
+    #[test]
+    fn bootstrap_default_if_missing_writes_primary_config() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_path = temp.path().join(".actionbook").join("config.toml");
+        let legacy_path = temp.path().join("legacy").join("config.toml");
+
+        let created = Config::bootstrap_default_if_missing_at(&config_path, &legacy_path).unwrap();
+
+        assert!(created);
+        assert!(config_path.exists());
+
+        let written = std::fs::read_to_string(&config_path).unwrap();
+        assert!(written.contains("[browser]"));
+        assert!(written.contains("default_profile = \"actionbook\""));
+    }
+
+    #[test]
+    fn bootstrap_default_if_missing_keeps_existing_primary_config() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_path = temp.path().join(".actionbook").join("config.toml");
+        let legacy_path = temp.path().join("legacy").join("config.toml");
+        std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        std::fs::write(&config_path, "[browser]\ndefault_profile = \"team\"\n").unwrap();
+
+        let created = Config::bootstrap_default_if_missing_at(&config_path, &legacy_path).unwrap();
+
+        assert!(!created);
+        let written = std::fs::read_to_string(&config_path).unwrap();
+        assert!(written.contains("default_profile = \"team\""));
+    }
+
+    #[test]
+    fn bootstrap_default_if_missing_keeps_existing_legacy_config() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_path = temp.path().join(".actionbook").join("config.toml");
+        let legacy_path = temp.path().join("legacy").join("config.toml");
+        std::fs::create_dir_all(legacy_path.parent().unwrap()).unwrap();
+        std::fs::write(&legacy_path, "[browser]\ndefault_profile = \"legacy\"\n").unwrap();
+
+        let created = Config::bootstrap_default_if_missing_at(&config_path, &legacy_path).unwrap();
+
+        assert!(!created);
+        assert!(!config_path.exists());
     }
 
     #[test]

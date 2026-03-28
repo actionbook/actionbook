@@ -15,6 +15,9 @@ use clap::{error::ErrorKind, Parser, Subcommand};
 use tokio::net::UnixStream;
 use tracing::{debug, info};
 
+use crate::cli::BrowserMode;
+use crate::config::Config;
+
 use super::action::Action;
 use super::client::{self, DaemonClient};
 use super::daemon_main::DaemonConfig;
@@ -183,8 +186,8 @@ enum BrowserCmd {
     /// Start a new browser session
     Start {
         /// Browser mode
-        #[arg(long, value_enum, default_value = "local")]
-        mode: CliMode,
+        #[arg(long, value_enum)]
+        mode: Option<CliMode>,
         /// Profile name for configuration
         #[arg(long, short = 'P')]
         profile: Option<String>,
@@ -841,6 +844,66 @@ pub enum LogsCmd {
     },
 }
 
+fn normalize_nonempty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn cli_mode_from_browser_mode(mode: BrowserMode) -> CliMode {
+    match mode {
+        BrowserMode::Isolated => CliMode::Local,
+        BrowserMode::Extension => CliMode::Extension,
+    }
+}
+
+fn resolve_browser_command(
+    cmd: BrowserCmd,
+    global_profile: Option<&str>,
+) -> Result<BrowserCmd, String> {
+    match cmd {
+        BrowserCmd::Start {
+            mode,
+            profile,
+            headless,
+            open_url,
+            cdp_endpoint,
+            headers,
+            set_session_id,
+        } => {
+            Config::bootstrap_default_if_missing()
+                .map_err(|e| format!("failed to initialize config: {e}"))?;
+            let config =
+                Config::load().map_err(|e| format!("failed to load start configuration: {e}"))?;
+
+            let resolved_profile = normalize_nonempty(profile.as_deref())
+                .map(str::to_string)
+                .or_else(|| normalize_nonempty(global_profile).map(str::to_string))
+                .unwrap_or_else(|| config.effective_default_profile_name());
+            let resolved_mode =
+                mode.unwrap_or_else(|| cli_mode_from_browser_mode(config.browser.mode));
+            let resolved_headless = if headless {
+                true
+            } else {
+                config
+                    .profiles
+                    .get(&resolved_profile)
+                    .map(|profile| profile.headless)
+                    .unwrap_or(config.browser.headless)
+            };
+
+            Ok(BrowserCmd::Start {
+                mode: Some(resolved_mode),
+                profile: Some(resolved_profile),
+                headless: resolved_headless,
+                open_url,
+                cdp_endpoint,
+                headers,
+                set_session_id,
+            })
+        }
+        other => Ok(other),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Coordinate parsing
 // ---------------------------------------------------------------------------
@@ -900,7 +963,7 @@ fn build_action_with_timeout(
             headers,
             set_session_id,
         } => {
-            let mode: Mode = mode.into();
+            let mode: Mode = mode.unwrap_or(CliMode::Local).into();
             // Cloud mode requires --cdp-endpoint.
             if mode == Mode::Cloud && cdp_endpoint.is_none() {
                 return Err(
@@ -1729,15 +1792,24 @@ impl CliV2 {
         let socket_path = self.socket.unwrap_or_else(client::default_socket_path);
         let timeout_ms = self.browser_timeout.unwrap_or(DEFAULT_BROWSER_TIMEOUT_MS);
         let command_timeout = Duration::from_millis(timeout_ms);
+        let global_profile = self.profile.clone();
 
         let TopLevel::Browser { cmd } = self.command;
-        let (action, screenshot_path) = match build_action_with_timeout(cmd, Some(timeout_ms)) {
-            Ok(pair) => pair,
+        let resolved_cmd = match resolve_browser_command(cmd, global_profile.as_deref()) {
+            Ok(cmd) => cmd,
             Err(e) => {
                 eprintln!("error: {e}");
                 process::exit(1);
             }
         };
+        let (action, screenshot_path) =
+            match build_action_with_timeout(resolved_cmd, Some(timeout_ms)) {
+                Ok(pair) => pair,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    process::exit(1);
+                }
+            };
 
         // Auto-start daemon if not running.
         if let Err(e) =
@@ -1879,11 +1951,57 @@ mod tests {
     use super::commands::CliQueryMode;
     use super::*;
     use crate::daemon::types::QueryMode;
+    use std::fs;
+    use std::sync::{Mutex, OnceLock};
+
+    fn with_isolated_config_env<F>(test: F)
+    where
+        F: FnOnce(std::path::PathBuf),
+    {
+        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let _guard = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let xdg_config_home = temp.path().join("xdg-config");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&xdg_config_home).unwrap();
+
+        let previous_home = std::env::var_os("HOME");
+        let previous_xdg = std::env::var_os("XDG_CONFIG_HOME");
+        let previous_mode = std::env::var_os("ACTIONBOOK_BROWSER_MODE");
+        let previous_headless = std::env::var_os("ACTIONBOOK_BROWSER_HEADLESS");
+
+        std::env::set_var("HOME", &home);
+        std::env::set_var("XDG_CONFIG_HOME", &xdg_config_home);
+        std::env::remove_var("ACTIONBOOK_BROWSER_MODE");
+        std::env::remove_var("ACTIONBOOK_BROWSER_HEADLESS");
+
+        let config_path = home.join(".actionbook").join("config.toml");
+        test(config_path);
+
+        match previous_home {
+            Some(value) => std::env::set_var("HOME", value),
+            None => std::env::remove_var("HOME"),
+        }
+        match previous_xdg {
+            Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+        match previous_mode {
+            Some(value) => std::env::set_var("ACTIONBOOK_BROWSER_MODE", value),
+            None => std::env::remove_var("ACTIONBOOK_BROWSER_MODE"),
+        }
+        match previous_headless {
+            Some(value) => std::env::set_var("ACTIONBOOK_BROWSER_HEADLESS", value),
+            None => std::env::remove_var("ACTIONBOOK_BROWSER_HEADLESS"),
+        }
+    }
 
     #[test]
     fn build_start_action_local() {
         let (action, _) = build_action(BrowserCmd::Start {
-            mode: CliMode::Local,
+            mode: Some(CliMode::Local),
             profile: Some("test".into()),
             headless: true,
             open_url: Some("https://example.com".into()),
@@ -1912,7 +2030,7 @@ mod tests {
     #[test]
     fn build_start_action_cloud_with_endpoint() {
         let (action, _) = build_action(BrowserCmd::Start {
-            mode: CliMode::Cloud,
+            mode: Some(CliMode::Cloud),
             profile: None,
             headless: false,
             open_url: None,
@@ -1938,7 +2056,7 @@ mod tests {
     #[test]
     fn build_start_action_cloud_without_endpoint_errors() {
         let result = build_action(BrowserCmd::Start {
-            mode: CliMode::Cloud,
+            mode: Some(CliMode::Cloud),
             profile: None,
             headless: false,
             open_url: None,
@@ -1953,7 +2071,7 @@ mod tests {
     #[test]
     fn build_start_action_extension() {
         let (action, _) = build_action(BrowserCmd::Start {
-            mode: CliMode::Extension,
+            mode: Some(CliMode::Extension),
             profile: None,
             headless: false,
             open_url: None,
@@ -1968,6 +2086,135 @@ mod tests {
             }
             _ => panic!("wrong variant"),
         }
+    }
+
+    #[test]
+    fn resolve_start_command_bootstraps_default_config() {
+        with_isolated_config_env(|config_path| {
+            let resolved = resolve_browser_command(
+                BrowserCmd::Start {
+                    mode: None,
+                    profile: None,
+                    headless: false,
+                    open_url: None,
+                    cdp_endpoint: None,
+                    headers: vec![],
+                    set_session_id: None,
+                },
+                None,
+            )
+            .unwrap();
+
+            assert!(config_path.exists());
+            match resolved {
+                BrowserCmd::Start {
+                    mode,
+                    profile,
+                    headless,
+                    ..
+                } => {
+                    assert!(matches!(mode, Some(CliMode::Local)));
+                    assert_eq!(profile.as_deref(), Some("actionbook"));
+                    assert!(!headless);
+                }
+                _ => panic!("wrong variant"),
+            }
+        });
+    }
+
+    #[test]
+    fn resolve_start_command_uses_config_defaults() {
+        with_isolated_config_env(|config_path| {
+            fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+            fs::write(
+                &config_path,
+                r#"[browser]
+mode = "extension"
+default_profile = "team"
+headless = true
+"#,
+            )
+            .unwrap();
+
+            let resolved = resolve_browser_command(
+                BrowserCmd::Start {
+                    mode: None,
+                    profile: None,
+                    headless: false,
+                    open_url: None,
+                    cdp_endpoint: None,
+                    headers: vec![],
+                    set_session_id: None,
+                },
+                None,
+            )
+            .unwrap();
+
+            match resolved {
+                BrowserCmd::Start {
+                    mode,
+                    profile,
+                    headless,
+                    ..
+                } => {
+                    assert!(matches!(mode, Some(CliMode::Extension)));
+                    assert_eq!(profile.as_deref(), Some("team"));
+                    assert!(headless);
+                }
+                _ => panic!("wrong variant"),
+            }
+        });
+    }
+
+    #[test]
+    fn resolve_start_command_cli_overrides_env_and_config() {
+        with_isolated_config_env(|config_path| {
+            fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+            fs::write(
+                &config_path,
+                r#"[browser]
+mode = "isolated"
+default_profile = "from-config"
+headless = false
+"#,
+            )
+            .unwrap();
+            std::env::set_var("ACTIONBOOK_BROWSER_MODE", "extension");
+            std::env::set_var("ACTIONBOOK_BROWSER_HEADLESS", "true");
+
+            let resolved = resolve_browser_command(
+                BrowserCmd::Start {
+                    mode: Some(CliMode::Cloud),
+                    profile: Some("cli-profile".into()),
+                    headless: true,
+                    open_url: None,
+                    cdp_endpoint: Some("wss://cloud.example.com/browser".into()),
+                    headers: vec![],
+                    set_session_id: None,
+                },
+                Some("env-profile"),
+            )
+            .unwrap();
+
+            match resolved {
+                BrowserCmd::Start {
+                    mode,
+                    profile,
+                    headless,
+                    cdp_endpoint,
+                    ..
+                } => {
+                    assert!(matches!(mode, Some(CliMode::Cloud)));
+                    assert_eq!(profile.as_deref(), Some("cli-profile"));
+                    assert!(headless);
+                    assert_eq!(
+                        cdp_endpoint.as_deref(),
+                        Some("wss://cloud.example.com/browser")
+                    );
+                }
+                _ => panic!("wrong variant"),
+            }
+        });
     }
 
     #[test]
@@ -3377,7 +3624,7 @@ mod tests {
     #[test]
     fn build_start_with_headers_parses_key_value() {
         let (action, _) = build_action(BrowserCmd::Start {
-            mode: CliMode::Cloud,
+            mode: Some(CliMode::Cloud),
             profile: None,
             headless: false,
             open_url: None,
@@ -3402,7 +3649,7 @@ mod tests {
     #[test]
     fn build_start_with_invalid_header_errors() {
         let result = build_action(BrowserCmd::Start {
-            mode: CliMode::Cloud,
+            mode: Some(CliMode::Cloud),
             profile: None,
             headless: false,
             open_url: None,
@@ -3417,7 +3664,7 @@ mod tests {
     #[test]
     fn build_start_without_headers_sets_none() {
         let (action, _) = build_action(BrowserCmd::Start {
-            mode: CliMode::Local,
+            mode: Some(CliMode::Local),
             profile: None,
             headless: false,
             open_url: None,
