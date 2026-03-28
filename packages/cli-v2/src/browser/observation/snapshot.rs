@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::daemon::cdp::{cdp_get_ax_tree, resolve_tab_ws_url};
+use crate::daemon::cdp_session::get_cdp_and_target;
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
@@ -33,25 +33,20 @@ pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let ws_url = {
-        let reg = registry.lock().await;
-        let entry = match reg.get(&cmd.session) {
-            Some(e) => e,
-            None => {
-                return ActionResult::fatal(
-                    "SESSION_NOT_FOUND",
-                    format!("session '{}' not found", cmd.session),
-                );
-            }
-        };
-        match resolve_tab_ws_url(&cmd.tab, entry) {
-            Ok(url) => url,
-            Err(err) => return err,
-        }
+    let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
+        Ok(v) => v,
+        Err(e) => return e,
     };
 
-    match cdp_get_ax_tree(&ws_url).await {
-        Ok(snapshot) => ActionResult::ok(json!({ "snapshot": snapshot })),
+    match cdp
+        .execute_on_tab(
+            &target_id,
+            "Accessibility.getFullAXTree",
+            json!({}),
+        )
+        .await
+    {
+        Ok(resp) => ActionResult::ok(json!({ "snapshot": resp.to_string() })),
         Err(e) => ActionResult::fatal("INTERNAL_ERROR", e.to_string()),
     }
 }

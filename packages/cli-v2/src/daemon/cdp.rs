@@ -42,10 +42,10 @@ pub fn resolve_tab_ws_url(
                 format!("tab '{tab_id}' not found"),
             )
         })?;
-    Ok(if !tab.target_id.is_empty() {
+    Ok(if !tab.id.0.is_empty() {
         format!(
             "ws://127.0.0.1:{}/devtools/page/{}",
-            entry.cdp_port, tab.target_id
+            entry.cdp_port, tab.id.0
         )
     } else {
         entry.ws_url.clone()

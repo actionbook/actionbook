@@ -11,3 +11,4 @@
 
 mod browser_lifecycle;
 mod harness;
+mod tab_management;

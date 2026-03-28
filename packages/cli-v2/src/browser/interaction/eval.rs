@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::daemon::cdp::{cdp_runtime_evaluate, resolve_tab_ws_url};
+use crate::daemon::cdp_session::get_cdp_and_target;
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
@@ -35,25 +35,44 @@ pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let ws_url = {
-        let reg = registry.lock().await;
-        let entry = match reg.get(&cmd.session) {
-            Some(e) => e,
-            None => {
-                return ActionResult::fatal(
-                    "SESSION_NOT_FOUND",
-                    format!("session '{}' not found", cmd.session),
-                );
-            }
-        };
-        match resolve_tab_ws_url(&cmd.tab, entry) {
-            Ok(url) => url,
-            Err(err) => return err,
-        }
+    let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
+        Ok(v) => v,
+        Err(e) => return e,
     };
 
-    match cdp_runtime_evaluate(&ws_url, &cmd.expression).await {
-        Ok(value) => ActionResult::ok(json!({ "value": value })),
-        Err(e) => ActionResult::fatal("EVAL_FAILED", e.to_string()),
+    let resp = match cdp
+        .execute_on_tab(
+            &target_id,
+            "Runtime.evaluate",
+            json!({ "expression": cmd.expression, "returnByValue": true }),
+        )
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => return ActionResult::fatal("EVAL_FAILED", e.to_string()),
+    };
+
+    // Extract value from CDP response
+    if let Some(result) = resp.get("result").and_then(|r| r.get("result")) {
+        if let Some(exc) = resp.get("result").and_then(|r| r.get("exceptionDetails")) {
+            let emsg = exc
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("expression error");
+            return ActionResult::fatal("EVAL_FAILED", emsg.to_string());
+        }
+        let value = result
+            .get("value")
+            .map(|v| {
+                if v.is_string() {
+                    v.as_str().unwrap().to_string()
+                } else {
+                    v.to_string()
+                }
+            })
+            .unwrap_or_default();
+        ActionResult::ok(json!({ "value": value }))
+    } else {
+        ActionResult::fatal("EVAL_FAILED", "no result in CDP response")
     }
 }

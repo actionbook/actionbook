@@ -172,6 +172,8 @@ pub fn format_text(
                     | "browser.goto"
                     | "browser.click"
                     | "browser.fill"
+                    | "browser.new-tab"
+                    | "browser.close-tab"
             );
 
             if is_action {
@@ -265,6 +267,39 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
             {
                 lines.push(format!("status: {status}"));
             }
+        }
+        "browser.list-tabs" => {
+            let total = data
+                .get("total_tabs")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let label = if total == 1 { "tab" } else { "tabs" };
+            lines.push(format!("{total} {label}"));
+            if let Some(tabs) = data.get("tabs").and_then(|v| v.as_array()) {
+                for t in tabs {
+                    let tid = t.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?");
+                    let title = t.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                    let url = t.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                    if title.is_empty() {
+                        lines.push(format!("[{tid}]"));
+                    } else {
+                        lines.push(format!("[{tid}] {title}"));
+                    }
+                    lines.push(url.to_string());
+                }
+            }
+        }
+        "browser.new-tab" => {
+            if let Some(title) = data
+                .get("tab")
+                .and_then(|t| t.get("title"))
+                .and_then(|v| v.as_str())
+            {
+                lines.push(format!("title: {title}"));
+            }
+        }
+        "browser.close-tab" => {
+            // No additional fields per §8.3 text format
         }
         "browser.eval" => {
             if let Some(val) = data.get("value") {

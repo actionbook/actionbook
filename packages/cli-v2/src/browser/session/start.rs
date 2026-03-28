@@ -4,7 +4,8 @@ use serde_json::json;
 
 use crate::action_result::ActionResult;
 use crate::daemon::browser;
-use crate::daemon::cdp::{cdp_navigate, ensure_scheme};
+use crate::daemon::cdp::ensure_scheme;
+use crate::daemon::cdp_session::CdpSession;
 use crate::daemon::registry::{SessionEntry, SharedRegistry, TabEntry};
 use crate::output::ResponseContext;
 use crate::types::{Mode, TabId};
@@ -68,75 +69,63 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     {
         if let Some(url) = &cmd.open_url {
             let final_url = ensure_scheme(url);
-            let entry = reg.get_mut(&session_id).unwrap();
-            let first_tab = entry.tabs.first();
+            let entry = reg.get(&session_id).unwrap();
+            let first_tab_id = entry.tabs.first().map(|t| t.id.0.clone()).unwrap_or_default();
+            let cdp = entry.cdp.clone();
+            let cdp_port = entry.cdp_port;
+            drop(reg);
 
-            if let Some(tab) = first_tab {
-                let ws_url = if !tab.target_id.is_empty() {
-                    Some(format!(
-                        "ws://127.0.0.1:{}/devtools/page/{}",
-                        entry.cdp_port, tab.target_id
-                    ))
-                } else {
-                    None
-                };
-                let tab_info = (tab.id, tab.target_id.clone());
-                drop(reg);
-                if let Some(ref ws) = ws_url {
-                    if let Err(e) = cdp_navigate(ws, &final_url).await {
-                        return ActionResult::fatal(
-                            "NAVIGATION_FAILED",
-                            format!("reuse navigate failed: {e}"),
-                        );
-                    }
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            if let Some(ref cdp) = cdp
+                && !first_tab_id.is_empty()
+            {
+                let nav_result = cdp
+                    .execute_on_tab(
+                        &first_tab_id,
+                        "Page.navigate",
+                        serde_json::json!({ "url": final_url }),
+                    )
+                    .await;
+                if let Err(e) = nav_result {
+                    return ActionResult::fatal(
+                        "NAVIGATION_FAILED",
+                        format!("reuse navigate failed: {e}"),
+                    );
                 }
-                let mut reg = registry.lock().await;
-                let entry = reg.get_mut(&session_id).unwrap();
-                if let Ok(targets) = browser::list_targets(entry.cdp_port).await {
-                    for target in &targets {
-                        let tid = target.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                        if tid == tab_info.1 {
-                            if let Some(tab) = entry.tabs.iter_mut().find(|t| t.id == tab_info.0) {
-                                tab.url = target
-                                    .get("url")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string();
-                                tab.title = target
-                                    .get("title")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string();
-                            }
-                            break;
-                        }
-                    }
-                } else if let Some(tab) = entry.tabs.iter_mut().find(|t| t.id == tab_info.0) {
-                    tab.url = final_url.clone();
-                }
-                let tab = entry.tabs.first().unwrap();
-                return ActionResult::ok(json!({
-                    "session": {
-                        "session_id": entry.id.as_str(),
-                        "mode": entry.mode.to_string(),
-                        "status": entry.status,
-                        "headless": entry.headless,
-                        "cdp_endpoint": entry.ws_url,
-                    },
-                    "tab": {
-                        "tab_id": tab.id.to_string(),
-                        "url": tab.url,
-                        "title": tab.title,
-                        "native_tab_id": if tab.target_id.is_empty() { serde_json::Value::Null } else { json!(tab.target_id) },
-                    },
-                    "reused": true,
-                }));
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
+
+            // Fetch real-time tab info
+            let targets = browser::list_targets(cdp_port).await.unwrap_or_default();
+            let (tab_url, tab_title) = get_tab_info_from_targets(&targets, &first_tab_id);
+
+            let reg = registry.lock().await;
+            let entry = reg.get(&session_id).unwrap();
+            return ActionResult::ok(json!({
+                "session": {
+                    "session_id": entry.id.as_str(),
+                    "mode": entry.mode.to_string(),
+                    "status": entry.status,
+                    "headless": entry.headless,
+                    "cdp_endpoint": entry.ws_url,
+                },
+                "tab": {
+                    "tab_id": first_tab_id,
+                    "url": tab_url,
+                    "title": tab_title,
+                },
+                "reused": true,
+            }));
         }
 
+        // Reuse without open-url: fetch real-time info
         let entry = reg.get(&session_id).unwrap();
-        let first_tab = entry.tabs.first();
+        let first_tab_id = entry.tabs.first().map(|t| t.id.0.clone()).unwrap_or_default();
+        let cdp_port = entry.cdp_port;
+        drop(reg);
+        let targets = browser::list_targets(cdp_port).await.unwrap_or_default();
+        let (tab_url, tab_title) = get_tab_info_from_targets(&targets, &first_tab_id);
+        let reg = registry.lock().await;
+        let entry = reg.get(&session_id).unwrap();
         return ActionResult::ok(json!({
             "session": {
                 "session_id": entry.id.as_str(),
@@ -146,10 +135,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 "cdp_endpoint": entry.ws_url,
             },
             "tab": {
-                "tab_id": first_tab.map(|t| t.id.to_string()).unwrap_or_else(|| "t1".to_string()),
-                "url": first_tab.map(|t| t.url.as_str()).unwrap_or(""),
-                "title": first_tab.map(|t| t.title.as_str()).unwrap_or(""),
-                "native_tab_id": first_tab.map(|t| if t.target_id.is_empty() { serde_json::Value::Null } else { json!(t.target_id) }).unwrap_or(serde_json::Value::Null),
+                "tab_id": first_tab_id,
+                "url": tab_url,
+                "title": tab_title,
             },
             "reused": true,
         }));
@@ -225,43 +213,46 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
 
     let mut tabs = Vec::new();
-    let mut next_tab_id = 1u32;
     for t in &targets {
         let target_id = t
             .get("id")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let url = t
-            .get("url")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let title = t
-            .get("title")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        tabs.push(TabEntry {
-            id: TabId(next_tab_id),
-            target_id,
-            url,
-            title,
-        });
-        next_tab_id += 1;
+        if !target_id.is_empty() {
+            let url = t.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let title = t.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            tabs.push(TabEntry {
+                id: TabId(target_id),
+                url,
+                title,
+            });
+        }
     }
 
-    if tabs.is_empty() {
-        tabs.push(TabEntry {
-            id: TabId(1),
-            target_id: String::new(),
-            url: cmd.open_url.as_deref().unwrap_or("about:blank").to_string(),
-            title: String::new(),
-        });
-        next_tab_id = 2;
+    // Create persistent CDP connection and attach all initial tabs
+    let cdp = match CdpSession::connect(&ws_url).await {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = chrome.kill();
+            let _ = chrome.wait();
+            return ActionResult::fatal("CDP_CONNECTION_FAILED", e.to_string());
+        }
+    };
+    for tab in &tabs {
+        if let Err(e) = cdp.attach(&tab.id.0).await {
+            tracing::warn!("failed to attach tab {}: {e}", tab.id);
+        }
     }
 
-    let first_tab = tabs[0].clone();
+    let first_tab_id = tabs.first().map(|t| t.id.0.clone()).unwrap_or_default();
+
+    // Get real-time info for the first tab
+    let (first_url, first_title) = if !first_tab_id.is_empty() {
+        get_tab_info_from_targets(&targets, &first_tab_id)
+    } else {
+        (cmd.open_url.as_deref().unwrap_or("about:blank").to_string(), String::new())
+    };
 
     let entry = SessionEntry {
         id: session_id.clone(),
@@ -272,8 +263,8 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         cdp_port: port,
         ws_url: ws_url.clone(),
         tabs,
-        next_tab_id,
         chrome_process: Some(chrome),
+        cdp: Some(cdp),
     };
     reg.insert(entry);
 
@@ -286,11 +277,22 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             "cdp_endpoint": ws_url,
         },
         "tab": {
-            "tab_id": first_tab.id.to_string(),
-            "url": first_tab.url,
-            "title": first_tab.title,
-            "native_tab_id": if first_tab.target_id.is_empty() { serde_json::Value::Null } else { json!(first_tab.target_id) },
+            "tab_id": first_tab_id,
+            "url": first_url,
+            "title": first_title,
         },
         "reused": false,
     }))
+}
+
+/// Extract url/title for a target_id from a targets list.
+fn get_tab_info_from_targets(targets: &[serde_json::Value], target_id: &str) -> (String, String) {
+    for t in targets {
+        if t.get("id").and_then(|v| v.as_str()) == Some(target_id) {
+            let url = t.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let title = t.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            return (url, title);
+        }
+    }
+    (String::new(), String::new())
 }

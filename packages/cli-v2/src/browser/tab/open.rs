@@ -27,14 +27,18 @@ pub struct Cmd {
 
 pub const COMMAND_NAME: &str = "browser.new-tab";
 
-pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
-    Some(ResponseContext {
-        session_id: cmd.session.clone(),
-        tab_id: None,
-        window_id: None,
-        url: None,
-        title: None,
-    })
+pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
+    if let ActionResult::Ok { data } = result {
+        Some(ResponseContext {
+            session_id: cmd.session.clone(),
+            tab_id: data["tab"]["tab_id"].as_str().map(|s| s.to_string()),
+            window_id: None,
+            url: data["tab"]["url"].as_str().map(|s| s.to_string()),
+            title: data["tab"]["title"].as_str().map(|s| s.to_string()),
+        })
+    } else {
+        None
+    }
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
@@ -58,17 +62,39 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         cdp_port,
         urlencoding::encode(&final_url)
     );
-    let target_id = match reqwest::get(&create_url).await {
-        Ok(resp) => resp
-            .json::<serde_json::Value>()
-            .await
-            .ok()
-            .and_then(|v| v.get("id").and_then(|i| i.as_str()).map(|s| s.to_string()))
-            .unwrap_or_default(),
-        Err(_) => String::new(),
+    let client = reqwest::Client::new();
+    let resp = client
+        .put(&create_url)
+        .send()
+        .await
+        .map_err(|e| {
+            ActionResult::fatal(
+                "CDP_ERROR",
+                format!("failed to create tab via /json/new: {e}"),
+            )
+        });
+    let resp = match resp {
+        Ok(r) => r,
+        Err(e) => return e,
     };
+    let body = resp.text().await.unwrap_or_default();
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
+    let target_id = match v.get("id").and_then(|i| i.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            return ActionResult::fatal(
+                "CDP_ERROR",
+                format!("Chrome /json/new did not return target id, body: {body}"),
+            );
+        }
+    };
+    let title = v
+        .get("title")
+        .and_then(|t| t.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_default();
 
-    let tab_id = {
+    let cdp = {
         let mut reg = registry.lock().await;
         let entry = match reg.get_mut(&cmd.session) {
             Some(e) => e,
@@ -79,19 +105,31 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 );
             }
         };
-        let tid = TabId(entry.next_tab_id);
-        entry.next_tab_id += 1;
         entry.tabs.push(TabEntry {
-            id: tid,
-            target_id,
+            id: TabId(target_id.clone()),
             url: final_url.clone(),
-            title: String::new(),
+            title: title.clone(),
         });
-        tid
+        entry.cdp.clone()
     };
 
+    // Attach the new tab to the persistent CDP session
+    if let Some(ref cdp) = cdp {
+        if let Err(e) = cdp.attach(&target_id).await {
+            return ActionResult::fatal(
+                "CDP_ERROR",
+                format!("failed to attach tab to CDP session: {e}"),
+            );
+        }
+    }
+
     ActionResult::ok(json!({
-        "tab_id": tab_id.to_string(),
-        "url": final_url,
+        "tab": {
+            "tab_id": target_id,
+            "url": final_url,
+            "title": title,
+        },
+        "created": true,
+        "new_window": cmd.new_window,
     }))
 }

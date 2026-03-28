@@ -36,26 +36,15 @@ fn lifecycle_open_and_close_json() {
     assert!(v["data"]["session"]["headless"].is_boolean());
     assert!(v["data"]["session"]["cdp_endpoint"].is_string());
     // data.tab
-    assert_eq!(v["data"]["tab"]["tab_id"], "t1");
+    assert!(v["data"]["tab"]["tab_id"].is_string(), "tab_id must be a string");
+    assert!(!v["data"]["tab"]["tab_id"].as_str().unwrap().is_empty(), "tab_id must not be empty");
     assert!(v["data"]["tab"]["url"].is_string());
     assert!(v["data"]["tab"]["title"].is_string());
-    // §7.1: native_tab_id key must be present
-    assert!(
-        v["data"]["tab"]
-            .as_object()
-            .is_some_and(|o| o.contains_key("native_tab_id")),
-        "native_tab_id key must be present in tab object per §7.1"
-    );
-    let ntid = &v["data"]["tab"]["native_tab_id"];
-    assert!(
-        ntid.is_string() || ntid.is_number() || ntid.is_null(),
-        "native_tab_id must be string, number, or null"
-    );
     // data.reused
     assert_eq!(v["data"]["reused"], false);
     // context (special: start returns context after session creation)
     assert_eq!(v["context"]["session_id"], "local-1");
-    assert_eq!(v["context"]["tab_id"], "t1");
+    assert!(v["context"]["tab_id"].is_string(), "context.tab_id must be present");
     // meta
     assert!(v["meta"]["duration_ms"].is_number());
 
@@ -461,7 +450,7 @@ fn lifecycle_close_after_operations() {
     }
     let _guard = SessionGuard::new();
 
-    let out = headless(
+    let out = headless_json(
         &[
             "browser",
             "start",
@@ -474,6 +463,8 @@ fn lifecycle_close_after_operations() {
         30,
     );
     assert_success(&out, "start");
+    let sv = parse_json(&out);
+    let tab_id = sv["data"]["tab"]["tab_id"].as_str().unwrap();
 
     let out = headless(
         &[
@@ -483,14 +474,14 @@ fn lifecycle_close_after_operations() {
             "--session",
             "local-1",
             "--tab",
-            "t1",
+            tab_id,
         ],
         30,
     );
     assert_success(&out, "goto");
 
     let out = headless(
-        &["browser", "snapshot", "--session", "local-1", "--tab", "t1"],
+        &["browser", "snapshot", "--session", "local-1", "--tab", tab_id],
         30,
     );
     assert_success(&out, "snapshot");
@@ -767,96 +758,52 @@ fn lifecycle_concurrent_parallel_operations() {
     }
     let _guard = SessionGuard::new();
 
-    let out = headless(
+    let out = headless_json(
         &[
-            "browser",
-            "start",
-            "--mode",
-            "local",
-            "--headless",
-            "--profile",
-            "alpha",
-            "--set-session-id",
-            "alpha-session",
-            "--open-url",
-            "https://example.com",
+            "browser", "start", "--mode", "local", "--headless",
+            "--profile", "alpha", "--set-session-id", "alpha-session",
+            "--open-url", "https://example.com",
         ],
         30,
     );
     assert_success(&out, "start alpha");
+    let alpha_tab = parse_json(&out)["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
 
-    let out = headless(
+    let out = headless_json(
         &[
-            "browser",
-            "start",
-            "--mode",
-            "local",
-            "--headless",
-            "--profile",
-            "beta",
-            "--set-session-id",
-            "beta-session",
-            "--open-url",
-            "https://example.org",
+            "browser", "start", "--mode", "local", "--headless",
+            "--profile", "beta", "--set-session-id", "beta-session",
+            "--open-url", "https://example.org",
         ],
         30,
     );
     assert_success(&out, "start beta");
+    let beta_tab = parse_json(&out)["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
 
     // Ensure navigation completes before parallel eval
     let out = headless(
-        &[
-            "browser",
-            "goto",
-            "https://example.com",
-            "--session",
-            "alpha-session",
-            "--tab",
-            "t1",
-        ],
+        &["browser", "goto", "https://example.com", "--session", "alpha-session", "--tab", &alpha_tab],
         30,
     );
     assert_success(&out, "goto alpha");
     let out = headless(
-        &[
-            "browser",
-            "goto",
-            "https://example.org",
-            "--session",
-            "beta-session",
-            "--tab",
-            "t1",
-        ],
+        &["browser", "goto", "https://example.org", "--session", "beta-session", "--tab", &beta_tab],
         30,
     );
     assert_success(&out, "goto beta");
 
     // Parallel eval on different sessions
-    let t1 = std::thread::spawn(|| {
+    let at = alpha_tab.clone();
+    let bt = beta_tab.clone();
+    let t1 = std::thread::spawn(move || {
         headless_json(
-            &[
-                "browser",
-                "eval",
-                "window.location.href",
-                "--session",
-                "alpha-session",
-                "--tab",
-                "t1",
-            ],
+            &["browser", "eval", "window.location.href", "--session", "alpha-session", "--tab", &at],
             30,
         )
     });
-    let t2 = std::thread::spawn(|| {
+    let t2 = std::thread::spawn(move || {
         headless_json(
-            &[
-                "browser",
-                "eval",
-                "window.location.href",
-                "--session",
-                "beta-session",
-                "--tab",
-                "t1",
-            ],
+            &["browser", "eval", "window.location.href", "--session", "beta-session", "--tab", &bt],
             30,
         )
     });
@@ -988,6 +935,7 @@ fn lifecycle_start_reuse_with_open_url_json() {
     assert_success(&out, "first start");
     let v = parse_json(&out);
     assert_eq!(v["data"]["reused"], false);
+    let tab_id = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
 
     // Second start with different URL — should reuse and navigate
     let out = headless_json(
@@ -1025,7 +973,7 @@ fn lifecycle_start_reuse_with_open_url_json() {
             "--session",
             "local-1",
             "--tab",
-            "t1",
+            &tab_id,
         ],
         30,
     );

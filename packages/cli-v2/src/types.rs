@@ -114,25 +114,23 @@ impl FromStr for SessionId {
     }
 }
 
-/// Tab ID within a session (t1, t2, ...). 1-based.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct TabId(pub u32);
+/// Tab ID — Chrome's native CDP target ID (opaque string).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TabId(pub String);
 
 impl fmt::Display for TabId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "t{}", self.0)
+        write!(f, "{}", self.0)
     }
 }
 
 impl FromStr for TabId {
     type Err = ParseIdError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let num = s
-            .strip_prefix('t')
-            .ok_or(ParseIdError::MissingPrefix('t'))?
-            .parse::<u32>()
-            .map_err(ParseIdError::InvalidNumber)?;
-        Ok(TabId(num))
+        if s.is_empty() {
+            return Err(ParseIdError::InvalidSessionId("empty tab id".to_string()));
+        }
+        Ok(TabId(s.to_string()))
     }
 }
 
