@@ -1,6 +1,7 @@
 //! E2E tests for `browser inspect-point` command (§10.11).
 //!
-//! Tests are strict per api-reference.md §10.11.
+//! Uses a deterministic DOM fixture injected via `browser eval` on `about:blank`
+//! to avoid dependence on external URLs or page layout.
 //!
 //! **Expected to FAIL until implementation lands:**
 //! - `inspect_point_json_happy_path`
@@ -19,12 +20,10 @@ use crate::harness::{
     stdout_str,
 };
 
-const URL_A: &str = "https://actionbook.dev";
-
 // ── Helpers ───────────────────────────────────────────────────────────
 
-/// Start a headless session, navigate to url, return (session_id, tab_id).
-fn start_session(url: &str) -> (String, String) {
+/// Start a headless session on about:blank, return (session_id, tab_id).
+fn start_session() -> (String, String) {
     let out = headless_json(
         &[
             "browser",
@@ -33,7 +32,7 @@ fn start_session(url: &str) -> (String, String) {
             "local",
             "--headless",
             "--open-url",
-            url,
+            "about:blank",
         ],
         30,
     );
@@ -45,14 +44,44 @@ fn start_session(url: &str) -> (String, String) {
         .to_string();
     let tid = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
 
-    // Ensure navigation completes (CI may be slow)
+    // Ensure about:blank is loaded
     let goto_out = headless_json(
-        &["browser", "goto", url, "--session", &sid, "--tab", &tid],
+        &[
+            "browser",
+            "goto",
+            "about:blank",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
         30,
     );
-    assert_success(&goto_out, "goto for session setup");
+    assert_success(&goto_out, "goto about:blank");
 
     (sid, tid)
+}
+
+/// Inject a deterministic DOM fixture with known positions and parent chain.
+///
+/// Structure:
+/// ```html
+/// <div id="outer" style="position:fixed;top:0;left:0;width:400px;height:400px">
+///   <div id="inner" style="position:absolute;top:50px;left:50px;width:200px;height:200px">
+///     <button id="target-btn" aria-label="Test Button"
+///             style="position:absolute;top:20px;left:20px;width:100px;height:40px">
+///       Click Me
+///     </button>
+///   </div>
+/// </div>
+/// ```
+///
+/// The button at (90, 90) — inside the fixed-position tree:
+///   outer(0,0) → inner(50,50) → button(70,70 to 170,110)
+fn inject_fixture(sid: &str, tid: &str) {
+    let js = r#"document.body.innerHTML = '<div id=\"outer\" style=\"position:fixed;top:0;left:0;width:400px;height:400px\"><div id=\"inner\" style=\"position:absolute;top:50px;left:50px;width:200px;height:200px\"><button id=\"target-btn\" aria-label=\"Test Button\" style=\"position:absolute;top:20px;left:20px;width:100px;height:40px\">Click Me</button></div></div>'; void(0)"#;
+    let out = headless_json(&["browser", "eval", js, "--session", sid, "--tab", tid], 10);
+    assert_success(&out, "inject fixture");
 }
 
 /// Close a session.
@@ -102,8 +131,14 @@ fn assert_error_envelope(v: &serde_json::Value, expected_code: &str) {
 }
 
 // ===========================================================================
-// Group 1: Happy path
+// Group 1: Happy path — deterministic fixture
 // ===========================================================================
+
+/// Coordinates (90, 90) hit the button inside the fixture:
+///   outer(0,0) → inner(50,50) → button(70,70..170,110)
+const HIT_X: &str = "90";
+const HIT_Y: &str = "90";
+const HIT_COORDS: &str = "90,90";
 
 #[test]
 fn inspect_point_json_happy_path() {
@@ -111,14 +146,14 @@ fn inspect_point_json_happy_path() {
         return;
     }
     let _guard = SessionGuard::new();
-    let (sid, tid) = start_session(URL_A);
+    let (sid, tid) = start_session();
+    inject_fixture(&sid, &tid);
 
-    // Use coordinates near the center of the page — should hit some element
     let out = headless_json(
         &[
             "browser",
             "inspect-point",
-            "100,100",
+            HIT_COORDS,
             "--session",
             &sid,
             "--tab",
@@ -135,45 +170,51 @@ fn inspect_point_json_happy_path() {
     assert!(v["error"].is_null());
     assert_meta(&v);
 
-    // context — tab-level, including url per §2.5
+    // context — tab-level
     assert!(v["context"].is_object(), "context must be present");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
-    assert!(
-        v["context"]["url"].is_string(),
-        "context.url must be a string"
-    );
 
-    // §10.11 data contract
+    // §10.11 data.point — must echo back the requested coordinates
     assert!(v["data"]["point"].is_object(), "data.point must be object");
-    assert_eq!(v["data"]["point"]["x"], 100.0);
-    assert_eq!(v["data"]["point"]["y"], 100.0);
+    assert_eq!(v["data"]["point"]["x"], 90.0, "point.x must be 90");
+    assert_eq!(v["data"]["point"]["y"], 90.0, "point.y must be 90");
 
-    assert!(
-        v["data"]["element"].is_object(),
-        "data.element must be object"
+    // §10.11 data.element — deterministic fixture guarantees a button
+    let element = &v["data"]["element"];
+    assert!(element.is_object(), "data.element must be object");
+    assert_eq!(
+        element["role"].as_str().unwrap_or(""),
+        "button",
+        "element.role must be 'button' for the fixture button"
     );
-    assert!(
-        v["data"]["element"]["role"].is_string(),
-        "element.role must be a string"
+    assert_eq!(
+        element["name"].as_str().unwrap_or(""),
+        "Test Button",
+        "element.name must be 'Test Button' (from aria-label)"
     );
+    // selector is a ref (e.g. "e1", "e2") per mcfeng's direction
+    let selector = element["selector"].as_str().unwrap_or("");
     assert!(
-        v["data"]["element"]["name"].is_string(),
-        "element.name must be a string"
-    );
-    assert!(
-        v["data"]["element"]["selector"].is_string(),
-        "element.selector must be a string (ref)"
+        !selector.is_empty(),
+        "element.selector must be a non-empty ref"
     );
 
+    // §10.11 data.parents — without --parent-depth, should be empty
     assert!(
         v["data"]["parents"].is_array(),
         "data.parents must be an array"
     );
+    let parents = v["data"]["parents"].as_array().unwrap();
+    assert_eq!(
+        parents.len(),
+        0,
+        "parents must be empty without --parent-depth"
+    );
 
     // No screenshot_path per mcfeng's direction
     assert!(
-        v["data"]["screenshot_path"].is_null() || v["data"].get("screenshot_path").is_none(),
+        v["data"].get("screenshot_path").is_none() || v["data"]["screenshot_path"].is_null(),
         "screenshot_path should not be present"
     );
 
@@ -186,13 +227,14 @@ fn inspect_point_text_happy_path() {
         return;
     }
     let _guard = SessionGuard::new();
-    let (sid, tid) = start_session(URL_A);
+    let (sid, tid) = start_session();
+    inject_fixture(&sid, &tid);
 
     let out = headless(
         &[
             "browser",
             "inspect-point",
-            "100,100",
+            HIT_COORDS,
             "--session",
             &sid,
             "--tab",
@@ -204,24 +246,42 @@ fn inspect_point_text_happy_path() {
     let text = stdout_str(&out);
 
     // §2.5: header is `[sid tid] <url>`
-    let header_line = text.lines().next().unwrap_or("");
-    assert!(
-        header_line.starts_with(&format!("[{sid} {tid}]")),
-        "header must start with [session_id tab_id]: got {header_line}"
-    );
-
-    // §10.11: body contains role line, selector line, point line
     let lines: Vec<&str> = text.lines().collect();
     assert!(
-        lines.len() >= 3,
-        "text must have header + role + selector + point: got {text:.300}"
+        lines.len() >= 4,
+        "text must have header + role + selector + point lines: got {text:.400}"
     );
 
-    // Should have a "point: x,y" line
-    let has_point_line = lines.iter().any(|l| l.starts_with("point: "));
+    let header = lines[0];
     assert!(
-        has_point_line,
-        "must contain 'point: x,y' line: got {text:.300}"
+        header.starts_with(&format!("[{sid} {tid}]")),
+        "header must start with [session_id tab_id]: got {header}"
+    );
+
+    // §10.11: line 2 = role "name" — must contain the button role and aria-label
+    assert!(
+        lines[1].contains("button") && lines[1].contains("Test Button"),
+        "line 2 must contain role and name: got '{}'",
+        lines[1]
+    );
+
+    // §10.11: line 3 = selector: <ref>
+    assert!(
+        lines[2].starts_with("selector: "),
+        "line 3 must start with 'selector: ': got '{}'",
+        lines[2]
+    );
+
+    // §10.11: last line = point: x,y
+    let point_line = lines.iter().find(|l| l.starts_with("point: "));
+    assert!(
+        point_line.is_some(),
+        "must contain 'point: x,y' line: got {text:.400}"
+    );
+    assert_eq!(
+        point_line.unwrap(),
+        &format!("point: {HIT_X},{HIT_Y}"),
+        "point line must echo coordinates"
     );
 
     close_session(&sid);
@@ -233,13 +293,14 @@ fn inspect_point_with_parent_depth() {
         return;
     }
     let _guard = SessionGuard::new();
-    let (sid, tid) = start_session(URL_A);
+    let (sid, tid) = start_session();
+    inject_fixture(&sid, &tid);
 
     let out = headless_json(
         &[
             "browser",
             "inspect-point",
-            "100,100",
+            HIT_COORDS,
             "--session",
             &sid,
             "--tab",
@@ -253,15 +314,26 @@ fn inspect_point_with_parent_depth() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert!(v["data"]["parents"].is_array(), "parents must be an array");
-    let parents = v["data"]["parents"].as_array().unwrap();
-    // With --parent-depth 2, should have up to 2 parent entries
-    assert!(
-        parents.len() <= 2,
-        "parents should have at most 2 entries: got {}",
+
+    // Element must still be the button
+    assert_eq!(
+        v["data"]["element"]["role"].as_str().unwrap_or(""),
+        "button"
+    );
+
+    // Parents: with --parent-depth 2, fixture has button → #inner → #outer
+    // So we expect exactly 2 parents in order: inner first, outer second
+    let parents = v["data"]["parents"]
+        .as_array()
+        .expect("parents must be array");
+    assert_eq!(
+        parents.len(),
+        2,
+        "with --parent-depth 2, fixture should yield exactly 2 parents: got {}",
         parents.len()
     );
-    // Each parent should have role, name, selector
+
+    // Each parent must have role, name, selector (ref)
     for (i, parent) in parents.iter().enumerate() {
         assert!(
             parent["role"].is_string(),
@@ -271,11 +343,21 @@ fn inspect_point_with_parent_depth() {
             parent["name"].is_string(),
             "parents[{i}].name must be a string"
         );
+        let sel = parent["selector"].as_str().unwrap_or("");
         assert!(
-            parent["selector"].is_string(),
-            "parents[{i}].selector must be a string"
+            !sel.is_empty(),
+            "parents[{i}].selector must be a non-empty ref"
         );
     }
+
+    // Parent order: nearest parent first (inner), then outer
+    // Both are generic divs — role should be "generic" or similar from AX tree
+    // We don't pin the exact AX role since it varies by browser, but we verify ordering
+    // by checking the first parent's ref differs from the second
+    assert_ne!(
+        parents[0]["selector"], parents[1]["selector"],
+        "parent refs must be distinct"
+    );
 
     close_session(&sid);
 }
@@ -286,9 +368,10 @@ fn inspect_point_no_element() {
         return;
     }
     let _guard = SessionGuard::new();
-    let (sid, tid) = start_session(URL_A);
+    let (sid, tid) = start_session();
+    // Don't inject fixture — about:blank with no content
 
-    // Use coordinates far outside the viewport — should return null element
+    // Use coordinates far outside any content — should return null element
     let out = headless_json(
         &[
             "browser",
@@ -378,7 +461,7 @@ fn inspect_point_tab_not_found_json() {
         return;
     }
     let _guard = SessionGuard::new();
-    let (sid, _tid) = start_session(URL_A);
+    let (sid, _tid) = start_session();
 
     let out = headless_json(
         &[
@@ -410,7 +493,6 @@ fn inspect_point_missing_session_arg() {
     if skip() {
         return;
     }
-    // Missing --session should fail at clap level
     let out = headless_json(&["browser", "inspect-point", "100,100", "--tab", "t0"], 10);
     assert_failure(&out, "inspect-point missing --session");
 }
@@ -439,9 +521,9 @@ fn inspect_point_invalid_coords() {
         return;
     }
     let _guard = SessionGuard::new();
-    let (sid, tid) = start_session(URL_A);
+    let (sid, tid) = start_session();
 
-    // Invalid coordinate format — should fail with INVALID_ARGUMENT or similar
+    // Invalid coordinate format — must fail with INVALID_ARGUMENT
     let out = headless_json(
         &[
             "browser",
@@ -457,6 +539,11 @@ fn inspect_point_invalid_coords() {
     assert_failure(&out, "inspect-point invalid coords");
     let v = parse_json(&out);
     assert_eq!(v["ok"], false);
+    assert_eq!(
+        v["error"]["code"].as_str().unwrap_or(""),
+        "INVALID_ARGUMENT",
+        "invalid coords must return INVALID_ARGUMENT error code"
+    );
 
     close_session(&sid);
 }

@@ -74,7 +74,12 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     })
 }
 
-pub async fn execute(_cmd: &Cmd, _registry: &SharedRegistry) -> ActionResult {
+pub async fn execute(cmd: &Cmd, _registry: &SharedRegistry) -> ActionResult {
+    // Validate coordinates early so error tests pass against the stub
+    if let Err(e) = parse_coordinates(&cmd.coordinates) {
+        return ActionResult::fatal("INVALID_ARGUMENT", e);
+    }
+
     ActionResult::fatal(
         "NOT_IMPLEMENTED",
         "browser.inspect-point not yet implemented",
