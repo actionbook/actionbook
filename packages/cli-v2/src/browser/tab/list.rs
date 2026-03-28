@@ -45,8 +45,24 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }
     };
 
-    // Real-time fetch from Chrome
-    let targets = browser::list_targets(cdp_port).await.unwrap_or_default();
+    // Real-time fetch from Chrome (retry up to 2 times)
+    let mut targets = None;
+    for _ in 0..3 {
+        if let Ok(t) = browser::list_targets(cdp_port).await {
+            targets = Some(t);
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    let targets = match targets {
+        Some(t) => t,
+        None => {
+            return ActionResult::fatal(
+                "CDP_CONNECTION_FAILED",
+                format!("failed to fetch targets from Chrome after 3 attempts"),
+            );
+        }
+    };
 
     let tabs: Vec<serde_json::Value> = {
         let reg = registry.lock().await;
