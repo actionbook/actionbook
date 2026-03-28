@@ -1,120 +1,68 @@
 ---
 title: 'Integrate with OpenClaw'
-description: 'Integrate Actionbook as a native OpenClaw plugin for token-efficient browser automation'
+description: 'Set up Actionbook in OpenClaw from scratch'
 ---
 
-Use the official `@actionbookdev/openclaw-plugin` to give your OpenClaw agents pre-verified website selectors — no CLI needed.
+import InstallTabs from "/snippets/install-tabs.mdx";
 
-## Install
+
+Use this guide to set up Actionbook in OpenClaw.
+
+## Step 1: Install Actionbook CLI
+
+<InstallTabs />
+
+## Step 2: Run `actionbook setup`
 
 ```bash
-openclaw plugins install @actionbookdev/openclaw-plugin
+actionbook setup
 ```
 
-Requires `openclaw >= 2026.3.0`.
+During setup, make sure Skills are installed to **OpenClaw global**.
 
-Verify the plugin is loaded:
+Verify Actionbook is ready in OpenClaw:
 
 ```bash
-openclaw plugins list
+openclaw skills check
 ```
 
-You should see `actionbook` in the output with status `enabled`.
+Quick smoke test:
 
-## Configure
-
-Add Actionbook settings to your OpenClaw gateway config (`~/.openclaw/config.json5`):
-
-```json5
-{
-  plugins: {
-    entries: {
-      actionbook: {
-        enabled: true,
-        config: {
-          apiKey: "your-api-key",   // optional, reduces rate limiting
-        },
-      },
-    },
-  },
-}
+```bash
+actionbook search "github repo stars" --domain github.com
 ```
 
-Then restart the gateway:
+You should see at least one result with an `ID`.
+
+## Step 3: Disable OpenClaw built-in browser and set browser workflow to Actionbook
+
+Disable the built-in browser:
+
+```bash
+openclaw config set browser.enabled false --json
+```
+
+Then add this instruction to `~/.openclaw/workspace/TOOLS.md`:
+
+```markdown
+## Browser automation preference
+- Use Actionbook CLI for all website/browser operations.
+- Do not use the built-in OpenClaw browser tool unless explicitly asked.
+- Follow: `actionbook search` -> `actionbook get` -> operate.
+```
+
+Apply changes:
 
 ```bash
 openclaw gateway restart
 ```
 
-<Tip>
-  `apiKey` is optional — the plugin works without it but may be rate-limited. Get one at [actionbook.dev](https://actionbook.dev).
-</Tip>
+## Try it
 
-### Configuration Reference
+Ask OpenClaw:
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `apiKey` | `string` | — | API key from [actionbook.dev](https://actionbook.dev). Optional, reduces rate limiting. |
-
-## What the Plugin Provides
-
-### Tools
-
-Once installed, two tools are available to your OpenClaw agent:
-
-| Tool | Description |
-|------|-------------|
-| `search_actions` | Search for website action manuals by keyword. Returns area IDs, descriptions, and health scores. |
-| `get_action_by_area_id` | Get complete page structure with CSS, XPath, data-testid, aria-label, and role selectors. |
-
-### Skill-based Guidance
-
-The plugin bundles a skill that OpenClaw activates when the user's intent involves browser automation. The skill teaches the agent:
-- When to use Actionbook (browser automation, scraping, form filling, UI testing)
-- How to construct effective search queries
-- Selector priority (data-testid > aria-label > CSS > role)
-- Fallback strategy when selectors are outdated
-
-The agent activates the skill on demand based on user intent — no manual prompt configuration needed.
-
-## Agent Workflow
-
-Once installed, your agent follows this workflow automatically:
-
-```
-User: "Search Airbnb for listings in Tokyo"
-
-1. Agent calls search_actions({ query: "airbnb search listings Tokyo", domain: "airbnb.com" })
-   → Returns area_id: "airbnb.com:/:default"
-
-2. Agent calls get_action_by_area_id({ area_id: "airbnb.com:/:default" })
-   → Returns page structure with selectors
-
-3. Agent uses returned selectors with browser tools to execute the task
-```
-
-## Plugin Management
-
-```bash
-# Check plugin status
-openclaw plugins info actionbook
-
-# Disable temporarily
-openclaw plugins disable actionbook
-
-# Re-enable
-openclaw plugins enable actionbook
-
-# Update to latest version
-openclaw plugins update actionbook
-```
-
-## Development Mode
-
-For local development, link the plugin instead of installing from npm:
-
-```bash
-openclaw plugins install -l ./packages/openclaw-plugin
+```text
+Visit github.com/actionbook/actionbook and tell me how many stars it has.
 ```
 
 ## Next Steps
