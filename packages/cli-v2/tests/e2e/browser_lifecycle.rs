@@ -1091,7 +1091,7 @@ fn lifecycle_start_bootstraps_default_config() {
     );
     let text = std::fs::read_to_string(&path).expect("read config");
     assert!(text.contains("[browser]"));
-    assert!(text.contains("default_profile = \"default\""));
+    assert!(text.contains("default_profile = \"actionbook\""));
 
     close_session(session_id);
 }

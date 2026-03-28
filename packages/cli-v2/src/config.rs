@@ -8,7 +8,7 @@ use crate::browser::session::start::Cmd as StartCmd;
 use crate::error::CliError;
 use crate::types::Mode;
 
-const DEFAULT_PROFILE: &str = "default";
+pub(crate) const DEFAULT_PROFILE: &str = "actionbook";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -170,16 +170,11 @@ pub fn resolve_start_command(mut cmd: StartCmd) -> Result<StartCmd, CliError> {
         || env_profile.is_some()
         || config_profile.as_deref() != Some(DEFAULT_PROFILE);
 
-    cmd.profile = if explicit_profile {
-        Some(resolved_profile.clone())
-    } else {
-        None
-    };
-    cmd.effective_mode = Some(resolved_mode);
-    cmd.effective_headless = Some(resolved_headless);
-    cmd.effective_profile = Some(resolved_profile);
-    cmd.effective_executable = env_executable.or(config_executable);
-    cmd.effective_cdp_endpoint = normalize_optional(cmd.cdp_endpoint.clone())
+    cmd.mode = Some(resolved_mode);
+    cmd.headless = Some(resolved_headless);
+    cmd.profile = explicit_profile.then_some(resolved_profile);
+    cmd.executable = env_executable.or(config_executable);
+    cmd.cdp_endpoint = normalize_optional(cmd.cdp_endpoint)
         .or(env_cdp)
         .or(config_cdp);
 
@@ -245,15 +240,11 @@ mod tests {
             mode: None,
             headless: None,
             profile: None,
+            executable: None,
             open_url: None,
             cdp_endpoint: None,
             header: None,
             set_session_id: None,
-            effective_mode: None,
-            effective_headless: None,
-            effective_profile: None,
-            effective_executable: None,
-            effective_cdp_endpoint: None,
         }
     }
 
@@ -268,10 +259,9 @@ mod tests {
 
         assert!(path.exists(), "config should be bootstrapped");
         assert!(text.contains("[browser]"));
-        assert!(text.contains("default_profile = \"default\""));
-        assert_eq!(resolved.effective_mode, Some(Mode::Local));
-        assert_eq!(resolved.effective_headless, Some(false));
-        assert_eq!(resolved.effective_profile.as_deref(), Some(DEFAULT_PROFILE));
+        assert!(text.contains("default_profile = \"actionbook\""));
+        assert_eq!(resolved.mode, Some(Mode::Local));
+        assert_eq!(resolved.headless, Some(false));
         assert!(
             resolved.profile.is_none(),
             "default profile should stay implicit"
@@ -308,16 +298,12 @@ cdp_endpoint = "ws://127.0.0.1:9333/devtools/browser/config"
 
         let resolved = resolve_start_command(base_cmd()).expect("resolve");
 
-        assert_eq!(resolved.effective_mode, Some(Mode::Cloud));
-        assert_eq!(resolved.effective_headless, Some(true));
-        assert_eq!(resolved.effective_profile.as_deref(), Some("env-profile"));
+        assert_eq!(resolved.mode, Some(Mode::Cloud));
+        assert_eq!(resolved.headless, Some(true));
         assert_eq!(resolved.profile.as_deref(), Some("env-profile"));
+        assert_eq!(resolved.executable.as_deref(), Some("/env/browser"));
         assert_eq!(
-            resolved.effective_executable.as_deref(),
-            Some("/env/browser")
-        );
-        assert_eq!(
-            resolved.effective_cdp_endpoint.as_deref(),
+            resolved.cdp_endpoint.as_deref(),
             Some("ws://127.0.0.1:9444/devtools/browser/env")
         );
     }
@@ -345,12 +331,11 @@ cdp_endpoint = "ws://127.0.0.1:9333/devtools/browser/config"
 
         let resolved = resolve_start_command(cmd).expect("resolve");
 
-        assert_eq!(resolved.effective_mode, Some(Mode::Local));
-        assert_eq!(resolved.effective_headless, Some(true));
-        assert_eq!(resolved.effective_profile.as_deref(), Some("cli-profile"));
+        assert_eq!(resolved.mode, Some(Mode::Local));
+        assert_eq!(resolved.headless, Some(true));
         assert_eq!(resolved.profile.as_deref(), Some("cli-profile"));
         assert_eq!(
-            resolved.effective_cdp_endpoint.as_deref(),
+            resolved.cdp_endpoint.as_deref(),
             Some("ws://127.0.0.1:9555/devtools/browser/cli")
         );
     }
@@ -366,6 +351,6 @@ cdp_endpoint = "ws://127.0.0.1:9333/devtools/browser/config"
 
         let resolved = resolve_start_command(cmd).expect("resolve");
 
-        assert_eq!(resolved.effective_headless, Some(false));
+        assert_eq!(resolved.headless, Some(false));
     }
 }

@@ -94,15 +94,11 @@ async fn handle_browser(
                         mode: None,
                         headless: None,
                         profile: None,
+                        executable: None,
                         open_url: None,
                         cdp_endpoint: None,
                         header: None,
                         set_session_id: None,
-                        effective_mode: None,
-                        effective_headless: None,
-                        effective_profile: None,
-                        effective_executable: None,
-                        effective_cdp_endpoint: None,
                     });
                 let result = ActionResult::fatal(err.error_code(), err.to_string());
                 let duration = start.elapsed();
