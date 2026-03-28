@@ -43,17 +43,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return e,
     };
 
-    if !target_id.is_empty() {
-        if let Err(e) = cdp
-            .execute_on_tab(
-                &target_id,
-                "Page.navigate",
-                json!({ "url": final_url }),
-            )
+    if !target_id.is_empty()
+        && let Err(e) = cdp
+            .execute_on_tab(&target_id, "Page.navigate", json!({ "url": final_url }))
             .await
-        {
-            return ActionResult::fatal("NAVIGATION_FAILED", e.to_string());
-        }
+    {
+        return ActionResult::fatal("NAVIGATION_FAILED", e.to_string());
     }
 
     ActionResult::ok(json!({

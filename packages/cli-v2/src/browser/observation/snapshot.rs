@@ -39,11 +39,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     match cdp
-        .execute_on_tab(
-            &target_id,
-            "Accessibility.getFullAXTree",
-            json!({}),
-        )
+        .execute_on_tab(&target_id, "Accessibility.getFullAXTree", json!({}))
         .await
     {
         Ok(resp) => ActionResult::ok(json!({ "snapshot": resp.to_string() })),

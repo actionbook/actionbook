@@ -41,15 +41,24 @@ fn lifecycle_open_and_close_json() {
     assert!(v["data"]["session"]["headless"].is_boolean());
     assert!(v["data"]["session"]["cdp_endpoint"].is_string());
     // data.tab
-    assert!(v["data"]["tab"]["tab_id"].is_string(), "tab_id must be a string");
-    assert!(!v["data"]["tab"]["tab_id"].as_str().unwrap().is_empty(), "tab_id must not be empty");
+    assert!(
+        v["data"]["tab"]["tab_id"].is_string(),
+        "tab_id must be a string"
+    );
+    assert!(
+        !v["data"]["tab"]["tab_id"].as_str().unwrap().is_empty(),
+        "tab_id must not be empty"
+    );
     assert!(v["data"]["tab"]["url"].is_string());
     assert!(v["data"]["tab"]["title"].is_string());
     // data.reused
     assert_eq!(v["data"]["reused"], false);
     // context (special: start returns context after session creation)
     assert_eq!(v["context"]["session_id"], "local-1");
-    assert!(v["context"]["tab_id"].is_string(), "context.tab_id must be present");
+    assert!(
+        v["context"]["tab_id"].is_string(),
+        "context.tab_id must be present"
+    );
     // meta
     assert!(v["meta"]["duration_ms"].is_number());
 
@@ -486,7 +495,14 @@ fn lifecycle_close_after_operations() {
     assert_success(&out, "goto");
 
     let out = headless(
-        &["browser", "snapshot", "--session", "local-1", "--tab", tab_id],
+        &[
+            "browser",
+            "snapshot",
+            "--session",
+            "local-1",
+            "--tab",
+            tab_id,
+        ],
         30,
     );
     assert_success(&out, "snapshot");
@@ -765,34 +781,72 @@ fn lifecycle_concurrent_parallel_operations() {
 
     let out = headless_json(
         &[
-            "browser", "start", "--mode", "local", "--headless",
-            "--profile", "alpha", "--set-session-id", "alpha-session",
-            "--open-url", "https://example.com",
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            "alpha",
+            "--set-session-id",
+            "alpha-session",
+            "--open-url",
+            "https://example.com",
         ],
         30,
     );
     assert_success(&out, "start alpha");
-    let alpha_tab = parse_json(&out)["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
+    let alpha_tab = parse_json(&out)["data"]["tab"]["tab_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let out = headless_json(
         &[
-            "browser", "start", "--mode", "local", "--headless",
-            "--profile", "beta", "--set-session-id", "beta-session",
-            "--open-url", "https://example.org",
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            "beta",
+            "--set-session-id",
+            "beta-session",
+            "--open-url",
+            "https://example.org",
         ],
         30,
     );
     assert_success(&out, "start beta");
-    let beta_tab = parse_json(&out)["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
+    let beta_tab = parse_json(&out)["data"]["tab"]["tab_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     // Ensure navigation completes before parallel eval
     let out = headless(
-        &["browser", "goto", "https://example.com", "--session", "alpha-session", "--tab", &alpha_tab],
+        &[
+            "browser",
+            "goto",
+            "https://example.com",
+            "--session",
+            "alpha-session",
+            "--tab",
+            &alpha_tab,
+        ],
         30,
     );
     assert_success(&out, "goto alpha");
     let out = headless(
-        &["browser", "goto", "https://example.org", "--session", "beta-session", "--tab", &beta_tab],
+        &[
+            "browser",
+            "goto",
+            "https://example.org",
+            "--session",
+            "beta-session",
+            "--tab",
+            &beta_tab,
+        ],
         30,
     );
     assert_success(&out, "goto beta");
@@ -802,13 +856,29 @@ fn lifecycle_concurrent_parallel_operations() {
     let bt = beta_tab.clone();
     let t1 = std::thread::spawn(move || {
         headless_json(
-            &["browser", "eval", "window.location.href", "--session", "alpha-session", "--tab", &at],
+            &[
+                "browser",
+                "eval",
+                "window.location.href",
+                "--session",
+                "alpha-session",
+                "--tab",
+                &at,
+            ],
             30,
         )
     });
     let t2 = std::thread::spawn(move || {
         headless_json(
-            &["browser", "eval", "window.location.href", "--session", "beta-session", "--tab", &bt],
+            &[
+                "browser",
+                "eval",
+                "window.location.href",
+                "--session",
+                "beta-session",
+                "--tab",
+                &bt,
+            ],
             30,
         )
     });

@@ -19,18 +19,36 @@ const TEST_URL_3: &str = "https://example.org";
 
 /// Assert full meta structure per §2.4.
 fn assert_meta(v: &serde_json::Value) {
-    assert!(v["meta"]["duration_ms"].is_number(), "meta.duration_ms must be a number");
-    assert!(v["meta"]["warnings"].is_array(), "meta.warnings must be an array");
-    assert!(v["meta"]["pagination"].is_null(), "meta.pagination must be null");
-    assert!(v["meta"]["truncated"].is_boolean(), "meta.truncated must be a boolean");
+    assert!(
+        v["meta"]["duration_ms"].is_number(),
+        "meta.duration_ms must be a number"
+    );
+    assert!(
+        v["meta"]["warnings"].is_array(),
+        "meta.warnings must be an array"
+    );
+    assert!(
+        v["meta"]["pagination"].is_null(),
+        "meta.pagination must be null"
+    );
+    assert!(
+        v["meta"]["truncated"].is_boolean(),
+        "meta.truncated must be a boolean"
+    );
 }
 
 /// Assert full error envelope per §3.1 (including meta).
 fn assert_error_envelope(v: &serde_json::Value, expected_code: &str) {
     assert!(v["data"].is_null(), "data must be null on failure");
     assert_eq!(v["error"]["code"], expected_code);
-    assert!(v["error"]["message"].is_string(), "error.message must be a string");
-    assert!(v["error"]["retryable"].is_boolean(), "error.retryable must be a boolean");
+    assert!(
+        v["error"]["message"].is_string(),
+        "error.message must be a string"
+    );
+    assert!(
+        v["error"]["retryable"].is_boolean(),
+        "error.retryable must be a boolean"
+    );
     assert!(
         v["error"]["details"].is_object() || v["error"]["details"].is_null(),
         "error.details must be object or null"
@@ -46,18 +64,32 @@ fn assert_context_object(v: &serde_json::Value) {
 /// Assert a tab_id is a non-empty string (native Chrome target ID).
 fn assert_tab_id(tab_id: &serde_json::Value) {
     assert!(tab_id.is_string(), "tab_id must be a string");
-    assert!(!tab_id.as_str().unwrap().is_empty(), "tab_id must not be empty");
+    assert!(
+        !tab_id.as_str().unwrap().is_empty(),
+        "tab_id must not be empty"
+    );
 }
 
 /// Start a headless session via JSON, return (session_id, first_tab_id).
 fn start_session_json(url: &str) -> (String, String) {
     let out = headless_json(
-        &["browser", "start", "--mode", "local", "--headless", "--open-url", url],
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--open-url",
+            url,
+        ],
         30,
     );
     assert_success(&out, "start session");
     let v = parse_json(&out);
-    let sid = v["data"]["session"]["session_id"].as_str().unwrap().to_string();
+    let sid = v["data"]["session"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let tid = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
     (sid, tid)
 }
@@ -66,9 +98,17 @@ fn start_session_json(url: &str) -> (String, String) {
 fn start_named_session_json(session_id: &str, profile: &str, url: &str) -> String {
     let out = headless_json(
         &[
-            "browser", "start", "--mode", "local", "--headless",
-            "--profile", profile, "--set-session-id", session_id,
-            "--open-url", url,
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            profile,
+            "--set-session-id",
+            session_id,
+            "--open-url",
+            url,
         ],
         30,
     );
@@ -79,10 +119,7 @@ fn start_named_session_json(session_id: &str, profile: &str, url: &str) -> Strin
 
 /// Open a new tab via JSON, return tab_id.
 fn new_tab_json(session_id: &str, url: &str) -> String {
-    let out = headless_json(
-        &["browser", "new-tab", url, "--session", session_id],
-        30,
-    );
+    let out = headless_json(&["browser", "new-tab", url, "--session", session_id], 30);
     assert_success(&out, "new-tab");
     let v = parse_json(&out);
     v["data"]["tab"]["tab_id"].as_str().unwrap().to_string()
@@ -100,7 +137,9 @@ fn close_session(session_id: &str) {
 
 #[test]
 fn tab_list_tabs_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (sid, _t1) = start_session_json(TEST_URL_1);
 
@@ -132,7 +171,9 @@ fn tab_list_tabs_json() {
 
 #[test]
 fn tab_list_tabs_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (sid, _t1) = start_session_json(TEST_URL_1);
 
@@ -148,7 +189,9 @@ fn tab_list_tabs_text() {
 
 #[test]
 fn tab_list_tabs_after_new_tab_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (sid, t1) = start_session_json(TEST_URL_1);
     let t2 = new_tab_json(&sid, TEST_URL_2);
@@ -173,7 +216,9 @@ fn tab_list_tabs_after_new_tab_json() {
 
 #[test]
 fn tab_list_tabs_after_new_tab_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (sid, _t1) = start_session_json(TEST_URL_1);
     let _t2 = new_tab_json(&sid, TEST_URL_2);
@@ -193,14 +238,13 @@ fn tab_list_tabs_after_new_tab_text() {
 
 #[test]
 fn tab_new_tab_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (sid, _t1) = start_session_json(TEST_URL_1);
 
-    let out = headless_json(
-        &["browser", "new-tab", TEST_URL_2, "--session", &sid],
-        30,
-    );
+    let out = headless_json(&["browser", "new-tab", TEST_URL_2, "--session", &sid], 30);
     assert_success(&out, "new-tab json");
     let v = parse_json(&out);
 
@@ -209,7 +253,10 @@ fn tab_new_tab_json() {
     assert!(v["error"].is_null());
     assert_context_object(&v);
     assert_eq!(v["context"]["session_id"], sid);
-    assert!(v["context"]["tab_id"].is_string(), "context.tab_id should be present");
+    assert!(
+        v["context"]["tab_id"].is_string(),
+        "context.tab_id should be present"
+    );
 
     let tab = &v["data"]["tab"];
     assert_tab_id(&tab["tab_id"]);
@@ -225,17 +272,19 @@ fn tab_new_tab_json() {
 
 #[test]
 fn tab_new_tab_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (sid, _t1) = start_session_json(TEST_URL_1);
 
-    let out = headless(
-        &["browser", "new-tab", TEST_URL_2, "--session", &sid],
-        30,
-    );
+    let out = headless(&["browser", "new-tab", TEST_URL_2, "--session", &sid], 30);
     assert_success(&out, "new-tab text");
     let text = stdout_str(&out);
-    assert!(text.contains(&format!("[{sid}")), "header should contain session_id");
+    assert!(
+        text.contains(&format!("[{sid}")),
+        "header should contain session_id"
+    );
     assert!(text.contains("ok browser.new-tab"));
     assert!(text.contains("title:"));
 
@@ -244,7 +293,9 @@ fn tab_new_tab_text() {
 
 #[test]
 fn tab_new_tab_sequential_ids_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (sid, t1) = start_session_json(TEST_URL_1);
 
@@ -253,7 +304,10 @@ fn tab_new_tab_sequential_ids_json() {
 
     // All tab_ids must be unique non-empty strings
     assert!(!t1.is_empty() && !t2.is_empty() && !t3.is_empty());
-    assert!(t1 != t2 && t2 != t3 && t1 != t3, "all tab_ids must be unique");
+    assert!(
+        t1 != t2 && t2 != t3 && t1 != t3,
+        "all tab_ids must be unique"
+    );
 
     let out = headless_json(&["browser", "list-tabs", "--session", &sid], 10);
     assert_success(&out, "list-tabs 3 tabs");
@@ -265,14 +319,13 @@ fn tab_new_tab_sequential_ids_json() {
 
 #[test]
 fn tab_new_tab_alias_open_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (sid, _t1) = start_session_json(TEST_URL_1);
 
-    let out = headless_json(
-        &["browser", "open", TEST_URL_2, "--session", &sid],
-        30,
-    );
+    let out = headless_json(&["browser", "open", TEST_URL_2, "--session", &sid], 30);
     assert_success(&out, "browser open alias");
     let v = parse_json(&out);
 
@@ -297,7 +350,9 @@ fn tab_new_tab_alias_open_json() {
 
 #[test]
 fn tab_close_tab_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (sid, _t1) = start_session_json(TEST_URL_1);
     let t2 = new_tab_json(&sid, TEST_URL_2);
@@ -323,7 +378,9 @@ fn tab_close_tab_json() {
 
 #[test]
 fn tab_close_tab_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (sid, _t1) = start_session_json(TEST_URL_1);
     let t2 = new_tab_json(&sid, TEST_URL_2);
@@ -342,14 +399,19 @@ fn tab_close_tab_text() {
 
 #[test]
 fn tab_close_tab_then_list_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (sid, t1) = start_session_json(TEST_URL_1);
     let t2 = new_tab_json(&sid, TEST_URL_2);
     let t3 = new_tab_json(&sid, TEST_URL_3);
 
     // Close t2
-    let out = headless(&["browser", "close-tab", "--session", &sid, "--tab", &t2], 30);
+    let out = headless(
+        &["browser", "close-tab", "--session", &sid, "--tab", &t2],
+        30,
+    );
     assert_success(&out, "close t2");
 
     let out = headless_json(&["browser", "list-tabs", "--session", &sid], 10);
@@ -371,7 +433,9 @@ fn tab_close_tab_then_list_json() {
 
 #[test]
 fn tab_list_tabs_nonexistent_session_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let out = headless_json(&["browser", "list-tabs", "--session", "nonexistent"], 10);
     assert_failure(&out, "list-tabs nonexistent session");
@@ -384,7 +448,9 @@ fn tab_list_tabs_nonexistent_session_json() {
 
 #[test]
 fn tab_list_tabs_nonexistent_session_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let out = headless(&["browser", "list-tabs", "--session", "nonexistent"], 10);
     assert_failure(&out, "list-tabs nonexistent session text");
@@ -394,9 +460,14 @@ fn tab_list_tabs_nonexistent_session_text() {
 
 #[test]
 fn tab_new_tab_nonexistent_session_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
-    let out = headless_json(&["browser", "new-tab", TEST_URL_1, "--session", "nonexistent"], 10);
+    let out = headless_json(
+        &["browser", "new-tab", TEST_URL_1, "--session", "nonexistent"],
+        10,
+    );
     assert_failure(&out, "new-tab nonexistent session");
     let v = parse_json(&out);
     assert_eq!(v["ok"], false);
@@ -407,9 +478,14 @@ fn tab_new_tab_nonexistent_session_json() {
 
 #[test]
 fn tab_new_tab_nonexistent_session_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
-    let out = headless(&["browser", "new-tab", TEST_URL_1, "--session", "nonexistent"], 10);
+    let out = headless(
+        &["browser", "new-tab", TEST_URL_1, "--session", "nonexistent"],
+        10,
+    );
     assert_failure(&out, "new-tab nonexistent session text");
     let text = stdout_str(&out);
     assert!(text.contains("error SESSION_NOT_FOUND:"));
@@ -417,10 +493,19 @@ fn tab_new_tab_nonexistent_session_text() {
 
 #[test]
 fn tab_close_tab_nonexistent_session_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let out = headless_json(
-        &["browser", "close-tab", "--session", "nonexistent", "--tab", "fake"],
+        &[
+            "browser",
+            "close-tab",
+            "--session",
+            "nonexistent",
+            "--tab",
+            "fake",
+        ],
         10,
     );
     assert_failure(&out, "close-tab nonexistent session");
@@ -433,10 +518,19 @@ fn tab_close_tab_nonexistent_session_json() {
 
 #[test]
 fn tab_close_tab_nonexistent_session_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let out = headless(
-        &["browser", "close-tab", "--session", "nonexistent", "--tab", "fake"],
+        &[
+            "browser",
+            "close-tab",
+            "--session",
+            "nonexistent",
+            "--tab",
+            "fake",
+        ],
         10,
     );
     assert_failure(&out, "close-tab nonexistent session text");
@@ -446,11 +540,20 @@ fn tab_close_tab_nonexistent_session_text() {
 
 #[test]
 fn tab_close_tab_nonexistent_tab_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (sid, _t1) = start_session_json(TEST_URL_1);
     let out = headless_json(
-        &["browser", "close-tab", "--session", &sid, "--tab", "nonexistent-tab-id"],
+        &[
+            "browser",
+            "close-tab",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
         10,
     );
     assert_failure(&out, "close-tab nonexistent tab");
@@ -458,7 +561,10 @@ fn tab_close_tab_nonexistent_tab_json() {
     assert_eq!(v["ok"], false);
     assert_eq!(v["command"], "browser.close-tab");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
-    assert!(v["context"].is_object(), "context should be present when session found");
+    assert!(
+        v["context"].is_object(),
+        "context should be present when session found"
+    );
     assert_eq!(v["context"]["session_id"], sid);
 
     close_session(&sid);
@@ -466,11 +572,20 @@ fn tab_close_tab_nonexistent_tab_json() {
 
 #[test]
 fn tab_close_tab_nonexistent_tab_text() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (sid, _t1) = start_session_json(TEST_URL_1);
     let out = headless(
-        &["browser", "close-tab", "--session", &sid, "--tab", "nonexistent-tab-id"],
+        &[
+            "browser",
+            "close-tab",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
         10,
     );
     assert_failure(&out, "close-tab nonexistent tab text");
@@ -482,20 +597,28 @@ fn tab_close_tab_nonexistent_tab_text() {
 
 #[test]
 fn tab_close_tab_double_close_json() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (sid, _t1) = start_session_json(TEST_URL_1);
     let t2 = new_tab_json(&sid, TEST_URL_2);
 
     // First close: success
-    let out = headless_json(&["browser", "close-tab", "--session", &sid, "--tab", &t2], 30);
+    let out = headless_json(
+        &["browser", "close-tab", "--session", &sid, "--tab", &t2],
+        30,
+    );
     assert_success(&out, "first close");
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["closed_tab_id"], t2);
 
     // Second close: TAB_NOT_FOUND
-    let out = headless_json(&["browser", "close-tab", "--session", &sid, "--tab", &t2], 30);
+    let out = headless_json(
+        &["browser", "close-tab", "--session", &sid, "--tab", &t2],
+        30,
+    );
     assert_failure(&out, "second close should fail");
     let v = parse_json(&out);
     assert_eq!(v["ok"], false);
@@ -510,25 +633,39 @@ fn tab_close_tab_double_close_json() {
 
 #[test]
 fn tab_concurrent_multi_tab_same_session() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
     let (sid, t1) = start_session_json(TEST_URL_1);
     let t2 = new_tab_json(&sid, TEST_URL_2);
     let t3 = new_tab_json(&sid, TEST_URL_3);
 
     // Parallel eval on t1, t2, t3 — all through the same persistent CDP connection
-    let sid1 = sid.clone(); let t1c = t1.clone();
-    let sid2 = sid.clone(); let t2c = t2.clone();
-    let sid3 = sid.clone(); let t3c = t3.clone();
+    let sid1 = sid.clone();
+    let t1c = t1.clone();
+    let sid2 = sid.clone();
+    let t2c = t2.clone();
+    let sid3 = sid.clone();
+    let t3c = t3.clone();
 
     let h1 = std::thread::spawn(move || {
-        headless_json(&["browser", "eval", "1+1", "--session", &sid1, "--tab", &t1c], 30)
+        headless_json(
+            &["browser", "eval", "1+1", "--session", &sid1, "--tab", &t1c],
+            30,
+        )
     });
     let h2 = std::thread::spawn(move || {
-        headless_json(&["browser", "eval", "1+1", "--session", &sid2, "--tab", &t2c], 30)
+        headless_json(
+            &["browser", "eval", "1+1", "--session", &sid2, "--tab", &t2c],
+            30,
+        )
     });
     let h3 = std::thread::spawn(move || {
-        headless_json(&["browser", "eval", "1+1", "--session", &sid3, "--tab", &t3c], 30)
+        headless_json(
+            &["browser", "eval", "1+1", "--session", &sid3, "--tab", &t3c],
+            30,
+        )
     });
 
     let out1 = h1.join().expect("thread t1");
@@ -557,7 +694,9 @@ fn tab_concurrent_multi_tab_same_session() {
 
 #[test]
 fn tab_concurrent_multi_tab_cross_session() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
 
     let _ta = start_named_session_json("session-a", "profile-a", TEST_URL_1);
@@ -588,7 +727,9 @@ fn tab_concurrent_multi_tab_cross_session() {
 
 #[test]
 fn tab_concurrent_close_tabs_cross_session() {
-    if skip() { return; }
+    if skip() {
+        return;
+    }
     let _guard = SessionGuard::new();
 
     let _tx = start_named_session_json("session-x", "profile-x", TEST_URL_1);
@@ -599,10 +740,30 @@ fn tab_concurrent_close_tabs_cross_session() {
     let tx_clone = t2x.clone();
     let ty_clone = t2y.clone();
     let hx = std::thread::spawn(move || {
-        headless_json(&["browser", "close-tab", "--session", "session-x", "--tab", &tx_clone], 30)
+        headless_json(
+            &[
+                "browser",
+                "close-tab",
+                "--session",
+                "session-x",
+                "--tab",
+                &tx_clone,
+            ],
+            30,
+        )
     });
     let hy = std::thread::spawn(move || {
-        headless_json(&["browser", "close-tab", "--session", "session-y", "--tab", &ty_clone], 30)
+        headless_json(
+            &[
+                "browser",
+                "close-tab",
+                "--session",
+                "session-y",
+                "--tab",
+                &ty_clone,
+            ],
+            30,
+        )
     });
 
     let out_x = hx.join().unwrap();
