@@ -31,6 +31,7 @@ pub enum Action {
     Eval(interaction::eval::Cmd),
     Click(interaction::click::Cmd),
     Type(interaction::type_text::Cmd),
+    Fill(interaction::fill::Cmd),
 }
 
 impl Action {
@@ -53,6 +54,7 @@ impl Action {
             Action::Eval(_) => interaction::eval::COMMAND_NAME,
             Action::Click(_) => interaction::click::COMMAND_NAME,
             Action::Type(_) => interaction::type_text::COMMAND_NAME,
+            Action::Fill(_) => interaction::fill::COMMAND_NAME,
         }
     }
 }

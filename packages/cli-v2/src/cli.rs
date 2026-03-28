@@ -118,16 +118,7 @@ pub enum BrowserCommands {
     /// Click an element
     Click(interaction::click::Cmd),
     /// Fill an input field
-    Fill {
-        /// Selector
-        selector: String,
-        /// Value to fill
-        value: String,
-        #[arg(long)]
-        session: String,
-        #[arg(long)]
-        tab: String,
-    },
+    Fill(interaction::fill::Cmd),
     /// Type text (keystroke by keystroke)
     Type(interaction::type_text::Cmd),
 }
@@ -161,6 +152,7 @@ impl BrowserCommands {
             Self::Eval(cmd) => Action::Eval(cmd.clone()),
             Self::Click(cmd) => Action::Click(cmd.clone()),
             Self::Type(cmd) => Action::Type(cmd.clone()),
+            Self::Fill(cmd) => Action::Fill(cmd.clone()),
             _ => return None,
         })
     }
@@ -184,7 +176,7 @@ impl BrowserCommands {
             Self::Screenshot { .. } => "browser.screenshot",
             Self::Eval(_) => interaction::eval::COMMAND_NAME,
             Self::Click(_) => interaction::click::COMMAND_NAME,
-            Self::Fill { .. } => "browser.fill",
+            Self::Fill(_) => interaction::fill::COMMAND_NAME,
             Self::Type(_) => interaction::type_text::COMMAND_NAME,
         }
     }
@@ -226,8 +218,8 @@ impl BrowserCommands {
             ),
             Self::Click(cmd) => interaction::click::context(cmd, result),
             Self::Type(cmd) => interaction::type_text::context(cmd, result),
-            Self::Screenshot { session, tab, .. }
-            | Self::Fill { session, tab, .. } => tab_context(session, tab),
+            Self::Fill(cmd) => interaction::fill::context(cmd, result),
+            Self::Screenshot { session, tab, .. } => tab_context(session, tab),
         }
     }
 }
