@@ -94,6 +94,13 @@ fn start_session(url: &str) -> (String, String) {
         .unwrap()
         .to_string();
     let tid = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
+    // --open-url starts loading but does not block until load completes.
+    // Explicit goto ensures the page is fully loaded before tests query the URL.
+    let goto_out = headless_json(
+        &["browser", "goto", url, "--session", &sid, "--tab", &tid],
+        30,
+    );
+    assert_success(&goto_out, "goto after start");
     (sid, tid)
 }
 
