@@ -202,7 +202,3 @@ pub fn parse_json(out: &Output) -> serde_json::Value {
 pub fn config_path() -> std::path::PathBuf {
     std::path::Path::new(&shared_env().actionbook_home).join("config.toml")
 }
-
-pub fn profiles_dir() -> std::path::PathBuf {
-    std::path::Path::new(&shared_env().actionbook_home).join("profiles")
-}

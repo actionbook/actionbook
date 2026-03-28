@@ -18,8 +18,8 @@ pub struct Cmd {
     #[arg(long, value_enum)]
     pub mode: Option<Mode>,
     /// Headless mode
-    #[arg(long)]
-    pub headless: bool,
+    #[arg(long, default_missing_value = "true", num_args = 0..=1)]
+    pub headless: Option<bool>,
     /// Profile name
     #[arg(long)]
     pub profile: Option<String>,
@@ -75,7 +75,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let mode = cmd
         .effective_mode
         .unwrap_or(cmd.mode.unwrap_or(Mode::Local));
-    let headless = cmd.effective_headless.unwrap_or(cmd.headless);
+    let headless = cmd
+        .effective_headless
+        .unwrap_or(cmd.headless.unwrap_or(false));
     let profile_name = cmd
         .effective_profile
         .as_deref()

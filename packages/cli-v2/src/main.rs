@@ -92,7 +92,7 @@ async fn handle_browser(
                 let failed_command =
                     BrowserCommands::Start(actionbook_cli::browser::session::start::Cmd {
                         mode: None,
-                        headless: false,
+                        headless: None,
                         profile: None,
                         open_url: None,
                         cdp_endpoint: None,

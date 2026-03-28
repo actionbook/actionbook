@@ -66,7 +66,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     let start_cmd = super::start::Cmd {
         mode: Some(mode),
-        headless,
+        // Restart preserves the session's effective runtime settings and
+        // intentionally does not re-run config/env resolution.
+        headless: Some(headless),
         profile: Some(profile),
         open_url,
         cdp_endpoint: None,

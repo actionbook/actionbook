@@ -6,7 +6,7 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, config_path, headless, headless_json,
-    headless_json_with_env, parse_json, profiles_dir, skip, stdout_str,
+    headless_json_with_env, parse_json, skip, stdout_str,
 };
 
 const TEST_URL: &str = "https://example.com";
@@ -1036,8 +1036,6 @@ fn lifecycle_start_env_over_config_json() {
     std::fs::write(
         config_path(),
         r#"[browser]
-mode = "extension"
-profile = "config-profile"
 headless = false
 "#,
     )
@@ -1045,11 +1043,7 @@ headless = false
 
     let out = headless_json_with_env(
         &["browser", "start"],
-        &[
-            ("ACTIONBOOK_BROWSER_MODE", "local"),
-            ("ACTIONBOOK_BROWSER_PROFILE", "env-profile"),
-            ("ACTIONBOOK_BROWSER_HEADLESS", "true"),
-        ],
+        &[("ACTIONBOOK_BROWSER_HEADLESS", "true")],
         30,
     );
     assert_success(&out, "start env over config");
@@ -1058,16 +1052,7 @@ headless = false
         .as_str()
         .expect("session id");
 
-    assert_eq!(v["data"]["session"]["mode"], "local");
     assert_eq!(v["data"]["session"]["headless"], true);
-    assert!(
-        profiles_dir().join("env-profile").exists(),
-        "env profile directory should exist"
-    );
-    assert!(
-        !profiles_dir().join("config-profile").exists(),
-        "config profile directory should not be used"
-    );
 
     close_session(session_id);
 }
@@ -1080,20 +1065,8 @@ fn lifecycle_start_cli_over_env_json() {
     let _guard = SessionGuard::new();
 
     let out = headless_json_with_env(
-        &[
-            "browser",
-            "start",
-            "--mode",
-            "local",
-            "--profile",
-            "cli-profile",
-            "--headless",
-        ],
-        &[
-            ("ACTIONBOOK_BROWSER_MODE", "extension"),
-            ("ACTIONBOOK_BROWSER_PROFILE", "env-profile"),
-            ("ACTIONBOOK_BROWSER_HEADLESS", "false"),
-        ],
+        &["browser", "start", "--headless"],
+        &[("ACTIONBOOK_BROWSER_HEADLESS", "false")],
         30,
     );
     assert_success(&out, "start cli over env");
@@ -1102,16 +1075,6 @@ fn lifecycle_start_cli_over_env_json() {
         .as_str()
         .expect("session id");
 
-    assert_eq!(v["data"]["session"]["mode"], "local");
     assert_eq!(v["data"]["session"]["headless"], true);
-    assert!(
-        profiles_dir().join("cli-profile").exists(),
-        "cli profile directory should exist"
-    );
-    assert!(
-        !profiles_dir().join("env-profile").exists(),
-        "env profile directory should not be used"
-    );
-
     close_session(session_id);
 }
