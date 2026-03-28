@@ -69,6 +69,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             let _ = child.kill();
             let _ = child.wait();
         }
+
+        // Clean up snapshot RefCaches for this session
+        reg.clear_session_ref_caches(&cmd.session);
     }
 
     let start_cmd = super::start::Cmd {

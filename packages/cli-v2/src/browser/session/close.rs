@@ -52,6 +52,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         });
     }
 
+    // Clean up snapshot RefCaches for this session
+    reg.clear_session_ref_caches(&cmd.session);
+
     ActionResult::ok(json!({
         "session_id": cmd.session,
         "status": "closed",

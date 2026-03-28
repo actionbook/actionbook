@@ -80,6 +80,11 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
+    // Reject --selector until P2 implementation (requires CDP DOM.querySelector)
+    if cmd.selector.is_some() {
+        return ActionResult::fatal("UNSUPPORTED_OPERATION", "--selector is not yet implemented");
+    }
+
     let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
@@ -94,23 +99,37 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return crate::daemon::cdp_session::cdp_error_to_result(e, "INTERNAL_ERROR"),
     };
 
-    // Get url/title and RefCache from registry (single lock)
-    let (url, title, mut ref_cache) = {
+    // Query live url/title from CDP (not registry — avoids stale data after navigation)
+    let url = cdp
+        .execute_on_tab(
+            &target_id,
+            "Runtime.evaluate",
+            json!({"expression": "location.href"}),
+        )
+        .await
+        .ok()
+        .and_then(|v| v["result"]["result"]["value"].as_str().map(String::from));
+    let title = cdp
+        .execute_on_tab(
+            &target_id,
+            "Runtime.evaluate",
+            json!({"expression": "document.title"}),
+        )
+        .await
+        .ok()
+        .and_then(|v| v["result"]["result"]["value"].as_str().map(String::from));
+
+    // Get RefCache from registry
+    let mut ref_cache = {
         let mut reg = registry.lock().await;
-        let (url, title) = reg.get_tab_url_title(&cmd.session, &cmd.tab);
-        let cache = reg.take_ref_cache(&cmd.session, &cmd.tab);
-        (url, title, cache)
+        reg.take_ref_cache(&cmd.session, &cmd.tab)
     };
 
-    // Build transform options from CLI flags
-    // TODO(P2): --selector requires CDP DOM.querySelector to resolve CSS selector
-    // to backendNodeId, then filter the AX subtree. Currently passed through but
-    // not applied in parse_ax_tree — needs apply_selector() integration.
     let options = SnapshotOptions {
         interactive: cmd.interactive,
         compact: cmd.compact,
         depth: cmd.depth.map(|d| d as usize),
-        selector: cmd.selector.clone(),
+        selector: None,
     };
 
     // Parse and transform the AX tree

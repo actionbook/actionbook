@@ -476,16 +476,7 @@ fn snap_selector_flag_limits_subtree() {
     let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
 
-    // Full snapshot
-    let out_full = headless_json(
-        &["browser", "snapshot", "--session", &sid, "--tab", &tid],
-        30,
-    );
-    assert_success(&out_full, "snapshot full");
-    let v_full = parse_json(&out_full);
-    let full_count = v_full["data"]["stats"]["node_count"].as_u64().unwrap_or(0);
-
-    // Selector-limited snapshot (body = top-level container)
+    // --selector is not yet implemented — must return UNSUPPORTED_OPERATION error
     let out_sel = headless_json(
         &[
             "browser",
@@ -499,16 +490,11 @@ fn snap_selector_flag_limits_subtree() {
         ],
         30,
     );
-    assert_success(&out_sel, "snapshot selector body");
+    assert_failure(&out_sel, "snapshot selector not implemented");
     let v_sel = parse_json(&out_sel);
-    assert_snapshot_data(&v_sel);
-
-    let sel_count = v_sel["data"]["stats"]["node_count"].as_u64().unwrap_or(0);
-
-    // Selector snapshot must return fewer or equal nodes (body is a subtree of page)
-    assert!(
-        sel_count <= full_count,
-        "--selector body must return <= nodes than full snapshot: {sel_count} > {full_count}"
+    assert_eq!(
+        v_sel["error"]["code"], "UNSUPPORTED_OPERATION",
+        "--selector must return UNSUPPORTED_OPERATION until implemented"
     );
 
     close_session(&sid);
