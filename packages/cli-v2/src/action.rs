@@ -32,6 +32,7 @@ pub enum Action {
     Click(interaction::click::Cmd),
     Type(interaction::type_text::Cmd),
     Fill(interaction::fill::Cmd),
+    Select(interaction::select::Cmd),
 }
 
 impl Action {
@@ -55,6 +56,7 @@ impl Action {
             Action::Click(_) => interaction::click::COMMAND_NAME,
             Action::Type(_) => interaction::type_text::COMMAND_NAME,
             Action::Fill(_) => interaction::fill::COMMAND_NAME,
+            Action::Select(_) => interaction::select::COMMAND_NAME,
         }
     }
 }

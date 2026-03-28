@@ -121,6 +121,8 @@ pub enum BrowserCommands {
     Fill(interaction::fill::Cmd),
     /// Type text (keystroke by keystroke)
     Type(interaction::type_text::Cmd),
+    /// Select a value from a dropdown
+    Select(interaction::select::Cmd),
 }
 
 impl BrowserCommands {
@@ -153,6 +155,7 @@ impl BrowserCommands {
             Self::Click(cmd) => Action::Click(cmd.clone()),
             Self::Type(cmd) => Action::Type(cmd.clone()),
             Self::Fill(cmd) => Action::Fill(cmd.clone()),
+            Self::Select(cmd) => Action::Select(cmd.clone()),
             _ => return None,
         })
     }
@@ -178,6 +181,7 @@ impl BrowserCommands {
             Self::Click(_) => interaction::click::COMMAND_NAME,
             Self::Fill(_) => interaction::fill::COMMAND_NAME,
             Self::Type(_) => interaction::type_text::COMMAND_NAME,
+            Self::Select(_) => interaction::select::COMMAND_NAME,
         }
     }
 
@@ -219,6 +223,7 @@ impl BrowserCommands {
             Self::Click(cmd) => interaction::click::context(cmd, result),
             Self::Type(cmd) => interaction::type_text::context(cmd, result),
             Self::Fill(cmd) => interaction::fill::context(cmd, result),
+            Self::Select(cmd) => interaction::select::context(cmd, result),
             Self::Screenshot { session, tab, .. } => tab_context(session, tab),
         }
     }

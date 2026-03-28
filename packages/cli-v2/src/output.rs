@@ -180,6 +180,7 @@ pub fn format_text(
                     | "browser.click"
                     | "browser.type"
                     | "browser.fill"
+                    | "browser.select"
                     | "browser.new-tab"
                     | "browser.close-tab"
             );
@@ -320,6 +321,23 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 .and_then(|v| v.as_u64())
             {
                 lines.push(format!("text_length: {len}"));
+            }
+        }
+        "browser.select" => {
+            if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
+                lines.push(format!("target: {sel}"));
+            }
+            if let Some(val) = data
+                .pointer("/value_summary/value")
+                .and_then(|v| v.as_str())
+            {
+                lines.push(format!("value: {val}"));
+            }
+            if let Some(by_text) = data
+                .pointer("/value_summary/by_text")
+                .and_then(|v| v.as_bool())
+            {
+                lines.push(format!("by_text: {by_text}"));
             }
         }
         "browser.click" => {
