@@ -47,20 +47,27 @@ async fn main() {
     match result {
         Ok(()) => {}
         Err(e) => {
+            let (code, hint) = match e.downcast_ref::<actionbook_cli::error::CliError>() {
+                Some(cli_err) => (cli_err.error_code().to_string(), cli_err.hint().to_string()),
+                None => ("INTERNAL_ERROR".to_string(), String::new()),
+            };
             if json_output && !is_setup_command {
                 let envelope = JsonEnvelope::error(
                     "unknown",
                     None,
-                    "INTERNAL_ERROR",
+                    &code,
                     &e.to_string(),
                     false,
                     serde_json::Value::Null,
-                    "",
+                    &hint,
                     std::time::Duration::ZERO,
                 );
                 println!("{}", serde_json::to_string(&envelope).unwrap_or_default());
             } else {
-                eprintln!("error: {e}");
+                eprintln!("error {code}: {e}");
+                if !hint.is_empty() {
+                    eprintln!("hint: {hint}");
+                }
             }
             std::process::exit(1);
         }

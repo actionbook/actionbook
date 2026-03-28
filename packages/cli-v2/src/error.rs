@@ -42,6 +42,8 @@ pub enum CliError {
     MissingCdpEndpoint,
     #[error("cloud connection lost: {0}")]
     CloudConnectionLost(String),
+    #[error("version mismatch: cli={cli}, daemon={daemon}")]
+    VersionMismatch { cli: String, daemon: String },
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -69,7 +71,18 @@ impl CliError {
             CliError::Http(_) => "HTTP_ERROR",
             CliError::MissingCdpEndpoint => "MISSING_CDP_ENDPOINT",
             CliError::CloudConnectionLost(_) => "CLOUD_CONNECTION_LOST",
+            CliError::VersionMismatch { .. } => "VERSION_MISMATCH",
             CliError::Internal(_) => "INTERNAL_ERROR",
+        }
+    }
+
+    pub fn hint(&self) -> &str {
+        match self {
+            CliError::VersionMismatch { .. } => {
+                "daemon is outdated. Kill the daemon process and retry"
+            }
+            CliError::DaemonNotRunning => "run a browser command to auto-start the daemon",
+            _ => "",
         }
     }
 

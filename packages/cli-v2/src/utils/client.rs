@@ -19,9 +19,11 @@ impl DaemonClient {
     /// Connect to the daemon, auto-starting it if needed.
     pub async fn connect() -> Result<Self, CliError> {
         let path = server::socket_path();
+        let ready_path = path.with_extension("ready");
 
         // Try connecting first
         if let Ok(stream) = UnixStream::connect(&path).await {
+            check_version(&ready_path)?;
             let (reader, writer) = tokio::io::split(stream);
             return Ok(DaemonClient { reader, writer });
         }
@@ -32,11 +34,11 @@ impl DaemonClient {
         }
 
         // Wait for daemon to be ready (up to 10 seconds)
-        let ready_path = path.with_extension("ready");
         for _ in 0..100 {
             if ready_path.exists()
                 && let Ok(stream) = UnixStream::connect(&path).await
             {
+                check_version(&ready_path)?;
                 let (reader, writer) = tokio::io::split(stream);
                 return Ok(DaemonClient { reader, writer });
             }
@@ -56,6 +58,17 @@ impl DaemonClient {
         let response: wire::Response = serde_json::from_slice(&response_payload)?;
         Ok(response.result)
     }
+}
+
+fn check_version(ready_path: &std::path::Path) -> Result<(), CliError> {
+    let daemon_version = std::fs::read_to_string(ready_path).unwrap_or_default();
+    if daemon_version != crate::BUILD_VERSION {
+        return Err(CliError::VersionMismatch {
+            cli: crate::BUILD_VERSION.to_string(),
+            daemon: daemon_version,
+        });
+    }
+    Ok(())
 }
 
 fn auto_start_daemon() -> Result<(), CliError> {

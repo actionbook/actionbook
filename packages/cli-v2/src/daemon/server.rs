@@ -113,10 +113,14 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let listener = UnixListener::bind(&path)?;
-    info!("daemon listening on {}", path.display());
+    info!(
+        "daemon listening on {} (version {})",
+        path.display(),
+        crate::BUILD_VERSION
+    );
 
-    // Write ready signal
-    std::fs::write(&ready_path, "ready")?;
+    // Write ready signal with build version for CLI version check
+    std::fs::write(&ready_path, crate::BUILD_VERSION)?;
 
     let registry = new_shared_registry();
 
