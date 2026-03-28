@@ -64,10 +64,12 @@ fn start_session() -> (String, String) {
 
 /// Inject a deterministic DOM fixture with known positions and parent chain.
 ///
-/// Structure:
+/// Structure (aria-labels on all containers for verifiable parent ordering):
 /// ```html
-/// <div id="outer" style="position:fixed;top:0;left:0;width:400px;height:400px">
-///   <div id="inner" style="position:absolute;top:50px;left:50px;width:200px;height:200px">
+/// <div id="outer" aria-label="Outer Container"
+///      style="position:fixed;top:0;left:0;width:400px;height:400px">
+///   <div id="inner" aria-label="Inner Container"
+///        style="position:absolute;top:50px;left:50px;width:200px;height:200px">
 ///     <button id="target-btn" aria-label="Test Button"
 ///             style="position:absolute;top:20px;left:20px;width:100px;height:40px">
 ///       Click Me
@@ -78,8 +80,11 @@ fn start_session() -> (String, String) {
 ///
 /// The button at (90, 90) — inside the fixed-position tree:
 ///   outer(0,0) → inner(50,50) → button(70,70 to 170,110)
+///
+/// Parent ordering with --parent-depth 2:
+///   parents[0] = Inner Container (nearest), parents[1] = Outer Container
 fn inject_fixture(sid: &str, tid: &str) {
-    let js = r#"document.body.innerHTML = '<div id=\"outer\" style=\"position:fixed;top:0;left:0;width:400px;height:400px\"><div id=\"inner\" style=\"position:absolute;top:50px;left:50px;width:200px;height:200px\"><button id=\"target-btn\" aria-label=\"Test Button\" style=\"position:absolute;top:20px;left:20px;width:100px;height:40px\">Click Me</button></div></div>'; void(0)"#;
+    let js = r#"document.body.innerHTML = '<div id=\"outer\" aria-label=\"Outer Container\" style=\"position:fixed;top:0;left:0;width:400px;height:400px\"><div id=\"inner\" aria-label=\"Inner Container\" style=\"position:absolute;top:50px;left:50px;width:200px;height:200px\"><button id=\"target-btn\" aria-label=\"Test Button\" style=\"position:absolute;top:20px;left:20px;width:100px;height:40px\">Click Me</button></div></div>'; void(0)"#;
     let out = headless_json(&["browser", "eval", js, "--session", sid, "--tab", tid], 10);
     assert_success(&out, "inject fixture");
 }
@@ -170,10 +175,14 @@ fn inspect_point_json_happy_path() {
     assert!(v["error"].is_null());
     assert_meta(&v);
 
-    // context — tab-level
+    // context — tab-level, including url per §2.5
     assert!(v["context"].is_object(), "context must be present");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
+    assert!(
+        v["context"]["url"].is_string(),
+        "context.url must be a string (even for about:blank)"
+    );
 
     // §10.11 data.point — must echo back the requested coordinates
     assert!(v["data"]["point"].is_object(), "data.point must be object");
@@ -256,6 +265,11 @@ fn inspect_point_text_happy_path() {
     assert!(
         header.starts_with(&format!("[{sid} {tid}]")),
         "header must start with [session_id tab_id]: got {header}"
+    );
+    // §2.5: header must include URL (even about:blank)
+    assert!(
+        header.contains("about:blank"),
+        "header must contain URL per §2.5: got {header}"
     );
 
     // §10.11: line 2 = role "name" — must contain the button role and aria-label
@@ -350,10 +364,19 @@ fn inspect_point_with_parent_depth() {
         );
     }
 
-    // Parent order: nearest parent first (inner), then outer
-    // Both are generic divs — role should be "generic" or similar from AX tree
-    // We don't pin the exact AX role since it varies by browser, but we verify ordering
-    // by checking the first parent's ref differs from the second
+    // Parent order: nearest parent first (inner div), then outer div.
+    // The fixture gives both containers distinct aria-labels so we can pin order exactly.
+    assert_eq!(
+        parents[0]["name"].as_str().unwrap_or(""),
+        "Inner Container",
+        "parents[0] must be the inner div (nearest parent)"
+    );
+    assert_eq!(
+        parents[1]["name"].as_str().unwrap_or(""),
+        "Outer Container",
+        "parents[1] must be the outer div"
+    );
+    // Refs must be distinct
     assert_ne!(
         parents[0]["selector"], parents[1]["selector"],
         "parent refs must be distinct"
