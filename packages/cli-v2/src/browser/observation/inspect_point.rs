@@ -85,11 +85,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return ActionResult::fatal("INVALID_ARGUMENT", e),
     };
 
-    let (cdp, target_id) =
-        match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
-            Ok(v) => v,
-            Err(e) => return e,
-        };
+    let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
 
     let url = crate::browser::navigation::get_tab_url(&cdp, &target_id).await;
 
@@ -99,8 +98,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         reg.take_ref_cache(&cmd.session, &cmd.tab)
     };
 
-    let result =
-        inspect_at_point(&cdp, &target_id, x, y, cmd.parent_depth, &mut ref_cache).await;
+    let result = inspect_at_point(&cdp, &target_id, x, y, cmd.parent_depth, &mut ref_cache).await;
 
     // Store RefCache back
     {
@@ -198,7 +196,10 @@ async fn get_ax_info_for_backend_node(
         .and_then(|arr| arr.first());
 
     let (role, name) = if let Some(node) = nodes {
-        let role = node["role"]["value"].as_str().unwrap_or("generic").to_string();
+        let role = node["role"]["value"]
+            .as_str()
+            .unwrap_or("generic")
+            .to_string();
         let name = node["name"]["value"].as_str().unwrap_or("").to_string();
         (role, name)
     } else {
@@ -242,11 +243,7 @@ async fn collect_parents(
     // DOM.getAncestors returns all ancestors from immediate parent to document root.
     // Take the first `depth` element-type ancestors.
     let ancestors_resp = cdp
-        .execute_on_tab(
-            target_id,
-            "DOM.getAncestors",
-            json!({ "nodeId": node_id }),
-        )
+        .execute_on_tab(target_id, "DOM.getAncestors", json!({ "nodeId": node_id }))
         .await;
 
     let ancestor_nodes = match ancestors_resp {
