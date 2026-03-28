@@ -310,6 +310,15 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("title: {title}"));
             }
         }
+        "browser.click" => {
+            if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
+                lines.push(format!("target: {sel}"));
+            } else if let Some(coords) =
+                data.pointer("/target/coordinates").and_then(|v| v.as_str())
+            {
+                lines.push(format!("target: {coords}"));
+            }
+        }
         "browser.eval" => {
             if let Some(val) = data.get("value") {
                 lines.push(val.as_str().unwrap_or(&val.to_string()).to_string());

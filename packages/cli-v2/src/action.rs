@@ -29,6 +29,7 @@ pub enum Action {
 
     // ── Interaction ────────────────────────────────────────────
     Eval(interaction::eval::Cmd),
+    Click(interaction::click::Cmd),
 }
 
 impl Action {
@@ -49,6 +50,7 @@ impl Action {
             Action::Reload(_) => navigation::reload::COMMAND_NAME,
             Action::Snapshot(_) => observation::snapshot::COMMAND_NAME,
             Action::Eval(_) => interaction::eval::COMMAND_NAME,
+            Action::Click(_) => interaction::click::COMMAND_NAME,
         }
     }
 }

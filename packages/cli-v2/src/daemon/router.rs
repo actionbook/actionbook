@@ -21,5 +21,6 @@ pub async fn route(action: &Action, registry: &SharedRegistry) -> ActionResult {
         Action::CloseTab(cmd) => browser::tab::close::execute(cmd, registry).await,
         Action::Snapshot(cmd) => browser::observation::snapshot::execute(cmd, registry).await,
         Action::Eval(cmd) => browser::interaction::eval::execute(cmd, registry).await,
+        Action::Click(cmd) => browser::interaction::click::execute(cmd, registry).await,
     }
 }

@@ -116,14 +116,7 @@ pub enum BrowserCommands {
     /// Evaluate JavaScript
     Eval(interaction::eval::Cmd),
     /// Click an element
-    Click {
-        /// Selector
-        selector: String,
-        #[arg(long)]
-        session: String,
-        #[arg(long)]
-        tab: String,
-    },
+    Click(interaction::click::Cmd),
     /// Fill an input field
     Fill {
         /// Selector
@@ -173,6 +166,7 @@ impl BrowserCommands {
             }),
             Self::Snapshot(cmd) => Action::Snapshot(cmd.clone()),
             Self::Eval(cmd) => Action::Eval(cmd.clone()),
+            Self::Click(cmd) => Action::Click(cmd.clone()),
             _ => return None,
         })
     }
@@ -195,7 +189,7 @@ impl BrowserCommands {
             Self::Snapshot(_) => observation::snapshot::COMMAND_NAME,
             Self::Screenshot { .. } => "browser.screenshot",
             Self::Eval(_) => interaction::eval::COMMAND_NAME,
-            Self::Click { .. } => "browser.click",
+            Self::Click(_) => interaction::click::COMMAND_NAME,
             Self::Fill { .. } => "browser.fill",
             Self::Type { .. } => "browser.type",
         }
@@ -236,8 +230,8 @@ impl BrowserCommands {
                 },
                 result,
             ),
+            Self::Click(cmd) => interaction::click::context(cmd, result),
             Self::Screenshot { session, tab, .. }
-            | Self::Click { session, tab, .. }
             | Self::Fill { session, tab, .. }
             | Self::Type { session, tab, .. } => tab_context(session, tab),
         }
