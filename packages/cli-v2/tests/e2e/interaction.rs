@@ -1,8 +1,8 @@
-//! Browser interaction E2E tests: browser click, type, fill.
+//! Browser interaction E2E tests: browser click, type, fill, select.
 //!
 //! This file groups interaction commands together, similar to navigation.rs.
 //! The current coverage here is for `browser click`, `browser type`,
-//! and `browser fill`,
+//! `browser fill`, and `browser select`,
 //! per api-reference.md §11.
 
 use crate::harness::{
@@ -126,6 +126,31 @@ fn assert_fill_success(
     assert_eq!(data["action"], "fill");
     assert_eq!(data["target"]["selector"], expected_selector);
     assert_eq!(data["value_summary"]["text_length"], expected_text_length);
+
+    assert_meta(v);
+}
+
+fn assert_select_success(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_selector: &str,
+    expected_value: &str,
+    expected_by_text: bool,
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.select");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "select");
+    assert_eq!(data["target"]["selector"], expected_selector);
+    assert_eq!(data["value_summary"]["value"], expected_value);
+    assert_eq!(data["value_summary"]["by_text"], expected_by_text);
 
     assert_meta(v);
 }
@@ -351,23 +376,27 @@ fn install_fill_fixture(session_id: &str, tab_id: &str) {
   `;
   document.body.appendChild(root);
 
-  const input = document.getElementById('ab-fill-input');
-  input.addEventListener('keydown', (event) => {
-    window.__ab_fill_keydown_count += 1;
-    window.__ab_fill_events.push('keydown:' + event.key);
-  });
-  input.addEventListener('input', () => {
-    window.__ab_fill_input_count += 1;
-    window.__ab_fill_events.push('input:' + input.value);
-  });
-  input.addEventListener('keyup', (event) => {
-    window.__ab_fill_keyup_count += 1;
-    window.__ab_fill_events.push('keyup:' + event.key);
-  });
-  input.addEventListener('change', () => {
-    window.__ab_fill_change_count += 1;
-    window.__ab_fill_events.push('change:' + input.value);
-  });
+  const attachFillListeners = (el, label) => {
+    el.addEventListener('keydown', (event) => {
+      window.__ab_fill_keydown_count += 1;
+      window.__ab_fill_events.push(label + ':keydown:' + event.key);
+    });
+    el.addEventListener('input', () => {
+      window.__ab_fill_input_count += 1;
+      window.__ab_fill_events.push(label + ':input:' + el.value);
+    });
+    el.addEventListener('keyup', (event) => {
+      window.__ab_fill_keyup_count += 1;
+      window.__ab_fill_events.push(label + ':keyup:' + event.key);
+    });
+    el.addEventListener('change', () => {
+      window.__ab_fill_change_count += 1;
+      window.__ab_fill_events.push(label + ':change:' + el.value);
+    });
+  };
+
+  attachFillListeners(document.getElementById('ab-fill-input'), 'input');
+  attachFillListeners(document.getElementById('ab-fill-textarea'), 'textarea');
 
   return 'ok';
 })()
@@ -375,6 +404,55 @@ fn install_fill_fixture(session_id: &str, tab_id: &str) {
 
     let value = eval_value(session_id, tab_id, expression);
     assert_eq!(value, "ok", "fill fixture should install successfully");
+}
+
+fn install_select_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-select-fixture');
+  if (existing) existing.remove();
+
+  window.__ab_select_input_count = 0;
+  window.__ab_select_change_count = 0;
+  window.__ab_select_events = [];
+
+  const root = document.createElement('div');
+  root.id = 'ab-select-fixture';
+  root.innerHTML = `
+    <style>
+      #ab-select {
+        position: fixed;
+        top: 480px;
+        left: 40px;
+        width: 240px;
+        height: 36px;
+        z-index: 2147483647;
+      }
+    </style>
+    <select id="ab-select">
+      <option value="apple" selected>Apple</option>
+      <option value="banana">Banana</option>
+      <option value="citrus">Citrus Fruit</option>
+    </select>
+  `;
+  document.body.appendChild(root);
+
+  const select = document.getElementById('ab-select');
+  select.addEventListener('input', () => {
+    window.__ab_select_input_count += 1;
+    window.__ab_select_events.push('input:' + select.value);
+  });
+  select.addEventListener('change', () => {
+    window.__ab_select_change_count += 1;
+    window.__ab_select_events.push('change:' + select.value);
+  });
+
+  return 'ok';
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(value, "ok", "select fixture should install successfully");
 }
 
 fn list_tabs(session_id: &str) -> serde_json::Value {
@@ -1625,6 +1703,343 @@ fn fill_missing_selector_text() {
         15,
     );
     assert_failure(&out, "fill missing selector text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error ELEMENT_NOT_FOUND:"),
+        "text must contain error ELEMENT_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 9: select — basic success path
+// ========================================================================
+
+#[test]
+fn select_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_select_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "select",
+            "#ab-select",
+            "banana",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "select json");
+    let v = parse_json(&out);
+
+    assert_select_success(&v, &sid, &tid, "#ab-select", "banana", false);
+    assert_eq!(
+        eval_value(&sid, &tid, "document.querySelector('#ab-select').value"),
+        "banana"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "document.querySelector('#ab-select').selectedOptions[0].textContent.trim()"
+        ),
+        "Banana"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn select_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_select_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "select",
+            "#ab-select",
+            "banana",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "select text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser.select"),
+        "must contain ok browser.select"
+    );
+    assert!(
+        text.contains("target: #ab-select"),
+        "must contain target line with selector"
+    );
+    assert!(text.contains("value: banana"), "must contain selected value");
+    assert!(
+        text.contains("by_text: false"),
+        "must contain by_text: false"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn select_by_text_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_select_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "select",
+            "#ab-select",
+            "Citrus Fruit",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--by-text",
+        ],
+        15,
+    );
+    assert_success(&out, "select by-text json");
+    let v = parse_json(&out);
+
+    assert_select_success(&v, &sid, &tid, "#ab-select", "Citrus Fruit", true);
+    assert_eq!(
+        eval_value(&sid, &tid, "document.querySelector('#ab-select').value"),
+        "citrus"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "document.querySelector('#ab-select').selectedOptions[0].textContent.trim()"
+        ),
+        "Citrus Fruit"
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 10: select — error paths
+// ========================================================================
+
+#[test]
+fn select_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "select",
+            "#ab-select",
+            "banana",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "select nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.select");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn select_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless(
+        &[
+            "browser",
+            "select",
+            "#ab-select",
+            "banana",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "select nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn select_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "select",
+            "#ab-select",
+            "banana",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "select nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.select");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn select_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "select",
+            "#ab-select",
+            "banana",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "select nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn select_missing_selector_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "select",
+            "#definitely-missing-element",
+            "banana",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "select missing selector json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.select");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["selector"],
+        "#definitely-missing-element"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn select_missing_selector_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "select",
+            "#definitely-missing-element",
+            "banana",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "select missing selector text");
     let text = stdout_str(&out);
 
     assert!(
