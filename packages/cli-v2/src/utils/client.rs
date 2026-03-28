@@ -62,7 +62,7 @@ fn auto_start_daemon() -> Result<(), CliError> {
     let exe = std::env::current_exe().map_err(|e| CliError::Internal(e.to_string()))?;
 
     std::process::Command::new(&exe)
-        .arg("__serve")
+        .arg("__daemon")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

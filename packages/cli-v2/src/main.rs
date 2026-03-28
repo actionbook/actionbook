@@ -19,7 +19,7 @@ async fn main() {
         .init();
 
     // Internal: daemon auto-start passes a hidden arg before clap parsing
-    if std::env::args().nth(1).as_deref() == Some("__serve") {
+    if std::env::args().nth(1).as_deref() == Some("__daemon") {
         if let Err(e) = actionbook_cli::daemon::server::run_daemon().await {
             eprintln!("daemon error: {e}");
             std::process::exit(1);
