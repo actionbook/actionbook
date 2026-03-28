@@ -1,7 +1,8 @@
-//! Browser interaction E2E tests: browser click.
+//! Browser interaction E2E tests: browser click, type.
 //!
 //! This file groups interaction commands together, similar to navigation.rs.
-//! The initial coverage here is for `browser click`, per api-reference.md §11.1.
+//! The current coverage here is for `browser click` and `browser type`,
+//! per api-reference.md §11.
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
@@ -78,6 +79,29 @@ fn assert_click_success(
         data["changed"]["focus_changed"].is_boolean(),
         "data.changed.focus_changed must be a boolean"
     );
+
+    assert_meta(v);
+}
+
+fn assert_type_success(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_selector: &str,
+    expected_text_length: u64,
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.type");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "type");
+    assert_eq!(data["target"]["selector"], expected_selector);
+    assert_eq!(data["value_summary"]["text_length"], expected_text_length);
 
     assert_meta(v);
 }
@@ -215,6 +239,56 @@ fn install_click_fixture(session_id: &str, tab_id: &str) {
 
     let value = eval_value(session_id, tab_id, expression);
     assert_eq!(value, "ok", "fixture should install successfully");
+}
+
+fn install_type_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-type-fixture');
+  if (existing) existing.remove();
+
+  window.__ab_type_keydown_count = 0;
+  window.__ab_type_input_count = 0;
+  window.__ab_type_keyup_count = 0;
+  window.__ab_type_events = [];
+
+  const root = document.createElement('div');
+  root.id = 'ab-type-fixture';
+  root.innerHTML = `
+    <style>
+      #ab-type-input {
+        position: fixed;
+        top: 280px;
+        left: 40px;
+        width: 240px;
+        height: 36px;
+        z-index: 2147483647;
+      }
+    </style>
+    <input id="ab-type-input" type="text" value="seed-" />
+  `;
+  document.body.appendChild(root);
+
+  const input = document.getElementById('ab-type-input');
+  input.addEventListener('keydown', (event) => {
+    window.__ab_type_keydown_count += 1;
+    window.__ab_type_events.push('keydown:' + event.key);
+  });
+  input.addEventListener('input', () => {
+    window.__ab_type_input_count += 1;
+    window.__ab_type_events.push('input:' + input.value);
+  });
+  input.addEventListener('keyup', (event) => {
+    window.__ab_type_keyup_count += 1;
+    window.__ab_type_events.push('keyup:' + event.key);
+  });
+
+  return 'ok';
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(value, "ok", "type fixture should install successfully");
 }
 
 fn list_tabs(session_id: &str) -> serde_json::Value {
@@ -790,4 +864,319 @@ fn click_invalid_coordinates_json() {
 
         close_session(&sid);
     }
+}
+
+// ========================================================================
+// Group 5: type — basic success path
+// ========================================================================
+
+#[test]
+fn type_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_type_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "type",
+            "#ab-type-input",
+            "abc",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "type json");
+    let v = parse_json(&out);
+
+    assert_type_success(&v, &sid, &tid, "#ab-type-input", 3);
+    assert_eq!(eval_value(&sid, &tid, "document.querySelector('#ab-type-input').value"), "seed-abc");
+    assert_eq!(eval_value(&sid, &tid, "String(window.__ab_type_keydown_count)"), "3");
+    assert_eq!(eval_value(&sid, &tid, "String(window.__ab_type_input_count)"), "3");
+    assert_eq!(eval_value(&sid, &tid, "String(window.__ab_type_keyup_count)"), "3");
+    assert_eq!(eval_value(&sid, &tid, "document.activeElement && document.activeElement.id"), "ab-type-input");
+
+    close_session(&sid);
+}
+
+#[test]
+fn type_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_type_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "type",
+            "#ab-type-input",
+            "abc",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "type text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(text.contains("ok browser.type"), "must contain ok browser.type");
+    assert!(
+        text.contains("target: #ab-type-input"),
+        "must contain target line with selector"
+    );
+    assert!(text.contains("text_length: 3"), "must contain text_length: 3");
+
+    close_session(&sid);
+}
+
+#[test]
+fn type_with_spaces_and_punctuation_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_type_fixture(&sid, &tid);
+    let typed_text = "Hello, world!";
+
+    let out = headless_json(
+        &[
+            "browser",
+            "type",
+            "#ab-type-input",
+            typed_text,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "type with spaces json");
+    let v = parse_json(&out);
+
+    assert_type_success(&v, &sid, &tid, "#ab-type-input", typed_text.len() as u64);
+    assert_eq!(
+        eval_value(&sid, &tid, "document.querySelector('#ab-type-input').value"),
+        format!("seed-{typed_text}")
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 6: type — error paths
+// ========================================================================
+
+#[test]
+fn type_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "type",
+            "#ab-type-input",
+            "abc",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "type nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.type");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn type_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless(
+        &[
+            "browser",
+            "type",
+            "#ab-type-input",
+            "abc",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "type nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn type_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "type",
+            "#ab-type-input",
+            "abc",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "type nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.type");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn type_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "type",
+            "#ab-type-input",
+            "abc",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "type nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn type_missing_selector_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "type",
+            "#definitely-missing-element",
+            "abc",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "type missing selector json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.type");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["selector"],
+        "#definitely-missing-element"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn type_missing_selector_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "type",
+            "#definitely-missing-element",
+            "abc",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "type missing selector text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error ELEMENT_NOT_FOUND:"),
+        "text must contain error ELEMENT_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
 }
