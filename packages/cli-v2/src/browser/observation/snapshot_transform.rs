@@ -86,9 +86,8 @@ pub fn is_interactive_role(role: &str) -> bool {
     )
 }
 
-// NOTE: filter_interactive, filter_compact, apply_depth are handled inline during
-// DFS traversal in parse_ax_tree(). apply_selector is deferred to P2.
-// No standalone filter functions needed — the recursive algorithm handles all filtering.
+// NOTE: All filtering (interactive, compact, depth, selector) is handled inline
+// during DFS traversal in parse_ax_tree(). No standalone filter functions needed.
 
 /// Render a flat node list to `content` string per §10.1.
 /// Format: `- role "name" [ref=eN]` with depth-based indentation.
@@ -648,6 +647,8 @@ pub fn truncate_to_tokens(nodes: &[AXNode], max_tokens: usize) -> (Vec<AXNode>, 
     for node in nodes {
         // Estimate actual rendered line length:
         // {indent}- {role} "{name}" [ref={ref_id}]\n
+        // Value is in JSON nodes[] only, not in content text, but count it
+        // for total payload estimation.
         let indent = node.depth * 2;
         let ref_bracket = if node.ref_id.is_empty() {
             0
@@ -661,8 +662,14 @@ pub fn truncate_to_tokens(nodes: &[AXNode], max_tokens: usize) -> (Vec<AXNode>, 
             + node.name.len()
             + ref_bracket
             + 1; // +1 for \n
+        // Add value cost (appears in JSON nodes[], ~20 chars JSON overhead per node)
+        let value_cost = if node.value.is_empty() {
+            0
+        } else {
+            node.value.len() + 20
+        };
         // Conservative: ~3 chars per token
-        let cost = line_chars.div_ceil(3);
+        let cost = (line_chars + value_cost).div_ceil(3);
         if total + cost > max_tokens {
             return (result, true);
         }

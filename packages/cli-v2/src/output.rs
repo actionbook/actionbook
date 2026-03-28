@@ -43,9 +43,14 @@ impl JsonEnvelope {
         mut data: Value,
         duration: Duration,
     ) -> Self {
-        // Strip internal __ctx_* fields from data (used by context() extraction only)
+        // Extract internal fields before stripping
+        let truncated = data
+            .get("__truncated")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        // Strip internal __* fields from data (used by context/meta extraction only)
         if let Some(obj) = data.as_object_mut() {
-            obj.retain(|k, _| !k.starts_with("__ctx_"));
+            obj.retain(|k, _| !k.starts_with("__"));
         }
         JsonEnvelope {
             ok: true,
@@ -57,7 +62,7 @@ impl JsonEnvelope {
                 duration_ms: duration.as_millis() as u64,
                 warnings: vec![],
                 pagination: Value::Null,
-                truncated: false,
+                truncated,
             },
         }
     }

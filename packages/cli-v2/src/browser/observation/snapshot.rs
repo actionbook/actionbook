@@ -126,12 +126,25 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     // Parse and transform the AX tree
-    let nodes = snapshot_transform::parse_ax_tree(
+    let mut nodes = snapshot_transform::parse_ax_tree(
         &cdp_response,
         &options,
         &mut ref_cache,
         scope_backend_ids.as_ref(),
     );
+
+    // Apply token budget truncation (100K tokens max)
+    const MAX_TOKENS: usize = 100_000;
+    let truncated = {
+        let (truncated_nodes, was_truncated) =
+            snapshot_transform::truncate_to_tokens(&nodes, MAX_TOKENS);
+        if was_truncated {
+            nodes = truncated_nodes;
+            true
+        } else {
+            false
+        }
+    };
 
     // Store RefCache back (single lock)
     {
@@ -142,7 +155,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Build output per §10.1
     let output = snapshot_transform::build_output(nodes);
 
-    ActionResult::ok(json!({
+    let mut data = json!({
         "format": "snapshot",
         "content": output.content,
         "nodes": output.nodes,
@@ -152,7 +165,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         },
         "__ctx_url": url,
         "__ctx_title": title,
-    }))
+    });
+    if truncated {
+        data["__truncated"] = json!(true);
+    }
+    ActionResult::ok(data)
 }
 
 /// Resolve a CSS selector to all backendNodeIds in its subtree.
