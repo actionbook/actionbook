@@ -58,8 +58,10 @@ fn assert_error_envelope(v: &serde_json::Value, expected_code: &str) {
 }
 
 /// Assert navigation data fields per §9 contract.
-/// For goto: requested_url, from_url, to_url, title.
-/// For back/forward/reload: from_url, to_url, title (no requested_url).
+///
+/// For goto (has_requested_url = true): asserts `requested_url` is a non-empty string.
+/// For back/forward/reload (has_requested_url = false): asserts `requested_url` is null
+/// per §9.2–9.4 interpretation — those commands have no "requested" URL concept.
 fn assert_nav_data(v: &serde_json::Value, expected_kind: &str, has_requested_url: bool) {
     let data = &v["data"];
     assert_eq!(
@@ -74,6 +76,14 @@ fn assert_nav_data(v: &serde_json::Value, expected_kind: &str, has_requested_url
         assert!(
             !data["requested_url"].as_str().unwrap().is_empty(),
             "data.requested_url must not be empty"
+        );
+    } else {
+        // §9.2–9.4: back/forward/reload share §9.1 data structure but have no
+        // "requested URL" concept. requested_url must be null (field present, value null).
+        assert!(
+            data["requested_url"].is_null(),
+            "data.requested_url must be null for back/forward/reload (got {:?})",
+            data["requested_url"]
         );
     }
     assert!(
@@ -229,6 +239,46 @@ fn nav_goto_context_url_updated() {
 // ===========================================================================
 // Group 2: goto — Error Paths (§9.1)
 // ===========================================================================
+
+/// NAVIGATION_FAILED: passed a URL with an unrecognized scheme that Chrome CDP
+/// is expected to reject at the protocol level, returning an error response
+/// from `Page.navigate`. If Chrome navigates to an error page instead, the
+/// implementation must be updated to inspect the CDP `errorText` field.
+#[test]
+fn nav_goto_navigation_failed_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(URL_A);
+
+    // An invalid scheme that Chrome CDP should reject, triggering NAVIGATION_FAILED.
+    let out = headless_json(
+        &[
+            "browser",
+            "goto",
+            "invalidscheme://this-should-fail",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "goto invalid scheme");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.goto");
+    assert_error_envelope(&v, "NAVIGATION_FAILED");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session and tab are found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+
+    close_session(&sid);
+}
 
 #[test]
 fn nav_goto_session_not_found_json() {
@@ -837,4 +887,117 @@ fn nav_reload_tab_not_found_json() {
     assert_eq!(v["context"]["session_id"], sid);
 
     close_session(&sid);
+}
+
+// ===========================================================================
+// Group 9: NAVIGATION_FAILED — back/forward/reload (§9.2–9.4)
+// ===========================================================================
+// back/forward/reload are not yet implemented; these tests define the
+// NAVIGATION_FAILED contract and are expected to fail until implementation lands.
+
+#[test]
+fn nav_back_navigation_failed_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(URL_A);
+
+    // Attempt back with no history — implementation must return NAVIGATION_FAILED
+    // (no prior page to go back to).
+    let out = headless_json(
+        &["browser", "back", "--session", &sid, "--tab", &tid],
+        15,
+    );
+    assert_failure(&out, "back with no history");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.back");
+    assert_error_envelope(&v, "NAVIGATION_FAILED");
+    assert!(v["context"].is_object(), "context present when session/tab found");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn nav_forward_navigation_failed_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(URL_A);
+
+    // Attempt forward with no forward history — implementation must return NAVIGATION_FAILED.
+    let out = headless_json(
+        &["browser", "forward", "--session", &sid, "--tab", &tid],
+        15,
+    );
+    assert_failure(&out, "forward with no history");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.forward");
+    assert_error_envelope(&v, "NAVIGATION_FAILED");
+    assert!(v["context"].is_object(), "context present when session/tab found");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+
+    close_session(&sid);
+}
+
+// ===========================================================================
+// Group 10: Missing Args (§9 — --session and --tab required)
+// ===========================================================================
+
+#[test]
+fn nav_goto_missing_session_arg() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    // browser goto <url> --tab <tid> (missing --session) must fail with CLI parse error
+    let out = headless_json(
+        &["browser", "goto", URL_B, "--tab", "some-tab"],
+        10,
+    );
+    assert_failure(&out, "goto missing --session");
+}
+
+#[test]
+fn nav_goto_missing_tab_arg() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    // browser goto <url> --session <sid> (missing --tab) must fail with CLI parse error
+    let out = headless_json(
+        &["browser", "goto", URL_B, "--session", "some-session"],
+        10,
+    );
+    assert_failure(&out, "goto missing --tab");
+}
+
+#[test]
+fn nav_back_missing_session_arg() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless_json(&["browser", "back", "--tab", "some-tab"], 10);
+    assert_failure(&out, "back missing --session");
+}
+
+#[test]
+fn nav_reload_missing_tab_arg() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless_json(&["browser", "reload", "--session", "some-session"], 10);
+    assert_failure(&out, "reload missing --tab");
 }
