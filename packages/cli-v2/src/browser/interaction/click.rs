@@ -197,11 +197,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         return e;
     }
 
-    // Wait for potential navigation to settle
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    // Post-click state
-    let post_url = navigation::get_tab_url(&cdp, &target_id).await;
+    // Wait for potential navigation: poll for URL change with early exit.
+    // Check at short intervals so fast navigations aren't delayed, but
+    // keep polling long enough for slow navigations (SPA routers, redirects).
+    let post_url = wait_for_navigation(&cdp, &target_id, &pre_url).await;
     let post_title = navigation::get_tab_title(&cdp, &target_id).await;
     let post_focus = get_active_element_id(&cdp, &target_id).await;
 
@@ -421,6 +420,40 @@ async fn dispatch_click(
     }
 
     Ok(())
+}
+
+/// Poll for a URL change after a click.
+///
+/// Returns the final URL. If the URL changes within the polling window,
+/// returns immediately. Otherwise returns after the timeout with
+/// whatever URL the page currently has.
+///
+/// Intervals are short (50 ms) so fast navigations resolve quickly.
+/// Total timeout (2 s) covers SPA routers and JS redirects without
+/// the unconditional 500 ms penalty of a fixed sleep.
+async fn wait_for_navigation(
+    cdp: &CdpSession,
+    target_id: &str,
+    pre_url: &str,
+) -> String {
+    const POLL_INTERVAL: Duration = Duration::from_millis(50);
+    const TIMEOUT: Duration = Duration::from_millis(2000);
+
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    // Brief initial pause: give the browser a moment to start navigation
+    // before the first poll so we don't immediately read stale state.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    loop {
+        let current = navigation::get_tab_url(cdp, target_id).await;
+        if !pre_url.is_empty() && current != pre_url {
+            return current;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return current;
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
 }
 
 /// Snapshot of the active element for focus-change detection.

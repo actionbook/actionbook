@@ -36,13 +36,37 @@ pub async fn resolve_node(
     }
 }
 
+/// Scroll an element into the viewport if it is not already visible.
+///
+/// Uses `DOM.scrollIntoViewIfNeeded` so off-screen elements become
+/// reachable before we compute their bounding-box coordinates.
+pub async fn scroll_into_view(
+    cdp: &CdpSession,
+    target_id: &str,
+    node_id: i64,
+) -> Result<(), ActionResult> {
+    cdp.execute_on_tab(
+        target_id,
+        "DOM.scrollIntoViewIfNeeded",
+        json!({ "nodeId": node_id }),
+    )
+    .await
+    .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+    Ok(())
+}
+
 /// Get the centre point of an element's bounding box given its `nodeId`.
+///
+/// Scrolls the element into view first so that coordinates are always
+/// within the visible viewport.
 pub async fn get_element_center(
     cdp: &CdpSession,
     target_id: &str,
     node_id: i64,
     selector: &str,
 ) -> Result<(f64, f64), ActionResult> {
+    scroll_into_view(cdp, target_id, node_id).await?;
+
     let bm = cdp
         .execute_on_tab(target_id, "DOM.getBoxModel", json!({ "nodeId": node_id }))
         .await
