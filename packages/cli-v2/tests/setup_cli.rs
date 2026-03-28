@@ -124,4 +124,12 @@ fn setup_invalid_browser_value_exits_non_zero() {
         String::from_utf8_lossy(&output.stderr).contains("invalid --browser value 'cloud'"),
         "stderr should explain invalid browser value"
     );
+    assert!(
+        !home.join("daemon.sock").exists(),
+        "setup should not go through the daemon on failure"
+    );
+    assert!(
+        !home.join("daemon.pid").exists(),
+        "setup should not spawn a daemon process on failure"
+    );
 }

@@ -292,10 +292,7 @@ fn detect_node_version() -> Option<String> {
 }
 
 fn find_in_path(binary: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|dir| dir.join(binary))
-        .find(|candidate| candidate.exists())
+    which::which(binary).ok()
 }
 
 fn detect_version(path: &Path) -> Option<String> {
@@ -343,6 +340,8 @@ fn detect_version(path: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::sync::{Mutex, OnceLock};
 
     fn test_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -404,6 +403,36 @@ mod tests {
         let env = detect_environment();
         assert!(!env.os.is_empty());
         assert!(!env.arch.is_empty());
+    }
+
+    #[test]
+    fn find_in_path_resolves_binaries_from_path() {
+        let _lock = test_lock();
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let bin_dir = tmp.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).expect("create bin dir");
+
+        #[cfg(windows)]
+        let binary = bin_dir.join("fake-node.cmd");
+        #[cfg(not(windows))]
+        let binary = bin_dir.join("fake-node");
+
+        std::fs::write(&binary, "@echo off\r\n").expect("write fake binary");
+
+        #[cfg(unix)]
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod fake binary");
+
+        let binary_name = binary
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .expect("binary name");
+
+        let path = std::env::join_paths([bin_dir.clone()]).expect("join path");
+        let _guard = EnvGuard::set(&[("PATH", Some(path.to_string_lossy().as_ref()))]);
+
+        let resolved = find_in_path(binary_name).expect("binary should resolve from PATH");
+        assert_eq!(resolved, binary);
     }
 
     #[test]
