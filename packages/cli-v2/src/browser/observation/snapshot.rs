@@ -43,26 +43,37 @@ pub struct Cmd {
 pub const COMMAND_NAME: &str = "browser.snapshot";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
-    match result {
-        ActionResult::Ok { data } => {
-            let url = data["__ctx_url"].as_str().map(str::to_string);
-            let title = data["__ctx_title"].as_str().map(str::to_string);
-            Some(ResponseContext {
-                session_id: cmd.session.clone(),
-                tab_id: Some(cmd.tab.clone()),
-                window_id: None,
-                url,
-                title,
-            })
-        }
-        _ => Some(ResponseContext {
-            session_id: cmd.session.clone(),
-            tab_id: Some(cmd.tab.clone()),
-            window_id: None,
-            url: None,
-            title: None,
-        }),
+    // SESSION_NOT_FOUND: context must be null per §3.1
+    if let ActionResult::Fatal { code, .. } = result
+        && code == "SESSION_NOT_FOUND"
+    {
+        return None;
     }
+
+    // TAB_NOT_FOUND: context has session_id but tab_id must be null
+    let tab_id = if let ActionResult::Fatal { code, .. } = result
+        && code == "TAB_NOT_FOUND"
+    {
+        None
+    } else {
+        Some(cmd.tab.clone())
+    };
+
+    let (url, title) = match result {
+        ActionResult::Ok { data } => (
+            data["__ctx_url"].as_str().map(str::to_string),
+            data["__ctx_title"].as_str().map(str::to_string),
+        ),
+        _ => (None, None),
+    };
+
+    Some(ResponseContext {
+        session_id: cmd.session.clone(),
+        tab_id,
+        window_id: None,
+        url,
+        title,
+    })
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {

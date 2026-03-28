@@ -456,7 +456,26 @@ fn snap_depth_flag_limits_nodes() {
     );
     assert_success(&out_depth, "snapshot depth 1");
     let v_depth = parse_json(&out_depth);
-    assert_snapshot_data(&v_depth);
+
+    // Lighter assertions for depth-limited case: depth=1 may yield only structural
+    // nodes with no ref labels, so data.nodes can legitimately be empty.
+    // We verify the §10.1 envelope shape without requiring non-empty nodes.
+    assert_eq!(
+        v_depth["data"]["format"], "snapshot",
+        "format must be snapshot"
+    );
+    assert!(
+        v_depth["data"]["content"].is_string(),
+        "data.content must be a string"
+    );
+    assert!(
+        v_depth["data"]["nodes"].is_array(),
+        "data.nodes must be an array"
+    );
+    assert!(
+        v_depth["data"]["stats"]["node_count"].is_number(),
+        "stats.node_count must be a number"
+    );
 
     let depth_count = v_depth["data"]["stats"]["node_count"].as_u64().unwrap_or(0);
 
