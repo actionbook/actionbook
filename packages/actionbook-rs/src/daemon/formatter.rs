@@ -1281,14 +1281,39 @@ fn normalize_observation_data(action: &Action, data: &Value) -> Value {
             }
         }
         Action::Describe { selector, .. } => {
-            // Handler returns {"description": val, "selector": selector}
-            let summary = data
-                .get("description")
+            // Handler returns {"__describe": {role,name,tag,attributes,state,nearby}, "selector": selector}
+            let desc = data.get("__describe").unwrap_or(data);
+            let role = desc
+                .get("role")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let name = desc
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let summary = if !name.is_empty() {
+                format!("{role} \"{name}\"")
+            } else {
+                role.clone()
+            };
+            let tag = desc.get("tag").cloned().unwrap_or(Value::Null);
+            let attributes = desc
+                .get("attributes")
                 .cloned()
-                .unwrap_or_else(|| data.clone());
+                .unwrap_or(Value::Object(Default::default()));
+            let state = desc.get("state").cloned().unwrap_or(Value::Null);
+            let nearby = desc.get("nearby").cloned().unwrap_or(Value::Null);
             serde_json::json!({
                 "target": { "selector": selector },
-                "summary": summary
+                "summary": summary,
+                "role": role,
+                "name": name,
+                "tag": tag,
+                "attributes": attributes,
+                "state": state,
+                "nearby": nearby
             })
         }
         Action::State { selector, .. } => {
@@ -1300,44 +1325,44 @@ fn normalize_observation_data(action: &Action, data: &Value) -> Value {
             })
         }
         Action::InspectPoint { x, y, .. } => {
-            // Handler returns {"element": val, "x": x, "y": y}
-            let element = data.get("element").cloned().unwrap_or(Value::Null);
+            // Handler returns {"__element": {role,name,selector}, "x": x, "y": y, "__parents": [], "__screenshot_path": null}
+            let element = data.get("__element").cloned().unwrap_or(Value::Null);
+            let parents = data
+                .get("__parents")
+                .cloned()
+                .unwrap_or_else(|| Value::Array(vec![]));
+            let screenshot_path = data
+                .get("__screenshot_path")
+                .cloned()
+                .unwrap_or(Value::Null);
             serde_json::json!({
                 "point": { "x": x, "y": y },
-                "element": element
+                "element": element,
+                "parents": parents,
+                "screenshot_path": screenshot_path
             })
         }
         Action::LogsConsole { clear, .. } => {
-            // Handler returns {"logs": val (array)}
+            // Handler returns {"logs": val (array of {id, level, text, source, timestamp_ms})}
             let items = data
                 .get("logs")
                 .and_then(|v| v.as_array())
                 .cloned()
                 .map(Value::Array)
-                .unwrap_or_else(|| {
-                    data.as_array()
-                        .cloned()
-                        .map(Value::Array)
-                        .unwrap_or(Value::Array(vec![]))
-                });
+                .unwrap_or_else(|| Value::Array(vec![]));
             serde_json::json!({
                 "items": items,
                 "cleared": clear
             })
         }
         Action::LogsErrors { clear, .. } => {
-            // Handler returns {"errors": val (array)}
+            // Handler returns {"errors": val (array of {id, level, text, source, timestamp_ms})}
             let items = data
                 .get("errors")
                 .and_then(|v| v.as_array())
                 .cloned()
                 .map(Value::Array)
-                .unwrap_or_else(|| {
-                    data.as_array()
-                        .cloned()
-                        .map(Value::Array)
-                        .unwrap_or(Value::Array(vec![]))
-                });
+                .unwrap_or_else(|| Value::Array(vec![]));
             serde_json::json!({
                 "items": items,
                 "cleared": clear
@@ -1515,81 +1540,92 @@ fn format_observation_text(action: &Action, result: &ActionResult) -> Option<Str
                     }
                 }
                 Action::Describe { .. } => {
-                    // Handler returns {"description": val, "selector": selector}
-                    let desc = data.get("description").unwrap_or(data);
-                    let mut out = prefix;
-                    // Output summary line if available
-                    if let Some(tag) = desc.get("tag").and_then(|v| v.as_str()) {
-                        out.push_str(&format!("\ntag: {tag}"));
-                        if let Some(role) = desc.get("role").and_then(|v| v.as_str()) {
-                            if !role.is_empty() {
-                                out.push_str(&format!("  role: {role}"));
-                            }
-                        }
-                        if let Some(text) = desc.get("text").and_then(|v| v.as_str()) {
-                            if !text.is_empty() {
-                                out.push_str(&format!("\ntext: {text}"));
-                            }
-                        }
+                    // Handler returns {"__describe": {role,name,tag,attributes,state,nearby}}
+                    let desc = data.get("__describe").unwrap_or(data);
+                    let role = desc.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                    let name = desc.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    let summary = if !name.is_empty() {
+                        format!("{role} \"{name}\"")
                     } else {
-                        out.push('\n');
-                        out.push_str(
-                            &serde_json::to_string_pretty(desc)
-                                .unwrap_or_else(|_| desc.to_string()),
-                        );
+                        role.to_string()
+                    };
+                    let mut out = prefix;
+                    out.push('\n');
+                    out.push_str(&summary);
+                    if let Some(nearby) = desc.get("nearby").and_then(|v| v.as_object()) {
+                        if let Some(p) = nearby.get("parent").and_then(|v| v.as_str()) {
+                            out.push_str(&format!("\nparent: {p}"));
+                        }
+                        if let Some(ps) = nearby.get("previous_sibling").and_then(|v| v.as_str()) {
+                            out.push_str(&format!("\nprevious_sibling: {ps}"));
+                        }
+                        if let Some(ns) = nearby.get("next_sibling").and_then(|v| v.as_str()) {
+                            out.push_str(&format!("\nnext_sibling: {ns}"));
+                        }
                     }
                     out
                 }
                 Action::InspectPoint { x, y, .. } => {
-                    // Handler returns {"element": val, "x": x, "y": y}
-                    let element = data.get("element").unwrap_or(data);
+                    // Handler returns {"__element": {role,name,selector}, ...}
+                    let element = data.get("__element").unwrap_or(data);
+                    let role = element.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                    let name = element.get("name").and_then(|v| v.as_str()).unwrap_or("");
                     let mut out = prefix;
-                    out.push_str(&format!("\npoint: {x},{y}"));
-                    if let Some(tag) = element.get("tag").and_then(|v| v.as_str()) {
-                        out.push_str(&format!("\ntag: {tag}"));
+                    if !name.is_empty() {
+                        out.push_str(&format!("\n{role} \"{name}\""));
+                    } else {
+                        out.push_str(&format!("\n{role}"));
                     }
                     if let Some(sel) = element.get("selector").and_then(|v| v.as_str()) {
                         out.push_str(&format!("\nselector: {sel}"));
                     }
+                    out.push_str(&format!("\npoint: {x},{y}"));
                     out
                 }
                 Action::LogsConsole { .. } => {
-                    // Handler returns {"logs": val (array)}
+                    // Handler returns {"logs": [{id, level, text, source, timestamp_ms}]}
                     let items = data
                         .get("logs")
                         .and_then(|v| v.as_array())
                         .cloned()
-                        .unwrap_or_else(|| data.as_array().cloned().unwrap_or_default());
+                        .unwrap_or_default();
                     let mut out = prefix;
                     for item in &items {
-                        let line = item.as_str().map(|s| s.to_string()).unwrap_or_else(|| {
-                            item.get("message")
-                                .or_else(|| item.get("text"))
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string())
-                                .unwrap_or_else(|| item.to_string())
-                        });
-                        out.push_str(&format!("\n{line}"));
+                        let level = item.get("level").and_then(|v| v.as_str()).unwrap_or("");
+                        let ts = item
+                            .get("timestamp_ms")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+                        let src = item.get("source").and_then(|v| v.as_str()).unwrap_or("");
+                        let text = item.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                        if src.is_empty() {
+                            out.push_str(&format!("\n{level} {ts} {text}"));
+                        } else {
+                            out.push_str(&format!("\n{level} {ts} {src} {text}"));
+                        }
                     }
                     out
                 }
                 Action::LogsErrors { .. } => {
-                    // Handler returns {"errors": val (array)}
+                    // Handler returns {"errors": [{id, level, text, source, timestamp_ms}]}
                     let items = data
                         .get("errors")
                         .and_then(|v| v.as_array())
                         .cloned()
-                        .unwrap_or_else(|| data.as_array().cloned().unwrap_or_default());
+                        .unwrap_or_default();
                     let mut out = prefix;
                     for item in &items {
-                        let line = item.as_str().map(|s| s.to_string()).unwrap_or_else(|| {
-                            item.get("message")
-                                .or_else(|| item.get("text"))
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string())
-                                .unwrap_or_else(|| item.to_string())
-                        });
-                        out.push_str(&format!("\n{line}"));
+                        let ts = item
+                            .get("timestamp_ms")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+                        let src = item.get("source").and_then(|v| v.as_str()).unwrap_or("");
+                        let text = item.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                        if src.is_empty() {
+                            out.push_str(&format!("\nerror {ts} {text}"));
+                        } else {
+                            out.push_str(&format!("\nerror {ts} {src} {text}"));
+                        }
                     }
                     out
                 }
@@ -3329,10 +3365,12 @@ mod tests {
             since: None,
             clear: false,
         };
-        let result = ActionResult::ok(json!([
-            {"level": "log", "text": "hello"},
-            {"level": "warn", "text": "world"}
-        ]));
+        let result = ActionResult::ok(json!({
+            "logs": [
+                {"level": "log", "text": "hello"},
+                {"level": "warn", "text": "world"}
+            ]
+        }));
         let out = format_cli_result_json(&action, &result, 5);
         let d: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(d["ok"], true);

@@ -262,9 +262,12 @@ pub async fn handle_action(
         Action::Attrs { tab, selector, .. } => {
             observation::handle_attrs(session_id, backend, regs, tab, &selector).await
         }
-        Action::Describe { tab, selector, .. } => {
-            observation::handle_describe(session_id, backend, regs, tab, &selector).await
-        }
+        Action::Describe {
+            tab,
+            selector,
+            nearby,
+            ..
+        } => observation::handle_describe(session_id, backend, regs, tab, &selector, nearby).await,
         Action::State { tab, selector, .. } => {
             observation::handle_state(session_id, backend, regs, tab, &selector).await
         }
@@ -300,8 +303,15 @@ pub async fn handle_action(
             )
             .await
         }
-        Action::InspectPoint { tab, x, y, .. } => {
-            observation::handle_inspect_point(session_id, backend, regs, tab, x, y).await
+        Action::InspectPoint {
+            tab,
+            x,
+            y,
+            parent_depth,
+            ..
+        } => {
+            observation::handle_inspect_point(session_id, backend, regs, tab, x, y, parent_depth)
+                .await
         }
         Action::LogsConsole {
             tab,

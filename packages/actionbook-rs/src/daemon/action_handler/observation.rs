@@ -26,6 +26,8 @@ const INTERACTIVE_ROLES: &[&str] = &[
 ];
 
 const ENSURE_LOG_CAPTURE_JS: &str = r#"(function() {
+    if (typeof window.__ab_log_seq === 'undefined') { window.__ab_log_seq = 0; }
+    if (typeof window.__ab_err_seq === 'undefined') { window.__ab_err_seq = 0; }
     if (!window.__ab_console_logs) {
         window.__ab_console_logs = [];
         const orig = {
@@ -38,9 +40,11 @@ const ENSURE_LOG_CAPTURE_JS: &str = r#"(function() {
         for (const [level, fn] of Object.entries(orig)) {
             console[level] = function(...args) {
                 window.__ab_console_logs.push({
+                    id: 'log-' + (++window.__ab_log_seq),
                     level,
-                    message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '),
-                    timestamp: Date.now()
+                    text: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '),
+                    source: '',
+                    timestamp_ms: Date.now()
                 });
                 fn.apply(console, args);
             };
@@ -51,24 +55,30 @@ const ENSURE_LOG_CAPTURE_JS: &str = r#"(function() {
         const origError = console.error;
         console.error = function(...args) {
             window.__ab_error_logs.push({
-                message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '),
-                timestamp: Date.now()
+                id: 'err-' + (++window.__ab_err_seq),
+                level: 'error',
+                text: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '),
+                source: '',
+                timestamp_ms: Date.now()
             });
             origError.apply(console, args);
         };
         window.addEventListener('error', function(e) {
             window.__ab_error_logs.push({
-                message: e.message,
-                source: e.filename,
-                line: e.lineno,
-                col: e.colno,
-                timestamp: Date.now()
+                id: 'err-' + (++window.__ab_err_seq),
+                level: 'error',
+                text: e.message,
+                source: e.filename || '',
+                timestamp_ms: Date.now()
             });
         });
         window.addEventListener('unhandledrejection', function(e) {
             window.__ab_error_logs.push({
-                message: 'Unhandled rejection: ' + String(e.reason),
-                timestamp: Date.now()
+                id: 'err-' + (++window.__ab_err_seq),
+                level: 'error',
+                text: 'Unhandled rejection: ' + String(e.reason),
+                source: '',
+                timestamp_ms: Date.now()
             });
         });
     }
@@ -1147,6 +1157,7 @@ pub(super) async fn handle_describe(
     regs: &Registries,
     tab: TabId,
     selector: &str,
+    nearby: bool,
 ) -> ActionResult {
     let target_id = match resolve_tab(session_id, regs, tab) {
         Ok(t) => t,
@@ -1158,14 +1169,21 @@ pub(super) async fn handle_describe(
             return ActionResult::fatal("invalid_selector", e.to_string(), "check selector syntax")
         }
     };
+    let nearby_js = if nearby { "true" } else { "false" };
 
     let js = format!(
         r#"(function() {{
 {FIND_ELEMENT_JS}
 const el = __findElement({selector_json});
 if (!el) return null;
-const rect = el.getBoundingClientRect();
-return {{ tag: el.tagName.toLowerCase(), role: el.getAttribute('role') || '', text: (el.innerText || '').substring(0, 200), id: el.id || '', className: el.className || '', ariaLabel: el.getAttribute('aria-label') || '', href: el.href || '', type: el.type || '', name: el.name || '', value: el.value || '', placeholder: el.placeholder || '', x: rect.left, y: rect.top, width: rect.width, height: rect.height }};
+function gr(e) {{ const r=e.getAttribute('role'); if(r) return r; const t=e.tagName.toLowerCase(); if(t==='a') return'link'; if(t==='button') return'button'; if(t==='input'){{ const tp=(e.type||'text').toLowerCase(); if(tp==='checkbox') return'checkbox'; if(tp==='radio') return'radio'; if(tp==='submit'||tp==='button'||tp==='reset') return'button'; return'textbox'; }} if(t==='select') return'combobox'; if(t==='textarea') return'textbox'; return t; }}
+function gn(e) {{ const l=e.getAttribute('aria-label'); if(l) return l.trim(); const lb=e.getAttribute('aria-labelledby'); if(lb){{ const le=document.getElementById(lb); if(le) return(le.innerText||'').trim(); }} if(e.placeholder) return e.placeholder; if(e.title) return e.title; return(e.innerText||'').trim().substring(0,50); }}
+function ga(e) {{ const a={{}}; if(e.type) a.type=e.type; if(e.href) a.href=e.href; return a; }}
+function gst(e) {{ const r=e.getBoundingClientRect(); const s=window.getComputedStyle(e); return{{visible:r.width>0&&r.height>0&&s.visibility!=='hidden'&&s.display!=='none',enabled:!e.disabled}}; }}
+function sm(e) {{ const r=gr(e); const n=gn(e); return n?r+' "'+n.replace(/"/g,'\\"')+'"':r; }}
+const res={{role:gr(el),name:gn(el),tag:el.tagName.toLowerCase(),attributes:ga(el),state:gst(el),nearby:null}};
+if({nearby_js}){{ const par=el.parentElement; const prv=el.previousElementSibling; const nxt=el.nextElementSibling; const chl=Array.from(el.children).slice(0,3); res.nearby={{parent:par?sm(par):null,previous_sibling:prv?sm(prv):null,next_sibling:nxt?sm(nxt):null,children:chl.map(sm)}}; }}
+return res;
 }})()"#
     );
 
@@ -1180,7 +1198,7 @@ return {{ tag: el.tagName.toLowerCase(), role: el.getAttribute('role') || '', te
             if val.is_null() {
                 element_not_found(selector)
             } else {
-                ActionResult::ok(json!({"description": val, "selector": selector}))
+                ActionResult::ok(json!({"__describe": val, "selector": selector}))
             }
         }
         Err(e) => cdp_error_to_result(e),
@@ -1397,6 +1415,7 @@ pub(super) async fn handle_inspect_point(
     tab: TabId,
     x: f64,
     y: f64,
+    _parent_depth: Option<u32>, // TODO(follow-up): walk DOM ancestors up to depth N and populate __parents
 ) -> ActionResult {
     let target_id = match resolve_tab(session_id, regs, tab) {
         Ok(t) => t,
@@ -1404,7 +1423,14 @@ pub(super) async fn handle_inspect_point(
     };
 
     let js = format!(
-        r#"(function() {{ const el = document.elementFromPoint({x}, {y}); if (!el) return null; const rect = el.getBoundingClientRect(); return {{ tag: el.tagName.toLowerCase(), id: el.id || '', className: el.className || '', text: (el.innerText || '').substring(0, 200), role: el.getAttribute('role') || '', ariaLabel: el.getAttribute('aria-label') || '', href: el.href || '', x: rect.left, y: rect.top, width: rect.width, height: rect.height }}; }})()"#
+        r#"(function() {{
+const el = document.elementFromPoint({x}, {y});
+if (!el) return null;
+function gr(e) {{ const r=e.getAttribute('role'); if(r) return r; const t=e.tagName.toLowerCase(); if(t==='a') return'link'; if(t==='button') return'button'; if(t==='input'){{ const tp=(e.type||'text').toLowerCase(); if(tp==='checkbox') return'checkbox'; if(tp==='radio') return'radio'; if(tp==='submit'||tp==='button'||tp==='reset') return'button'; return'textbox'; }} if(t==='select') return'combobox'; if(t==='textarea') return'textbox'; return t; }}
+function gn(e) {{ const l=e.getAttribute('aria-label'); if(l) return l.trim(); if(e.title) return e.title; return(e.innerText||'').trim().substring(0,50); }}
+function gsel(e) {{ if(e.id) return'#'+e.id; let s=e.tagName.toLowerCase(); const cls=e.className&&typeof e.className==='string'?e.className.trim():''; if(cls) s+='.'+cls.split(/\s+/).join('.'); return s; }}
+return{{ role:gr(el), name:gn(el), selector:gsel(el) }};
+}})()"#
     );
 
     let op = BackendOp::Evaluate {
@@ -1415,7 +1441,9 @@ pub(super) async fn handle_inspect_point(
     match backend.exec(op).await {
         Ok(result) => {
             let val = extract_eval_value(&result.value);
-            ActionResult::ok(json!({"element": val, "x": x, "y": y}))
+            ActionResult::ok(
+                json!({"__element": val, "x": x, "y": y, "__parents": [], "__screenshot_path": null}),
+            )
         }
         Err(e) => cdp_error_to_result(e),
     }
@@ -1453,10 +1481,10 @@ pub(super) async fn handle_logs_console(
         None => String::new(),
     };
     let since_filter = match since {
-        Some(ts) => format!(
-            ".filter(l => l.timestamp >= {ts_json})",
-            ts_json = serde_json::to_string(ts).unwrap_or_else(|_| format!("\"{ts}\""))
-        ),
+        Some(id) => {
+            let id_json = serde_json::to_string(id).unwrap_or_else(|_| format!("\"{id}\""));
+            format!(".filter(l => parseInt((l.id||'').split('-')[1]||'0') > parseInt(({id_json}).split('-')[1]||'0'))")
+        }
         None => String::new(),
     };
     let clear_stmt = if clear_after {
@@ -1514,10 +1542,10 @@ pub(super) async fn handle_logs_errors(
         None => String::new(),
     };
     let since_filter = match since {
-        Some(ts) => format!(
-            ".filter(e => e.timestamp >= {ts_json})",
-            ts_json = serde_json::to_string(ts).unwrap_or_else(|_| format!("\"{ts}\""))
-        ),
+        Some(id) => {
+            let id_json = serde_json::to_string(id).unwrap_or_else(|_| format!("\"{id}\""));
+            format!(".filter(e => parseInt((e.id||'').split('-')[1]||'0') > parseInt(({id_json}).split('-')[1]||'0'))")
+        }
         None => String::new(),
     };
     let clear_stmt = if clear_after {
