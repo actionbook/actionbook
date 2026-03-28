@@ -41,6 +41,13 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 urlencoding = "2"
 which = "8"
 
+# Interactive UI
+dialoguer = "0.11"
+colored = "3"
+indicatif = "0.17"
+console = "0.15"
+dirs = "6"
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

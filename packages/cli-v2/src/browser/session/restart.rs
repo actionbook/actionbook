@@ -70,7 +70,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         // intentionally does not re-run config/env resolution.
         headless: Some(headless),
         profile: Some(profile),
-        executable: None,
+        executable_path: None,
         open_url,
         cdp_endpoint: None,
         header: None,

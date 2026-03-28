@@ -20,6 +20,7 @@ pub(crate) struct ConfigFile {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub(crate) struct ApiConfig {
+    pub(crate) base_url: Option<String>,
     pub(crate) api_key: Option<String>,
 }
 
@@ -27,11 +28,12 @@ pub(crate) struct ApiConfig {
 #[serde(default)]
 pub(crate) struct BrowserConfig {
     pub(crate) mode: Mode,
-    #[serde(default = "default_profile_name")]
-    pub(crate) default_profile: String,
     pub(crate) headless: bool,
-    pub(crate) executable: Option<String>,
-    #[serde(alias = "cdp-endpoint")]
+    #[serde(default = "default_profile_name", alias = "default_profile")]
+    pub(crate) profile_name: String,
+    #[serde(alias = "executable")]
+    pub(crate) executable_path: Option<String>,
+    #[serde(alias = "cdp-endpoint", alias = "cdp_endpoint")]
     pub(crate) cdp_endpoint: Option<String>,
 }
 
@@ -39,9 +41,9 @@ impl Default for BrowserConfig {
     fn default() -> Self {
         Self {
             mode: Mode::Local,
-            default_profile: default_profile_name(),
             headless: false,
-            executable: None,
+            profile_name: default_profile_name(),
+            executable_path: None,
             cdp_endpoint: None,
         }
     }
@@ -158,13 +160,13 @@ pub fn resolve_start_command(mut cmd: StartCmd) -> Result<StartCmd, CliError> {
     let config = load_config()?;
 
     let env_mode = parse_env_mode("ACTIONBOOK_BROWSER_MODE")?;
-    let env_profile = read_trimmed_env("ACTIONBOOK_BROWSER_DEFAULT_PROFILE");
+    let env_profile = read_trimmed_env("ACTIONBOOK_BROWSER_PROFILE_NAME");
     let env_headless = parse_env_bool("ACTIONBOOK_BROWSER_HEADLESS")?;
-    let env_executable = read_trimmed_env("ACTIONBOOK_BROWSER_EXECUTABLE");
+    let env_executable = read_trimmed_env("ACTIONBOOK_BROWSER_EXECUTABLE_PATH");
     let env_cdp = read_trimmed_env("ACTIONBOOK_BROWSER_CDP_ENDPOINT");
 
-    let config_profile = normalize_optional(Some(config.browser.default_profile.clone()));
-    let config_executable = normalize_optional(config.browser.executable.clone());
+    let config_profile = normalize_optional(Some(config.browser.profile_name.clone()));
+    let config_executable = normalize_optional(config.browser.executable_path.clone());
     let config_cdp = normalize_optional(config.browser.cdp_endpoint.clone());
 
     let resolved_mode = cmd.mode.or(env_mode).unwrap_or(config.browser.mode);
@@ -185,7 +187,7 @@ pub fn resolve_start_command(mut cmd: StartCmd) -> Result<StartCmd, CliError> {
     cmd.mode = Some(resolved_mode);
     cmd.headless = Some(resolved_headless);
     cmd.profile = explicit_profile.then_some(resolved_profile);
-    cmd.executable = env_executable.or(config_executable);
+    cmd.executable_path = env_executable.or(config_executable);
     cmd.cdp_endpoint = normalize_optional(cmd.cdp_endpoint)
         .or(env_cdp)
         .or(config_cdp);
@@ -239,9 +241,9 @@ mod tests {
         let guard = EnvGuard::set(&[
             ("ACTIONBOOK_HOME", Some(home.to_string_lossy().as_ref())),
             ("ACTIONBOOK_BROWSER_MODE", None),
-            ("ACTIONBOOK_BROWSER_DEFAULT_PROFILE", None),
+            ("ACTIONBOOK_BROWSER_PROFILE_NAME", None),
             ("ACTIONBOOK_BROWSER_HEADLESS", None),
-            ("ACTIONBOOK_BROWSER_EXECUTABLE", None),
+            ("ACTIONBOOK_BROWSER_EXECUTABLE_PATH", None),
             ("ACTIONBOOK_BROWSER_CDP_ENDPOINT", None),
         ]);
         (tmp, guard)
@@ -252,7 +254,7 @@ mod tests {
             mode: None,
             headless: None,
             profile: None,
-            executable: None,
+            executable_path: None,
             open_url: None,
             cdp_endpoint: None,
             header: None,
@@ -271,7 +273,7 @@ mod tests {
 
         assert!(path.exists(), "config should be bootstrapped");
         assert!(text.contains("[browser]"));
-        assert!(text.contains("default_profile = \"actionbook\""));
+        assert!(text.contains("profile_name = \"actionbook\""));
         assert_eq!(resolved.mode, Some(Mode::Local));
         assert_eq!(resolved.headless, Some(false));
         assert!(
@@ -289,9 +291,9 @@ mod tests {
             config_path(),
             r#"[browser]
 mode = "extension"
-default_profile = "config-profile"
+profile_name = "config-profile"
 headless = false
-executable = "/config/browser"
+executable_path = "/config/browser"
 cdp_endpoint = "ws://127.0.0.1:9333/devtools/browser/config"
 "#,
         )
@@ -299,9 +301,9 @@ cdp_endpoint = "ws://127.0.0.1:9333/devtools/browser/config"
 
         let _env = EnvGuard::set(&[
             ("ACTIONBOOK_BROWSER_MODE", Some("cloud")),
-            ("ACTIONBOOK_BROWSER_DEFAULT_PROFILE", Some("env-profile")),
+            ("ACTIONBOOK_BROWSER_PROFILE_NAME", Some("env-profile")),
             ("ACTIONBOOK_BROWSER_HEADLESS", Some("true")),
-            ("ACTIONBOOK_BROWSER_EXECUTABLE", Some("/env/browser")),
+            ("ACTIONBOOK_BROWSER_EXECUTABLE_PATH", Some("/env/browser")),
             (
                 "ACTIONBOOK_BROWSER_CDP_ENDPOINT",
                 Some("ws://127.0.0.1:9444/devtools/browser/env"),
@@ -313,7 +315,7 @@ cdp_endpoint = "ws://127.0.0.1:9333/devtools/browser/config"
         assert_eq!(resolved.mode, Some(Mode::Cloud));
         assert_eq!(resolved.headless, Some(true));
         assert_eq!(resolved.profile.as_deref(), Some("env-profile"));
-        assert_eq!(resolved.executable.as_deref(), Some("/env/browser"));
+        assert_eq!(resolved.executable_path.as_deref(), Some("/env/browser"));
         assert_eq!(
             resolved.cdp_endpoint.as_deref(),
             Some("ws://127.0.0.1:9444/devtools/browser/env")
@@ -326,9 +328,9 @@ cdp_endpoint = "ws://127.0.0.1:9333/devtools/browser/config"
         let (_tmp, _guard) = make_home();
         let _env = EnvGuard::set(&[
             ("ACTIONBOOK_BROWSER_MODE", Some("extension")),
-            ("ACTIONBOOK_BROWSER_DEFAULT_PROFILE", Some("env-profile")),
+            ("ACTIONBOOK_BROWSER_PROFILE_NAME", Some("env-profile")),
             ("ACTIONBOOK_BROWSER_HEADLESS", Some("false")),
-            ("ACTIONBOOK_BROWSER_EXECUTABLE", Some("/env/browser")),
+            ("ACTIONBOOK_BROWSER_EXECUTABLE_PATH", Some("/env/browser")),
             (
                 "ACTIONBOOK_BROWSER_CDP_ENDPOINT",
                 Some("ws://127.0.0.1:9444/devtools/browser/env"),

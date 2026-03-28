@@ -75,7 +75,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             handle_browser(command, json_mode).await?;
         }
         Commands::Setup(cmd) => {
-            actionbook_cli::setup::execute(&cmd, json_mode)?;
+            actionbook_cli::setup::execute(&cmd, json_mode).await?;
         }
         Commands::Help => {
             handle_help(json_mode);
@@ -98,7 +98,7 @@ async fn handle_browser(
                         mode: None,
                         headless: None,
                         profile: None,
-                        executable: None,
+                        executable_path: None,
                         open_url: None,
                         cdp_endpoint: None,
                         header: None,

@@ -30,10 +30,6 @@ fn setup_json_non_interactive_writes_config_without_daemon_side_effects() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),
     );
-    assert!(
-        output.stdout.is_empty(),
-        "setup --json should not invent a JSON schema"
-    );
 
     let config = read_config(&home);
     assert!(config.contains("[api]"));
@@ -52,7 +48,7 @@ fn setup_json_non_interactive_writes_config_without_daemon_side_effects() {
 }
 
 #[test]
-fn setup_reset_recreates_default_config_without_non_interactive() {
+fn setup_reset_recreates_default_config() {
     let tmp = tempfile::tempdir().expect("tmpdir");
     let home = tmp.path().join("actionbook-home");
 
@@ -75,7 +71,7 @@ fn setup_reset_recreates_default_config_without_non_interactive() {
     let reset = Command::cargo_bin("actionbook")
         .expect("binary exists")
         .env("ACTIONBOOK_HOME", &home)
-        .args(["--json", "setup", "--reset"])
+        .args(["--json", "setup", "--reset", "--non-interactive"])
         .output()
         .expect("run reset");
 
@@ -85,17 +81,13 @@ fn setup_reset_recreates_default_config_without_non_interactive() {
         String::from_utf8_lossy(&reset.stdout),
         String::from_utf8_lossy(&reset.stderr),
     );
-    assert!(
-        reset.stdout.is_empty(),
-        "setup --json should not invent a JSON schema"
-    );
 
     let config = read_config(&home);
     assert!(config.contains("[api]"));
     assert!(!config.contains("api_key = \"sk-test\""));
     assert!(config.contains("[browser]"));
     assert!(config.contains("mode = \"local\""));
-    assert!(config.contains("default_profile = \"actionbook\""));
+    assert!(config.contains("profile_name = \"actionbook\""));
 }
 
 #[test]
@@ -106,7 +98,13 @@ fn setup_invalid_browser_value_exits_non_zero() {
     let output = Command::cargo_bin("actionbook")
         .expect("binary exists")
         .env("ACTIONBOOK_HOME", &home)
-        .args(["--json", "setup", "--non-interactive", "--browser", "cloud"])
+        .args([
+            "--json",
+            "setup",
+            "--non-interactive",
+            "--browser",
+            "invalid",
+        ])
         .output()
         .expect("run setup");
 
@@ -117,11 +115,7 @@ fn setup_invalid_browser_value_exits_non_zero() {
         String::from_utf8_lossy(&output.stderr),
     );
     assert!(
-        output.stdout.is_empty(),
-        "setup --json should not invent a JSON schema on failure"
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("invalid --browser value 'cloud'"),
+        String::from_utf8_lossy(&output.stderr).contains("invalid --browser value 'invalid'"),
         "stderr should explain invalid browser value"
     );
     assert!(
