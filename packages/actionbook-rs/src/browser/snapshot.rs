@@ -642,6 +642,7 @@ pub fn remove_empty_leaves(nodes: &[A11yNode]) -> Vec<A11yNode> {
         .collect()
 }
 
+/// Format nodes as indented tree (agent-browser style)
 ///
 /// Format: `- role "name" [disabled, ref=eN]: value`
 /// Attributes are combined in a single `[...]` block. Value uses `: value` suffix.
@@ -803,6 +804,7 @@ pub fn truncate_to_tokens(
 }
 
 /// Compact tree: keep only nodes with [ref=] or values, plus their ancestors.
+/// Matches agent-browser's compact_tree behavior.
 #[allow(dead_code)]
 pub fn compact_tree_nodes(nodes: &[A11yNode]) -> Vec<A11yNode> {
     let mut keep = vec![false; nodes.len()];
