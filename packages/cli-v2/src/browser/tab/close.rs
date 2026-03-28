@@ -81,14 +81,18 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     // Close the target first via CDP (unified for local + cloud)
+    // Treat "target not found" as success (idempotent — target already gone)
     if let Err(e) = cdp
         .execute_browser("Target.closeTarget", json!({ "targetId": cmd.tab }))
         .await
     {
-        return ActionResult::fatal(
-            "CDP_ERROR",
-            format!("Target.closeTarget failed: {e}"),
-        );
+        let msg = e.to_string();
+        if !msg.contains("No target with given id") && !msg.contains("Target closed") {
+            return ActionResult::fatal(
+                "CDP_ERROR",
+                format!("Target.closeTarget failed: {e}"),
+            );
+        }
     }
 
     // Then detach (cleanup session mapping) — ignore errors since target is already gone

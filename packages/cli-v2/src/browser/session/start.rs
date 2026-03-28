@@ -153,9 +153,15 @@ async fn execute_cloud(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                     if let Some(ref cdp) = entry.cdp {
                         let cdp = cdp.clone();
                         drop(reg);
-                        let _ = cdp
+                        if let Err(e) = cdp
                             .execute_on_tab(&first_tab_id, "Page.navigate", json!({ "url": final_url }))
-                            .await;
+                            .await
+                        {
+                            return ActionResult::fatal(
+                                "NAVIGATION_FAILED",
+                                format!("cloud reuse navigate failed: {e}"),
+                            );
+                        }
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                         let reg = registry.lock().await;
                         if let Some(entry) = reg.get(&session_id) {
@@ -172,8 +178,11 @@ async fn execute_cloud(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             return make_session_response(entry, &first_tab_id, "", "", true);
         }
 
-        // No CDP connection (should not happen for running sessions)
-        return make_session_response(entry, &first_tab_id, "", "", true);
+        // No CDP connection — this should not happen for running sessions
+        return ActionResult::fatal(
+            "INTERNAL_ERROR",
+            format!("session '{session_id}' has no CDP connection"),
+        );
     }
 
     // New cloud session — insert placeholder to prevent concurrent duplicate connections
@@ -223,10 +232,22 @@ async fn execute_cloud(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Zero-page handling: create a tab if none exist
     let tabs = if tabs.is_empty() {
-        let url = cmd.open_url.as_deref().unwrap_or("about:blank");
-        match create_tab_via_cdp(&cdp, url).await {
+        let raw_url = cmd.open_url.as_deref().unwrap_or("about:blank");
+        let url = match ensure_scheme_or_fatal(raw_url) {
+            Ok(u) => u,
+            Err(e) => {
+                let mut reg = registry.lock().await;
+                reg.remove(session_id.as_str());
+                return e;
+            }
+        };
+        match create_tab_via_cdp(&cdp, &url).await {
             Ok(tab) => vec![tab],
-            Err(e) => return e,
+            Err(e) => {
+                let mut reg = registry.lock().await;
+                reg.remove(session_id.as_str());
+                return e;
+            }
         }
     } else {
         // Attach all discovered tabs
@@ -239,12 +260,19 @@ async fn execute_cloud(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         if let Some(url) = &cmd.open_url {
             let final_url = match ensure_scheme_or_fatal(url) {
                 Ok(u) => u,
-                Err(e) => return e,
+                Err(e) => {
+                    let mut reg = registry.lock().await;
+                    reg.remove(session_id.as_str());
+                    return e;
+                }
             };
             if let Some(first) = tabs.first() {
-                let _ = cdp
+                if let Err(e) = cdp
                     .execute_on_tab(&first.id.0, "Page.navigate", json!({ "url": final_url }))
-                    .await;
+                    .await
+                {
+                    tracing::warn!("cloud reuse navigate failed: {e}");
+                }
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
         }
