@@ -86,7 +86,13 @@ impl CdpSession {
     ///
     /// Sends `Target.attachToTarget` with `flatten: true` and stores the
     /// returned `sessionId` for future `execute_on_tab` calls.
+    /// Idempotent: if already attached, returns the existing sessionId.
     pub async fn attach(&self, target_id: &str) -> Result<String, CliError> {
+        // Check if already attached (idempotent)
+        if let Some(existing) = self.tab_sessions.lock().await.get(target_id).cloned() {
+            return Ok(existing);
+        }
+
         let resp = self
             .execute(
                 "Target.attachToTarget",

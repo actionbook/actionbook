@@ -140,9 +140,9 @@ async fn execute_cloud(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
             // Ensure first tab is attached (may have been lost after reconnect)
             if !first_tab_id.is_empty() {
-                let cdp_clone = cdp.clone();
-                // Re-attach if not already in tab_sessions (idempotent)
-                let _ = cdp_clone.attach(&first_tab_id).await;
+                if let Err(e) = cdp.attach(&first_tab_id).await {
+                    tracing::warn!("cloud reuse: failed to re-attach tab {first_tab_id}: {e}");
+                }
             }
 
             // If --open-url, navigate the first tab
@@ -666,7 +666,7 @@ async fn create_tab_via_cdp(cdp: &CdpSession, url: &str) -> Result<TabEntry, Act
     })
 }
 
-/// Build a session response JSON.
+/// Build a session response JSON. If tab_url/tab_title are empty, reads from registry.
 fn make_session_response(
     entry: &crate::daemon::registry::SessionEntry,
     tab_id: &str,
@@ -674,6 +674,17 @@ fn make_session_response(
     tab_title: &str,
     reused: bool,
 ) -> ActionResult {
+    // Fall back to registry data if url/title not provided
+    let (url, title) = if tab_url.is_empty() {
+        entry
+            .tabs
+            .iter()
+            .find(|t| t.id.0 == tab_id)
+            .map(|t| (t.url.as_str(), t.title.as_str()))
+            .unwrap_or(("", ""))
+    } else {
+        (tab_url, tab_title)
+    };
     ActionResult::ok(json!({
         "session": {
             "session_id": entry.id.as_str(),
@@ -684,8 +695,8 @@ fn make_session_response(
         },
         "tab": {
             "tab_id": tab_id,
-            "url": tab_url,
-            "title": tab_title,
+            "url": url,
+            "title": title,
         },
         "reused": reused,
     }))

@@ -97,9 +97,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Attach the new tab to the persistent CDP session
     if let Err(e) = cdp.attach(&target_id).await {
         // Rollback: close the orphaned tab in the browser
-        let _ = cdp
+        if let Err(re) = cdp
             .execute_browser("Target.closeTarget", json!({ "targetId": target_id }))
-            .await;
+            .await
+        {
+            tracing::warn!("open-tab rollback failed for target {target_id}: {re}");
+        }
         return ActionResult::fatal(
             "CDP_ERROR",
             format!("failed to attach tab to CDP session: {e}"),
