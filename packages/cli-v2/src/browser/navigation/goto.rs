@@ -25,13 +25,28 @@ pub struct Cmd {
 
 pub const COMMAND_NAME: &str = "browser.goto";
 
-pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
+pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
+    // SESSION_NOT_FOUND: context must be null per §3.1
+    if let ActionResult::Fatal { code, .. } = result
+        && code == "SESSION_NOT_FOUND"
+    {
+        return None;
+    }
+    let (url, title) = match result {
+        ActionResult::Ok { data } => (
+            data.get("to_url")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            data.get("title").and_then(|v| v.as_str()).map(String::from),
+        ),
+        _ => (None, None),
+    };
     Some(ResponseContext {
         session_id: cmd.session.clone(),
         tab_id: Some(cmd.tab.clone()),
         window_id: None,
-        url: None,
-        title: None,
+        url,
+        title,
     })
 }
 
@@ -46,16 +61,36 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return e,
     };
 
-    if !target_id.is_empty()
-        && let Err(e) = cdp
+    // Get from_url before navigation
+    let from_url = super::get_tab_url(&cdp, &target_id).await;
+
+    if !target_id.is_empty() {
+        match cdp
             .execute_on_tab(&target_id, "Page.navigate", json!({ "url": final_url }))
             .await
-    {
-        return cdp_error_to_result(e, "NAVIGATION_FAILED");
+        {
+            Err(e) => return cdp_error_to_result(e, "NAVIGATION_FAILED"),
+            Ok(v) => {
+                // CDP may return a success response but with errorText indicating the
+                // navigation failed (e.g. unrecognized scheme, ERR_ABORTED).
+                if let Some(err_text) = v["result"]["errorText"].as_str()
+                    && !err_text.is_empty()
+                {
+                    return ActionResult::fatal("NAVIGATION_FAILED", err_text.to_string());
+                }
+            }
+        }
     }
+
+    // Get to_url and title after navigation
+    let to_url = super::get_tab_url(&cdp, &target_id).await;
+    let title = super::get_tab_title(&cdp, &target_id).await;
 
     ActionResult::ok(json!({
         "kind": "goto",
-        "to_url": final_url,
+        "requested_url": cmd.url,
+        "from_url": from_url,
+        "to_url": to_url,
+        "title": title,
     }))
 }

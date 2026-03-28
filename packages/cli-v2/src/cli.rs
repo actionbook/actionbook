@@ -156,6 +156,18 @@ impl BrowserCommands {
             Self::NewTab(cmd) => Action::NewTab(cmd.clone()),
             Self::CloseTab(cmd) => Action::CloseTab(cmd.clone()),
             Self::Goto(cmd) => Action::Goto(cmd.clone()),
+            Self::Back(a) => Action::Back(navigation::back::Cmd {
+                session: a.session.clone(),
+                tab: a.tab.clone(),
+            }),
+            Self::Forward(a) => Action::Forward(navigation::forward::Cmd {
+                session: a.session.clone(),
+                tab: a.tab.clone(),
+            }),
+            Self::Reload(a) => Action::Reload(navigation::reload::Cmd {
+                session: a.session.clone(),
+                tab: a.tab.clone(),
+            }),
             Self::Snapshot(cmd) => Action::Snapshot(cmd.clone()),
             Self::Eval(cmd) => Action::Eval(cmd.clone()),
             _ => return None,
@@ -200,7 +212,27 @@ impl BrowserCommands {
             Self::Goto(cmd) => navigation::goto::context(cmd, result),
             Self::Snapshot(cmd) => observation::snapshot::context(cmd, result),
             Self::Eval(cmd) => interaction::eval::context(cmd, result),
-            Self::Back(a) | Self::Forward(a) | Self::Reload(a) => tab_context(&a.session, &a.tab),
+            Self::Back(a) => navigation::back::context(
+                &navigation::back::Cmd {
+                    session: a.session.clone(),
+                    tab: a.tab.clone(),
+                },
+                result,
+            ),
+            Self::Forward(a) => navigation::forward::context(
+                &navigation::forward::Cmd {
+                    session: a.session.clone(),
+                    tab: a.tab.clone(),
+                },
+                result,
+            ),
+            Self::Reload(a) => navigation::reload::context(
+                &navigation::reload::Cmd {
+                    session: a.session.clone(),
+                    tab: a.tab.clone(),
+                },
+                result,
+            ),
             Self::Screenshot { session, tab, .. }
             | Self::Click { session, tab, .. }
             | Self::Fill { session, tab, .. }

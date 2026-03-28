@@ -20,6 +20,9 @@ pub enum Action {
 
     // ── Navigation ─────────────────────────────────────────────
     Goto(navigation::goto::Cmd),
+    Back(navigation::back::Cmd),
+    Forward(navigation::forward::Cmd),
+    Reload(navigation::reload::Cmd),
 
     // ── Observation ────────────────────────────────────────────
     Snapshot(observation::snapshot::Cmd),
@@ -41,6 +44,9 @@ impl Action {
             Action::CloseTab(_) => tab::close::COMMAND_NAME,
             Action::ListTabs(_) => tab::list::COMMAND_NAME,
             Action::Goto(_) => navigation::goto::COMMAND_NAME,
+            Action::Back(_) => navigation::back::COMMAND_NAME,
+            Action::Forward(_) => navigation::forward::COMMAND_NAME,
+            Action::Reload(_) => navigation::reload::COMMAND_NAME,
             Action::Snapshot(_) => observation::snapshot::COMMAND_NAME,
             Action::Eval(_) => interaction::eval::COMMAND_NAME,
         }

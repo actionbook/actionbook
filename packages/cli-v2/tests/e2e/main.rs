@@ -12,4 +12,5 @@
 mod browser_lifecycle;
 mod cloud_mode;
 mod harness;
+mod navigation;
 mod tab_management;

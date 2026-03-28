@@ -174,6 +174,9 @@ pub fn format_text(
                     | "browser.close"
                     | "browser.restart"
                     | "browser.goto"
+                    | "browser.back"
+                    | "browser.forward"
+                    | "browser.reload"
                     | "browser.click"
                     | "browser.fill"
                     | "browser.new-tab"
@@ -301,6 +304,11 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
         }
         "browser.close-tab" => {
             // No additional fields per §8.3 text format
+        }
+        "browser.goto" | "browser.back" | "browser.forward" | "browser.reload" => {
+            if let Some(title) = data.get("title").and_then(|v| v.as_str()) {
+                lines.push(format!("title: {title}"));
+            }
         }
         "browser.eval" => {
             if let Some(val) = data.get("value") {
