@@ -12,20 +12,27 @@ pub(crate) const DEFAULT_PROFILE: &str = "actionbook";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
-struct ConfigFile {
-    browser: BrowserConfig,
+pub(crate) struct ConfigFile {
+    pub(crate) api: ApiConfig,
+    pub(crate) browser: BrowserConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub(crate) struct ApiConfig {
+    pub(crate) api_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-struct BrowserConfig {
-    mode: Mode,
+pub(crate) struct BrowserConfig {
+    pub(crate) mode: Mode,
     #[serde(default = "default_profile_name")]
-    default_profile: String,
-    headless: bool,
-    executable: Option<String>,
+    pub(crate) default_profile: String,
+    pub(crate) headless: bool,
+    pub(crate) executable: Option<String>,
     #[serde(alias = "cdp-endpoint")]
-    cdp_endpoint: Option<String>,
+    pub(crate) cdp_endpoint: Option<String>,
 }
 
 impl Default for BrowserConfig {
@@ -81,9 +88,23 @@ fn bootstrap_default_config_if_missing() -> Result<PathBuf, CliError> {
         return Ok(path);
     }
 
-    let dir = ensure_actionbook_home()?;
-    let text = toml::to_string_pretty(&ConfigFile::default())
-        .map_err(|e| CliError::Internal(format!("failed to serialize default config: {e}")))?;
+    save_config(&ConfigFile::default())?;
+    Ok(path)
+}
+
+pub(crate) fn load_config() -> Result<ConfigFile, CliError> {
+    let path = bootstrap_default_config_if_missing()?;
+    let text = fs::read_to_string(&path)?;
+    toml::from_str(&text).map_err(|e| {
+        CliError::InvalidArgument(format!("invalid config file {}: {e}", path.display()))
+    })
+}
+
+pub(crate) fn save_config(config: &ConfigFile) -> Result<PathBuf, CliError> {
+    let path = config_path();
+    let _dir = ensure_actionbook_home()?;
+    let text = toml::to_string_pretty(config)
+        .map_err(|e| CliError::Internal(format!("failed to serialize config: {e}")))?;
     fs::write(&path, text)?;
 
     #[cfg(unix)]
@@ -92,16 +113,7 @@ fn bootstrap_default_config_if_missing() -> Result<PathBuf, CliError> {
         let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
     }
 
-    let _ = dir;
     Ok(path)
-}
-
-fn load_config() -> Result<ConfigFile, CliError> {
-    let path = bootstrap_default_config_if_missing()?;
-    let text = fs::read_to_string(&path)?;
-    toml::from_str(&text).map_err(|e| {
-        CliError::InvalidArgument(format!("invalid config file {}: {e}", path.display()))
-    })
 }
 
 fn read_trimmed_env(name: &str) -> Option<String> {

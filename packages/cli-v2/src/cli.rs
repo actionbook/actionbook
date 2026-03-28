@@ -4,6 +4,7 @@ use crate::action::Action;
 use crate::action_result::ActionResult;
 use crate::browser::{interaction, navigation, observation, session, tab};
 use crate::output::ResponseContext;
+use crate::setup;
 
 fn tab_context(session: &str, tab: &str) -> Option<ResponseContext> {
     Some(ResponseContext {
@@ -46,6 +47,8 @@ pub enum Commands {
         #[command(subcommand)]
         command: BrowserCommands,
     },
+    /// Interactive configuration wizard
+    Setup(setup::Cmd),
     /// Show help
     Help,
 }
@@ -205,6 +208,39 @@ impl BrowserCommands {
             | Self::Click { session, tab, .. }
             | Self::Fill { session, tab, .. }
             | Self::Type { session, tab, .. } => tab_context(session, tab),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn try_parse_from_parses_setup_non_interactive_flags() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "setup",
+            "--target",
+            "codex",
+            "--api-key",
+            "sk-test",
+            "--browser",
+            "isolated",
+            "--non-interactive",
+            "--reset",
+        ])
+        .expect("parse setup");
+
+        match cli.command {
+            Some(Commands::Setup(cmd)) => {
+                assert_eq!(cmd.target.as_deref(), Some("codex"));
+                assert_eq!(cmd.api_key.as_deref(), Some("sk-test"));
+                assert_eq!(cmd.browser.as_deref(), Some("isolated"));
+                assert!(cmd.non_interactive);
+                assert!(cmd.reset);
+            }
+            other => panic!("expected setup command, got {other:?}"),
         }
     }
 }

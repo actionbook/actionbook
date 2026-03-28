@@ -6,5 +6,6 @@ pub mod config;
 pub mod daemon;
 pub mod error;
 pub mod output;
+pub mod setup;
 pub mod types;
 pub mod utils;

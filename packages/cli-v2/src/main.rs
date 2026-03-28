@@ -29,6 +29,7 @@ async fn main() {
 
     let cli = Cli::parse();
     let json_output = cli.json;
+    let is_setup_command = matches!(cli.command.as_ref(), Some(Commands::Setup(_)));
 
     // Handle --version before subcommand dispatch
     if cli.version {
@@ -46,7 +47,7 @@ async fn main() {
     match result {
         Ok(()) => {}
         Err(e) => {
-            if json_output {
+            if json_output && !is_setup_command {
                 let envelope = JsonEnvelope::error(
                     "unknown",
                     None,
@@ -72,6 +73,9 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     match cli.command.unwrap() {
         Commands::Browser { command } => {
             handle_browser(command, json_mode).await?;
+        }
+        Commands::Setup(cmd) => {
+            actionbook_cli::setup::execute(&cmd, json_mode)?;
         }
         Commands::Help => {
             handle_help(json_mode);
