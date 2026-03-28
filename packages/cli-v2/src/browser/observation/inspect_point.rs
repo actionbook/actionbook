@@ -74,11 +74,23 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     })
 }
 
-pub async fn execute(cmd: &Cmd, _registry: &SharedRegistry) -> ActionResult {
-    // Validate coordinates early so error tests pass against the stub
+pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
+    // Validate coordinates early
     if let Err(e) = parse_coordinates(&cmd.coordinates) {
         return ActionResult::fatal("INVALID_ARGUMENT", e);
     }
+
+    // Resolve session/tab so error-path tests work against the stub
+    let (_cdp, _target_id) = match crate::daemon::cdp_session::get_cdp_and_target(
+        registry,
+        &cmd.session,
+        &cmd.tab,
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
 
     ActionResult::fatal(
         "NOT_IMPLEMENTED",
