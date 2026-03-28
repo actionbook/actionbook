@@ -772,7 +772,7 @@ fn parse_headers(raw: &[String]) -> Result<Vec<(String, String)>, ActionResult> 
             let (key, value) = h.split_once(':').ok_or_else(|| {
                 ActionResult::fatal(
                     "INVALID_ARGUMENT",
-                    format!("invalid header format, expected KEY:VALUE"),
+                    "invalid header format, expected KEY:VALUE".to_string(),
                 )
             })?;
             let key = key.trim().to_string();

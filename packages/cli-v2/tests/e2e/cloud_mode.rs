@@ -61,11 +61,11 @@ fn launch_simulated_cloud() -> (std::process::Child, String) {
             panic!("Chrome did not print DevTools URL within 15s");
         }
         let line: String = line.expect("read stderr line");
-        if line.contains("DevTools listening on") {
-            if let Some(idx) = line.find("ws://") {
-                ws_url = line[idx..].trim().to_string();
-                break;
-            }
+        if line.contains("DevTools listening on")
+            && let Some(idx) = line.find("ws://")
+        {
+            ws_url = line[idx..].trim().to_string();
+            break;
         }
     }
     assert!(!ws_url.is_empty(), "failed to get Chrome WS URL");
@@ -85,12 +85,12 @@ fn find_chrome_executable() -> String {
         if std::path::Path::new(c).exists() {
             return c.to_string();
         }
-        if let Ok(output) = StdCommand::new("which").arg(c).output() {
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !path.is_empty() {
-                    return path;
-                }
+        if let Ok(output) = StdCommand::new("which").arg(c).output()
+            && output.status.success()
+        {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return path;
             }
         }
     }
@@ -1533,7 +1533,7 @@ fn cloud_crash_recovery_reconnect() {
     }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
-    let (sid, _) = start_cloud_json(&ws_url);
+    let (_sid, _) = start_cloud_json(&ws_url);
 
     // Kill daemon (NOT Chrome) — simulates daemon crash
     crate::harness::ensure_no_sessions();
@@ -1575,7 +1575,7 @@ fn cloud_crash_recovery_endpoint_gone() {
     }
     let _guard = SessionGuard::new();
     let (mut chrome, ws_url) = launch_simulated_cloud();
-    let (sid, _) = start_cloud_json(&ws_url);
+    let (_sid, _) = start_cloud_json(&ws_url);
 
     // Kill BOTH daemon and Chrome — endpoint no longer exists
     kill_chrome(&mut chrome);
