@@ -4,6 +4,7 @@ pub mod r#box;
 pub mod describe;
 pub mod html;
 pub mod inspect_point;
+pub mod query;
 pub mod snapshot;
 pub mod snapshot_transform;
 pub mod state;

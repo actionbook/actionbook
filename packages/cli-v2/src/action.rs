@@ -38,6 +38,7 @@ pub enum Action {
     Styles(observation::styles::Cmd),
     Describe(observation::describe::Cmd),
     State(observation::state::Cmd),
+    Query(observation::query::Cmd),
     InspectPoint(observation::inspect_point::Cmd),
 
     // ── Interaction ────────────────────────────────────────────
@@ -85,6 +86,7 @@ impl Action {
             Action::Styles(_) => observation::styles::COMMAND_NAME,
             Action::Describe(_) => observation::describe::COMMAND_NAME,
             Action::State(_) => observation::state::COMMAND_NAME,
+            Action::Query(_) => observation::query::COMMAND_NAME,
             Action::InspectPoint(_) => observation::inspect_point::COMMAND_NAME,
             Action::Eval(_) => interaction::eval::COMMAND_NAME,
             Action::Click(_) => interaction::click::COMMAND_NAME,

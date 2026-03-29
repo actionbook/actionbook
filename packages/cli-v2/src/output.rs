@@ -556,6 +556,52 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
             }
         }
+        "browser.query" => {
+            let mode = data.get("mode").and_then(|v| v.as_str()).unwrap_or("");
+            let count = data.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
+            match mode {
+                "one" => {
+                    lines.push("1 match".to_string());
+                    if let Some(item) = data.get("item") {
+                        if let Some(sel) = item.get("selector").and_then(|v| v.as_str()) {
+                            lines.push(format!("selector: {sel}"));
+                        }
+                        if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+                            lines.push(format!("text: {text}"));
+                        }
+                    }
+                }
+                "all" => {
+                    lines.push(format!("{count} matches"));
+                    if let Some(items) = data.get("items").and_then(|v| v.as_array()) {
+                        for (i, item) in items.iter().enumerate() {
+                            if let Some(sel) = item.get("selector").and_then(|v| v.as_str()) {
+                                lines.push(format!("{}. {sel}", i + 1));
+                            }
+                            if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+                                lines.push(format!("   {text}"));
+                            }
+                        }
+                    }
+                }
+                "nth" => {
+                    let index = data.get("index").and_then(|v| v.as_u64()).unwrap_or(0);
+                    lines.push(format!("match {index}/{count}"));
+                    if let Some(item) = data.get("item") {
+                        if let Some(sel) = item.get("selector").and_then(|v| v.as_str()) {
+                            lines.push(format!("selector: {sel}"));
+                        }
+                        if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+                            lines.push(format!("text: {text}"));
+                        }
+                    }
+                }
+                "count" => {
+                    lines.push(format!("{count}"));
+                }
+                _ => {}
+            }
+        }
         "browser.inspect-point" => {
             // §10.11: role "name" / selector / point
             if let Some(element) = data.get("element") {

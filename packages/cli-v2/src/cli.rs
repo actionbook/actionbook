@@ -137,6 +137,8 @@ Examples:
     Describe(observation::describe::Cmd),
     /// Get element state
     State(observation::state::Cmd),
+    /// Query elements with cardinality constraints
+    Query(observation::query::Cmd),
     /// Inspect element at coordinates
     InspectPoint(observation::inspect_point::Cmd),
     /// Take screenshot
@@ -221,6 +223,7 @@ impl BrowserCommands {
             Self::Styles(cmd) => Action::Styles(cmd.clone()),
             Self::Describe(cmd) => Action::Describe(cmd.clone()),
             Self::State(cmd) => Action::State(cmd.clone()),
+            Self::Query(cmd) => Action::Query(cmd.clone()),
             Self::InspectPoint(cmd) => Action::InspectPoint(cmd.clone()),
             Self::Eval(cmd) => Action::Eval(cmd.clone()),
             Self::Click(cmd) => Action::Click(cmd.clone()),
@@ -268,6 +271,7 @@ impl BrowserCommands {
             Self::Styles(_) => observation::styles::COMMAND_NAME,
             Self::Describe(_) => observation::describe::COMMAND_NAME,
             Self::State(_) => observation::state::COMMAND_NAME,
+            Self::Query(_) => observation::query::COMMAND_NAME,
             Self::InspectPoint(_) => observation::inspect_point::COMMAND_NAME,
             Self::Screenshot { .. } => "browser.screenshot",
             Self::Eval(_) => interaction::eval::COMMAND_NAME,
@@ -312,6 +316,7 @@ impl BrowserCommands {
             Self::Styles(cmd) => observation::styles::context(cmd, result),
             Self::Describe(cmd) => observation::describe::context(cmd, result),
             Self::State(cmd) => observation::state::context(cmd, result),
+            Self::Query(cmd) => observation::query::context(cmd, result),
             Self::InspectPoint(cmd) => observation::inspect_point::context(cmd, result),
             Self::Eval(cmd) => interaction::eval::context(cmd, result),
             Self::Back(a) => navigation::back::context(

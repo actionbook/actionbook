@@ -52,6 +52,20 @@ impl ActionResult {
         }
     }
 
+    pub fn fatal_with_details(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        hint: impl Into<String>,
+        details: Value,
+    ) -> Self {
+        ActionResult::Fatal {
+            code: code.into(),
+            message: message.into(),
+            hint: hint.into(),
+            details: Some(details),
+        }
+    }
+
     pub fn is_ok(&self) -> bool {
         matches!(self, ActionResult::Ok { .. })
     }
