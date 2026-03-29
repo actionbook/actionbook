@@ -27,6 +27,38 @@ async fn main() {
         return;
     }
 
+    // Intercept `actionbook browser --help` to show grouped help
+    // instead of clap's flat ungrouped listing.
+    {
+        let raw_args: Vec<String> = std::env::args().collect();
+        if let Some(bi) = raw_args.iter().position(|a| a == "browser") {
+            let tail = &raw_args[bi + 1..];
+            let has_help_flag = tail.iter().any(|a| a == "--help" || a == "-h");
+            // Check for non-flag args after "browser" (skip --timeout value)
+            let mut has_subcommand = false;
+            let mut skip_next = false;
+            for arg in tail {
+                if skip_next {
+                    skip_next = false;
+                    continue;
+                }
+                if arg == "--timeout" {
+                    skip_next = true;
+                    continue;
+                }
+                if !arg.starts_with('-') {
+                    has_subcommand = true;
+                    break;
+                }
+            }
+            if has_help_flag && !has_subcommand {
+                let json_mode = raw_args.iter().any(|a| a == "--json");
+                handle_browser_help(json_mode);
+                return;
+            }
+        }
+    }
+
     let cli = Cli::parse();
     let json_output = cli.json;
     let is_setup_command = matches!(cli.command.as_ref(), Some(Commands::Setup(_)));
@@ -261,6 +293,11 @@ Observation:
   text [<selector>]   --session --tab  Read element/page text
   value <selector>    --session --tab  Read input value
   attr <selector> <name>  --session --tab  Read element attribute
+  attrs <selector>        --session --tab  Read all element attributes
+  box <selector>          --session --tab  Read element bounding box
+  styles <selector> [names...]  --session --tab  Read computed styles
+  describe <selector>     --session --tab  Describe element properties
+  state <selector>        --session --tab  Get element state flags
   inspect-point <x,y>    --session --tab  Inspect element at coordinates
 
 Interaction:

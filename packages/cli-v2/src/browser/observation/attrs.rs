@@ -10,6 +10,13 @@ use crate::output::ResponseContext;
 
 /// Read all attributes on an element.
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser attrs \"#logo\" --session s1 --tab t1
+  actionbook browser attrs \"input[name=email]\" --session s1 --tab t1
+
+Returns all HTML attributes as key-value pairs.
+Use attr to read a single attribute by name.")]
 pub struct Cmd {
     /// Target element selector
     pub selector: String,

@@ -10,6 +10,12 @@ use crate::output::ResponseContext;
 
 /// Read an element's bounding client rect.
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser box \"#button\" --session s1 --tab t1
+  actionbook browser box \".modal\" --session s1 --tab t1
+
+Returns x, y, width, height, top, right, bottom, left from getBoundingClientRect().")]
 pub struct Cmd {
     /// Target element selector
     pub selector: String,

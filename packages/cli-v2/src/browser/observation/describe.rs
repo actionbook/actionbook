@@ -10,6 +10,13 @@ use crate::output::ResponseContext;
 
 /// Describe element properties and context.
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser describe \"#submit\" --session s1 --tab t1
+  actionbook browser describe \"#submit\" --nearby --session s1 --tab t1
+
+Returns element tag, role, name, bounding box, and attributes.
+Use --nearby to include parent, siblings, and children for context.")]
 pub struct Cmd {
     /// Target element selector
     pub selector: String,

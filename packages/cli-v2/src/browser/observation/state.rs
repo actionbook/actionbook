@@ -10,6 +10,12 @@ use crate::output::ResponseContext;
 
 /// Get element state (visible, enabled, checked, focused, editable, selected).
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser state \"#checkbox\" --session s1 --tab t1
+  actionbook browser state \"#submit-btn\" --session s1 --tab t1
+
+Returns boolean flags: visible, enabled, checked, focused, editable, selected.")]
 pub struct Cmd {
     /// Target element selector
     pub selector: String,
