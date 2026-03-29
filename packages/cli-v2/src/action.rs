@@ -33,6 +33,7 @@ pub enum Action {
     // ── Interaction ────────────────────────────────────────────
     Eval(interaction::eval::Cmd),
     Click(interaction::click::Cmd),
+    Hover(interaction::hover::Cmd),
     Type(interaction::type_text::Cmd),
     Fill(interaction::fill::Cmd),
     Select(interaction::select::Cmd),
@@ -60,6 +61,7 @@ impl Action {
             Action::Viewport(_) => observation::viewport::COMMAND_NAME,
             Action::Eval(_) => interaction::eval::COMMAND_NAME,
             Action::Click(_) => interaction::click::COMMAND_NAME,
+            Action::Hover(_) => interaction::hover::COMMAND_NAME,
             Action::Type(_) => interaction::type_text::COMMAND_NAME,
             Action::Fill(_) => interaction::fill::COMMAND_NAME,
             Action::Select(_) => interaction::select::COMMAND_NAME,

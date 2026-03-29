@@ -196,6 +196,7 @@ pub fn format_text(
                     | "browser.forward"
                     | "browser.reload"
                     | "browser.click"
+                    | "browser.hover"
                     | "browser.type"
                     | "browser.fill"
                     | "browser.select"
@@ -365,6 +366,11 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 data.pointer("/target/coordinates").and_then(|v| v.as_str())
             {
                 lines.push(format!("target: {coords}"));
+            }
+        }
+        "browser.hover" => {
+            if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
+                lines.push(format!("target: {sel}"));
             }
         }
         "browser.snapshot" => {
