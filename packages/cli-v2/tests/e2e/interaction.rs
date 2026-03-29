@@ -4224,3 +4224,262 @@ fn upload_relative_path_text() {
 
     close_session(&sid);
 }
+
+// ========================================================================
+// Group 18: eval — command wiring, success path, and error path
+// ========================================================================
+
+#[test]
+fn eval_json_number() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &["browser", "eval", "2 + 2", "--session", &sid, "--tab", &tid],
+        10,
+    );
+    assert_success(&out, "eval json number");
+    let v = parse_json(&out);
+
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.eval");
+    assert!(v["error"].is_null(), "error must be null on success");
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_eq!(v["data"]["value"], serde_json::json!(4));
+    assert_eq!(v["data"]["type"], "number");
+    assert_eq!(v["data"]["preview"], "4");
+    assert_meta(&v);
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &["browser", "eval", "2 + 2", "--session", &sid, "--tab", &tid],
+        10,
+    );
+    assert_success(&out, "eval text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.trim_end().ends_with('4'),
+        "eval text should end with the evaluated value: {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "2 + 2",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "eval nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.eval");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn eval_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless(
+        &[
+            "browser",
+            "eval",
+            "2 + 2",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "eval nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn eval_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "2 + 2",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "eval nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.eval");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "eval",
+            "2 + 2",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "eval nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_exception_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "(() => { throw new Error('boom-eval'); })()",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "eval exception json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.eval");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "EVAL_FAILED");
+    assert!(
+        v["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("boom-eval")
+            || v["error"]["message"]
+                .as_str()
+                .unwrap_or("")
+                .contains("Error"),
+        "eval exception should surface an expression error message"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_exception_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "eval",
+            "(() => { throw new Error('boom-eval'); })()",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "eval exception text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error EVAL_FAILED:"),
+        "text must contain error EVAL_FAILED: got {text}"
+    );
+
+    close_session(&sid);
+}

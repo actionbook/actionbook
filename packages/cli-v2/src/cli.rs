@@ -396,6 +396,25 @@ mod tests {
             "tab-1",
         ]);
 
-        assert!(cli.is_err(), "browser upload should require at least one file");
+        assert!(
+            cli.is_err(),
+            "browser upload should require at least one file"
+        );
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_eval_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "eval",
+            "2 + 2",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser eval command should parse");
     }
 }
