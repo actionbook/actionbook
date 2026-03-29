@@ -417,4 +417,20 @@ mod tests {
 
         assert!(cli.is_ok(), "browser eval command should parse");
     }
+
+    #[test]
+    fn try_parse_from_accepts_browser_mouse_move_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "mouse-move",
+            "120,140",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser mouse-move command should parse");
+    }
 }
