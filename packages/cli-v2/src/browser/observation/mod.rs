@@ -1,8 +1,11 @@
 pub mod attr;
+pub mod attrs;
+pub mod r#box;
 pub mod html;
 pub mod inspect_point;
 pub mod snapshot;
 pub mod snapshot_transform;
+pub mod styles;
 pub mod text;
 pub mod title;
 pub mod url;

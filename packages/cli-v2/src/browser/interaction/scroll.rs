@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::action_result::ActionResult;
 use crate::browser::{element, navigation};
-use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target, CdpSession};
+use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result, get_cdp_and_target};
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
@@ -143,8 +143,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Pre-scroll state
     let pre_url = navigation::get_tab_url(&cdp, &target_id).await;
     let pre_focus = get_active_element_id(&cdp, &target_id).await;
-    let pre_scroll =
-        get_scroll_position(&cdp, &target_id, container_object_id.as_deref()).await;
+    let pre_scroll = get_scroll_position(&cdp, &target_id, container_object_id.as_deref()).await;
 
     // Execute scroll
     match &mode {
@@ -179,8 +178,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let post_url = navigation::get_tab_url(&cdp, &target_id).await;
     let post_title = navigation::get_tab_title(&cdp, &target_id).await;
     let post_focus = get_active_element_id(&cdp, &target_id).await;
-    let post_scroll =
-        get_scroll_position(&cdp, &target_id, container_object_id.as_deref()).await;
+    let post_scroll = get_scroll_position(&cdp, &target_id, container_object_id.as_deref()).await;
 
     let url_changed = !pre_url.is_empty() && pre_url != post_url;
     let focus_changed = pre_focus != post_focus;
@@ -344,11 +342,7 @@ async fn call_fn_on(
 }
 
 /// Evaluate JS and check the result.
-async fn eval_js(
-    cdp: &CdpSession,
-    target_id: &str,
-    expression: &str,
-) -> Result<(), ActionResult> {
+async fn eval_js(cdp: &CdpSession, target_id: &str, expression: &str) -> Result<(), ActionResult> {
     cdp.execute_on_tab(
         target_id,
         "Runtime.evaluate",
@@ -400,9 +394,7 @@ async fn get_scroll_position(
 
 fn parse_scroll_json(resp: Option<serde_json::Value>) -> (f64, f64) {
     resp.and_then(|v| {
-        let s = v
-            .pointer("/result/result/value")
-            .and_then(|v| v.as_str())?;
+        let s = v.pointer("/result/result/value").and_then(|v| v.as_str())?;
         let parsed: serde_json::Value = serde_json::from_str(s).ok()?;
         let x = parsed.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
         let y = parsed.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);

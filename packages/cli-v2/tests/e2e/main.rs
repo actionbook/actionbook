@@ -11,6 +11,7 @@
 
 mod browser_lifecycle;
 mod cloud_mode;
+mod element_details;
 mod element_read;
 mod harness;
 mod inspect_point;

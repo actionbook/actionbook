@@ -33,6 +33,9 @@ pub enum Action {
     Text(observation::text::Cmd),
     Value(observation::value::Cmd),
     Attr(observation::attr::Cmd),
+    Attrs(observation::attrs::Cmd),
+    Box(observation::r#box::Cmd),
+    Styles(observation::styles::Cmd),
     InspectPoint(observation::inspect_point::Cmd),
 
     // ── Interaction ────────────────────────────────────────────
@@ -75,6 +78,9 @@ impl Action {
             Action::Text(_) => observation::text::COMMAND_NAME,
             Action::Value(_) => observation::value::COMMAND_NAME,
             Action::Attr(_) => observation::attr::COMMAND_NAME,
+            Action::Attrs(_) => observation::attrs::COMMAND_NAME,
+            Action::Box(_) => observation::r#box::COMMAND_NAME,
+            Action::Styles(_) => observation::styles::COMMAND_NAME,
             Action::InspectPoint(_) => observation::inspect_point::COMMAND_NAME,
             Action::Eval(_) => interaction::eval::COMMAND_NAME,
             Action::Click(_) => interaction::click::COMMAND_NAME,

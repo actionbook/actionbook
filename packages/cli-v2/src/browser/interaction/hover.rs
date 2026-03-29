@@ -126,14 +126,14 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
 
     // Parse and store cursor position from the hover coordinates
-    if let Ok(coords) = serde_json::from_str::<serde_json::Value>(result_str) {
-        if let (Some(x), Some(y)) = (
+    if let Ok(coords) = serde_json::from_str::<serde_json::Value>(result_str)
+        && let (Some(x), Some(y)) = (
             coords.get("x").and_then(|v| v.as_f64()),
             coords.get("y").and_then(|v| v.as_f64()),
-        ) {
-            let mut reg = registry.lock().await;
-            reg.set_cursor_position(&cmd.session, &cmd.tab, x, y);
-        }
+        )
+    {
+        let mut reg = registry.lock().await;
+        reg.set_cursor_position(&cmd.session, &cmd.tab, x, y);
     }
 
     let url = navigation::get_tab_url(&cdp, &target_id).await;
