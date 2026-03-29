@@ -467,6 +467,7 @@ fn describe_element_not_found_json() {
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
     assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
+    assert_eq!(v["error"]["details"]["selector"], "#missing");
 }
 
 #[test]
@@ -498,6 +499,7 @@ fn state_element_not_found_json() {
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
     assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
+    assert_eq!(v["error"]["details"]["selector"], "#missing");
 }
 
 #[test]
