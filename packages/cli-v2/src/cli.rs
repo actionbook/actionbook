@@ -360,4 +360,21 @@ mod tests {
 
         assert!(cli.is_ok(), "browser drag command should parse");
     }
+
+    #[test]
+    fn try_parse_from_accepts_browser_upload_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "upload",
+            "#file-input",
+            "/tmp/example.txt",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser upload command should parse");
+    }
 }

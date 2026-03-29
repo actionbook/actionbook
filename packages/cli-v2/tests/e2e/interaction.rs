@@ -283,6 +283,38 @@ fn assert_drag_success(
     assert_meta(v);
 }
 
+fn assert_upload_success(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_selector: &str,
+    expected_files: &[String],
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.upload");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "upload");
+    assert_eq!(data["target"]["selector"], expected_selector);
+    assert_eq!(data["value_summary"]["count"], expected_files.len());
+
+    let files = data["value_summary"]["files"]
+        .as_array()
+        .expect("value_summary.files must be an array");
+    let actual: Vec<String> = files
+        .iter()
+        .map(|v| v.as_str().unwrap_or("").to_string())
+        .collect();
+    assert_eq!(actual, expected_files);
+
+    assert_meta(v);
+}
+
 fn start_session(url: &str) -> (String, String) {
     let out = headless_json(
         &[
@@ -835,6 +867,58 @@ fn install_drag_fixture(session_id: &str, tab_id: &str) {
 
     let value = eval_value(session_id, tab_id, expression);
     assert_eq!(value, "ok", "drag fixture should install successfully");
+}
+
+fn install_upload_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-upload-fixture');
+  if (existing) existing.remove();
+
+  window.__ab_upload_change_count = 0;
+  window.__ab_upload_last_count = 0;
+  window.__ab_upload_last_names = '';
+
+  const root = document.createElement('div');
+  root.id = 'ab-upload-fixture';
+  root.innerHTML = `
+    <style>
+      #ab-upload-input {
+        position: fixed;
+        top: 840px;
+        left: 40px;
+        width: 260px;
+        z-index: 2147483647;
+      }
+    </style>
+    <input id="ab-upload-input" type="file" multiple />
+  `;
+  document.body.appendChild(root);
+
+  const input = document.getElementById('ab-upload-input');
+  input.addEventListener('change', () => {
+    window.__ab_upload_change_count += 1;
+    window.__ab_upload_last_count = input.files.length;
+    window.__ab_upload_last_names = Array.from(input.files).map(file => file.name).join(',');
+  });
+
+  return 'ok';
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(value, "ok", "upload fixture should install successfully");
+}
+
+fn create_upload_files(names: &[&str]) -> (tempfile::TempDir, Vec<String>) {
+    let dir = tempfile::tempdir().expect("create upload temp dir");
+    let mut paths = Vec::new();
+    for name in names {
+        let path = dir.path().join(name);
+        std::fs::write(&path, format!("fixture for {name}\n")).expect("write upload fixture file");
+        paths.push(path.to_string_lossy().to_string());
+    }
+    (dir, paths)
 }
 
 fn list_tabs(session_id: &str) -> serde_json::Value {
@@ -3757,6 +3841,376 @@ fn drag_invalid_destination_coordinates_text() {
         10,
     );
     assert_failure(&out, "drag invalid destination coordinates text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error INVALID_ARGUMENT:"),
+        "text must contain error INVALID_ARGUMENT: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 17: upload — command wiring, success path, and error path
+// ========================================================================
+
+#[test]
+fn upload_json_single_file() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (_tmp, files) = create_upload_files(&["upload-a.txt"]);
+    let (sid, tid) = start_session(TEST_URL);
+    install_upload_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "upload",
+            "#ab-upload-input",
+            &files[0],
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "upload json single file");
+    let v = parse_json(&out);
+
+    assert_upload_success(&v, &sid, &tid, "#ab-upload-input", &files);
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_upload_change_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_upload_last_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "window.__ab_upload_last_names"),
+        "upload-a.txt"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn upload_text_multiple_files() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (_tmp, files) = create_upload_files(&["upload-a.txt", "upload-b.txt"]);
+    let (sid, tid) = start_session(TEST_URL);
+    install_upload_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "upload",
+            "#ab-upload-input",
+            &files[0],
+            &files[1],
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "upload text multiple files");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser.upload"),
+        "must contain ok browser.upload"
+    );
+    assert!(
+        text.contains("target: #ab-upload-input"),
+        "must contain target line with selector"
+    );
+    assert!(text.contains("count: 2"), "must contain file count line");
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_upload_last_count)"),
+        "2"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "window.__ab_upload_last_names"),
+        "upload-a.txt,upload-b.txt"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn upload_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "upload",
+            "#ab-upload-input",
+            "/tmp/example.txt",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "upload nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.upload");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn upload_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless(
+        &[
+            "browser",
+            "upload",
+            "#ab-upload-input",
+            "/tmp/example.txt",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "upload nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn upload_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "upload",
+            "#ab-upload-input",
+            "/tmp/example.txt",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "upload nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.upload");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn upload_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "upload",
+            "#ab-upload-input",
+            "/tmp/example.txt",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "upload nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn upload_missing_selector_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (_tmp, files) = create_upload_files(&["upload-a.txt"]);
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "upload",
+            "#definitely-missing-element",
+            &files[0],
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "upload missing selector json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.upload");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["selector"],
+        "#definitely-missing-element"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn upload_missing_selector_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (_tmp, files) = create_upload_files(&["upload-a.txt"]);
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "upload",
+            "#definitely-missing-element",
+            &files[0],
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "upload missing selector text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error ELEMENT_NOT_FOUND:"),
+        "text must contain error ELEMENT_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn upload_relative_path_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_upload_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "upload",
+            "#ab-upload-input",
+            "relative.txt",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "upload relative path json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.upload");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "INVALID_ARGUMENT");
+
+    close_session(&sid);
+}
+
+#[test]
+fn upload_relative_path_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_upload_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "upload",
+            "#ab-upload-input",
+            "relative.txt",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "upload relative path text");
     let text = stdout_str(&out);
 
     assert!(
