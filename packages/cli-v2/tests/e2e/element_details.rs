@@ -553,3 +553,85 @@ void(0)"#;
         "browser box must not change scroll position (before={before_y}, after={after_y})"
     );
 }
+
+/// P1 regression: `browser box` must surface `JS_EXCEPTION` when
+/// `getBoundingClientRect` throws instead of silently returning empty `{}`.
+#[test]
+fn box_js_exception_propagated() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    // Monkeypatch getBoundingClientRect on the target element.
+    let js = r#"document.querySelector('#target').getBoundingClientRect = () => { throw new Error("boom"); };
+void(0)"#;
+    let out = headless_json(
+        &["browser", "eval", js, "--session", &sid, "--tab", &tid],
+        10,
+    );
+    assert_success(&out, "monkeypatch getBoundingClientRect");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "box",
+            TARGET_SELECTOR,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "box js exception");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.box");
+    assert_error_envelope(&v, "JS_EXCEPTION");
+}
+
+/// P1 regression: `browser attrs` must surface `JS_EXCEPTION` when
+/// attribute iteration throws instead of silently returning empty `{}`.
+#[test]
+fn attrs_js_exception_propagated() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    // Monkeypatch the target's attributes getter to throw.
+    let js = r#"Object.defineProperty(document.querySelector('#target'), 'attributes', {
+  get() { throw new Error("boom"); }
+});
+void(0)"#;
+    let out = headless_json(
+        &["browser", "eval", js, "--session", &sid, "--tab", &tid],
+        10,
+    );
+    assert_success(&out, "monkeypatch attributes");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "attrs",
+            TARGET_SELECTOR,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "attrs js exception");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.attrs");
+    assert_error_envelope(&v, "JS_EXCEPTION");
+}
