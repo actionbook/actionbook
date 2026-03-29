@@ -427,3 +427,85 @@ fn styles_selector_not_found_json() {
     assert_eq!(v["context"]["tab_id"], tid);
     assert_eq!(v["error"]["details"]["selector"], "#missing");
 }
+
+/// P2 regression: `browser box` must not scroll — verify off-screen element
+/// returns coordinates without changing `window.scrollY`.
+#[test]
+fn box_offscreen_no_scroll_side_effect() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+
+    // Inject a tall page with an element far below the fold.
+    let js = r#"document.body.style.margin = '0';
+document.body.innerHTML = '<div style="height:5000px"></div><div id="offscreen" style="position:absolute;left:10px;top:4500px;width:50px;height:50px;">Far</div>';
+void(0)"#;
+    let out = headless_json(
+        &["browser", "eval", js, "--session", &sid, "--tab", &tid],
+        10,
+    );
+    assert_success(&out, "inject offscreen fixture");
+
+    // Read scroll position before.
+    let scroll_before = headless_json(
+        &[
+            "browser",
+            "eval",
+            "window.scrollY",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&scroll_before, "scroll before");
+    let before_y = parse_json(&scroll_before)["data"]["value"]
+        .as_f64()
+        .unwrap_or(-1.0);
+
+    // Run browser box on offscreen element.
+    let out = headless_json(
+        &[
+            "browser",
+            "box",
+            "#offscreen",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "box offscreen");
+    let v = parse_json(&out);
+    assert_eq!(v["ok"], true);
+    // Element should report its absolute position.
+    assert!(v["data"]["value"]["y"].as_f64().unwrap_or(0.0) > 4000.0);
+
+    // Read scroll position after — must not have changed.
+    let scroll_after = headless_json(
+        &[
+            "browser",
+            "eval",
+            "window.scrollY",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&scroll_after, "scroll after");
+    let after_y = parse_json(&scroll_after)["data"]["value"]
+        .as_f64()
+        .unwrap_or(-1.0);
+
+    assert_eq!(
+        before_y, after_y,
+        "browser box must not change scroll position (before={before_y}, after={after_y})"
+    );
+}
