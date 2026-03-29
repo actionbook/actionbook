@@ -129,6 +129,12 @@ async fn inspect_at_point(
     parent_depth: Option<u32>,
     ref_cache: &mut RefCache,
 ) -> Result<(Value, Value), ActionResult> {
+    // Push the full DOM tree (depth -1 = all descendants) so that parentIds
+    // are populated for DOM.describeNode calls in the parent-traversal path.
+    let _ = cdp
+        .execute_on_tab(target_id, "DOM.getDocument", json!({ "depth": -1 }))
+        .await;
+
     // Use DOM.getNodeForLocation to find the element at (x, y).
     // Coordinates must be integers for CDP.
     let hit = cdp
@@ -144,9 +150,12 @@ async fn inspect_at_point(
         )
         .await;
 
-    let backend_node_id = match hit {
-        Ok(ref v) => v["result"]["backendNodeId"].as_i64(),
-        Err(_) => None,
+    let (backend_node_id, hit_node_id) = match hit {
+        Ok(ref v) => (
+            v["result"]["backendNodeId"].as_i64(),
+            v["result"]["nodeId"].as_i64().unwrap_or(0),
+        ),
+        Err(_) => (None, 0),
     };
 
     let Some(backend_node_id) = backend_node_id else {
@@ -161,7 +170,7 @@ async fn inspect_at_point(
     // Collect parents if requested
     let parents = if let Some(depth) = parent_depth {
         if depth > 0 {
-            collect_parents(cdp, target_id, backend_node_id, depth, ref_cache).await?
+            collect_parents(cdp, target_id, hit_node_id, depth, ref_cache).await?
         } else {
             json!([])
         }
@@ -220,17 +229,22 @@ async fn get_ax_info_for_backend_node(
 /// Walk up the DOM parent chain, collecting up to `depth` ancestors.
 /// Returns a JSON array of {role, name, selector} objects, nearest parent first.
 ///
-/// Uses iterative DOM.describeNode calls to traverse the parent chain, which
-/// is more broadly supported than DOM.getAncestors.
+/// Requires `DOM.getDocument` to have been called first so that nodeIds are
+/// tracked. Uses `start_node_id` (from `DOM.getNodeForLocation` result.nodeId)
+/// for reliable parentId traversal via iterative `DOM.describeNode` calls.
 async fn collect_parents(
     cdp: &CdpSession,
     target_id: &str,
-    start_backend_node_id: i64,
+    start_node_id: i64,
     depth: u32,
     ref_cache: &mut RefCache,
 ) -> Result<Value, ActionResult> {
+    if start_node_id == 0 {
+        return Ok(json!([]));
+    }
+
     let mut parents = Vec::new();
-    let mut current_backend_id = start_backend_node_id;
+    let mut current_node_id = start_node_id;
 
     while parents.len() < depth as usize {
         // Describe current node to find its parentId
@@ -238,7 +252,7 @@ async fn collect_parents(
             .execute_on_tab(
                 target_id,
                 "DOM.describeNode",
-                json!({ "backendNodeId": current_backend_id }),
+                json!({ "nodeId": current_node_id }),
             )
             .await;
         let desc = match desc {
@@ -276,7 +290,7 @@ async fn collect_parents(
         let parent_info =
             get_ax_info_for_backend_node(cdp, target_id, parent_backend_id, ref_cache).await?;
         parents.push(parent_info);
-        current_backend_id = parent_backend_id;
+        current_node_id = parent_id;
     }
 
     Ok(json!(parents))
