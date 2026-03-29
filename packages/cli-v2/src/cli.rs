@@ -141,6 +141,11 @@ Examples:
     Query(observation::query::Cmd),
     /// Inspect element at coordinates
     InspectPoint(observation::inspect_point::Cmd),
+    /// Save page as PDF
+    #[command(after_help = "\
+Examples:
+  actionbook browser pdf /tmp/page.pdf --session s1 --tab t1")]
+    Pdf(observation::pdf::Cmd),
     /// Take screenshot
     #[command(after_help = "\
 Examples:
@@ -225,6 +230,7 @@ impl BrowserCommands {
             Self::State(cmd) => Action::State(cmd.clone()),
             Self::Query(cmd) => Action::Query(cmd.clone()),
             Self::InspectPoint(cmd) => Action::InspectPoint(cmd.clone()),
+            Self::Pdf(cmd) => Action::Pdf(cmd.clone()),
             Self::Eval(cmd) => Action::Eval(cmd.clone()),
             Self::Click(cmd) => Action::Click(cmd.clone()),
             Self::Hover(cmd) => Action::Hover(cmd.clone()),
@@ -273,6 +279,7 @@ impl BrowserCommands {
             Self::State(_) => observation::state::COMMAND_NAME,
             Self::Query(_) => observation::query::COMMAND_NAME,
             Self::InspectPoint(_) => observation::inspect_point::COMMAND_NAME,
+            Self::Pdf(_) => observation::pdf::COMMAND_NAME,
             Self::Screenshot { .. } => "browser.screenshot",
             Self::Eval(_) => interaction::eval::COMMAND_NAME,
             Self::Click(_) => interaction::click::COMMAND_NAME,
@@ -318,6 +325,7 @@ impl BrowserCommands {
             Self::State(cmd) => observation::state::context(cmd, result),
             Self::Query(cmd) => observation::query::context(cmd, result),
             Self::InspectPoint(cmd) => observation::inspect_point::context(cmd, result),
+            Self::Pdf(cmd) => observation::pdf::context(cmd, result),
             Self::Eval(cmd) => interaction::eval::context(cmd, result),
             Self::Back(a) => navigation::back::context(
                 &navigation::back::Cmd {

@@ -627,6 +627,16 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
             }
         }
+        "browser.pdf" => {
+            // §10.3: path line
+            if let Some(path) = data
+                .get("artifact")
+                .and_then(|a| a.get("path"))
+                .and_then(|v| v.as_str())
+            {
+                lines.push(format!("path: {path}"));
+            }
+        }
         "browser.eval" => {
             if let Some(val) = data.get("value") {
                 lines.push(val.as_str().unwrap_or(&val.to_string()).to_string());

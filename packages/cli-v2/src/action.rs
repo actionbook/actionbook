@@ -40,6 +40,7 @@ pub enum Action {
     State(observation::state::Cmd),
     Query(observation::query::Cmd),
     InspectPoint(observation::inspect_point::Cmd),
+    Pdf(observation::pdf::Cmd),
 
     // ── Interaction ────────────────────────────────────────────
     Eval(interaction::eval::Cmd),
@@ -88,6 +89,7 @@ impl Action {
             Action::State(_) => observation::state::COMMAND_NAME,
             Action::Query(_) => observation::query::COMMAND_NAME,
             Action::InspectPoint(_) => observation::inspect_point::COMMAND_NAME,
+            Action::Pdf(_) => observation::pdf::COMMAND_NAME,
             Action::Eval(_) => interaction::eval::COMMAND_NAME,
             Action::Click(_) => interaction::click::COMMAND_NAME,
             Action::Hover(_) => interaction::hover::COMMAND_NAME,
