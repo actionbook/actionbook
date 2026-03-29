@@ -191,9 +191,7 @@ fn css_query_js(selector_json: &str) -> String {
     var base = working || '*';
     var cTexts = cI.values.map(unquote).filter(Boolean);
     var hSels = hI.values.map(unquote).filter(Boolean);
-    var elements;
-    try {{ elements = Array.from(document.querySelectorAll(base)); }}
-    catch (_) {{ return []; }}
+    var elements = Array.from(document.querySelectorAll(base));
     return elements.filter(function(el) {{
         if (vI.enabled && !isVisible(el)) return false;
         if (eI.enabled && !!el.disabled) return false;
