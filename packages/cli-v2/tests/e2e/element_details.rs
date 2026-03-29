@@ -428,6 +428,50 @@ fn styles_selector_not_found_json() {
     assert_eq!(v["error"]["details"]["selector"], "#missing");
 }
 
+#[test]
+fn styles_js_exception_returns_error() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    // Monkeypatch getComputedStyle to throw so callFunctionOn returns exceptionDetails
+    let patch_out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "window.getComputedStyle = function() { throw new Error('injected styles exception'); }; void(0)",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        5,
+    );
+    assert_success(&patch_out, "patch getComputedStyle");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "styles",
+            TARGET_SELECTOR,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "styles with throwing getComputedStyle");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.styles");
+    assert_error_envelope(&v, "JS_EXCEPTION");
+}
+
 /// P2 regression: `browser box` must not scroll — verify off-screen element
 /// returns coordinates without changing `window.scrollY`.
 #[test]
