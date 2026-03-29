@@ -8,8 +8,15 @@ use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target};
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
-/// Read element or page HTML.
+/// Read element or page HTML
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser html --session s1 --tab t1
+  actionbook browser html \"#main\" --session s1 --tab t1
+
+Without a selector, returns the full page HTML.
+With a selector, returns the outer HTML of the matched element.")]
 pub struct Cmd {
     /// Optional target element selector. Omit to read the full page HTML.
     pub selector: Option<String>,

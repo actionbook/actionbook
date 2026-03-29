@@ -11,6 +11,13 @@ use super::snapshot_transform::RefCache;
 
 /// Inspect the element at specified coordinates
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser inspect-point 420,310 --session s1 --tab t1
+  actionbook browser inspect-point 420,310 --parent-depth 2 --session s1 --tab t1
+
+Returns the element's role, name, and CSS selector at the given x,y point.
+Use with screenshot to identify elements visually.")]
 pub struct Cmd {
     /// Point to inspect as "x,y" (e.g. "100,200")
     #[arg(allow_hyphen_values = true)]

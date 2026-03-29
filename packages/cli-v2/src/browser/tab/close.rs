@@ -9,6 +9,9 @@ use crate::output::ResponseContext;
 
 /// Close a tab
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser close-tab --session my-session --tab t2")]
 pub struct Cmd {
     /// Session ID
     #[arg(long)]

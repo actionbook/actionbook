@@ -8,8 +8,15 @@ use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target};
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
-/// Read element or page innerText.
+/// Read element or page text
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser text --session s1 --tab t1
+  actionbook browser text \"#article\" --session s1 --tab t1
+
+Without a selector, returns the full page innerText.
+With a selector, returns the innerText of the matched element.")]
 pub struct Cmd {
     /// Optional target element selector. Omit to read the full page text.
     pub selector: Option<String>,

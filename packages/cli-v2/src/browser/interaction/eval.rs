@@ -10,6 +10,14 @@ use crate::output::ResponseContext;
 
 /// Evaluate JavaScript
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser eval \"document.title\" --session s1 --tab t1
+  actionbook browser eval \"window.scrollY\" --session s1 --tab t1
+  actionbook browser eval \"document.querySelectorAll('a').length\" --session s1 --tab t1
+
+Evaluates a JavaScript expression in the page context and returns the result.
+The expression is evaluated via Runtime.evaluate with returnByValue.")]
 pub struct Cmd {
     /// JavaScript expression
     pub expression: String,

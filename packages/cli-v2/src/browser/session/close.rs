@@ -8,6 +8,11 @@ use crate::output::ResponseContext;
 
 /// Close a session
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser close --session my-session
+
+Closes the browser and all tabs in the session. The session ID cannot be reused.")]
 pub struct Cmd {
     /// Session ID
     #[arg(long)]

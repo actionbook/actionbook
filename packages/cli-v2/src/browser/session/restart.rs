@@ -8,6 +8,12 @@ use crate::output::ResponseContext;
 
 /// Restart a session
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser restart --session my-session
+
+Closes and reopens the session with the same profile and mode.
+The session_id is preserved; tab IDs reset to t1.")]
 pub struct Cmd {
     /// Session ID
     #[arg(long)]

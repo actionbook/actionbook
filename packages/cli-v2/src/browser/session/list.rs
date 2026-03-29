@@ -8,6 +8,12 @@ use crate::output::ResponseContext;
 
 /// List all active sessions
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser list-sessions
+  actionbook browser list-sessions --json
+
+Returns each session's ID, mode, status, and tab count.")]
 pub struct Cmd {}
 
 pub const COMMAND_NAME: &str = "browser.list-sessions";
