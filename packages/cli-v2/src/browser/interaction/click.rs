@@ -431,11 +431,7 @@ async fn dispatch_click(
 /// Intervals are short (50 ms) so fast navigations resolve quickly.
 /// Total timeout (2 s) covers SPA routers and JS redirects without
 /// the unconditional 500 ms penalty of a fixed sleep.
-async fn wait_for_navigation(
-    cdp: &CdpSession,
-    target_id: &str,
-    pre_url: &str,
-) -> String {
+async fn wait_for_navigation(cdp: &CdpSession, target_id: &str, pre_url: &str) -> String {
     const POLL_INTERVAL: Duration = Duration::from_millis(50);
     const TIMEOUT: Duration = Duration::from_millis(2000);
 

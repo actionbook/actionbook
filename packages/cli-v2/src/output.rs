@@ -385,6 +385,31 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("{w}x{h}"));
             }
         }
+        "browser.inspect-point" => {
+            // §10.11: role "name" / selector / point
+            if let Some(element) = data.get("element") {
+                let role = element.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                let name = element.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                if !name.is_empty() {
+                    lines.push(format!("{role} \"{name}\""));
+                } else {
+                    lines.push(role.to_string());
+                }
+                if let Some(sel) = element.get("selector").and_then(|v| v.as_str()) {
+                    lines.push(format!("selector: {sel}"));
+                }
+            }
+            if let Some(point) = data.get("point") {
+                let x = point.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let y = point.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                // Format as integers if they are whole numbers
+                if x.fract() == 0.0 && y.fract() == 0.0 {
+                    lines.push(format!("point: {},{}", x as i64, y as i64));
+                } else {
+                    lines.push(format!("point: {x},{y}"));
+                }
+            }
+        }
         "browser.eval" => {
             if let Some(val) = data.get("value") {
                 lines.push(val.as_str().unwrap_or(&val.to_string()).to_string());

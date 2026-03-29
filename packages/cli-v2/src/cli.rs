@@ -106,6 +106,8 @@ pub enum BrowserCommands {
     Url(observation::url::Cmd),
     /// Get viewport dimensions
     Viewport(observation::viewport::Cmd),
+    /// Inspect element at coordinates
+    InspectPoint(observation::inspect_point::Cmd),
     /// Take screenshot
     Screenshot {
         /// Output file path
@@ -160,6 +162,7 @@ impl BrowserCommands {
             Self::Title(cmd) => Action::Title(cmd.clone()),
             Self::Url(cmd) => Action::Url(cmd.clone()),
             Self::Viewport(cmd) => Action::Viewport(cmd.clone()),
+            Self::InspectPoint(cmd) => Action::InspectPoint(cmd.clone()),
             Self::Eval(cmd) => Action::Eval(cmd.clone()),
             Self::Click(cmd) => Action::Click(cmd.clone()),
             Self::Type(cmd) => Action::Type(cmd.clone()),
@@ -188,6 +191,7 @@ impl BrowserCommands {
             Self::Title(_) => observation::title::COMMAND_NAME,
             Self::Url(_) => observation::url::COMMAND_NAME,
             Self::Viewport(_) => observation::viewport::COMMAND_NAME,
+            Self::InspectPoint(_) => observation::inspect_point::COMMAND_NAME,
             Self::Screenshot { .. } => "browser.screenshot",
             Self::Eval(_) => interaction::eval::COMMAND_NAME,
             Self::Click(_) => interaction::click::COMMAND_NAME,
@@ -213,6 +217,7 @@ impl BrowserCommands {
             Self::Title(cmd) => observation::title::context(cmd, result),
             Self::Url(cmd) => observation::url::context(cmd, result),
             Self::Viewport(cmd) => observation::viewport::context(cmd, result),
+            Self::InspectPoint(cmd) => observation::inspect_point::context(cmd, result),
             Self::Eval(cmd) => interaction::eval::context(cmd, result),
             Self::Back(a) => navigation::back::context(
                 &navigation::back::Cmd {
