@@ -116,11 +116,11 @@ event: chunk
 data: {"content":"Top options include HubSpot, Zoho CRM, Pipedrive, Monday CRM, and Freshsales..."}
 
 event: complete
-data: {"chat_id":"69c3d535-2de4-8330-92bc-e4c408ffd6be","output":{"content":"Final answer content...","created_at":"2026-03-25T12:28:29.098Z","completed_at":"2026-03-25T12:30:45.572Z"}}
+data: {"chat_id":"69c3d535-2de4-8330-92bc-e4c408ffd6be","output":{"content":"Final answer content...","created_at":"2026-03-25T12:28:29.098Z","completed_at":"2026-03-25T12:30:45.572Z"},"metrics":{"ttft_ms":2034}}
 ```
 
 `start` initializes the task, `chunk` streams partial output, and `complete`
-returns the final response payload.
+returns the final response payload including performance `metrics`.
 
 ## API Reference
 
@@ -304,5 +304,15 @@ event: chunk
 data: {"chat_id":"chat_abc","content":"Based on my research, "}
 
 event: complete
-data: {"chat_id":"chat_abc","output":{"content":"final answer","created_at":"2026-03-20T07:45:00.000Z","completed_at":"2026-03-20T07:45:32.000Z"}}
+data: {"chat_id":"chat_abc","output":{"content":"final answer","created_at":"2026-03-20T07:45:00.000Z","completed_at":"2026-03-20T07:45:32.000Z"},"metrics":{"ttft_ms":2034}}
 ```
+
+#### `complete` event fields
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `chat_id` | `string` | Conversation ID for multi-turn follow-ups |
+| `output.content` | `string` | Final AI response text |
+| `output.created_at` | `string` | ISO 8601 timestamp when the task was created |
+| `output.completed_at` | `string` | ISO 8601 timestamp when the task finished |
+| `metrics.ttft_ms` | `number` | Time to first token in milliseconds |
