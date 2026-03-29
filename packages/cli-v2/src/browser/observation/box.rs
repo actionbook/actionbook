@@ -60,15 +60,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return e,
     };
 
-    let (node_id, object_id) =
+    let (_, object_id) =
         match element::resolve_selector_object(&cdp, &target_id, &cmd.selector).await {
             Ok(v) => v,
             Err(e) => return e,
         };
-
-    if let Err(e) = element::scroll_into_view(&cdp, &target_id, node_id).await {
-        return e;
-    }
 
     let url = navigation::get_tab_url(&cdp, &target_id).await;
     let value = match get_box(&cdp, &target_id, &object_id).await {
@@ -110,6 +106,14 @@ async fn get_box(
         )
         .await
         .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+
+    if resp.pointer("/result/exceptionDetails").is_some() {
+        let description = resp
+            .pointer("/result/exceptionDetails/exception/description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("JS exception during box read");
+        return Err(ActionResult::fatal("JS_EXCEPTION", description.to_string()));
+    }
 
     Ok(resp
         .pointer("/result/result/value")

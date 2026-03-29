@@ -139,6 +139,14 @@ async fn get_styles(
         .await
         .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
 
+    if resp.pointer("/result/exceptionDetails").is_some() {
+        let description = resp
+            .pointer("/result/exceptionDetails/exception/description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("JS exception during style read");
+        return Err(ActionResult::fatal("JS_EXCEPTION", description.to_string()));
+    }
+
     Ok(resp
         .pointer("/result/result/value")
         .cloned()
