@@ -296,4 +296,20 @@ mod tests {
 
         assert!(cli.is_ok(), "browser hover command should parse");
     }
+
+    #[test]
+    fn try_parse_from_accepts_browser_focus_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "focus",
+            "#submit",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser focus command should parse");
+    }
 }

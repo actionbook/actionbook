@@ -184,6 +184,35 @@ fn assert_hover_success(
     assert_meta(v);
 }
 
+fn assert_focus_success(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_selector: &str,
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.focus");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "focus");
+    assert_eq!(data["target"]["selector"], expected_selector);
+    assert!(
+        data["changed"]["url_changed"].is_boolean(),
+        "data.changed.url_changed must be a boolean"
+    );
+    assert!(
+        data["changed"]["focus_changed"].is_boolean(),
+        "data.changed.focus_changed must be a boolean"
+    );
+
+    assert_meta(v);
+}
+
 fn start_session(url: &str) -> (String, String) {
     let out = headless_json(
         &[
@@ -540,6 +569,67 @@ fn install_hover_fixture(session_id: &str, tab_id: &str) {
 
     let value = eval_value(session_id, tab_id, expression);
     assert_eq!(value, "ok", "hover fixture should install successfully");
+}
+
+fn install_focus_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-focus-fixture');
+  if (existing) existing.remove();
+
+  window.__ab_focus_target_count = 0;
+  window.__ab_focus_other_count = 0;
+  window.__ab_blur_other_count = 0;
+  window.__ab_last_focused = '';
+
+  const root = document.createElement('div');
+  root.id = 'ab-focus-fixture';
+  root.innerHTML = `
+    <style>
+      #ab-focus-other, #ab-focus-target {
+        position: fixed;
+        left: 40px;
+        width: 220px;
+        height: 40px;
+        z-index: 2147483647;
+      }
+      #ab-focus-other {
+        top: 600px;
+      }
+      #ab-focus-target {
+        top: 650px;
+      }
+    </style>
+    <input id="ab-focus-other" type="text" value="other" />
+    <button id="ab-focus-target" type="button">Focus target</button>
+  `;
+  document.body.appendChild(root);
+
+  const other = document.getElementById('ab-focus-other');
+  const target = document.getElementById('ab-focus-target');
+
+  other.addEventListener('focus', () => {
+    window.__ab_focus_other_count += 1;
+    window.__ab_last_focused = other.id;
+  });
+  other.addEventListener('blur', () => {
+    window.__ab_blur_other_count += 1;
+  });
+  target.addEventListener('focus', () => {
+    window.__ab_focus_target_count += 1;
+    window.__ab_last_focused = target.id;
+  });
+
+  other.focus();
+  return document.activeElement && document.activeElement.id;
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(
+        value, "ab-focus-other",
+        "focus fixture should install successfully"
+    );
 }
 
 fn list_tabs(session_id: &str) -> serde_json::Value {
@@ -2491,6 +2581,297 @@ fn hover_missing_selector_text() {
         15,
     );
     assert_failure(&out, "hover missing selector text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error ELEMENT_NOT_FOUND:"),
+        "text must contain error ELEMENT_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 14: focus — command wiring, success path, and error path
+// ========================================================================
+
+#[test]
+fn focus_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_focus_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "focus",
+            "#ab-focus-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "focus json");
+    let v = parse_json(&out);
+
+    assert_focus_success(&v, &sid, &tid, "#ab-focus-target");
+    assert_eq!(v["data"]["changed"]["url_changed"], false);
+    assert_eq!(v["data"]["changed"]["focus_changed"], true);
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_focus_target_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_focus_other_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_blur_other_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "document.activeElement && document.activeElement.id"
+        ),
+        "ab-focus-target"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "window.__ab_last_focused"),
+        "ab-focus-target"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn focus_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_focus_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "focus",
+            "#ab-focus-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "focus text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser.focus"),
+        "must contain ok browser.focus"
+    );
+    assert!(
+        text.contains("target: #ab-focus-target"),
+        "must contain target line with selector"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn focus_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "focus",
+            "#ab-focus-target",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "focus nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.focus");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn focus_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless(
+        &[
+            "browser",
+            "focus",
+            "#ab-focus-target",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "focus nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn focus_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "focus",
+            "#ab-focus-target",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "focus nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.focus");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn focus_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "focus",
+            "#ab-focus-target",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "focus nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn focus_missing_selector_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "focus",
+            "#definitely-missing-element",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "focus missing selector json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.focus");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["selector"],
+        "#definitely-missing-element"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn focus_missing_selector_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "focus",
+            "#definitely-missing-element",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "focus missing selector text");
     let text = stdout_str(&out);
 
     assert!(
