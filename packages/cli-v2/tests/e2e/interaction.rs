@@ -246,6 +246,43 @@ fn assert_press_success(
     assert_meta(v);
 }
 
+fn assert_drag_success(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_source: &str,
+    expected_destination_selector: Option<&str>,
+    expected_destination_coordinates: Option<&str>,
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.drag");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "drag");
+    assert_eq!(data["target"]["selector"], expected_source);
+    if let Some(selector) = expected_destination_selector {
+        assert_eq!(data["destination"]["selector"], selector);
+    }
+    if let Some(coords) = expected_destination_coordinates {
+        assert_eq!(data["destination"]["coordinates"], coords);
+    }
+    assert!(
+        data["changed"]["url_changed"].is_boolean(),
+        "data.changed.url_changed must be a boolean"
+    );
+    assert!(
+        data["changed"]["focus_changed"].is_boolean(),
+        "data.changed.focus_changed must be a boolean"
+    );
+
+    assert_meta(v);
+}
+
 fn start_session(url: &str) -> (String, String) {
     let out = headless_json(
         &[
@@ -716,6 +753,88 @@ fn install_press_fixture(session_id: &str, tab_id: &str) {
         value, "ab-press-input",
         "press fixture should install successfully"
     );
+}
+
+fn install_drag_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-drag-fixture');
+  if (existing) existing.remove();
+
+  window.__ab_drag_mousemove_count = 0;
+  window.__ab_drag_drop_count = 0;
+  window.__ab_drag_last_drop = '';
+  window.__ab_drag_state = 'idle';
+
+  const root = document.createElement('div');
+  root.id = 'ab-drag-fixture';
+  root.innerHTML = `
+    <style>
+      #ab-drag-source, #ab-drag-target {
+        position: fixed;
+        top: 780px;
+        width: 110px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2147483647;
+        user-select: none;
+      }
+      #ab-drag-source {
+        left: 40px;
+        background: #bfdbfe;
+      }
+      #ab-drag-target {
+        left: 260px;
+        background: #bbf7d0;
+      }
+    </style>
+    <div id="ab-drag-source">Drag source</div>
+    <div id="ab-drag-target">Drop target</div>
+  `;
+  document.body.appendChild(root);
+
+  const source = document.getElementById('ab-drag-source');
+  const target = document.getElementById('ab-drag-target');
+
+  const finishDrop = (label) => {
+    if (window.__ab_drag_state !== 'dragging') return;
+    window.__ab_drag_drop_count += 1;
+    window.__ab_drag_last_drop = label;
+    window.__ab_drag_state = 'idle';
+  };
+
+  source.addEventListener('mousedown', () => {
+    window.__ab_drag_state = 'dragging';
+  });
+
+  document.addEventListener('mousemove', () => {
+    if (window.__ab_drag_state === 'dragging') {
+      window.__ab_drag_mousemove_count += 1;
+    }
+  }, true);
+
+  target.addEventListener('mouseup', () => {
+    finishDrop('ab-drag-target');
+  });
+
+  document.addEventListener('mouseup', (event) => {
+    if (window.__ab_drag_state !== 'dragging') return;
+    const el = document.elementFromPoint(event.clientX, event.clientY);
+    if (el && el.id === 'ab-drag-target') {
+      finishDrop('ab-drag-target');
+    } else {
+      window.__ab_drag_state = 'idle';
+    }
+  }, true);
+
+  return 'ok';
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(value, "ok", "drag fixture should install successfully");
 }
 
 fn list_tabs(session_id: &str) -> serde_json::Value {
@@ -3261,6 +3380,383 @@ fn press_invalid_chord_text() {
         10,
     );
     assert_failure(&out, "press invalid chord text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error INVALID_ARGUMENT:"),
+        "text must contain error INVALID_ARGUMENT: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 16: drag — command wiring, success path, and error path
+// ========================================================================
+
+#[test]
+fn drag_json_to_selector() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_drag_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "drag",
+            "#ab-drag-source",
+            "#ab-drag-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "drag json to selector");
+    let v = parse_json(&out);
+
+    assert_drag_success(
+        &v,
+        &sid,
+        &tid,
+        "#ab-drag-source",
+        Some("#ab-drag-target"),
+        None,
+    );
+    assert_eq!(v["data"]["changed"]["url_changed"], false);
+    assert_eq!(v["data"]["changed"]["focus_changed"], false);
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_drag_mousemove_count !== 0)"),
+        "true"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_drag_drop_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "window.__ab_drag_last_drop"),
+        "ab-drag-target"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn drag_text_to_coordinates() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_drag_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "drag",
+            "#ab-drag-source",
+            "315,804",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "drag text to coordinates");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser.drag"),
+        "must contain ok browser.drag"
+    );
+    assert!(
+        text.contains("target: #ab-drag-source"),
+        "must contain source target line"
+    );
+    assert!(
+        text.contains("destination: 315,804"),
+        "must contain destination line with coordinates"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_drag_drop_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "window.__ab_drag_last_drop"),
+        "ab-drag-target"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn drag_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "drag",
+            "#ab-drag-source",
+            "#ab-drag-target",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "drag nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.drag");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn drag_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless(
+        &[
+            "browser",
+            "drag",
+            "#ab-drag-source",
+            "#ab-drag-target",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "drag nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn drag_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "drag",
+            "#ab-drag-source",
+            "#ab-drag-target",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "drag nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.drag");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn drag_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "drag",
+            "#ab-drag-source",
+            "#ab-drag-target",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "drag nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn drag_missing_source_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "drag",
+            "#definitely-missing-source",
+            "#ab-drag-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "drag missing source json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.drag");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["selector"],
+        "#definitely-missing-source"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn drag_missing_source_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "drag",
+            "#definitely-missing-source",
+            "#ab-drag-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "drag missing source text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error ELEMENT_NOT_FOUND:"),
+        "text must contain error ELEMENT_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn drag_invalid_destination_coordinates_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_drag_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "drag",
+            "#ab-drag-source",
+            "315,abc",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "drag invalid destination coordinates json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.drag");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "INVALID_ARGUMENT");
+
+    close_session(&sid);
+}
+
+#[test]
+fn drag_invalid_destination_coordinates_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_drag_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "drag",
+            "#ab-drag-source",
+            "315,abc",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "drag invalid destination coordinates text");
     let text = stdout_str(&out);
 
     assert!(

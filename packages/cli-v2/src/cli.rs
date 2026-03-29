@@ -338,4 +338,21 @@ mod tests {
 
         assert!(cli.is_ok(), "browser press command should parse");
     }
+
+    #[test]
+    fn try_parse_from_accepts_browser_drag_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "drag",
+            "#source",
+            "#target",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser drag command should parse");
+    }
 }
