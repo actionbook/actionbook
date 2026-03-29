@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::action_result::ActionResult;
 use crate::browser::{element, navigation};
-use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target, CdpSession};
+use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result, get_cdp_and_target};
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
@@ -143,7 +143,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // stale-coordinate problem on responsive pages.
     let viewport_set = ensure_viewport(&cdp, &target_id, &destination).await;
 
-    let result = execute_inner(&cdp, &target_id, cmd, &destination).await;
+    let result = execute_inner(&cdp, &target_id, cmd, &destination, registry).await;
 
     // Always clear the viewport override
     if viewport_set {
@@ -202,11 +202,7 @@ fn build_response(
 /// breakpoints or triggering resize handlers).
 ///
 /// Returns `true` if the override was applied (and needs clearing).
-async fn ensure_viewport(
-    cdp: &CdpSession,
-    target_id: &str,
-    destination: &DragDestination,
-) -> bool {
+async fn ensure_viewport(cdp: &CdpSession, target_id: &str, destination: &DragDestination) -> bool {
     // Read the current viewport dimensions
     let current = cdp
         .execute_on_tab(
@@ -260,13 +256,13 @@ async fn execute_inner(
     target_id: &str,
     cmd: &Cmd,
     destination: &DragDestination,
+    registry: &SharedRegistry,
 ) -> ActionResult {
     // Resolve source element to centre coordinates
-    let (src_x, src_y) =
-        match element::resolve_element_center(cdp, target_id, &cmd.source).await {
-            Ok(coords) => coords,
-            Err(e) => return e,
-        };
+    let (src_x, src_y) = match element::resolve_element_center(cdp, target_id, &cmd.source).await {
+        Ok(coords) => coords,
+        Err(e) => return e,
+    };
 
     // Resolve destination to coordinates
     let (dst_x, dst_y) = match destination {
@@ -286,6 +282,12 @@ async fn execute_inner(
     // Dispatch drag: mousePressed → mouseMoved → mouseReleased
     if let Err(e) = dispatch_drag(cdp, target_id, src_x, src_y, dst_x, dst_y, &cmd.button).await {
         return e;
+    }
+
+    // Store cursor position in registry for cursor-position command
+    {
+        let mut reg = registry.lock().await;
+        reg.set_cursor_position(&cmd.session, &cmd.tab, dst_x, dst_y);
     }
 
     // Post-drag state

@@ -72,11 +72,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Get a JS object reference for the resolved node
     let resolve_resp = match cdp
-        .execute_on_tab(
-            &target_id,
-            "DOM.resolveNode",
-            json!({ "nodeId": node_id }),
-        )
+        .execute_on_tab(&target_id, "DOM.resolveNode", json!({ "nodeId": node_id }))
         .await
     {
         Ok(v) => v,
@@ -89,10 +85,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     {
         Some(id) => id.to_string(),
         None => {
-            return ActionResult::fatal(
-                "CDP_ERROR",
-                "DOM.resolveNode did not return objectId",
-            );
+            return ActionResult::fatal("CDP_ERROR", "DOM.resolveNode did not return objectId");
         }
     };
 
@@ -113,7 +106,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                     this.dispatchEvent(new MouseEvent('mouseenter', { ...shared, bubbles: false }));
                     this.dispatchEvent(new MouseEvent('mouseover', { ...shared, bubbles: true }));
                     this.dispatchEvent(new MouseEvent('mousemove', { ...shared, bubbles: true }));
-                    return 'ok';
+                    return JSON.stringify({ x: cx, y: cy });
                 }"#,
                 "returnByValue": true,
             }),
@@ -128,8 +121,19 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         .pointer("/result/result/value")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    if result_str != "ok" {
-        return ActionResult::fatal("CDP_ERROR", format!("hover dispatch failed: {result_str}"));
+    if result_str.is_empty() {
+        return ActionResult::fatal("CDP_ERROR", "hover dispatch failed: empty result");
+    }
+
+    // Parse and store cursor position from the hover coordinates
+    if let Ok(coords) = serde_json::from_str::<serde_json::Value>(result_str) {
+        if let (Some(x), Some(y)) = (
+            coords.get("x").and_then(|v| v.as_f64()),
+            coords.get("y").and_then(|v| v.as_f64()),
+        ) {
+            let mut reg = registry.lock().await;
+            reg.set_cursor_position(&cmd.session, &cmd.tab, x, y);
+        }
     }
 
     let url = navigation::get_tab_url(&cdp, &target_id).await;
