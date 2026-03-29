@@ -206,6 +206,7 @@ pub fn format_text(
                     | "browser.upload"
                     | "browser.mouse-move"
                     | "browser.cursor-position"
+                    | "browser.scroll"
                     | "browser.new-tab"
                     | "browser.close-tab"
             );
@@ -390,6 +391,17 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
             }
             if let Some(y) = data.get("y").and_then(|v| v.as_f64()) {
                 lines.push(format!("y: {}", y as i64));
+            }
+        }
+        "browser.scroll" => {
+            if let Some(dir) = data.get("direction").and_then(|v| v.as_str()) {
+                lines.push(format!("direction: {dir}"));
+            }
+            if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
+                lines.push(format!("target: {sel}"));
+            }
+            if let Some(container) = data.get("container").and_then(|v| v.as_str()) {
+                lines.push(format!("container: {container}"));
             }
         }
         "browser.drag" => {

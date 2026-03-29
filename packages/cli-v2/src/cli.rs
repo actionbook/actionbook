@@ -143,6 +143,8 @@ pub enum BrowserCommands {
     MouseMove(interaction::mouse_move::Cmd),
     /// Get the current cursor position
     CursorPosition(interaction::cursor_position::Cmd),
+    /// Scroll the page or a container
+    Scroll(interaction::scroll::Cmd),
 }
 
 impl BrowserCommands {
@@ -186,6 +188,7 @@ impl BrowserCommands {
             Self::Upload(cmd) => Action::Upload(cmd.clone()),
             Self::MouseMove(cmd) => Action::MouseMove(cmd.clone()),
             Self::CursorPosition(cmd) => Action::CursorPosition(cmd.clone()),
+            Self::Scroll(cmd) => Action::Scroll(cmd.clone()),
             _ => return None,
         })
     }
@@ -222,6 +225,7 @@ impl BrowserCommands {
             Self::Upload(_) => interaction::upload::COMMAND_NAME,
             Self::MouseMove(_) => interaction::mouse_move::COMMAND_NAME,
             Self::CursorPosition(_) => interaction::cursor_position::COMMAND_NAME,
+            Self::Scroll(_) => interaction::scroll::COMMAND_NAME,
         }
     }
 
@@ -274,6 +278,7 @@ impl BrowserCommands {
             Self::Upload(cmd) => interaction::upload::context(cmd, result),
             Self::MouseMove(cmd) => interaction::mouse_move::context(cmd, result),
             Self::CursorPosition(cmd) => interaction::cursor_position::context(cmd, result),
+            Self::Scroll(cmd) => interaction::scroll::context(cmd, result),
             Self::Screenshot { session, tab, .. } => tab_context(session, tab),
         }
     }
