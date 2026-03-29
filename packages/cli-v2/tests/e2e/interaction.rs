@@ -5337,6 +5337,59 @@ fn scroll_into_view_json() {
 }
 
 #[test]
+fn scroll_into_view_xpath_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_scroll_fixture(&sid, &tid);
+
+    let xpath = "//div[@id='ab-scroll-target']";
+    let out = headless_json(
+        &[
+            "browser",
+            "scroll",
+            "into-view",
+            xpath,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--align",
+            "center",
+        ],
+        15,
+    );
+    assert_success(&out, "scroll into-view xpath json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.scroll");
+    assert!(v["error"].is_null(), "error must be null on success");
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_eq!(v["data"]["action"], "scroll");
+    assert_eq!(v["data"]["target"]["selector"], xpath);
+    assert_eq!(v["data"]["align"], "center");
+    assert_eq!(v["data"]["changed"]["scroll_changed"], true);
+    assert_eq!(v["data"]["changed"]["url_changed"], false);
+    assert_eq!(v["data"]["changed"]["focus_changed"], false);
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "(() => { const rect = document.getElementById('ab-scroll-target').getBoundingClientRect(); return String(rect.top >= 0 && rect.bottom <= window.innerHeight); })()"
+        ),
+        "true"
+    );
+    assert_meta(&v);
+
+    close_session(&sid);
+}
+
+#[test]
 fn scroll_session_not_found_json() {
     if skip() {
         return;
