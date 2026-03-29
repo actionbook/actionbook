@@ -9,6 +9,11 @@ use crate::output::ResponseContext;
 
 /// Get current viewport dimensions
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser viewport --session s1 --tab t1
+
+Returns width and height in pixels (e.g. 1440x900).")]
 pub struct Cmd {
     /// Session ID
     #[arg(long)]

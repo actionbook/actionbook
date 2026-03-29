@@ -9,6 +9,9 @@ use crate::output::ResponseContext;
 
 /// Get current page title
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser title --session s1 --tab t1")]
 pub struct Cmd {
     /// Session ID
     #[arg(long)]

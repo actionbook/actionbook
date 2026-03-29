@@ -8,8 +8,14 @@ use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target};
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
-/// Read `element.value` from a target element.
+/// Read input element value
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser value \"#email\" --session s1 --tab t1
+  actionbook browser value \"input[name=q]\" --session s1 --tab t1
+
+Returns the current value of an input, textarea, or select element.")]
 pub struct Cmd {
     /// Target element selector
     pub selector: String,

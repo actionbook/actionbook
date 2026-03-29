@@ -65,7 +65,11 @@ pub struct TabArgs {
 }
 
 #[derive(Subcommand, Debug)]
+#[command(disable_help_subcommand = true)]
 pub enum BrowserCommands {
+    /// Show browser help
+    Help,
+
     // ── Session lifecycle ──────────────────────────────────────
     /// Start or attach a browser session
     Start(session::start::Cmd),
@@ -91,10 +95,19 @@ pub enum BrowserCommands {
     /// Navigate to URL
     Goto(navigation::goto::Cmd),
     /// Go back
+    #[command(after_help = "\
+Examples:
+  actionbook browser back --session s1 --tab t1")]
     Back(TabArgs),
     /// Go forward
+    #[command(after_help = "\
+Examples:
+  actionbook browser forward --session s1 --tab t1")]
     Forward(TabArgs),
     /// Reload page
+    #[command(after_help = "\
+Examples:
+  actionbook browser reload --session s1 --tab t1")]
     Reload(TabArgs),
 
     // ── Observation ────────────────────────────────────────────
@@ -117,6 +130,9 @@ pub enum BrowserCommands {
     /// Inspect element at coordinates
     InspectPoint(observation::inspect_point::Cmd),
     /// Take screenshot
+    #[command(after_help = "\
+Examples:
+  actionbook browser screenshot /tmp/page.png --session s1 --tab t1")]
     Screenshot {
         /// Output file path
         path: String,
@@ -211,6 +227,7 @@ impl BrowserCommands {
     /// Normalized command name for the JSON envelope.
     pub fn command_name(&self) -> &str {
         match self {
+            Self::Help => "help",
             Self::Start(_) => session::start::COMMAND_NAME,
             Self::ListSessions(_) => session::list::COMMAND_NAME,
             Self::Status(_) => session::status::COMMAND_NAME,
@@ -252,6 +269,7 @@ impl BrowserCommands {
     /// Build response context from command args and result.
     pub fn context(&self, result: &ActionResult) -> Option<ResponseContext> {
         match self {
+            Self::Help => None,
             Self::Start(cmd) => session::start::context(cmd, result),
             Self::ListSessions(cmd) => session::list::context(cmd, result),
             Self::Status(cmd) => session::status::context(cmd, result),

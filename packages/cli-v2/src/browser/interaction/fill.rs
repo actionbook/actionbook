@@ -10,6 +10,13 @@ use crate::output::ResponseContext;
 
 /// Directly set the value of an input field
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser fill \"#email\" \"user@example.com\" --session s1 --tab t1
+  actionbook browser fill \"input[name=q]\" \"search query\" --session s1 --tab t1
+
+Sets the value instantly (no per-character events). Use for standard inputs.
+For fields that need keystroke events (autocomplete, validation), use type instead.")]
 pub struct Cmd {
     /// Target element selector
     pub selector: String,

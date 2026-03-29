@@ -8,6 +8,12 @@ use crate::output::ResponseContext;
 
 /// Show session status
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser status --session my-session
+  actionbook browser status --session my-session --json
+
+Returns mode, status, tab count, and lists all tabs with their URLs.")]
 pub struct Cmd {
     /// Session ID
     #[arg(long)]

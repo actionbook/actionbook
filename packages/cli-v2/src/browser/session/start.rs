@@ -16,6 +16,16 @@ use crate::types::{Mode, SessionId, TabId};
 
 /// Start or attach a browser session
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser start
+  actionbook browser start --set-session-id research
+  actionbook browser start --set-session-id research --open-url https://google.com
+  actionbook browser start --headless --profile scraper
+  actionbook browser start --mode cloud --cdp-endpoint wss://browser.example.com/ws
+
+Reuse: if a session with the same profile already exists, it is reused.
+The returned session_id and tab_id are used to address all subsequent commands.")]
 pub struct Cmd {
     /// Browser mode
     #[arg(long, value_enum)]

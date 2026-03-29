@@ -14,6 +14,13 @@ fn default_button() -> String {
 
 /// Drag an element to a target element or coordinates
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser drag \"#card\" \"#dropzone\" --session s1 --tab t1
+  actionbook browser drag \"#slider\" 500,300 --session s1 --tab t1
+
+Drags from the source element to a destination (selector or x,y coordinates).
+Fires mousedown, mousemove, and mouseup events to simulate a full drag gesture.")]
 pub struct Cmd {
     /// Source element selector
     pub source: String,

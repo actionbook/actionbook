@@ -13,6 +13,16 @@ use super::snapshot_transform::{self, CursorInfo, SnapshotOptions};
 
 /// Capture accessibility snapshot
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser snapshot --session s1 --tab t1
+  actionbook browser snapshot -i --session s1 --tab t1
+  actionbook browser snapshot -i -c --session s1 --tab t1
+  actionbook browser snapshot -i --depth 3 --session s1 --tab t1
+  actionbook browser snapshot --selector \"#main\" --session s1 --tab t1
+
+Flags: -i (interactive only), -c (compact), --cursor (include cursor-interactive).
+Elements are labeled with refs (e.g. [ref=e1]) for use in click, fill, etc.")]
 pub struct Cmd {
     /// Session ID
     #[arg(long)]

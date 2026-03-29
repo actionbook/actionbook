@@ -8,8 +8,13 @@ use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target};
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
-/// Read a named attribute from an element.
+/// Read a named attribute from an element
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser attr \"a.link\" href --session s1 --tab t1
+  actionbook browser attr \"#email\" aria-label --session s1 --tab t1
+  actionbook browser attr \"img\" src --session s1 --tab t1")]
 pub struct Cmd {
     /// Target element selector
     pub selector: String,

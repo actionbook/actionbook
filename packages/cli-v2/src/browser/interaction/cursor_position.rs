@@ -9,6 +9,12 @@ use crate::output::ResponseContext;
 
 /// Get the current cursor position
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser cursor-position --session s1 --tab t1
+
+Returns the last known x,y cursor position for the tab.
+Updated after click, mouse-move, and drag commands.")]
 pub struct Cmd {
     /// Session ID
     #[arg(long)]

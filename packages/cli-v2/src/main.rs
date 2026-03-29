@@ -95,6 +95,11 @@ async fn handle_browser(
     command: BrowserCommands,
     json_mode: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    if matches!(command, BrowserCommands::Help) {
+        handle_browser_help(json_mode);
+        return Ok(());
+    }
+
     let start = Instant::now();
     let command = match command {
         BrowserCommands::Start(cmd) => match config::resolve_start_command(cmd) {
@@ -186,11 +191,114 @@ fn handle_version(json_mode: bool) {
 }
 
 fn handle_help(json_mode: bool) {
-    let help_text = "actionbook browser <subcommand>\n\nstart         Start or attach a browser session\nlist-sessions List all active sessions\nstatus        Show session status\nclose         Close a session\nrestart       Restart a session\nlist-tabs     List tabs in a session\nnew-tab       Open a new tab\ngoto          Navigate to URL\nsnapshot      Capture accessibility snapshot\neval          Evaluate JavaScript\nclick         Click an element\ntype          Type text keystroke by keystroke\nfill          Fill an input field directly\nselect        Select a value from a dropdown";
+    let help_text = "\
+Actionbook — browser automation for AI agents
+
+Every command is stateless: pass --session and --tab explicitly.
+No \"current tab\" — run commands on any session/tab in parallel.
+
+Usage: actionbook <command> [options]
+
+Commands:
+  browser    Control browser sessions, tabs, and page interactions
+  setup      Configure actionbook
+  help       Show this help
+  --version  Show version
+
+Global flags:
+  --json          Output as JSON envelope
+  --timeout <ms>  Set command timeout
+
+Quick start:
+  actionbook browser start --set-session-id my-session
+  actionbook browser goto https://example.com --session my-session --tab t1
+  actionbook browser snapshot --session my-session --tab t1
+  actionbook browser click \"#login\" --session my-session --tab t1
+
+Run actionbook browser --help to see all browser subcommands.";
 
     if json_mode {
         let envelope =
             JsonEnvelope::success("help", None, json!(help_text), std::time::Duration::ZERO);
+        println!("{}", serde_json::to_string(&envelope).unwrap_or_default());
+    } else {
+        println!("{help_text}");
+    }
+}
+
+fn handle_browser_help(json_mode: bool) {
+    let help_text = "\
+Usage: actionbook browser <subcommand> [options]
+
+Most commands require --session <SID> and --tab <TID>.
+Session-level commands need only --session. Start and list-sessions need neither.
+
+Session:
+  start                              Start or attach a browser session
+  list-sessions                      List all active sessions
+  status              --session      Show session status
+  close               --session      Close a session
+  restart             --session      Restart a session
+
+Tab:
+  list-tabs           --session      List tabs in a session
+  new-tab <url>       --session      Open a new tab (alias: open)
+  close-tab           --session --tab  Close a tab
+
+Navigation:
+  goto <url>          --session --tab  Navigate to a URL
+  back                --session --tab  Go back
+  forward             --session --tab  Go forward
+  reload              --session --tab  Reload the page
+
+Observation:
+  snapshot            --session --tab  Capture accessibility snapshot
+  screenshot <path>   --session --tab  Take a screenshot
+  title               --session --tab  Get page title
+  url                 --session --tab  Get current URL
+  viewport            --session --tab  Get viewport size
+  html [<selector>]   --session --tab  Read element/page HTML
+  text [<selector>]   --session --tab  Read element/page text
+  value <selector>    --session --tab  Read input value
+  attr <selector> <name>  --session --tab  Read element attribute
+  inspect-point <x,y>    --session --tab  Inspect element at coordinates
+
+Interaction:
+  click <selector|x,y>   --session --tab  Click element or coordinates
+  hover <selector>        --session --tab  Hover over an element
+  focus <selector>        --session --tab  Focus an element
+  press <key>             --session --tab  Press a key or key combo
+  type <text>             --session --tab  Type text keystroke by keystroke
+  fill <selector> <text>  --session --tab  Fill an input field directly
+  select <selector> <value>  --session --tab  Select from a dropdown
+  drag <source> <target>  --session --tab  Drag element to a target
+  upload <selector> <file...>  --session --tab  Upload files to a file input
+  eval <code>             --session --tab  Evaluate JavaScript
+  mouse-move <x,y>       --session --tab  Move mouse to coordinates
+  cursor-position         --session --tab  Get current cursor position
+  scroll <direction|edge|into-view>  --session --tab  Scroll page or container
+
+Global flags (apply to all subcommands):
+  --json          Output as JSON envelope
+  --timeout <ms>  Set command timeout
+
+Quick start:
+  actionbook browser start --set-session-id s1
+  actionbook browser goto https://example.com --session s1 --tab t1
+  actionbook browser snapshot --session s1 --tab t1
+  actionbook browser click \"#login\" --session s1 --tab t1
+  actionbook browser fill \"#email\" \"user@test.com\" --session s1 --tab t1
+  actionbook browser press Enter --session s1 --tab t1
+
+Run actionbook browser <subcommand> --help for full usage and examples.";
+
+    if json_mode {
+        let envelope = JsonEnvelope::success(
+            "browser.help",
+            None,
+            json!(help_text),
+            std::time::Duration::ZERO,
+        );
         println!("{}", serde_json::to_string(&envelope).unwrap_or_default());
     } else {
         println!("{help_text}");

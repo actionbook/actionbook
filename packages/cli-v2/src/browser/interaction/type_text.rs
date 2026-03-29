@@ -10,6 +10,14 @@ use crate::output::ResponseContext;
 
 /// Type text character by character
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser type \"#search\" \"hello world\" --session s1 --tab t1
+  actionbook browser type \"textarea\" \"line one\\nline two\" --session s1 --tab t1
+
+Types each character individually, firing keydown/keypress/keyup events.
+Use for fields with autocomplete, live validation, or input listeners.
+For simple value setting without events, use fill instead.")]
 pub struct Cmd {
     /// Target element selector
     pub selector: String,

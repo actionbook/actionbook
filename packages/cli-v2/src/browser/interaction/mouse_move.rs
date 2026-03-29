@@ -10,6 +10,13 @@ use crate::output::ResponseContext;
 
 /// Move the mouse to absolute coordinates
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser mouse-move 420,310 --session s1 --tab t1
+  actionbook browser mouse-move 0,0 --session s1 --tab t1
+
+Moves the mouse cursor to the given x,y coordinates without clicking.
+Use before click for precise positioning, or to trigger mouseover events.")]
 pub struct Cmd {
     /// Coordinates in x,y format
     pub coordinates: String,

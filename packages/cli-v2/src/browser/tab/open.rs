@@ -11,6 +11,13 @@ use crate::types::TabId;
 
 /// Open a new tab
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser new-tab https://example.com --session my-session
+  actionbook browser open https://github.com --session my-session
+
+The new tab is assigned the next available ID (t2, t3, ...).
+Use the returned tab_id to address this tab in subsequent commands.")]
 pub struct Cmd {
     /// URL to open
     pub url: String,

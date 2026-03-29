@@ -10,6 +10,13 @@ use crate::output::ResponseContext;
 
 /// Select a value from a dropdown list
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser select \"#country\" \"us\" --session s1 --tab t1
+  actionbook browser select \"#country\" \"United States\" --by-text --session s1 --tab t1
+
+Selects an option in a <select> element by its value attribute.
+Use --by-text to match the visible display text instead.")]
 pub struct Cmd {
     /// Target `<select>` element selector
     pub selector: String,

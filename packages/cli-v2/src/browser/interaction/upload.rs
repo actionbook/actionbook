@@ -12,6 +12,13 @@ use crate::output::ResponseContext;
 
 /// Upload files to a file input
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser upload \"input[type=file]\" /tmp/photo.png --session s1 --tab t1
+  actionbook browser upload \"#attachments\" /tmp/a.pdf /tmp/b.pdf --session s1 --tab t1
+
+Sets files on a <input type=\"file\"> element. Paths must be absolute.
+Pass multiple paths for multi-file inputs.")]
 pub struct Cmd {
     /// File input element selector
     pub selector: String,

@@ -10,6 +10,16 @@ use crate::output::ResponseContext;
 
 /// Press a key or key combination
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser press Enter --session s1 --tab t1
+  actionbook browser press Tab --session s1 --tab t1
+  actionbook browser press Control+A --session s1 --tab t1
+  actionbook browser press Shift+Tab --session s1 --tab t1
+
+Sends a key press to the currently focused element.
+Use focus first to direct keys to a specific element.
+Key names follow CDP conventions: Enter, Tab, Escape, ArrowDown, Control, Shift, Alt, Meta.")]
 pub struct Cmd {
     /// Single key or key combination (e.g., Enter, Control+A, Shift+Tab)
     pub key: String,

@@ -9,6 +9,12 @@ use crate::output::ResponseContext;
 
 /// List tabs in a session
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser list-tabs --session my-session
+  actionbook browser list-tabs --session my-session --json
+
+Returns each tab's ID (t1, t2, ...), URL, and title.")]
 pub struct Cmd {
     /// Session ID
     #[arg(long)]

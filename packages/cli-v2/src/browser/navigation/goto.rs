@@ -10,6 +10,13 @@ use crate::output::ResponseContext;
 
 /// Navigate to URL
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser goto https://google.com --session s1 --tab t1
+  actionbook browser goto https://example.com/login --session s1 --tab t1
+
+A scheme (https://) is added automatically if omitted.
+After navigation, context.url and context.title are updated.")]
 pub struct Cmd {
     /// Target URL
     pub url: String,
