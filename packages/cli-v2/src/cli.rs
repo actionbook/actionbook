@@ -139,6 +139,8 @@ pub enum BrowserCommands {
     Drag(interaction::drag::Cmd),
     /// Upload files to a file input
     Upload(interaction::upload::Cmd),
+    /// Move the mouse to absolute coordinates
+    MouseMove(interaction::mouse_move::Cmd),
 }
 
 impl BrowserCommands {
@@ -180,6 +182,7 @@ impl BrowserCommands {
             Self::Select(cmd) => Action::Select(cmd.clone()),
             Self::Drag(cmd) => Action::Drag(cmd.clone()),
             Self::Upload(cmd) => Action::Upload(cmd.clone()),
+            Self::MouseMove(cmd) => Action::MouseMove(cmd.clone()),
             _ => return None,
         })
     }
@@ -214,6 +217,7 @@ impl BrowserCommands {
             Self::Select(_) => interaction::select::COMMAND_NAME,
             Self::Drag(_) => interaction::drag::COMMAND_NAME,
             Self::Upload(_) => interaction::upload::COMMAND_NAME,
+            Self::MouseMove(_) => interaction::mouse_move::COMMAND_NAME,
         }
     }
 
@@ -264,6 +268,7 @@ impl BrowserCommands {
             Self::Select(cmd) => interaction::select::context(cmd, result),
             Self::Drag(cmd) => interaction::drag::context(cmd, result),
             Self::Upload(cmd) => interaction::upload::context(cmd, result),
+            Self::MouseMove(cmd) => interaction::mouse_move::context(cmd, result),
             Self::Screenshot { session, tab, .. } => tab_context(session, tab),
         }
     }

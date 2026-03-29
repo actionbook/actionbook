@@ -7,4 +7,5 @@ pub mod hover;
 pub mod press;
 pub mod select;
 pub mod type_text;
+pub mod mouse_move;
 pub mod upload;
