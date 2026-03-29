@@ -73,6 +73,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let from_url = super::get_tab_url(&cdp, &target_id).await;
 
     if !target_id.is_empty() {
+        // Page.enable must be called before addScriptToEvaluateOnNewDocument will be honoured.
+        // Idempotent in Chrome — safe to call on every goto.
+        let _ = cdp
+            .execute_on_tab(&target_id, "Page.enable", json!({}))
+            .await;
+
         // Register log capture hook to run at document start on this and future navigations.
         // Idempotent — multiple registrations are harmless since the hook guards itself.
         let _ = cdp
