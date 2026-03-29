@@ -24,7 +24,12 @@ pub struct Cmd {
 
 pub const COMMAND_NAME: &str = "browser.eval";
 
-pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
+pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
+    if let ActionResult::Fatal { code, .. } = result
+        && code == "SESSION_NOT_FOUND"
+    {
+        return None;
+    }
     Some(ResponseContext {
         session_id: cmd.session.clone(),
         tab_id: Some(cmd.tab.clone()),
@@ -55,23 +60,41 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Extract value from CDP response
     if let Some(result) = resp.get("result").and_then(|r| r.get("result")) {
         if let Some(exc) = resp.get("result").and_then(|r| r.get("exceptionDetails")) {
+            // Prefer exception.description (e.g. "Error: boom-eval"), fall back to text
             let emsg = exc
-                .get("text")
+                .pointer("/exception/description")
                 .and_then(|v| v.as_str())
+                .or_else(|| exc.get("text").and_then(|v| v.as_str()))
                 .unwrap_or("expression error");
             return ActionResult::fatal("EVAL_FAILED", emsg.to_string());
         }
-        let value = result
-            .get("value")
-            .map(|v| {
-                if v.is_string() {
-                    v.as_str().unwrap().to_string()
+
+        let js_type = result
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("undefined")
+            .to_string();
+
+        // Return the typed value as-is from CDP (number, bool, string, etc.)
+        let value = result.get("value").cloned().unwrap_or(json!(null));
+
+        let preview = result
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| {
+                if value.is_string() {
+                    value.as_str().unwrap().to_string()
                 } else {
-                    v.to_string()
+                    value.to_string()
                 }
-            })
-            .unwrap_or_default();
-        ActionResult::ok(json!({ "value": value }))
+            });
+
+        ActionResult::ok(json!({
+            "value": value,
+            "type": js_type,
+            "preview": preview,
+        }))
     } else {
         ActionResult::fatal("EVAL_FAILED", "no result in CDP response")
     }
