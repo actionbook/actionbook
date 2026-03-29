@@ -438,4 +438,19 @@ mod tests {
 
         assert!(cli.is_ok(), "browser mouse-move command should parse");
     }
+
+    #[test]
+    fn try_parse_from_accepts_browser_cursor_position_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "cursor-position",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser cursor-position command should parse");
+    }
 }

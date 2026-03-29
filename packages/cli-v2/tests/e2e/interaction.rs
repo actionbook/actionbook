@@ -4848,3 +4848,219 @@ fn mouse_move_invalid_coordinates_text() {
 
     close_session(&sid);
 }
+
+// ========================================================================
+// Group 20: cursor-position — command wiring, success path, and error path
+// ========================================================================
+
+#[test]
+fn cursor_position_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let move_out = headless(
+        &[
+            "browser",
+            "mouse-move",
+            "120,140",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&move_out, "cursor-position setup mouse-move");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "cursor-position",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "cursor-position json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.cursor-position");
+    assert!(v["error"].is_null(), "error must be null on success");
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_eq!(v["data"]["x"], 120);
+    assert_eq!(v["data"]["y"], 140);
+    assert_meta(&v);
+
+    close_session(&sid);
+}
+
+#[test]
+fn cursor_position_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let move_out = headless(
+        &[
+            "browser",
+            "mouse-move",
+            "120,140",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&move_out, "cursor-position setup mouse-move");
+
+    let out = headless(
+        &[
+            "browser",
+            "cursor-position",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "cursor-position text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(text.contains("x: 120"), "must contain x line: {text}");
+    assert!(text.contains("y: 140"), "must contain y line: {text}");
+
+    close_session(&sid);
+}
+
+#[test]
+fn cursor_position_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "cursor-position",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "cursor-position nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.cursor-position");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn cursor_position_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless(
+        &[
+            "browser",
+            "cursor-position",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "cursor-position nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn cursor_position_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "cursor-position",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "cursor-position nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.cursor-position");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn cursor_position_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "cursor-position",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "cursor-position nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
