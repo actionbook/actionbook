@@ -129,12 +129,6 @@ async fn inspect_at_point(
     parent_depth: Option<u32>,
     ref_cache: &mut RefCache,
 ) -> Result<(Value, Value), ActionResult> {
-    // Push the full DOM tree (depth -1 = all descendants) so that parentIds
-    // are populated for DOM.describeNode calls in the parent-traversal path.
-    let _ = cdp
-        .execute_on_tab(target_id, "DOM.getDocument", json!({ "depth": -1 }))
-        .await;
-
     // Use DOM.getNodeForLocation to find the element at (x, y).
     // Coordinates must be integers for CDP.
     let hit = cdp
@@ -150,12 +144,9 @@ async fn inspect_at_point(
         )
         .await;
 
-    let (backend_node_id, hit_node_id) = match hit {
-        Ok(ref v) => (
-            v["result"]["backendNodeId"].as_i64(),
-            v["result"]["nodeId"].as_i64().unwrap_or(0),
-        ),
-        Err(_) => (None, 0),
+    let backend_node_id = match hit {
+        Ok(ref v) => v["result"]["backendNodeId"].as_i64(),
+        Err(_) => None,
     };
 
     let Some(backend_node_id) = backend_node_id else {
@@ -170,7 +161,7 @@ async fn inspect_at_point(
     // Collect parents if requested
     let parents = if let Some(depth) = parent_depth {
         if depth > 0 {
-            collect_parents(cdp, target_id, hit_node_id, depth, ref_cache).await?
+            collect_parents(cdp, target_id, backend_node_id, depth, ref_cache).await?
         } else {
             json!([])
         }
@@ -226,71 +217,107 @@ async fn get_ax_info_for_backend_node(
     }))
 }
 
-/// Walk up the DOM parent chain, collecting up to `depth` ancestors.
+/// Walk up the AX parent chain, collecting up to `depth` ancestors.
 /// Returns a JSON array of {role, name, selector} objects, nearest parent first.
 ///
-/// Requires `DOM.getDocument` to have been called first so that nodeIds are
-/// tracked. Uses `start_node_id` (from `DOM.getNodeForLocation` result.nodeId)
-/// for reliable parentId traversal via iterative `DOM.describeNode` calls.
+/// Uses `Accessibility.getPartialAXTree` with `fetchRelatives: true` to get
+/// the element and all its AX ancestors in a single CDP call, then walks up
+/// via `parentId` cross-references in the flat node list.
 async fn collect_parents(
     cdp: &CdpSession,
     target_id: &str,
-    start_node_id: i64,
+    backend_node_id: i64,
     depth: u32,
     ref_cache: &mut RefCache,
 ) -> Result<Value, ActionResult> {
-    if start_node_id == 0 {
+    // Fetch the AX tree including ancestors.
+    let ax_resp = cdp
+        .execute_on_tab(
+            target_id,
+            "Accessibility.getPartialAXTree",
+            json!({
+                "backendNodeId": backend_node_id,
+                "fetchRelatives": true,
+            }),
+        )
+        .await;
+
+    let nodes = match ax_resp {
+        Ok(ref v) => v["result"]["nodes"].as_array().cloned().unwrap_or_default(),
+        Err(_) => return Ok(json!([])),
+    };
+
+    if nodes.is_empty() {
         return Ok(json!([]));
     }
 
+    // Build a map from AX nodeId → index in nodes array for O(1) lookups.
+    let mut ax_id_to_idx: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    for (i, node) in nodes.iter().enumerate() {
+        if let Some(id) = node["nodeId"].as_str() {
+            ax_id_to_idx.insert(id.to_string(), i);
+        }
+    }
+
+    // The first node in the array is the requested element.
+    // Walk up via parentId for up to `depth` steps.
     let mut parents = Vec::new();
-    let mut current_node_id = start_node_id;
+    let mut current_ax_id = nodes[0]["nodeId"].as_str().map(String::from);
 
     while parents.len() < depth as usize {
-        // Describe current node to find its parentId
-        let desc = cdp
-            .execute_on_tab(
-                target_id,
-                "DOM.describeNode",
-                json!({ "nodeId": current_node_id }),
-            )
-            .await;
-        let desc = match desc {
-            Ok(v) => v,
-            Err(_) => break,
+        let current_id = match current_ax_id {
+            Some(ref id) => id.clone(),
+            None => break,
         };
 
-        let parent_id = desc["result"]["node"]["parentId"].as_i64().unwrap_or(0);
-        if parent_id == 0 {
+        let current_idx = match ax_id_to_idx.get(&current_id) {
+            Some(&idx) => idx,
+            None => break,
+        };
+
+        let parent_ax_id = nodes[current_idx]["parentId"].as_str().map(String::from);
+        let parent_ax_id = match parent_ax_id {
+            Some(id) => id,
+            None => break,
+        };
+
+        let parent_idx = match ax_id_to_idx.get(&parent_ax_id) {
+            Some(&idx) => idx,
+            None => break,
+        };
+
+        let parent_node = &nodes[parent_idx];
+
+        // Skip AX nodes that represent the entire document/page root
+        let role = parent_node["role"]["value"]
+            .as_str()
+            .unwrap_or("generic")
+            .to_string();
+        if role == "RootWebArea" || role == "WebArea" {
             break;
         }
 
-        // Describe the parent node
-        let parent_desc = cdp
-            .execute_on_tab(
-                target_id,
-                "DOM.describeNode",
-                json!({ "nodeId": parent_id }),
-            )
-            .await;
-        let parent_desc = match parent_desc {
-            Ok(v) => v,
-            Err(_) => break,
+        let name = parent_node["name"]["value"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+
+        // Use backendDOMNodeId for stable ref assignment
+        let backend_dom_id = parent_node["backendDOMNodeId"].as_i64().unwrap_or(0);
+        let selector = if backend_dom_id != 0 {
+            ref_cache.get_or_assign(backend_dom_id)
+        } else {
+            ref_cache.get_or_assign(parent_idx as i64)
         };
 
-        let node = &parent_desc["result"]["node"];
-        let node_type = node["nodeType"].as_i64().unwrap_or(0);
-        let parent_backend_id = node["backendNodeId"].as_i64().unwrap_or(0);
+        parents.push(json!({
+            "role": role,
+            "name": name,
+            "selector": selector,
+        }));
 
-        // Stop at non-element nodes (document, doctype, etc.)
-        if node_type != 1 || parent_backend_id == 0 {
-            break;
-        }
-
-        let parent_info =
-            get_ax_info_for_backend_node(cdp, target_id, parent_backend_id, ref_cache).await?;
-        parents.push(parent_info);
-        current_node_id = parent_id;
+        current_ax_id = Some(parent_ax_id);
     }
 
     Ok(json!(parents))
