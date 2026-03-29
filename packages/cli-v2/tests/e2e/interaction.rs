@@ -985,6 +985,71 @@ fn install_mouse_move_fixture(session_id: &str, tab_id: &str) {
     );
 }
 
+fn install_scroll_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-scroll-fixture');
+  if (existing) existing.remove();
+
+  window.scrollTo(0, 0);
+  document.body.innerHTML = '';
+  document.documentElement.style.height = '';
+  document.body.style.height = '';
+  document.body.style.margin = '0';
+
+  const root = document.createElement('div');
+  root.id = 'ab-scroll-fixture';
+  root.innerHTML = `
+    <style>
+      body {
+        min-height: 2600px;
+      }
+      #ab-scroll-target {
+        margin-top: 1400px;
+        height: 60px;
+        background: #bfdbfe;
+      }
+      #ab-scroll-container {
+        position: fixed;
+        top: 120px;
+        left: 40px;
+        width: 260px;
+        height: 120px;
+        overflow: auto;
+        border: 1px solid #111827;
+        background: #f8fafc;
+        z-index: 2147483647;
+      }
+      #ab-scroll-container-inner {
+        width: 600px;
+        height: 700px;
+        position: relative;
+      }
+      #ab-scroll-container-target {
+        position: absolute;
+        top: 560px;
+        left: 20px;
+        width: 180px;
+        height: 40px;
+        background: #bbf7d0;
+      }
+    </style>
+    <div id="ab-scroll-container">
+      <div id="ab-scroll-container-inner">
+        <div id="ab-scroll-container-target">Container target</div>
+      </div>
+    </div>
+    <div id="ab-scroll-target">Page target</div>
+  `;
+  document.body.appendChild(root);
+  return 'ok';
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(value, "ok", "scroll fixture should install successfully");
+}
+
 fn create_upload_files(names: &[&str]) -> (tempfile::TempDir, Vec<String>) {
     let dir = tempfile::tempdir().expect("create upload temp dir");
     let mut paths = Vec::new();
@@ -5114,6 +5179,430 @@ fn cursor_position_after_click_json() {
     assert_eq!(v["command"], "browser.cursor-position");
     assert_eq!(v["data"]["x"], 200, "x should match click coordinate");
     assert_eq!(v["data"]["y"], 250, "y should match click coordinate");
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 21: scroll — command wiring, success path, and error path
+// ========================================================================
+
+#[test]
+fn scroll_json_down_page() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_scroll_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "scroll",
+            "down",
+            "180",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "scroll json down page");
+    let v = parse_json(&out);
+
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.scroll");
+    assert!(v["error"].is_null(), "error must be null on success");
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_eq!(v["data"]["action"], "scroll");
+    assert_eq!(v["data"]["direction"], "down");
+    assert_eq!(v["data"]["pixels"], 180);
+    assert_eq!(v["data"]["changed"]["scroll_changed"], true);
+    assert_eq!(eval_value(&sid, &tid, "String(window.scrollY)"), "180");
+    assert_meta(&v);
+
+    close_session(&sid);
+}
+
+#[test]
+fn scroll_text_bottom_container() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_scroll_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "scroll",
+            "bottom",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--container",
+            "#ab-scroll-container",
+        ],
+        15,
+    );
+    assert_success(&out, "scroll text bottom container");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser.scroll"),
+        "must contain ok browser.scroll"
+    );
+    assert!(
+        text.contains("direction: bottom"),
+        "must contain direction line"
+    );
+    assert!(
+        text.contains("container: #ab-scroll-container"),
+        "must contain container line"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "(() => { const el = document.getElementById('ab-scroll-container'); return String(el.scrollTop === el.scrollHeight - el.clientHeight); })()"
+        ),
+        "true"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn scroll_into_view_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_scroll_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "scroll",
+            "into-view",
+            "#ab-scroll-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--align",
+            "center",
+        ],
+        15,
+    );
+    assert_success(&out, "scroll into-view json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.scroll");
+    assert!(v["error"].is_null(), "error must be null on success");
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_eq!(v["data"]["action"], "scroll");
+    assert_eq!(v["data"]["target"]["selector"], "#ab-scroll-target");
+    assert_eq!(v["data"]["align"], "center");
+    assert_eq!(v["data"]["changed"]["scroll_changed"], true);
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "(() => { const rect = document.getElementById('ab-scroll-target').getBoundingClientRect(); return String(rect.top >= 0 && rect.bottom <= window.innerHeight); })()"
+        ),
+        "true"
+    );
+    assert_meta(&v);
+
+    close_session(&sid);
+}
+
+#[test]
+fn scroll_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "scroll",
+            "down",
+            "180",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "scroll nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.scroll");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn scroll_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless(
+        &[
+            "browser",
+            "scroll",
+            "down",
+            "180",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "scroll nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn scroll_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "scroll",
+            "down",
+            "180",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "scroll nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.scroll");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn scroll_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "scroll",
+            "down",
+            "180",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "scroll nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn scroll_missing_container_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "scroll",
+            "bottom",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--container",
+            "#definitely-missing-container",
+        ],
+        10,
+    );
+    assert_failure(&out, "scroll missing container json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.scroll");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["selector"],
+        "#definitely-missing-container"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn scroll_missing_container_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "scroll",
+            "bottom",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--container",
+            "#definitely-missing-container",
+        ],
+        10,
+    );
+    assert_failure(&out, "scroll missing container text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error ELEMENT_NOT_FOUND:"),
+        "text must contain error ELEMENT_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn scroll_into_view_missing_target_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_scroll_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "scroll",
+            "into-view",
+            "#definitely-missing-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "scroll into-view missing target json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.scroll");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["selector"],
+        "#definitely-missing-target"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn scroll_into_view_missing_target_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_scroll_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "scroll",
+            "into-view",
+            "#definitely-missing-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "scroll into-view missing target text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error ELEMENT_NOT_FOUND:"),
+        "text must contain error ELEMENT_NOT_FOUND: got {text}"
+    );
 
     close_session(&sid);
 }

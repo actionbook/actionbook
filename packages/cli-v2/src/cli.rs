@@ -458,4 +458,58 @@ mod tests {
 
         assert!(cli.is_ok(), "browser cursor-position command should parse");
     }
+
+    #[test]
+    fn try_parse_from_accepts_browser_scroll_direction_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "scroll",
+            "down",
+            "180",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser scroll direction command should parse");
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_scroll_edge_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "scroll",
+            "bottom",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+            "--container",
+            "#scroll-box",
+        ]);
+
+        assert!(cli.is_ok(), "browser scroll edge command should parse");
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_scroll_into_view_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "scroll",
+            "into-view",
+            "#target",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+            "--align",
+            "center",
+        ]);
+
+        assert!(cli.is_ok(), "browser scroll into-view command should parse");
+    }
 }
