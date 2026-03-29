@@ -106,6 +106,16 @@ pub enum BrowserCommands {
     Url(observation::url::Cmd),
     /// Get viewport dimensions
     Viewport(observation::viewport::Cmd),
+    /// Read element or page HTML
+    Html(observation::html::Cmd),
+    /// Read element or page text
+    Text(observation::text::Cmd),
+    /// Read element value
+    Value(observation::value::Cmd),
+    /// Read a named element attribute
+    Attr(observation::attr::Cmd),
+    /// Inspect element at coordinates
+    InspectPoint(observation::inspect_point::Cmd),
     /// Take screenshot
     Screenshot {
         /// Output file path
@@ -176,6 +186,11 @@ impl BrowserCommands {
             Self::Title(cmd) => Action::Title(cmd.clone()),
             Self::Url(cmd) => Action::Url(cmd.clone()),
             Self::Viewport(cmd) => Action::Viewport(cmd.clone()),
+            Self::Html(cmd) => Action::Html(cmd.clone()),
+            Self::Text(cmd) => Action::Text(cmd.clone()),
+            Self::Value(cmd) => Action::Value(cmd.clone()),
+            Self::Attr(cmd) => Action::Attr(cmd.clone()),
+            Self::InspectPoint(cmd) => Action::InspectPoint(cmd.clone()),
             Self::Eval(cmd) => Action::Eval(cmd.clone()),
             Self::Click(cmd) => Action::Click(cmd.clone()),
             Self::Hover(cmd) => Action::Hover(cmd.clone()),
@@ -212,6 +227,11 @@ impl BrowserCommands {
             Self::Title(_) => observation::title::COMMAND_NAME,
             Self::Url(_) => observation::url::COMMAND_NAME,
             Self::Viewport(_) => observation::viewport::COMMAND_NAME,
+            Self::Html(_) => observation::html::COMMAND_NAME,
+            Self::Text(_) => observation::text::COMMAND_NAME,
+            Self::Value(_) => observation::value::COMMAND_NAME,
+            Self::Attr(_) => observation::attr::COMMAND_NAME,
+            Self::InspectPoint(_) => observation::inspect_point::COMMAND_NAME,
             Self::Screenshot { .. } => "browser.screenshot",
             Self::Eval(_) => interaction::eval::COMMAND_NAME,
             Self::Click(_) => interaction::click::COMMAND_NAME,
@@ -245,6 +265,11 @@ impl BrowserCommands {
             Self::Title(cmd) => observation::title::context(cmd, result),
             Self::Url(cmd) => observation::url::context(cmd, result),
             Self::Viewport(cmd) => observation::viewport::context(cmd, result),
+            Self::Html(cmd) => observation::html::context(cmd, result),
+            Self::Text(cmd) => observation::text::context(cmd, result),
+            Self::Value(cmd) => observation::value::context(cmd, result),
+            Self::Attr(cmd) => observation::attr::context(cmd, result),
+            Self::InspectPoint(cmd) => observation::inspect_point::context(cmd, result),
             Self::Eval(cmd) => interaction::eval::context(cmd, result),
             Self::Back(a) => navigation::back::context(
                 &navigation::back::Cmd {
@@ -516,5 +541,58 @@ mod tests {
         ]);
 
         assert!(cli.is_ok(), "browser scroll into-view command should parse");
+    }
+
+    #[test]
+    fn try_parse_from_parses_html_without_selector() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "html",
+            "--session",
+            "s1",
+            "--tab",
+            "t1",
+        ])
+        .expect("parse html");
+
+        match cli.command {
+            Some(Commands::Browser {
+                command: BrowserCommands::Html(cmd),
+            }) => {
+                assert_eq!(cmd.selector, None);
+                assert_eq!(cmd.session, "s1");
+                assert_eq!(cmd.tab, "t1");
+            }
+            other => panic!("expected browser html command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_attr_selector_and_name() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "attr",
+            "#email",
+            "aria-label",
+            "--session",
+            "s1",
+            "--tab",
+            "t1",
+        ])
+        .expect("parse attr");
+
+        match cli.command {
+            Some(Commands::Browser {
+                command: BrowserCommands::Attr(cmd),
+            }) => {
+                assert_eq!(cmd.selector, "#email");
+                assert_eq!(cmd.name, "aria-label");
+                assert_eq!(cmd.session, "s1");
+                assert_eq!(cmd.tab, "t1");
+            }
+            other => panic!("expected browser attr command, got {other:?}"),
+        }
     }
 }

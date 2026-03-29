@@ -1,5 +1,10 @@
+pub mod attr;
+pub mod html;
+pub mod inspect_point;
 pub mod snapshot;
 pub mod snapshot_transform;
+pub mod text;
 pub mod title;
 pub mod url;
+pub mod value;
 pub mod viewport;

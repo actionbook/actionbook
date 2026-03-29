@@ -442,6 +442,11 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(content.to_string());
             }
         }
+        "browser.html" | "browser.text" | "browser.value" | "browser.attr" => {
+            if let Some(val) = data.get("value") {
+                lines.push(text_scalar(val));
+            }
+        }
         "browser.title" | "browser.url" => {
             if let Some(val) = data.get("value").and_then(|v| v.as_str()) {
                 lines.push(val.to_string());
@@ -452,6 +457,31 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
             let height = data.get("height").and_then(|v| v.as_u64());
             if let (Some(w), Some(h)) = (width, height) {
                 lines.push(format!("{w}x{h}"));
+            }
+        }
+        "browser.inspect-point" => {
+            // §10.11: role "name" / selector / point
+            if let Some(element) = data.get("element") {
+                let role = element.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                let name = element.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                if !name.is_empty() {
+                    lines.push(format!("{role} \"{name}\""));
+                } else {
+                    lines.push(role.to_string());
+                }
+                if let Some(sel) = element.get("selector").and_then(|v| v.as_str()) {
+                    lines.push(format!("selector: {sel}"));
+                }
+            }
+            if let Some(point) = data.get("point") {
+                let x = point.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let y = point.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                // Format as integers if they are whole numbers
+                if x.fract() == 0.0 && y.fract() == 0.0 {
+                    lines.push(format!("point: {},{}", x as i64, y as i64));
+                } else {
+                    lines.push(format!("point: {x},{y}"));
+                }
             }
         }
         "browser.eval" => {
@@ -465,5 +495,15 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(s.to_string());
             }
         }
+    }
+}
+
+fn text_scalar(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        Value::Bool(b) => b.to_string(),
+        other => other.to_string(),
     }
 }

@@ -119,6 +119,21 @@ pub async fn cdp_navigate(ws_url: &str, url: &str) -> Result<(), CliError> {
             let resp: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
             if resp.get("id").and_then(|v| v.as_u64()) == Some(1) {
                 let _ = ws.close(None).await;
+                // CDP protocol-level error (e.g. invalid method, internal error)
+                if let Some(err) = resp.get("error") {
+                    let msg = err["message"].as_str().unwrap_or("CDP error");
+                    return Err(CliError::NavigationFailed(msg.to_string()));
+                }
+                // Page.navigate can succeed at CDP level but report a navigation
+                // error via result.errorText (e.g. net::ERR_ABORTED, invalid scheme).
+                if let Some(error_text) = resp
+                    .get("result")
+                    .and_then(|r| r.get("errorText"))
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                {
+                    return Err(CliError::NavigationFailed(error_text.to_string()));
+                }
                 return Ok(());
             }
         }

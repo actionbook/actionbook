@@ -2,8 +2,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use colored::Colorize;
-
 use crate::config;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,10 +73,10 @@ pub fn print_environment_report(env: &EnvironmentInfo, json: bool) {
         return;
     }
 
-    let bar = "│".dimmed();
+    let bar = "|";
 
     // System
-    println!("  {}  {}", bar, "System".bold());
+    println!("  {}  System", bar);
     println!(
         "  {}    {} OS: {} ({})",
         bar,
@@ -90,19 +88,14 @@ pub fn print_environment_report(env: &EnvironmentInfo, json: bool) {
         let shell_name = shell.rsplit('/').next().unwrap_or(shell);
         println!("  {}    {} Shell: {}", bar, check_mark(), shell_name);
     } else {
-        println!(
-            "  {}    {} Shell: {}",
-            bar,
-            empty_mark(),
-            "not detected".dimmed()
-        );
+        println!("  {}    {} Shell: not detected", bar, empty_mark());
     }
 
     // Browsers
     println!("  {}", bar);
-    println!("  {}  {}", bar, "Browsers".bold());
+    println!("  {}  Browsers", bar);
     if env.browsers.is_empty() {
-        println!("  {}    {} {}", bar, empty_mark(), "none detected".dimmed());
+        println!("  {}    {} none detected", bar, empty_mark());
     } else {
         for browser in &env.browsers {
             let version_str = browser
@@ -122,37 +115,27 @@ pub fn print_environment_report(env: &EnvironmentInfo, json: bool) {
 
     // Runtime
     println!("  {}", bar);
-    println!("  {}  {}", bar, "Runtime".bold());
+    println!("  {}  Runtime", bar);
     if let Some(ref ver) = env.node_version {
         println!("  {}    {} Node.js: {}", bar, check_mark(), ver);
     } else {
-        println!(
-            "  {}    {} Node.js: {}",
-            bar,
-            empty_mark(),
-            "not detected".dimmed()
-        );
+        println!("  {}    {} Node.js: not detected", bar, empty_mark());
     }
     if env.npx_available {
         println!("  {}    {} npx", bar, check_mark());
     } else {
-        println!(
-            "  {}    {} npx: {}",
-            bar,
-            empty_mark(),
-            "not available".dimmed()
-        );
+        println!("  {}    {} npx: not available", bar, empty_mark());
     }
 
     println!("  {}", bar);
 }
 
-fn check_mark() -> colored::ColoredString {
-    "✓".green()
+fn check_mark() -> &'static str {
+    "ok"
 }
 
-fn empty_mark() -> colored::ColoredString {
-    "○".dimmed()
+fn empty_mark() -> &'static str {
+    "--"
 }
 
 fn discover_all_browsers() -> Vec<BrowserInfo> {

@@ -6,7 +6,6 @@ pub mod theme;
 use std::time::Duration;
 
 use clap::Args;
-use colored::Colorize;
 use dialoguer::Select;
 use indicatif::{ProgressBar, ProgressStyle};
 
@@ -42,7 +41,7 @@ const TOTAL_STEPS: u8 = 4;
 
 /// Run the setup wizard. Orchestrates all steps in order.
 pub async fn execute(cmd: &Cmd, json: bool) -> Result<(), CliError> {
-    let non_interactive = cmd.non_interactive;
+    let non_interactive = cmd.non_interactive || json;
 
     // Handle existing config (re-run protection)
     let mut config = handle_existing_config(json, non_interactive, cmd.reset)?;
@@ -90,7 +89,7 @@ pub async fn execute(cmd: &Cmd, json: bool) -> Result<(), CliError> {
 
     // Show recap (interactive only)
     if !json && !non_interactive {
-        let bar = "│".dimmed();
+        let bar = "|";
         let api_display = config.api.api_key.as_deref().unwrap_or("not configured");
         let mode_display = match config.browser.mode {
             Mode::Local => {
@@ -98,35 +97,27 @@ pub async fn execute(cmd: &Cmd, json: bool) -> Result<(), CliError> {
                     .browser
                     .executable_path
                     .as_deref()
-                    .unwrap_or("built-in");
+                    .unwrap_or("auto-detect");
                 let headless_label = if config.browser.headless {
                     "headless"
                 } else {
                     "visible"
                 };
-                format!("local — {} ({})", browser_name, headless_label)
+                format!("isolated ({browser_name}, {headless_label})")
             }
             Mode::Extension => "extension".to_string(),
-            Mode::Cloud => "cloud".to_string(),
+            Mode::Cloud => "unsupported".to_string(),
         };
 
-        println!("  {}  {}", bar, "Configuration summary:".dimmed());
+        println!("  {bar}  Configuration summary:");
         println!("  {}    API Key   {}", bar, api_display);
         println!("  {}    Browser   {}", bar, mode_display);
-        println!(
-            "  {}    Path      {}",
-            bar,
-            config::config_path().display().to_string().dimmed()
-        );
+        println!("  {}    Path      {}", bar, config::config_path().display());
     }
 
     let path = config::save_config(&config)?;
     if !json {
-        println!(
-            "  {}  Configuration saved to {}",
-            "◇".green(),
-            path.display()
-        );
+        println!("  - Configuration saved to {}", path.display());
     }
 
     // TODO: Step 5: Health check (API connectivity) — requires ApiClient
@@ -140,18 +131,13 @@ pub async fn execute(cmd: &Cmd, json: bool) -> Result<(), CliError> {
 
 /// Print a step header, e.g. `◆  Environment`
 fn print_step_header(step: u8, title: &str) {
-    println!(
-        "  {}  {} {}",
-        "◆".cyan(),
-        title.cyan().bold(),
-        format!("({}/{})", step, TOTAL_STEPS).dimmed()
-    );
-    println!("  {}", "│".dimmed());
+    println!("  * {} ({}/{})", title, step, TOTAL_STEPS);
+    println!("  |");
 }
 
 /// Print a vertical connector between steps.
 fn print_step_connector() {
-    println!("  {}", "│".dimmed());
+    println!("  |");
 }
 
 /// Create a spinner with the given message. Returns `None` if in json or non-interactive mode.
@@ -174,7 +160,7 @@ fn create_spinner(json: bool, non_interactive: bool, message: &str) -> Option<Pr
 /// Finish a spinner with a success message.
 fn finish_spinner(pb: Option<ProgressBar>, message: &str) {
     if let Some(pb) = pb {
-        pb.finish_with_message(format!("{} {}", "◇".green(), message));
+        pb.finish_with_message(format!("  - {message}"));
     }
 }
 
@@ -186,7 +172,7 @@ fn handle_existing_config(
 ) -> Result<ConfigFile, CliError> {
     if reset {
         if !json {
-            println!("  {}  Resetting configuration...", "◇".cyan());
+            println!("  - Resetting configuration...");
         }
         return Ok(ConfigFile::default());
     }
@@ -205,7 +191,7 @@ fn handle_existing_config(
     }
 
     if !json {
-        println!("\n  {}  Existing configuration found\n", "◇".blue());
+        println!("\n  - Existing configuration found\n");
     }
 
     let choices = vec![
@@ -226,7 +212,7 @@ fn handle_existing_config(
         0 => Ok(existing),
         1 => {
             if !json {
-                println!("  {}  Starting fresh...", "◇".cyan());
+                println!("  - Starting fresh...");
             }
             Ok(ConfigFile::default())
         }
@@ -241,11 +227,10 @@ fn parse_browser_flag(value: Option<&str>) -> Result<Option<Mode>, CliError> {
     };
 
     match value.trim().to_ascii_lowercase().as_str() {
-        "local" => Ok(Some(Mode::Local)),
+        "isolated" | "local" => Ok(Some(Mode::Local)),
         "extension" => Ok(Some(Mode::Extension)),
-        "cloud" => Ok(Some(Mode::Cloud)),
         other => Err(CliError::InvalidArgument(format!(
-            "invalid --browser value '{other}': expected local|extension|cloud"
+            "invalid --browser value '{other}': expected isolated|local|extension"
         ))),
     }
 }
@@ -274,19 +259,10 @@ fn setup_logo_symbol() -> &'static str {
 /// Print the welcome banner.
 fn print_welcome() {
     println!();
-    println!(
-        "  {}  {}",
-        setup_logo_symbol().cyan().bold(),
-        "Actionbook".bold()
-    );
+    println!("  {}  Actionbook", setup_logo_symbol());
     println!();
-    println!(
-        "  {}  {}  {}",
-        "┌".cyan(),
-        "Setup Wizard".bold(),
-        format!("v{}", env!("CARGO_PKG_VERSION")).dimmed()
-    );
-    println!("  {}", "│".dimmed());
+    println!("  +  Setup Wizard v{}", env!("CARGO_PKG_VERSION"));
+    println!("  |");
 }
 
 /// Print the completion summary with next steps.
@@ -306,8 +282,8 @@ fn print_completion(json: bool, config: &ConfigFile) {
         return;
     }
 
-    println!("  {}", "│".dimmed());
-    println!("  {}  {}", "└".green(), "Setup completed.".bold());
+    println!("  |");
+    println!("  +  Setup completed.");
 
     // Configuration recap
     let api_display = config
@@ -330,34 +306,25 @@ fn print_completion(json: bool, config: &ConfigFile) {
             } else {
                 "visible"
             };
-            format!("local — {} ({})", name, headless_str)
+            format!("isolated ({name}, {headless_str})")
         }
         Mode::Extension => "extension".to_string(),
-        Mode::Cloud => "cloud".to_string(),
+        Mode::Cloud => "unsupported".to_string(),
     };
 
     println!();
     println!(
-        "     {}  {}",
-        "Config".dimmed(),
+        "     Config  {}",
         shorten_home_path(&config::config_path().display().to_string())
     );
-    println!("     {}  {}", "Key".dimmed(), api_display);
-    println!("     {}  {}", "Browser".dimmed(), browser_display);
+    println!("     Key     {}", api_display);
+    println!("     Browser {}", browser_display);
 
     // Next steps
     println!();
-    println!("     {}", "Next steps".bold());
-    println!(
-        "       {} {}",
-        "$".dimmed(),
-        "actionbook search \"<goal>\" --json".cyan()
-    );
-    println!(
-        "       {} {}",
-        "$".dimmed(),
-        "actionbook get \"<area_id>\" --json".cyan()
-    );
+    println!("     Next steps");
+    println!("       $ actionbook search \"<goal>\" --json");
+    println!("       $ actionbook get \"<area_id>\" --json");
     println!();
 }
 
@@ -403,16 +370,12 @@ mod tests {
             Some(Mode::Local)
         );
         assert_eq!(
-            parse_browser_flag(Some("local")).unwrap(),
+            parse_browser_flag(Some("isolated")).unwrap(),
             Some(Mode::Local)
         );
         assert_eq!(
             parse_browser_flag(Some("extension")).unwrap(),
             Some(Mode::Extension)
-        );
-        assert_eq!(
-            parse_browser_flag(Some("cloud")).unwrap(),
-            Some(Mode::Cloud)
         );
     }
 

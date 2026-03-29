@@ -104,8 +104,8 @@ fn title_json_happy_path() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(&["browser", "title", "--session", &sid, "--tab", &tid], 10);
     assert_success(&out, "title json");
@@ -152,8 +152,8 @@ fn title_text_happy_path() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     // Get expected title from JSON to pin text body precisely (B2)
     let json_out = headless_json(&["browser", "title", "--session", &sid, "--tab", &tid], 10);
@@ -200,7 +200,6 @@ fn title_session_not_found_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless_json(
         &[
@@ -230,7 +229,6 @@ fn title_session_not_found_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -256,8 +254,8 @@ fn title_tab_not_found_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, _tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &[
@@ -294,7 +292,6 @@ fn title_missing_session_arg() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless_json(&["browser", "title", "--tab", "any-tab"], 10);
     assert_failure(&out, "title missing --session");
@@ -305,7 +302,6 @@ fn title_missing_tab_arg() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless_json(&["browser", "title", "--session", "any-sid"], 10);
     assert_failure(&out, "title missing --tab");
@@ -320,8 +316,8 @@ fn url_json_happy_path() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(&["browser", "url", "--session", &sid, "--tab", &tid], 10);
     assert_success(&out, "url json");
@@ -373,8 +369,8 @@ fn url_text_happy_path() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     // Get expected URL from JSON to pin text body precisely (B2)
     let json_out = headless_json(&["browser", "url", "--session", &sid, "--tab", &tid], 10);
@@ -421,7 +417,6 @@ fn url_session_not_found_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless_json(
         &[
@@ -450,7 +445,6 @@ fn url_session_not_found_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -476,8 +470,8 @@ fn url_tab_not_found_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, _tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &[
@@ -510,7 +504,6 @@ fn url_missing_session_arg() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless_json(&["browser", "url", "--tab", "any-tab"], 10);
     assert_failure(&out, "url missing --session");
@@ -521,7 +514,6 @@ fn url_missing_tab_arg() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless_json(&["browser", "url", "--session", "any-sid"], 10);
     assert_failure(&out, "url missing --tab");
@@ -536,8 +528,8 @@ fn viewport_json_happy_path() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &["browser", "viewport", "--session", &sid, "--tab", &tid],
@@ -591,8 +583,8 @@ fn viewport_text_happy_path() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless(
         &["browser", "viewport", "--session", &sid, "--tab", &tid],
@@ -652,7 +644,6 @@ fn viewport_session_not_found_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless_json(
         &[
@@ -681,7 +672,6 @@ fn viewport_session_not_found_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -707,8 +697,8 @@ fn viewport_tab_not_found_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, _tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &[
@@ -741,7 +731,6 @@ fn viewport_missing_session_arg() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless_json(&["browser", "viewport", "--tab", "any-tab"], 10);
     assert_failure(&out, "viewport missing --session");
@@ -752,7 +741,6 @@ fn viewport_missing_tab_arg() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless_json(&["browser", "viewport", "--session", "any-sid"], 10);
     assert_failure(&out, "viewport missing --tab");

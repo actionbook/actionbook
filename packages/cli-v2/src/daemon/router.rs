@@ -23,6 +23,13 @@ pub async fn route(action: &Action, registry: &SharedRegistry) -> ActionResult {
         Action::Title(cmd) => browser::observation::title::execute(cmd, registry).await,
         Action::Url(cmd) => browser::observation::url::execute(cmd, registry).await,
         Action::Viewport(cmd) => browser::observation::viewport::execute(cmd, registry).await,
+        Action::Html(cmd) => browser::observation::html::execute(cmd, registry).await,
+        Action::Text(cmd) => browser::observation::text::execute(cmd, registry).await,
+        Action::Value(cmd) => browser::observation::value::execute(cmd, registry).await,
+        Action::Attr(cmd) => browser::observation::attr::execute(cmd, registry).await,
+        Action::InspectPoint(cmd) => {
+            browser::observation::inspect_point::execute(cmd, registry).await
+        }
         Action::Eval(cmd) => browser::interaction::eval::execute(cmd, registry).await,
         Action::Click(cmd) => browser::interaction::click::execute(cmd, registry).await,
         Action::Hover(cmd) => browser::interaction::hover::execute(cmd, registry).await,

@@ -1,16 +1,11 @@
-use colored::Colorize;
-use dialoguer::{Confirm, Input};
+use dialoguer::{Confirm, Password};
 
 use super::detect::EnvironmentInfo;
 use super::theme::setup_theme;
 use crate::config::ConfigFile;
 use crate::error::CliError;
 
-/// Configure the API key with priority: flag > env > config > interactive input.
-///
-/// In non-interactive mode without a key, skips gracefully.
-/// When a key already exists, prompts the user to keep or replace it.
-/// Supports skipping — users can configure the key later.
+/// Configure the API key with priority: flag > env > config > interactive prompt.
 pub(crate) async fn configure_api_key(
     json: bool,
     env: &EnvironmentInfo,
@@ -18,11 +13,11 @@ pub(crate) async fn configure_api_key(
     non_interactive: bool,
     config: &mut ConfigFile,
 ) -> Result<(), CliError> {
-    // Priority: flag > env > existing config
     let (existing_key, source) = resolve_existing_key(api_key_flag, env, config);
 
-    if let Some(ref key) = existing_key {
-        let masked = mask_key(key);
+    if let Some(key) = existing_key {
+        let key = validate_api_key(&key)?;
+        let masked = mask_key(&key);
 
         if json {
             println!(
@@ -30,131 +25,166 @@ pub(crate) async fn configure_api_key(
                 serde_json::json!({
                     "step": "api_key",
                     "status": "detected",
-                    "source": source,
+                    "source": source.label(),
                     "masked_key": masked,
                 })
             );
         } else {
+            println!("  - API key: {} ({masked})", source.label());
+        }
+
+        match existing_key_action(source, non_interactive) {
+            ExistingKeyAction::Persist => {
+                config.api.api_key = Some(key);
+                return Ok(());
+            }
+            ExistingKeyAction::KeepEphemeral => {
+                return Ok(());
+            }
+            ExistingKeyAction::Prompt => {
+                if prompt_keep_existing_key()? {
+                    config.api.api_key = Some(key);
+                    return Ok(());
+                }
+                config.api.api_key = None;
+            }
+        }
+    }
+
+    if non_interactive {
+        if json {
             println!(
-                "  {}  API key detected (from {}): {}",
-                "◇".green(),
-                source,
-                masked.dimmed()
+                "{}",
+                serde_json::json!({
+                    "step": "api_key",
+                    "status": "skipped",
+                })
             );
+        } else {
+            println!("  - API key: skipped");
         }
+        return Ok(());
+    }
 
-        // If from flag or non-interactive, just use it directly
-        if api_key_flag.is_some() || non_interactive {
-            config.api.api_key = existing_key;
-            return Ok(());
-        }
-
-        // Interactive: ask if they want to change
-        let keep = Confirm::with_theme(&setup_theme())
-            .with_prompt(" Keep this API key?")
-            .default(true)
-            .report(false)
+    loop {
+        let key = Password::with_theme(&setup_theme())
+            .with_prompt("API key (leave blank to skip)")
+            .allow_empty_password(true)
             .interact()
-            .map_err(|e| CliError::Internal(format!("Prompt failed: {}", e)))?;
+            .map_err(|e| CliError::Internal(format!("Prompt failed: {e}")))?;
 
-        if keep {
-            config.api.api_key = existing_key;
+        if key.trim().is_empty() {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "step": "api_key",
+                        "status": "skipped",
+                    })
+                );
+            } else {
+                println!("  - API key: skipped");
+            }
+            config.api.api_key = None;
             return Ok(());
         }
 
-        // User rejected the key — clear it so it won't persist if they skip
-        config.api.api_key = None;
-    } else if non_interactive {
-        // No key in non-interactive mode — skip gracefully
-        if json {
-            println!(
-                "{}",
-                serde_json::json!({
-                    "step": "api_key",
-                    "status": "skipped",
-                })
-            );
-        } else {
-            println!(
-                "  {}  No API key configured. Use {} or set {} later.",
-                "◇".dimmed(),
-                "--api-key".cyan(),
-                "ACTIONBOOK_API_KEY".cyan()
-            );
-        }
-        return Ok(());
-    } else {
-        // No key — show helpful context before prompting
-        if !json {
-            let bar = "│".dimmed();
-            println!(
-                "  {}  {}",
-                bar,
-                "Actionbook uses an API key to look up selectors and actions for you.".dimmed()
-            );
-            println!(
-                "  {}  Don't have one yet? Grab it here: {}",
-                bar,
-                "https://actionbook.dev/dashboard".cyan().underline()
-            );
-            println!("  {}", bar);
+        match validate_api_key(&key) {
+            Ok(validated) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "step": "api_key",
+                            "status": "configured",
+                            "masked_key": mask_key(&validated),
+                        })
+                    );
+                } else {
+                    println!("  - API key: captured ({})", mask_key(&validated));
+                }
+                config.api.api_key = Some(validated);
+                return Ok(());
+            }
+            Err(err) => {
+                if json {
+                    return Err(err);
+                }
+                println!("  - {err}");
+            }
         }
     }
+}
 
-    // Interactive input — leave blank to skip
-    let key: String = Input::with_theme(&setup_theme())
-        .with_prompt(" Enter your API key (leave blank to skip)")
-        .allow_empty(true)
+fn prompt_keep_existing_key() -> Result<bool, CliError> {
+    Confirm::with_theme(&setup_theme())
+        .with_prompt("Keep this API key?")
+        .default(true)
         .report(false)
-        .interact_text()
-        .map_err(|e| CliError::Internal(format!("Prompt failed: {}", e)))?;
+        .interact()
+        .map_err(|e| CliError::Internal(format!("Prompt failed: {e}")))
+}
 
-    let key = key.trim().to_string();
+fn validate_api_key(key: &str) -> Result<String, CliError> {
+    let trimmed = key.trim();
+    if trimmed.is_empty() {
+        return Err(CliError::InvalidArgument(
+            "api key cannot be empty".to_string(),
+        ));
+    }
+    if trimmed.chars().any(char::is_whitespace) {
+        return Err(CliError::InvalidArgument(
+            "api key must not contain whitespace".to_string(),
+        ));
+    }
+    Ok(trimmed.to_string())
+}
 
-    if key.is_empty() {
-        if json {
-            println!(
-                "{}",
-                serde_json::json!({
-                    "step": "api_key",
-                    "status": "skipped",
-                })
-            );
-        } else {
-            println!(
-                "  {}  Skipped. You can configure it later with:",
-                "◇".dimmed()
-            );
-            println!(
-                "  {}  {}",
-                "│".dimmed(),
-                "actionbook config set api.api_key <your-key>".cyan()
-            );
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExistingKeySource {
+    Flag,
+    Env,
+    Config,
+    None,
+}
+
+impl ExistingKeySource {
+    fn label(self) -> &'static str {
+        match self {
+            ExistingKeySource::Flag => "flag",
+            ExistingKeySource::Env => "env",
+            ExistingKeySource::Config => "config",
+            ExistingKeySource::None => "none",
         }
-        return Ok(());
     }
+}
 
-    // TODO: Validate the API key via ApiClient when available.
-    // When validation is added, wrap this in a loop to retry on invalid keys.
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "step": "api_key",
-                "status": "configured",
-                "api_key": key,
-            })
-        );
-    } else {
-        println!(
-            "  {}  API key saved: {}",
-            "◇".green(),
-            mask_key(&key).dimmed()
-        );
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExistingKeyAction {
+    Persist,
+    KeepEphemeral,
+    Prompt,
+}
+
+fn existing_key_action(source: ExistingKeySource, non_interactive: bool) -> ExistingKeyAction {
+    match source {
+        ExistingKeySource::Flag => ExistingKeyAction::Persist,
+        ExistingKeySource::Env => {
+            if non_interactive {
+                ExistingKeyAction::KeepEphemeral
+            } else {
+                ExistingKeyAction::Prompt
+            }
+        }
+        ExistingKeySource::Config => {
+            if non_interactive {
+                ExistingKeyAction::Persist
+            } else {
+                ExistingKeyAction::Prompt
+            }
+        }
+        ExistingKeySource::None => ExistingKeyAction::KeepEphemeral,
     }
-
-    config.api.api_key = Some(key);
-    Ok(())
 }
 
 /// Resolve the best available key and its source name.
@@ -162,17 +192,17 @@ fn resolve_existing_key(
     flag: Option<&str>,
     env: &EnvironmentInfo,
     config: &ConfigFile,
-) -> (Option<String>, &'static str) {
+) -> (Option<String>, ExistingKeySource) {
     if let Some(key) = flag {
-        return (Some(key.to_string()), "flag");
+        return (Some(key.to_string()), ExistingKeySource::Flag);
     }
     if let Some(ref key) = env.existing_api_key {
-        return (Some(key.clone()), "env");
+        return (Some(key.clone()), ExistingKeySource::Env);
     }
     if let Some(ref key) = config.api.api_key {
-        return (Some(key.clone()), "config");
+        return (Some(key.clone()), ExistingKeySource::Config);
     }
-    (None, "none")
+    (None, ExistingKeySource::None)
 }
 
 /// Mask an API key for display, showing only first 4 and last 4 chars.
@@ -183,7 +213,7 @@ pub(super) fn mask_key(key: &str) -> String {
     }
     let prefix: String = chars[..4].iter().collect();
     let suffix: String = chars[chars.len() - 4..].iter().collect();
-    format!("{}...{}", prefix, suffix)
+    format!("{prefix}...{suffix}")
 }
 
 #[cfg(test)]
@@ -206,6 +236,12 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_api_key_rejects_whitespace() {
+        let err = validate_api_key("sk test").expect_err("whitespace should fail");
+        assert_eq!(err.error_code(), "INVALID_ARGUMENT");
+    }
+
+    #[test]
     fn test_resolve_flag_wins() {
         let env = EnvironmentInfo {
             os: String::new(),
@@ -220,7 +256,7 @@ mod tests {
         let config = ConfigFile::default();
         let (key, source) = resolve_existing_key(Some("flag_key"), &env, &config);
         assert_eq!(key.unwrap(), "flag_key");
-        assert_eq!(source, "flag");
+        assert_eq!(source, ExistingKeySource::Flag);
     }
 
     #[test]
@@ -239,7 +275,7 @@ mod tests {
         config.api.api_key = Some("config_key".to_string());
         let (key, source) = resolve_existing_key(None, &env, &config);
         assert_eq!(key.unwrap(), "env_key");
-        assert_eq!(source, "env");
+        assert_eq!(source, ExistingKeySource::Env);
     }
 
     #[test]
@@ -258,7 +294,7 @@ mod tests {
         config.api.api_key = Some("config_key".to_string());
         let (key, source) = resolve_existing_key(None, &env, &config);
         assert_eq!(key.unwrap(), "config_key");
-        assert_eq!(source, "config");
+        assert_eq!(source, ExistingKeySource::Config);
     }
 
     #[test]
@@ -276,6 +312,46 @@ mod tests {
         let config = ConfigFile::default();
         let (key, source) = resolve_existing_key(None, &env, &config);
         assert!(key.is_none());
-        assert_eq!(source, "none");
+        assert_eq!(source, ExistingKeySource::None);
+    }
+
+    #[test]
+    fn test_existing_key_action_flag_persists() {
+        assert_eq!(
+            existing_key_action(ExistingKeySource::Flag, false),
+            ExistingKeyAction::Persist
+        );
+    }
+
+    #[test]
+    fn test_existing_key_action_env_is_ephemeral_in_non_interactive_mode() {
+        assert_eq!(
+            existing_key_action(ExistingKeySource::Env, true),
+            ExistingKeyAction::KeepEphemeral
+        );
+    }
+
+    #[test]
+    fn test_existing_key_action_env_prompts_in_interactive_mode() {
+        assert_eq!(
+            existing_key_action(ExistingKeySource::Env, false),
+            ExistingKeyAction::Prompt
+        );
+    }
+
+    #[test]
+    fn test_existing_key_action_config_prompts_in_interactive_mode() {
+        assert_eq!(
+            existing_key_action(ExistingKeySource::Config, false),
+            ExistingKeyAction::Prompt
+        );
+    }
+
+    #[test]
+    fn test_existing_key_action_config_persists_in_non_interactive_mode() {
+        assert_eq!(
+            existing_key_action(ExistingKeySource::Config, true),
+            ExistingKeyAction::Persist
+        );
     }
 }
