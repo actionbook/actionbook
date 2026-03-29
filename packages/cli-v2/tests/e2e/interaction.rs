@@ -4250,6 +4250,13 @@ fn eval_json_number() {
     assert!(v["context"].is_object(), "context must be present");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
+    assert!(
+        v["context"]["url"]
+            .as_str()
+            .is_some_and(|url| url.starts_with(TEST_URL)),
+        "context.url should include the current page URL"
+    );
+    assert_eq!(v["context"]["title"], "Example Domain");
     assert_eq!(v["data"]["value"], serde_json::json!(4));
     assert_eq!(v["data"]["type"], "number");
     assert_eq!(v["data"]["preview"], "4");
@@ -4276,6 +4283,10 @@ fn eval_text() {
     assert!(
         text.contains(&format!("[{sid} {tid}]")),
         "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains(&format!("[{sid} {tid}] {TEST_URL}")),
+        "header must include the current page URL: got {text}"
     );
     assert!(
         text.trim_end().ends_with('4'),
