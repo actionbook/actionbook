@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::action_result::ActionResult;
 use crate::browser::{element, navigation};
-use crate::daemon::cdp_session::{get_cdp_and_target, CdpSession};
+use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target, CdpSession};
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
@@ -94,11 +94,7 @@ fn parse_scroll_mode(cmd: &Cmd) -> Result<ScrollMode, ActionResult> {
             let selector = cmd.value.as_deref().ok_or_else(|| {
                 ActionResult::fatal("INVALID_ARGUMENT", "into-view requires a selector")
             })?;
-            let align = cmd
-                .align
-                .as_deref()
-                .unwrap_or("nearest")
-                .to_string();
+            let align = cmd.align.as_deref().unwrap_or("nearest").to_string();
             if !matches!(align.as_str(), "start" | "center" | "end" | "nearest") {
                 return Err(ActionResult::fatal(
                     "INVALID_ARGUMENT",
@@ -130,31 +126,44 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return e,
     };
 
-    // If --container is specified, verify it exists
-    if let Some(ref container_sel) = cmd.container {
-        if let Err(e) = resolve_container(&cdp, &target_id, container_sel).await {
-            return e;
-        }
-    }
+    // Ensure DOM tree is initialized (required for DOM.requestNode used by XPath resolution)
+    let _ = cdp
+        .execute_on_tab(&target_id, "DOM.getDocument", json!({}))
+        .await;
+
+    // Resolve container to a JS object reference if specified
+    let container_object_id = match &cmd.container {
+        Some(sel) => match resolve_to_object_id(&cdp, &target_id, sel).await {
+            Ok(id) => Some(id),
+            Err(e) => return e,
+        },
+        None => None,
+    };
 
     // Pre-scroll state
     let pre_url = navigation::get_tab_url(&cdp, &target_id).await;
     let pre_focus = get_active_element_id(&cdp, &target_id).await;
-    let pre_scroll = get_scroll_position(&cdp, &target_id, cmd.container.as_deref()).await;
+    let pre_scroll =
+        get_scroll_position(&cdp, &target_id, container_object_id.as_deref()).await;
 
     // Execute scroll
     match &mode {
         ScrollMode::Directional { direction, pixels } => {
-            if let Err(e) =
-                scroll_directional(&cdp, &target_id, direction, *pixels, cmd.container.as_deref())
-                    .await
+            if let Err(e) = scroll_directional(
+                &cdp,
+                &target_id,
+                direction,
+                *pixels,
+                container_object_id.as_deref(),
+            )
+            .await
             {
                 return e;
             }
         }
         ScrollMode::Edge { direction } => {
             if let Err(e) =
-                scroll_edge(&cdp, &target_id, direction, cmd.container.as_deref()).await
+                scroll_edge(&cdp, &target_id, direction, container_object_id.as_deref()).await
             {
                 return e;
             }
@@ -170,7 +179,8 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let post_url = navigation::get_tab_url(&cdp, &target_id).await;
     let post_title = navigation::get_tab_title(&cdp, &target_id).await;
     let post_focus = get_active_element_id(&cdp, &target_id).await;
-    let post_scroll = get_scroll_position(&cdp, &target_id, cmd.container.as_deref()).await;
+    let post_scroll =
+        get_scroll_position(&cdp, &target_id, container_object_id.as_deref()).await;
 
     let url_changed = !pre_url.is_empty() && pre_url != post_url;
     let focus_changed = pre_focus != post_focus;
@@ -208,14 +218,21 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     ActionResult::ok(data)
 }
 
-/// Verify that a container selector resolves to an existing element.
-async fn resolve_container(
+/// Resolve a selector to a CDP JS object ID via element::resolve_node + DOM.resolveNode.
+async fn resolve_to_object_id(
     cdp: &CdpSession,
     target_id: &str,
     selector: &str,
-) -> Result<(), ActionResult> {
-    element::resolve_node(cdp, target_id, selector).await?;
-    Ok(())
+) -> Result<String, ActionResult> {
+    let node_id = element::resolve_node(cdp, target_id, selector).await?;
+    let resp = cdp
+        .execute_on_tab(target_id, "DOM.resolveNode", json!({ "nodeId": node_id }))
+        .await
+        .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+    resp.pointer("/result/object/objectId")
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .ok_or_else(|| ActionResult::fatal("CDP_ERROR", "DOM.resolveNode did not return objectId"))
 }
 
 /// Scroll by pixel amount in a given direction.
@@ -224,7 +241,7 @@ async fn scroll_directional(
     target_id: &str,
     direction: &str,
     pixels: i64,
-    container: Option<&str>,
+    container_object_id: Option<&str>,
 ) -> Result<(), ActionResult> {
     let (dx, dy) = match direction {
         "up" => (0, -pixels),
@@ -234,23 +251,22 @@ async fn scroll_directional(
         _ => unreachable!(),
     };
 
-    let js = if let Some(sel) = container {
-        format!(
-            r#"(() => {{
-                const el = document.querySelector({sel});
-                if (!el) return 'not_found';
-                el.scrollBy({dx}, {dy});
-                return 'ok';
-            }})()"#,
-            sel = serde_json::to_string(sel).unwrap(),
-            dx = dx,
-            dy = dy,
+    if let Some(object_id) = container_object_id {
+        call_fn_on(
+            cdp,
+            target_id,
+            object_id,
+            &format!("function() {{ this.scrollBy({dx}, {dy}); return 'ok'; }}"),
         )
+        .await
     } else {
-        format!("(() => {{ window.scrollBy({dx}, {dy}); return 'ok'; }})()")
-    };
-
-    eval_js(cdp, target_id, &js).await
+        eval_js(
+            cdp,
+            target_id,
+            &format!("(() => {{ window.scrollBy({dx}, {dy}); return 'ok'; }})()"),
+        )
+        .await
+    }
 }
 
 /// Scroll to top or bottom edge.
@@ -258,34 +274,25 @@ async fn scroll_edge(
     cdp: &CdpSession,
     target_id: &str,
     direction: &str,
-    container: Option<&str>,
+    container_object_id: Option<&str>,
 ) -> Result<(), ActionResult> {
-    let js = if let Some(sel) = container {
-        let scroll_expr = match direction {
-            "top" => "el.scrollTop = 0; el.scrollLeft = 0;",
-            "bottom" => "el.scrollTop = el.scrollHeight;",
+    if let Some(object_id) = container_object_id {
+        let fn_body = match direction {
+            "top" => "function() { this.scrollTop = 0; this.scrollLeft = 0; return 'ok'; }",
+            "bottom" => "function() { this.scrollTop = this.scrollHeight; return 'ok'; }",
             _ => unreachable!(),
         };
-        format!(
-            r#"(() => {{
-                const el = document.querySelector({sel});
-                if (!el) return 'not_found';
-                {scroll_expr}
-                return 'ok';
-            }})()"#,
-            sel = serde_json::to_string(sel).unwrap(),
-            scroll_expr = scroll_expr,
-        )
+        call_fn_on(cdp, target_id, object_id, fn_body).await
     } else {
-        let scroll_expr = match direction {
-            "top" => "window.scrollTo(0, 0);",
-            "bottom" => "window.scrollTo(0, document.documentElement.scrollHeight);",
+        let js = match direction {
+            "top" => "(() => { window.scrollTo(0, 0); return 'ok'; })()",
+            "bottom" => {
+                "(() => { window.scrollTo(0, document.documentElement.scrollHeight); return 'ok'; })()"
+            }
             _ => unreachable!(),
         };
-        format!("(() => {{ {scroll_expr} return 'ok'; }})()")
-    };
-
-    eval_js(cdp, target_id, &js).await
+        eval_js(cdp, target_id, js).await
+    }
 }
 
 /// Scroll an element into view with alignment.
@@ -295,8 +302,7 @@ async fn scroll_into_view(
     selector: &str,
     align: &str,
 ) -> Result<(), ActionResult> {
-    // First verify the element exists
-    element::resolve_node(cdp, target_id, selector).await?;
+    let object_id = resolve_to_object_id(cdp, target_id, selector).await?;
 
     let block = match align {
         "start" => "start",
@@ -305,18 +311,36 @@ async fn scroll_into_view(
         _ => "nearest",
     };
 
-    let js = format!(
-        r#"(() => {{
-            const el = document.querySelector({sel});
-            if (!el) return 'not_found';
-            el.scrollIntoView({{ block: '{block}', inline: 'nearest', behavior: 'instant' }});
-            return 'ok';
-        }})()"#,
-        sel = serde_json::to_string(selector).unwrap(),
-        block = block,
-    );
+    call_fn_on(
+        cdp,
+        target_id,
+        &object_id,
+        &format!(
+            "function() {{ this.scrollIntoView({{ block: '{block}', inline: 'nearest', behavior: 'instant' }}); return 'ok'; }}"
+        ),
+    )
+    .await
+}
 
-    eval_js(cdp, target_id, &js).await
+/// Execute a function on a resolved JS object.
+async fn call_fn_on(
+    cdp: &CdpSession,
+    target_id: &str,
+    object_id: &str,
+    function_declaration: &str,
+) -> Result<(), ActionResult> {
+    cdp.execute_on_tab(
+        target_id,
+        "Runtime.callFunctionOn",
+        json!({
+            "objectId": object_id,
+            "functionDeclaration": function_declaration,
+            "returnByValue": true,
+        }),
+    )
+    .await
+    .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+    Ok(())
 }
 
 /// Evaluate JS and check the result.
@@ -325,30 +349,16 @@ async fn eval_js(
     target_id: &str,
     expression: &str,
 ) -> Result<(), ActionResult> {
-    let resp = cdp
-        .execute_on_tab(
-            target_id,
-            "Runtime.evaluate",
-            json!({
-                "expression": expression,
-                "returnByValue": true,
-            }),
-        )
-        .await
-        .map_err(|e| {
-            use crate::daemon::cdp_session::cdp_error_to_result;
-            cdp_error_to_result(e, "CDP_ERROR")
-        })?;
-
-    let value = resp
-        .pointer("/result/result/value")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-
-    if value == "not_found" {
-        return Err(ActionResult::fatal("ELEMENT_NOT_FOUND", "container element not found"));
-    }
-
+    cdp.execute_on_tab(
+        target_id,
+        "Runtime.evaluate",
+        json!({
+            "expression": expression,
+            "returnByValue": true,
+        }),
+    )
+    .await
+    .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
     Ok(())
 }
 
@@ -356,33 +366,39 @@ async fn eval_js(
 async fn get_scroll_position(
     cdp: &CdpSession,
     target_id: &str,
-    container: Option<&str>,
+    container_object_id: Option<&str>,
 ) -> (f64, f64) {
-    let js = if let Some(sel) = container {
-        format!(
-            r#"(() => {{
-                const el = document.querySelector({sel});
-                if (!el) return JSON.stringify({{x:0,y:0}});
-                return JSON.stringify({{x:el.scrollLeft,y:el.scrollTop}});
-            }})()"#,
-            sel = serde_json::to_string(sel).unwrap(),
-        )
+    if let Some(object_id) = container_object_id {
+        let resp = cdp
+            .execute_on_tab(
+                target_id,
+                "Runtime.callFunctionOn",
+                json!({
+                    "objectId": object_id,
+                    "functionDeclaration": "function() { return JSON.stringify({x:this.scrollLeft,y:this.scrollTop}); }",
+                    "returnByValue": true,
+                }),
+            )
+            .await
+            .ok();
+        parse_scroll_json(resp)
     } else {
-        "JSON.stringify({x:window.scrollX,y:window.scrollY})".to_string()
-    };
+        let resp = cdp
+            .execute_on_tab(
+                target_id,
+                "Runtime.evaluate",
+                json!({
+                    "expression": "JSON.stringify({x:window.scrollX,y:window.scrollY})",
+                    "returnByValue": true,
+                }),
+            )
+            .await
+            .ok();
+        parse_scroll_json(resp)
+    }
+}
 
-    let resp = cdp
-        .execute_on_tab(
-            target_id,
-            "Runtime.evaluate",
-            json!({
-                "expression": js,
-                "returnByValue": true,
-            }),
-        )
-        .await
-        .ok();
-
+fn parse_scroll_json(resp: Option<serde_json::Value>) -> (f64, f64) {
     resp.and_then(|v| {
         let s = v
             .pointer("/result/result/value")
