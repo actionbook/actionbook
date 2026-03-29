@@ -31,5 +31,6 @@ pub async fn route(action: &Action, registry: &SharedRegistry) -> ActionResult {
         Action::Type(cmd) => browser::interaction::type_text::execute(cmd, registry).await,
         Action::Fill(cmd) => browser::interaction::fill::execute(cmd, registry).await,
         Action::Select(cmd) => browser::interaction::select::execute(cmd, registry).await,
+        Action::Drag(cmd) => browser::interaction::drag::execute(cmd, registry).await,
     }
 }

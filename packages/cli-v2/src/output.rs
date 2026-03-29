@@ -202,6 +202,7 @@ pub fn format_text(
                     | "browser.type"
                     | "browser.fill"
                     | "browser.select"
+                    | "browser.drag"
                     | "browser.new-tab"
                     | "browser.close-tab"
             );
@@ -373,6 +374,19 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
         "browser.hover" | "browser.focus" => {
             if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
                 lines.push(format!("target: {sel}"));
+            }
+        }
+        "browser.drag" => {
+            if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
+                lines.push(format!("target: {sel}"));
+            }
+            if let Some(sel) = data.pointer("/destination/selector").and_then(|v| v.as_str()) {
+                lines.push(format!("destination: {sel}"));
+            } else if let Some(coords) = data
+                .pointer("/destination/coordinates")
+                .and_then(|v| v.as_str())
+            {
+                lines.push(format!("destination: {coords}"));
             }
         }
         "browser.press" => {

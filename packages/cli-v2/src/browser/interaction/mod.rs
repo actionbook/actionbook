@@ -1,4 +1,5 @@
 pub mod click;
+pub mod drag;
 pub mod eval;
 pub mod fill;
 pub mod focus;
