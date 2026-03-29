@@ -382,4 +382,20 @@ mod tests {
 
         assert!(cli.is_ok(), "browser upload command should parse");
     }
+
+    #[test]
+    fn try_parse_from_rejects_browser_upload_without_files() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "upload",
+            "#file-input",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_err(), "browser upload should require at least one file");
+    }
 }

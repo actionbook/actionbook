@@ -16,6 +16,7 @@ pub struct Cmd {
     /// File input element selector
     pub selector: String,
     /// Absolute file paths to upload
+    #[arg(required = true, num_args = 1..)]
     pub files: Vec<String>,
     /// Session ID
     #[arg(long)]
