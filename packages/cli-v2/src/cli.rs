@@ -136,6 +136,11 @@ Examples:
 Examples:
   actionbook browser pdf /tmp/page.pdf --session s1 --tab t1")]
     Pdf(observation::pdf::Cmd),
+    /// Get browser console or error logs
+    Logs {
+        #[command(subcommand)]
+        command: LogsCommands,
+    },
     /// Take screenshot
     #[command(after_help = "\
 Examples:
@@ -169,6 +174,15 @@ Examples:
     CursorPosition(interaction::cursor_position::Cmd),
     /// Scroll the page or a container
     Scroll(interaction::scroll::Cmd),
+}
+
+#[derive(Subcommand, Debug)]
+#[command(disable_help_subcommand = true)]
+pub enum LogsCommands {
+    /// Get console logs (console.log/info/warn/error/debug)
+    Console(observation::logs_console::Cmd),
+    /// Get error logs (window error events + unhandled rejections)
+    Errors(observation::logs_errors::Cmd),
 }
 
 impl BrowserCommands {
@@ -213,6 +227,10 @@ impl BrowserCommands {
             Self::Query(cmd) => Action::Query(cmd.clone()),
             Self::InspectPoint(cmd) => Action::InspectPoint(cmd.clone()),
             Self::Pdf(cmd) => Action::Pdf(cmd.clone()),
+            Self::Logs { command } => match command {
+                LogsCommands::Console(cmd) => Action::LogsConsole(cmd.clone()),
+                LogsCommands::Errors(cmd) => Action::LogsErrors(cmd.clone()),
+            },
             Self::Screenshot(cmd) => Action::Screenshot(cmd.clone()),
             Self::Eval(cmd) => Action::Eval(cmd.clone()),
             Self::Click(cmd) => Action::Click(cmd.clone()),
@@ -262,6 +280,10 @@ impl BrowserCommands {
             Self::Query(_) => observation::query::COMMAND_NAME,
             Self::InspectPoint(_) => observation::inspect_point::COMMAND_NAME,
             Self::Pdf(_) => observation::pdf::COMMAND_NAME,
+            Self::Logs { command } => match command {
+                LogsCommands::Console(_) => observation::logs_console::COMMAND_NAME,
+                LogsCommands::Errors(_) => observation::logs_errors::COMMAND_NAME,
+            },
             Self::Screenshot(_) => observation::screenshot::COMMAND_NAME,
             Self::Eval(_) => interaction::eval::COMMAND_NAME,
             Self::Click(_) => interaction::click::COMMAND_NAME,
@@ -308,6 +330,10 @@ impl BrowserCommands {
             Self::Query(cmd) => observation::query::context(cmd, result),
             Self::InspectPoint(cmd) => observation::inspect_point::context(cmd, result),
             Self::Pdf(cmd) => observation::pdf::context(cmd, result),
+            Self::Logs { command } => match command {
+                LogsCommands::Console(cmd) => observation::logs_console::context(cmd, result),
+                LogsCommands::Errors(cmd) => observation::logs_errors::context(cmd, result),
+            },
             Self::Eval(cmd) => interaction::eval::context(cmd, result),
             Self::Back(a) => navigation::back::context(
                 &navigation::back::Cmd {
