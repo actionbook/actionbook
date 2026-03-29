@@ -141,6 +141,8 @@ pub enum BrowserCommands {
     Upload(interaction::upload::Cmd),
     /// Move the mouse to absolute coordinates
     MouseMove(interaction::mouse_move::Cmd),
+    /// Get the current cursor position
+    CursorPosition(interaction::cursor_position::Cmd),
 }
 
 impl BrowserCommands {
@@ -183,6 +185,7 @@ impl BrowserCommands {
             Self::Drag(cmd) => Action::Drag(cmd.clone()),
             Self::Upload(cmd) => Action::Upload(cmd.clone()),
             Self::MouseMove(cmd) => Action::MouseMove(cmd.clone()),
+            Self::CursorPosition(cmd) => Action::CursorPosition(cmd.clone()),
             _ => return None,
         })
     }
@@ -218,6 +221,7 @@ impl BrowserCommands {
             Self::Drag(_) => interaction::drag::COMMAND_NAME,
             Self::Upload(_) => interaction::upload::COMMAND_NAME,
             Self::MouseMove(_) => interaction::mouse_move::COMMAND_NAME,
+            Self::CursorPosition(_) => interaction::cursor_position::COMMAND_NAME,
         }
     }
 
@@ -269,6 +273,7 @@ impl BrowserCommands {
             Self::Drag(cmd) => interaction::drag::context(cmd, result),
             Self::Upload(cmd) => interaction::upload::context(cmd, result),
             Self::MouseMove(cmd) => interaction::mouse_move::context(cmd, result),
+            Self::CursorPosition(cmd) => interaction::cursor_position::context(cmd, result),
             Self::Screenshot { session, tab, .. } => tab_context(session, tab),
         }
     }

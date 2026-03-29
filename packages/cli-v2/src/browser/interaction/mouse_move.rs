@@ -112,6 +112,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         return cdp_error_to_result(e, "CDP_ERROR");
     }
 
+    // Store cursor position in registry for cursor-position command
+    {
+        let mut reg = registry.lock().await;
+        reg.set_cursor_position(&cmd.session, &cmd.tab, x, y);
+    }
+
     // Post-move state
     let post_url = navigation::get_tab_url(&cdp, &target_id).await;
     let post_title = navigation::get_tab_title(&cdp, &target_id).await;

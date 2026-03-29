@@ -42,6 +42,7 @@ pub enum Action {
     Drag(interaction::drag::Cmd),
     Upload(interaction::upload::Cmd),
     MouseMove(interaction::mouse_move::Cmd),
+    CursorPosition(interaction::cursor_position::Cmd),
 }
 
 impl Action {
@@ -75,6 +76,7 @@ impl Action {
             Action::Drag(_) => interaction::drag::COMMAND_NAME,
             Action::Upload(_) => interaction::upload::COMMAND_NAME,
             Action::MouseMove(_) => interaction::mouse_move::COMMAND_NAME,
+            Action::CursorPosition(_) => interaction::cursor_position::COMMAND_NAME,
         }
     }
 }

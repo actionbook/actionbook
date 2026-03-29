@@ -34,5 +34,6 @@ pub async fn route(action: &Action, registry: &SharedRegistry) -> ActionResult {
         Action::Drag(cmd) => browser::interaction::drag::execute(cmd, registry).await,
         Action::Upload(cmd) => browser::interaction::upload::execute(cmd, registry).await,
         Action::MouseMove(cmd) => browser::interaction::mouse_move::execute(cmd, registry).await,
+        Action::CursorPosition(cmd) => browser::interaction::cursor_position::execute(cmd, registry).await,
     }
 }
