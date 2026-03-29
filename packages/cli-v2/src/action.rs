@@ -40,6 +40,7 @@ pub enum Action {
     Fill(interaction::fill::Cmd),
     Select(interaction::select::Cmd),
     Drag(interaction::drag::Cmd),
+    Upload(interaction::upload::Cmd),
 }
 
 impl Action {
@@ -71,6 +72,7 @@ impl Action {
             Action::Fill(_) => interaction::fill::COMMAND_NAME,
             Action::Select(_) => interaction::select::COMMAND_NAME,
             Action::Drag(_) => interaction::drag::COMMAND_NAME,
+            Action::Upload(_) => interaction::upload::COMMAND_NAME,
         }
     }
 }
