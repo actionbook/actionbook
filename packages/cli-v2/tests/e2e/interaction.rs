@@ -4942,6 +4942,10 @@ fn cursor_position_text() {
         text.contains(&format!("[{sid} {tid}]")),
         "header must contain [session_id tab_id]: got {text}"
     );
+    assert!(
+        text.contains("ok browser.cursor-position"),
+        "must contain ok browser.cursor-position"
+    );
     assert!(text.contains("x: 120"), "must contain x line: {text}");
     assert!(text.contains("y: 140"), "must contain y line: {text}");
 
