@@ -88,6 +88,8 @@ pub struct SessionRegistry {
     next_auto_id: u32,
     /// Tab-scoped RefCache for stable snapshot refs. Key: "session_id\0tab_id"
     ref_caches: HashMap<String, RefCache>,
+    /// Last known cursor position per tab. Key: "session_id\0tab_id"
+    cursor_positions: HashMap<String, (f64, f64)>,
 }
 
 impl Default for SessionRegistry {
@@ -102,6 +104,7 @@ impl SessionRegistry {
             sessions: HashMap::new(),
             next_auto_id: 0,
             ref_caches: HashMap::new(),
+            cursor_positions: HashMap::new(),
         }
     }
 
@@ -241,6 +244,18 @@ impl SessionRegistry {
     pub fn clear_session_ref_caches(&mut self, session_id: &str) {
         let prefix = format!("{}\0", session_id);
         self.ref_caches.retain(|k, _| !k.starts_with(&prefix));
+    }
+
+    /// Store the cursor position for a tab.
+    pub fn set_cursor_position(&mut self, session_id: &str, tab_id: &str, x: f64, y: f64) {
+        let key = format!("{}\0{}", session_id, tab_id);
+        self.cursor_positions.insert(key, (x, y));
+    }
+
+    /// Get the cursor position for a tab.
+    pub fn get_cursor_position(&self, session_id: &str, tab_id: &str) -> Option<(f64, f64)> {
+        let key = format!("{}\0{}", session_id, tab_id);
+        self.cursor_positions.get(&key).copied()
     }
 }
 

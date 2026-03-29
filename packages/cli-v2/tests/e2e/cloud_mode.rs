@@ -1012,10 +1012,10 @@ fn cloud_eval_json() {
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_eq!(v["command"], "browser.eval");
-    let result = v["data"]["value"].as_str().unwrap_or("");
-    assert!(
-        result.contains('4'),
-        "eval 2+2 should return 4, got: {result}"
+    assert_eq!(
+        v["data"]["value"],
+        serde_json::json!(4),
+        "eval 2+2 should return typed 4"
     );
     assert_context_with_tab(&v, &sid, &tid);
     assert_meta(&v);

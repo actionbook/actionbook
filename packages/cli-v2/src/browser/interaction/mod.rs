@@ -1,5 +1,13 @@
 pub mod click;
+pub mod cursor_position;
+pub mod drag;
 pub mod eval;
 pub mod fill;
+pub mod focus;
+pub mod hover;
+pub mod mouse_move;
+pub mod press;
+pub mod scroll;
 pub mod select;
 pub mod type_text;
+pub mod upload;

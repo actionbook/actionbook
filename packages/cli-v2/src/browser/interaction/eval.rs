@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
+use crate::browser::navigation;
 use crate::daemon::cdp_session::get_cdp_and_target;
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
@@ -24,13 +25,31 @@ pub struct Cmd {
 
 pub const COMMAND_NAME: &str = "browser.eval";
 
-pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
+pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
+    if let ActionResult::Fatal { code, .. } = result
+        && code == "SESSION_NOT_FOUND"
+    {
+        return None;
+    }
+    let (url, title) = match result {
+        ActionResult::Ok { data } => (
+            data.get("post_url")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(String::from),
+            data.get("post_title")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(String::from),
+        ),
+        _ => (None, None),
+    };
     Some(ResponseContext {
         session_id: cmd.session.clone(),
         tab_id: Some(cmd.tab.clone()),
         window_id: None,
-        url: None,
-        title: None,
+        url,
+        title,
     })
 }
 
@@ -55,23 +74,46 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Extract value from CDP response
     if let Some(result) = resp.get("result").and_then(|r| r.get("result")) {
         if let Some(exc) = resp.get("result").and_then(|r| r.get("exceptionDetails")) {
+            // Prefer exception.description (e.g. "Error: boom-eval"), fall back to text
             let emsg = exc
-                .get("text")
+                .pointer("/exception/description")
                 .and_then(|v| v.as_str())
+                .or_else(|| exc.get("text").and_then(|v| v.as_str()))
                 .unwrap_or("expression error");
             return ActionResult::fatal("EVAL_FAILED", emsg.to_string());
         }
-        let value = result
-            .get("value")
-            .map(|v| {
-                if v.is_string() {
-                    v.as_str().unwrap().to_string()
+
+        let js_type = result
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("undefined")
+            .to_string();
+
+        // Return the typed value as-is from CDP (number, bool, string, etc.)
+        let value = result.get("value").cloned().unwrap_or(json!(null));
+
+        let preview = result
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| {
+                if value.is_string() {
+                    value.as_str().unwrap().to_string()
                 } else {
-                    v.to_string()
+                    value.to_string()
                 }
-            })
-            .unwrap_or_default();
-        ActionResult::ok(json!({ "value": value }))
+            });
+
+        let url = navigation::get_tab_url(&cdp, &target_id).await;
+        let title = navigation::get_tab_title(&cdp, &target_id).await;
+
+        ActionResult::ok(json!({
+            "value": value,
+            "type": js_type,
+            "preview": preview,
+            "post_url": url,
+            "post_title": title,
+        }))
     } else {
         ActionResult::fatal("EVAL_FAILED", "no result in CDP response")
     }

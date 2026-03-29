@@ -196,9 +196,17 @@ pub fn format_text(
                     | "browser.forward"
                     | "browser.reload"
                     | "browser.click"
+                    | "browser.hover"
+                    | "browser.focus"
+                    | "browser.press"
                     | "browser.type"
                     | "browser.fill"
                     | "browser.select"
+                    | "browser.drag"
+                    | "browser.upload"
+                    | "browser.mouse-move"
+                    | "browser.cursor-position"
+                    | "browser.scroll"
                     | "browser.new-tab"
                     | "browser.close-tab"
             );
@@ -365,6 +373,67 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 data.pointer("/target/coordinates").and_then(|v| v.as_str())
             {
                 lines.push(format!("target: {coords}"));
+            }
+        }
+        "browser.hover" | "browser.focus" => {
+            if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
+                lines.push(format!("target: {sel}"));
+            }
+        }
+        "browser.mouse-move" => {
+            if let Some(coords) = data.pointer("/target/coordinates").and_then(|v| v.as_str()) {
+                lines.push(format!("target: {coords}"));
+            }
+        }
+        "browser.cursor-position" => {
+            if let Some(x) = data.get("x").and_then(|v| v.as_f64()) {
+                lines.push(format!("x: {}", x as i64));
+            }
+            if let Some(y) = data.get("y").and_then(|v| v.as_f64()) {
+                lines.push(format!("y: {}", y as i64));
+            }
+        }
+        "browser.scroll" => {
+            if let Some(dir) = data.get("direction").and_then(|v| v.as_str()) {
+                lines.push(format!("direction: {dir}"));
+            }
+            if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
+                lines.push(format!("target: {sel}"));
+            }
+            if let Some(container) = data.get("container").and_then(|v| v.as_str()) {
+                lines.push(format!("container: {container}"));
+            }
+        }
+        "browser.drag" => {
+            if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
+                lines.push(format!("target: {sel}"));
+            }
+            if let Some(sel) = data
+                .pointer("/destination/selector")
+                .and_then(|v| v.as_str())
+            {
+                lines.push(format!("destination: {sel}"));
+            } else if let Some(coords) = data
+                .pointer("/destination/coordinates")
+                .and_then(|v| v.as_str())
+            {
+                lines.push(format!("destination: {coords}"));
+            }
+        }
+        "browser.upload" => {
+            if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
+                lines.push(format!("target: {sel}"));
+            }
+            if let Some(count) = data
+                .pointer("/value_summary/count")
+                .and_then(|v| v.as_u64())
+            {
+                lines.push(format!("count: {count}"));
+            }
+        }
+        "browser.press" => {
+            if let Some(keys) = data.get("keys").and_then(|v| v.as_str()) {
+                lines.push(format!("keys: {keys}"));
             }
         }
         "browser.snapshot" => {

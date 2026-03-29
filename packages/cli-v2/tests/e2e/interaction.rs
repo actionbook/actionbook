@@ -155,6 +155,195 @@ fn assert_select_success(
     assert_meta(v);
 }
 
+fn assert_hover_success(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_selector: &str,
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.hover");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "hover");
+    assert_eq!(data["target"]["selector"], expected_selector);
+    assert!(
+        data["changed"]["url_changed"].is_boolean(),
+        "data.changed.url_changed must be a boolean"
+    );
+    assert!(
+        data["changed"]["focus_changed"].is_boolean(),
+        "data.changed.focus_changed must be a boolean"
+    );
+
+    assert_meta(v);
+}
+
+fn assert_focus_success(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_selector: &str,
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.focus");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "focus");
+    assert_eq!(data["target"]["selector"], expected_selector);
+    assert!(
+        data["changed"]["url_changed"].is_boolean(),
+        "data.changed.url_changed must be a boolean"
+    );
+    assert!(
+        data["changed"]["focus_changed"].is_boolean(),
+        "data.changed.focus_changed must be a boolean"
+    );
+
+    assert_meta(v);
+}
+
+fn assert_press_success(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_keys: &str,
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.press");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "press");
+    assert_eq!(data["keys"], expected_keys);
+    assert!(
+        data.get("target").is_none() || data["target"].is_null(),
+        "press should not require a target in the response when keys are used"
+    );
+    assert!(
+        data["changed"]["url_changed"].is_boolean(),
+        "data.changed.url_changed must be a boolean"
+    );
+    assert!(
+        data["changed"]["focus_changed"].is_boolean(),
+        "data.changed.focus_changed must be a boolean"
+    );
+
+    assert_meta(v);
+}
+
+fn assert_drag_success(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_source: &str,
+    expected_destination_selector: Option<&str>,
+    expected_destination_coordinates: Option<&str>,
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.drag");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "drag");
+    assert_eq!(data["target"]["selector"], expected_source);
+    if let Some(selector) = expected_destination_selector {
+        assert_eq!(data["destination"]["selector"], selector);
+    }
+    if let Some(coords) = expected_destination_coordinates {
+        assert_eq!(data["destination"]["coordinates"], coords);
+    }
+    assert!(
+        data["changed"]["url_changed"].is_boolean(),
+        "data.changed.url_changed must be a boolean"
+    );
+    assert!(
+        data["changed"]["focus_changed"].is_boolean(),
+        "data.changed.focus_changed must be a boolean"
+    );
+
+    assert_meta(v);
+}
+
+fn assert_mouse_move_success(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_coordinates: &str,
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.mouse-move");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "mouse-move");
+    assert_eq!(data["target"]["coordinates"], expected_coordinates);
+    assert!(
+        data["changed"]["url_changed"].is_boolean(),
+        "data.changed.url_changed must be a boolean"
+    );
+    assert!(
+        data["changed"]["focus_changed"].is_boolean(),
+        "data.changed.focus_changed must be a boolean"
+    );
+
+    assert_meta(v);
+}
+
+fn assert_upload_success(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_selector: &str,
+    expected_files: &[String],
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.upload");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "upload");
+    assert_eq!(data["target"]["selector"], expected_selector);
+    assert_eq!(data["value_summary"]["count"], expected_files.len());
+
+    let files = data["value_summary"]["files"]
+        .as_array()
+        .expect("value_summary.files must be an array");
+    let actual: Vec<String> = files
+        .iter()
+        .map(|v| v.as_str().unwrap_or("").to_string())
+        .collect();
+    assert_eq!(actual, expected_files);
+
+    assert_meta(v);
+}
+
 fn start_session(url: &str) -> (String, String) {
     let out = headless_json(
         &[
@@ -453,6 +642,423 @@ fn install_select_fixture(session_id: &str, tab_id: &str) {
 
     let value = eval_value(session_id, tab_id, expression);
     assert_eq!(value, "ok", "select fixture should install successfully");
+}
+
+fn install_hover_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-hover-fixture');
+  if (existing) existing.remove();
+
+  window.__ab_hover_enter_count = 0;
+  window.__ab_hover_over_count = 0;
+  window.__ab_hover_move_count = 0;
+  window.__ab_hover_last_target = '';
+
+  const root = document.createElement('div');
+  root.id = 'ab-hover-fixture';
+  root.innerHTML = `
+    <style>
+      #ab-hover-target {
+        position: fixed;
+        top: 540px;
+        left: 40px;
+        width: 220px;
+        height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #d1fae5;
+        color: #111827;
+        z-index: 2147483647;
+      }
+    </style>
+    <div id="ab-hover-target">Hover target</div>
+  `;
+  document.body.appendChild(root);
+
+  const target = document.getElementById('ab-hover-target');
+  target.addEventListener('mouseenter', () => {
+    window.__ab_hover_enter_count += 1;
+    window.__ab_hover_last_target = target.id;
+    document.body.setAttribute('data-hover-enter', String(window.__ab_hover_enter_count));
+  });
+  target.addEventListener('mouseover', () => {
+    window.__ab_hover_over_count += 1;
+    window.__ab_hover_last_target = target.id;
+    document.body.setAttribute('data-hover-over', String(window.__ab_hover_over_count));
+  });
+  target.addEventListener('mousemove', () => {
+    window.__ab_hover_move_count += 1;
+    window.__ab_hover_last_target = target.id;
+    document.body.setAttribute('data-hover-move', String(window.__ab_hover_move_count));
+  });
+
+  return 'ok';
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(value, "ok", "hover fixture should install successfully");
+}
+
+fn install_focus_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-focus-fixture');
+  if (existing) existing.remove();
+
+  window.__ab_focus_target_count = 0;
+  window.__ab_focus_other_count = 0;
+  window.__ab_blur_other_count = 0;
+  window.__ab_last_focused = '';
+
+  const root = document.createElement('div');
+  root.id = 'ab-focus-fixture';
+  root.innerHTML = `
+    <style>
+      #ab-focus-other, #ab-focus-target {
+        position: fixed;
+        left: 40px;
+        width: 220px;
+        height: 40px;
+        z-index: 2147483647;
+      }
+      #ab-focus-other {
+        top: 600px;
+      }
+      #ab-focus-target {
+        top: 650px;
+      }
+    </style>
+    <input id="ab-focus-other" type="text" value="other" />
+    <button id="ab-focus-target" type="button">Focus target</button>
+  `;
+  document.body.appendChild(root);
+
+  const other = document.getElementById('ab-focus-other');
+  const target = document.getElementById('ab-focus-target');
+
+  other.addEventListener('focus', () => {
+    window.__ab_focus_other_count += 1;
+    window.__ab_last_focused = other.id;
+  });
+  other.addEventListener('blur', () => {
+    window.__ab_blur_other_count += 1;
+  });
+  target.addEventListener('focus', () => {
+    window.__ab_focus_target_count += 1;
+    window.__ab_last_focused = target.id;
+  });
+
+  other.focus();
+  return document.activeElement && document.activeElement.id;
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(
+        value, "ab-focus-other",
+        "focus fixture should install successfully"
+    );
+}
+
+fn install_press_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-press-fixture');
+  if (existing) existing.remove();
+
+  window.__ab_press_keydown_count = 0;
+  window.__ab_press_keyup_count = 0;
+  window.__ab_press_events = [];
+
+  const root = document.createElement('div');
+  root.id = 'ab-press-fixture';
+  root.innerHTML = `
+    <style>
+      #ab-press-input {
+        position: fixed;
+        top: 710px;
+        left: 40px;
+        width: 260px;
+        height: 40px;
+        z-index: 2147483647;
+      }
+    </style>
+    <input id="ab-press-input" type="text" value="seed" />
+  `;
+  document.body.appendChild(root);
+
+  const input = document.getElementById('ab-press-input');
+  input.addEventListener('keydown', (event) => {
+    window.__ab_press_keydown_count += 1;
+    window.__ab_press_events.push(
+      'keydown:' + event.key + ':' + event.ctrlKey + ':' + event.shiftKey
+    );
+  });
+  input.addEventListener('keyup', (event) => {
+    window.__ab_press_keyup_count += 1;
+    window.__ab_press_events.push(
+      'keyup:' + event.key + ':' + event.ctrlKey + ':' + event.shiftKey
+    );
+  });
+
+  input.focus();
+  return document.activeElement && document.activeElement.id;
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(
+        value, "ab-press-input",
+        "press fixture should install successfully"
+    );
+}
+
+fn install_drag_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-drag-fixture');
+  if (existing) existing.remove();
+
+  window.__ab_drag_mousemove_count = 0;
+  window.__ab_drag_drop_count = 0;
+  window.__ab_drag_last_drop = '';
+  window.__ab_drag_state = 'idle';
+
+  const root = document.createElement('div');
+  root.id = 'ab-drag-fixture';
+  root.innerHTML = `
+    <style>
+      #ab-drag-source, #ab-drag-target {
+        position: fixed;
+        top: 780px;
+        width: 110px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2147483647;
+        user-select: none;
+      }
+      #ab-drag-source {
+        left: 40px;
+        background: #bfdbfe;
+      }
+      #ab-drag-target {
+        left: 260px;
+        background: #bbf7d0;
+      }
+    </style>
+    <div id="ab-drag-source">Drag source</div>
+    <div id="ab-drag-target">Drop target</div>
+  `;
+  document.body.appendChild(root);
+
+  const source = document.getElementById('ab-drag-source');
+  const target = document.getElementById('ab-drag-target');
+
+  const finishDrop = (label) => {
+    if (window.__ab_drag_state !== 'dragging') return;
+    window.__ab_drag_drop_count += 1;
+    window.__ab_drag_last_drop = label;
+    window.__ab_drag_state = 'idle';
+  };
+
+  source.addEventListener('mousedown', () => {
+    window.__ab_drag_state = 'dragging';
+  });
+
+  document.addEventListener('mousemove', () => {
+    if (window.__ab_drag_state === 'dragging') {
+      window.__ab_drag_mousemove_count += 1;
+    }
+  }, true);
+
+  target.addEventListener('mouseup', () => {
+    finishDrop('ab-drag-target');
+  });
+
+  document.addEventListener('mouseup', (event) => {
+    if (window.__ab_drag_state !== 'dragging') return;
+    const el = document.elementFromPoint(event.clientX, event.clientY);
+    if (el && el.id === 'ab-drag-target') {
+      finishDrop('ab-drag-target');
+    } else {
+      window.__ab_drag_state = 'idle';
+    }
+  }, true);
+
+  return 'ok';
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(value, "ok", "drag fixture should install successfully");
+}
+
+fn install_upload_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-upload-fixture');
+  if (existing) existing.remove();
+
+  window.__ab_upload_change_count = 0;
+  window.__ab_upload_last_count = 0;
+  window.__ab_upload_last_names = '';
+
+  const root = document.createElement('div');
+  root.id = 'ab-upload-fixture';
+  root.innerHTML = `
+    <style>
+      #ab-upload-input {
+        position: fixed;
+        top: 840px;
+        left: 40px;
+        width: 260px;
+        z-index: 2147483647;
+      }
+    </style>
+    <input id="ab-upload-input" type="file" multiple />
+  `;
+  document.body.appendChild(root);
+
+  const input = document.getElementById('ab-upload-input');
+  input.addEventListener('change', () => {
+    window.__ab_upload_change_count += 1;
+    window.__ab_upload_last_count = input.files.length;
+    window.__ab_upload_last_names = Array.from(input.files).map(file => file.name).join(',');
+  });
+
+  return 'ok';
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(value, "ok", "upload fixture should install successfully");
+}
+
+fn install_mouse_move_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-mouse-move-fixture');
+  if (existing) existing.remove();
+
+  window.__ab_mouse_move_count = 0;
+  window.__ab_mouse_move_last_target = '';
+  window.__ab_mouse_move_last_coords = '';
+
+  const root = document.createElement('div');
+  root.id = 'ab-mouse-move-fixture';
+  root.innerHTML = `
+    <style>
+      #ab-mouse-move-target {
+        position: fixed;
+        top: 120px;
+        left: 90px;
+        width: 180px;
+        height: 60px;
+        background: #fde68a;
+        z-index: 2147483647;
+      }
+    </style>
+    <div id="ab-mouse-move-target">Move target</div>
+  `;
+  document.body.appendChild(root);
+
+  const target = document.getElementById('ab-mouse-move-target');
+  target.addEventListener('mousemove', (event) => {
+    window.__ab_mouse_move_count += 1;
+    window.__ab_mouse_move_last_target = target.id;
+    window.__ab_mouse_move_last_coords = `${event.clientX},${event.clientY}`;
+  });
+
+  return 'ok';
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(
+        value, "ok",
+        "mouse-move fixture should install successfully"
+    );
+}
+
+fn install_scroll_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-scroll-fixture');
+  if (existing) existing.remove();
+
+  window.scrollTo(0, 0);
+  document.body.innerHTML = '';
+  document.documentElement.style.height = '';
+  document.body.style.height = '';
+  document.body.style.margin = '0';
+
+  const root = document.createElement('div');
+  root.id = 'ab-scroll-fixture';
+  root.innerHTML = `
+    <style>
+      body {
+        min-height: 2600px;
+      }
+      #ab-scroll-target {
+        margin-top: 1400px;
+        height: 60px;
+        background: #bfdbfe;
+      }
+      #ab-scroll-container {
+        position: fixed;
+        top: 120px;
+        left: 40px;
+        width: 260px;
+        height: 120px;
+        overflow: auto;
+        border: 1px solid #111827;
+        background: #f8fafc;
+        z-index: 2147483647;
+      }
+      #ab-scroll-container-inner {
+        width: 600px;
+        height: 700px;
+        position: relative;
+      }
+      #ab-scroll-container-target {
+        position: absolute;
+        top: 560px;
+        left: 20px;
+        width: 180px;
+        height: 40px;
+        background: #bbf7d0;
+      }
+    </style>
+    <div id="ab-scroll-container">
+      <div id="ab-scroll-container-inner">
+        <div id="ab-scroll-container-target">Container target</div>
+      </div>
+    </div>
+    <div id="ab-scroll-target">Page target</div>
+  `;
+  document.body.appendChild(root);
+  return 'ok';
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(value, "ok", "scroll fixture should install successfully");
+}
+
+fn create_upload_files(names: &[&str]) -> (tempfile::TempDir, Vec<String>) {
+    let dir = tempfile::tempdir().expect("create upload temp dir");
+    let mut paths = Vec::new();
+    for name in names {
+        let path = dir.path().join(name);
+        std::fs::write(&path, format!("fixture for {name}\n")).expect("write upload fixture file");
+        paths.push(path.to_string_lossy().to_string());
+    }
+    (dir, paths)
 }
 
 fn list_tabs(session_id: &str) -> serde_json::Value {
@@ -2112,6 +2718,2893 @@ fn select_missing_selector_text() {
         15,
     );
     assert_failure(&out, "select missing selector text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error ELEMENT_NOT_FOUND:"),
+        "text must contain error ELEMENT_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 13: hover — command wiring, success path, and error path
+// ========================================================================
+
+#[test]
+fn hover_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_hover_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "hover",
+            "#ab-hover-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "hover json");
+    let v = parse_json(&out);
+
+    assert_hover_success(&v, &sid, &tid, "#ab-hover-target");
+    assert_eq!(v["data"]["changed"]["url_changed"], false);
+    assert_eq!(v["data"]["changed"]["focus_changed"], false);
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_hover_enter_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_hover_over_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_hover_move_count !== 0)"),
+        "true"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "window.__ab_hover_last_target"),
+        "ab-hover-target"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn hover_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_hover_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "hover",
+            "#ab-hover-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "hover text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser.hover"),
+        "must contain ok browser.hover"
+    );
+    assert!(
+        text.contains("target: #ab-hover-target"),
+        "must contain target line with selector"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn hover_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let out = headless_json(
+        &[
+            "browser",
+            "hover",
+            "#ab-hover-target",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "hover nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.hover");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn hover_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let out = headless(
+        &[
+            "browser",
+            "hover",
+            "#ab-hover-target",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "hover nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn hover_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "hover",
+            "#ab-hover-target",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "hover nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.hover");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn hover_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "hover",
+            "#ab-hover-target",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "hover nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn hover_missing_selector_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "hover",
+            "#definitely-missing-element",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "hover missing selector json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.hover");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["selector"],
+        "#definitely-missing-element"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn hover_missing_selector_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "hover",
+            "#definitely-missing-element",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "hover missing selector text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error ELEMENT_NOT_FOUND:"),
+        "text must contain error ELEMENT_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 14: focus — command wiring, success path, and error path
+// ========================================================================
+
+#[test]
+fn focus_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_focus_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "focus",
+            "#ab-focus-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "focus json");
+    let v = parse_json(&out);
+
+    assert_focus_success(&v, &sid, &tid, "#ab-focus-target");
+    assert_eq!(v["data"]["changed"]["url_changed"], false);
+    assert_eq!(v["data"]["changed"]["focus_changed"], true);
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_focus_target_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_focus_other_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_blur_other_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "document.activeElement && document.activeElement.id"
+        ),
+        "ab-focus-target"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "window.__ab_last_focused"),
+        "ab-focus-target"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn focus_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_focus_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "focus",
+            "#ab-focus-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "focus text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser.focus"),
+        "must contain ok browser.focus"
+    );
+    assert!(
+        text.contains("target: #ab-focus-target"),
+        "must contain target line with selector"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn focus_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let out = headless_json(
+        &[
+            "browser",
+            "focus",
+            "#ab-focus-target",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "focus nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.focus");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn focus_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let out = headless(
+        &[
+            "browser",
+            "focus",
+            "#ab-focus-target",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "focus nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn focus_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "focus",
+            "#ab-focus-target",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "focus nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.focus");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn focus_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "focus",
+            "#ab-focus-target",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "focus nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn focus_missing_selector_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "focus",
+            "#definitely-missing-element",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "focus missing selector json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.focus");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["selector"],
+        "#definitely-missing-element"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn focus_missing_selector_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "focus",
+            "#definitely-missing-element",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "focus missing selector text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error ELEMENT_NOT_FOUND:"),
+        "text must contain error ELEMENT_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 15: press — command wiring, success path, and error path
+// ========================================================================
+
+#[test]
+fn press_json_single_key() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_press_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "press",
+            "Enter",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "press json single key");
+    let v = parse_json(&out);
+
+    assert_press_success(&v, &sid, &tid, "Enter");
+    assert_eq!(v["data"]["changed"]["url_changed"], false);
+    assert_eq!(v["data"]["changed"]["focus_changed"], false);
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_press_keydown_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_press_keyup_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "window.__ab_press_events.includes('keydown:Enter:false:false') ? 'yes' : 'no'"
+        ),
+        "yes"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "window.__ab_press_events.includes('keyup:Enter:false:false') ? 'yes' : 'no'"
+        ),
+        "yes"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn press_text_chord() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_press_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "press",
+            "Control+A",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "press text chord");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser.press"),
+        "must contain ok browser.press"
+    );
+    assert!(
+        text.contains("keys: Control+A"),
+        "must contain keys line with the chord"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "window.__ab_press_events.includes('keydown:a:true:false') ? 'yes' : 'no'"
+        ),
+        "yes"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "window.__ab_press_events.includes('keyup:a:true:false') ? 'yes' : 'no'"
+        ),
+        "yes"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn press_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let out = headless_json(
+        &[
+            "browser",
+            "press",
+            "Enter",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "press nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.press");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn press_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let out = headless(
+        &[
+            "browser",
+            "press",
+            "Enter",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "press nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn press_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "press",
+            "Enter",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "press nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.press");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn press_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "press",
+            "Enter",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "press nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn press_invalid_chord_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "press",
+            "Control+",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "press invalid chord json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.press");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "INVALID_ARGUMENT");
+
+    close_session(&sid);
+}
+
+#[test]
+fn press_invalid_chord_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "press",
+            "Control+",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "press invalid chord text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error INVALID_ARGUMENT:"),
+        "text must contain error INVALID_ARGUMENT: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 16: drag — command wiring, success path, and error path
+// ========================================================================
+
+#[test]
+fn drag_json_to_selector() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_drag_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "drag",
+            "#ab-drag-source",
+            "#ab-drag-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "drag json to selector");
+    let v = parse_json(&out);
+
+    assert_drag_success(
+        &v,
+        &sid,
+        &tid,
+        "#ab-drag-source",
+        Some("#ab-drag-target"),
+        None,
+    );
+    assert_eq!(v["data"]["changed"]["url_changed"], false);
+    assert_eq!(v["data"]["changed"]["focus_changed"], false);
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_drag_mousemove_count !== 0)"),
+        "true"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_drag_drop_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "window.__ab_drag_last_drop"),
+        "ab-drag-target"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn drag_text_to_coordinates() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_drag_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "drag",
+            "#ab-drag-source",
+            "315,804",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "drag text to coordinates");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser.drag"),
+        "must contain ok browser.drag"
+    );
+    assert!(
+        text.contains("target: #ab-drag-source"),
+        "must contain source target line"
+    );
+    assert!(
+        text.contains("destination: 315,804"),
+        "must contain destination line with coordinates"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_drag_drop_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "window.__ab_drag_last_drop"),
+        "ab-drag-target"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn drag_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let out = headless_json(
+        &[
+            "browser",
+            "drag",
+            "#ab-drag-source",
+            "#ab-drag-target",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "drag nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.drag");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn drag_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let out = headless(
+        &[
+            "browser",
+            "drag",
+            "#ab-drag-source",
+            "#ab-drag-target",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "drag nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn drag_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "drag",
+            "#ab-drag-source",
+            "#ab-drag-target",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "drag nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.drag");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn drag_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "drag",
+            "#ab-drag-source",
+            "#ab-drag-target",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "drag nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn drag_missing_source_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "drag",
+            "#definitely-missing-source",
+            "#ab-drag-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "drag missing source json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.drag");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["selector"],
+        "#definitely-missing-source"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn drag_missing_source_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "drag",
+            "#definitely-missing-source",
+            "#ab-drag-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "drag missing source text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error ELEMENT_NOT_FOUND:"),
+        "text must contain error ELEMENT_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn drag_invalid_destination_coordinates_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_drag_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "drag",
+            "#ab-drag-source",
+            "315,abc",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "drag invalid destination coordinates json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.drag");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "INVALID_ARGUMENT");
+
+    close_session(&sid);
+}
+
+#[test]
+fn drag_invalid_destination_coordinates_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_drag_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "drag",
+            "#ab-drag-source",
+            "315,abc",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "drag invalid destination coordinates text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error INVALID_ARGUMENT:"),
+        "text must contain error INVALID_ARGUMENT: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 17: upload — command wiring, success path, and error path
+// ========================================================================
+
+#[test]
+fn upload_json_single_file() {
+    if skip() {
+        return;
+    }
+    let (_tmp, files) = create_upload_files(&["upload-a.txt"]);
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_upload_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "upload",
+            "#ab-upload-input",
+            &files[0],
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "upload json single file");
+    let v = parse_json(&out);
+
+    assert_upload_success(&v, &sid, &tid, "#ab-upload-input", &files);
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_upload_change_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_upload_last_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "window.__ab_upload_last_names"),
+        "upload-a.txt"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn upload_text_multiple_files() {
+    if skip() {
+        return;
+    }
+    let (_tmp, files) = create_upload_files(&["upload-a.txt", "upload-b.txt"]);
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_upload_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "upload",
+            "#ab-upload-input",
+            &files[0],
+            &files[1],
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "upload text multiple files");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser.upload"),
+        "must contain ok browser.upload"
+    );
+    assert!(
+        text.contains("target: #ab-upload-input"),
+        "must contain target line with selector"
+    );
+    assert!(text.contains("count: 2"), "must contain file count line");
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_upload_last_count)"),
+        "2"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "window.__ab_upload_last_names"),
+        "upload-a.txt,upload-b.txt"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn upload_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let out = headless_json(
+        &[
+            "browser",
+            "upload",
+            "#ab-upload-input",
+            "/tmp/example.txt",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "upload nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.upload");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn upload_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let out = headless(
+        &[
+            "browser",
+            "upload",
+            "#ab-upload-input",
+            "/tmp/example.txt",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "upload nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn upload_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "upload",
+            "#ab-upload-input",
+            "/tmp/example.txt",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "upload nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.upload");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn upload_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "upload",
+            "#ab-upload-input",
+            "/tmp/example.txt",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "upload nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn upload_missing_selector_json() {
+    if skip() {
+        return;
+    }
+    let (_tmp, files) = create_upload_files(&["upload-a.txt"]);
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "upload",
+            "#definitely-missing-element",
+            &files[0],
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "upload missing selector json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.upload");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["selector"],
+        "#definitely-missing-element"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn upload_missing_selector_text() {
+    if skip() {
+        return;
+    }
+    let (_tmp, files) = create_upload_files(&["upload-a.txt"]);
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "upload",
+            "#definitely-missing-element",
+            &files[0],
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "upload missing selector text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error ELEMENT_NOT_FOUND:"),
+        "text must contain error ELEMENT_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn upload_relative_path_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_upload_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "upload",
+            "#ab-upload-input",
+            "relative.txt",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "upload relative path json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.upload");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "INVALID_ARGUMENT");
+
+    close_session(&sid);
+}
+
+#[test]
+fn upload_relative_path_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_upload_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "upload",
+            "#ab-upload-input",
+            "relative.txt",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "upload relative path text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error INVALID_ARGUMENT:"),
+        "text must contain error INVALID_ARGUMENT: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 18: eval — command wiring, success path, and error path
+// ========================================================================
+
+#[test]
+fn eval_json_number() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &["browser", "eval", "2 + 2", "--session", &sid, "--tab", &tid],
+        10,
+    );
+    assert_success(&out, "eval json number");
+    let v = parse_json(&out);
+
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.eval");
+    assert!(v["error"].is_null(), "error must be null on success");
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert!(
+        v["context"]["url"]
+            .as_str()
+            .is_some_and(|url| url.starts_with(TEST_URL)),
+        "context.url should include the current page URL"
+    );
+    assert_eq!(v["context"]["title"], "Example Domain");
+    assert_eq!(v["data"]["value"], serde_json::json!(4));
+    assert_eq!(v["data"]["type"], "number");
+    assert_eq!(v["data"]["preview"], "4");
+    assert_meta(&v);
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &["browser", "eval", "2 + 2", "--session", &sid, "--tab", &tid],
+        10,
+    );
+    assert_success(&out, "eval text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains(&format!("[{sid} {tid}] {TEST_URL}")),
+        "header must include the current page URL: got {text}"
+    );
+    assert!(
+        text.trim_end().ends_with('4'),
+        "eval text should end with the evaluated value: {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "2 + 2",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "eval nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.eval");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn eval_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let out = headless(
+        &[
+            "browser",
+            "eval",
+            "2 + 2",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "eval nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn eval_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "2 + 2",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "eval nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.eval");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "eval",
+            "2 + 2",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "eval nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_exception_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "(() => { throw new Error('boom-eval'); })()",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "eval exception json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.eval");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "EVAL_FAILED");
+    assert!(
+        v["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("boom-eval")
+            || v["error"]["message"]
+                .as_str()
+                .unwrap_or("")
+                .contains("Error"),
+        "eval exception should surface an expression error message"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_exception_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "eval",
+            "(() => { throw new Error('boom-eval'); })()",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "eval exception text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error EVAL_FAILED:"),
+        "text must contain error EVAL_FAILED: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 19: mouse-move — command wiring, success path, and error path
+// ========================================================================
+
+#[test]
+fn mouse_move_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_mouse_move_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "mouse-move",
+            "120,140",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "mouse-move json");
+    let v = parse_json(&out);
+
+    assert_mouse_move_success(&v, &sid, &tid, "120,140");
+    assert_eq!(v["data"]["changed"]["url_changed"], false);
+    assert_eq!(v["data"]["changed"]["focus_changed"], false);
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_mouse_move_count !== 0)"),
+        "true"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "window.__ab_mouse_move_last_target"),
+        "ab-mouse-move-target"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "window.__ab_mouse_move_last_coords"),
+        "120,140"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn mouse_move_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_mouse_move_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "mouse-move",
+            "120,140",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "mouse-move text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser.mouse-move"),
+        "must contain ok browser.mouse-move"
+    );
+    assert!(
+        text.contains("target: 120,140"),
+        "must contain target line with coordinates"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "window.__ab_mouse_move_last_target"),
+        "ab-mouse-move-target"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn mouse_move_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let out = headless_json(
+        &[
+            "browser",
+            "mouse-move",
+            "120,140",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "mouse-move nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.mouse-move");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn mouse_move_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let out = headless(
+        &[
+            "browser",
+            "mouse-move",
+            "120,140",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "mouse-move nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn mouse_move_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "mouse-move",
+            "120,140",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "mouse-move nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.mouse-move");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn mouse_move_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "mouse-move",
+            "120,140",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "mouse-move nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn mouse_move_invalid_coordinates_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "mouse-move",
+            "120,abc",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "mouse-move invalid coordinates json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.mouse-move");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "INVALID_ARGUMENT");
+
+    close_session(&sid);
+}
+
+#[test]
+fn mouse_move_invalid_coordinates_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "mouse-move",
+            "120,abc",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "mouse-move invalid coordinates text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error INVALID_ARGUMENT:"),
+        "text must contain error INVALID_ARGUMENT: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 20: cursor-position — command wiring, success path, and error path
+// ========================================================================
+
+#[test]
+fn cursor_position_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let move_out = headless(
+        &[
+            "browser",
+            "mouse-move",
+            "120,140",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&move_out, "cursor-position setup mouse-move");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "cursor-position",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "cursor-position json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.cursor-position");
+    assert!(v["error"].is_null(), "error must be null on success");
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_eq!(v["data"]["x"], 120);
+    assert_eq!(v["data"]["y"], 140);
+    assert_meta(&v);
+
+    close_session(&sid);
+}
+
+#[test]
+fn cursor_position_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let move_out = headless(
+        &[
+            "browser",
+            "mouse-move",
+            "120,140",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&move_out, "cursor-position setup mouse-move");
+
+    let out = headless(
+        &[
+            "browser",
+            "cursor-position",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "cursor-position text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser.cursor-position"),
+        "must contain ok browser.cursor-position"
+    );
+    assert!(text.contains("x: 120"), "must contain x line: {text}");
+    assert!(text.contains("y: 140"), "must contain y line: {text}");
+
+    close_session(&sid);
+}
+
+#[test]
+fn cursor_position_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let out = headless_json(
+        &[
+            "browser",
+            "cursor-position",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "cursor-position nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.cursor-position");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn cursor_position_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let out = headless(
+        &[
+            "browser",
+            "cursor-position",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "cursor-position nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn cursor_position_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "cursor-position",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "cursor-position nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.cursor-position");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn cursor_position_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "cursor-position",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "cursor-position nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 20b: cursor-position regression — non-mouse-move actions update position
+// ========================================================================
+
+#[test]
+fn cursor_position_after_click_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    // Click at coordinates — this should update cursor position
+    let click_out = headless_json(
+        &[
+            "browser",
+            "click",
+            "200,250",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&click_out, "click setup for cursor-position");
+
+    // Now cursor-position should reflect the click coordinates
+    let out = headless_json(
+        &[
+            "browser",
+            "cursor-position",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    let v = parse_json(&out);
+
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.cursor-position");
+    assert_eq!(v["data"]["x"], 200, "x should match click coordinate");
+    assert_eq!(v["data"]["y"], 250, "y should match click coordinate");
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 21: scroll — command wiring, success path, and error path
+// ========================================================================
+
+#[test]
+fn scroll_json_down_page() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_scroll_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "scroll",
+            "down",
+            "180",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "scroll json down page");
+    let v = parse_json(&out);
+
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.scroll");
+    assert!(v["error"].is_null(), "error must be null on success");
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_eq!(v["data"]["action"], "scroll");
+    assert_eq!(v["data"]["direction"], "down");
+    assert_eq!(v["data"]["pixels"], 180);
+    assert_eq!(v["data"]["changed"]["scroll_changed"], true);
+    assert_eq!(v["data"]["changed"]["url_changed"], false);
+    assert_eq!(v["data"]["changed"]["focus_changed"], false);
+    assert_eq!(eval_value(&sid, &tid, "String(window.scrollY)"), "180");
+    assert_meta(&v);
+
+    close_session(&sid);
+}
+
+#[test]
+fn scroll_text_bottom_container() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_scroll_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "scroll",
+            "bottom",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--container",
+            "#ab-scroll-container",
+        ],
+        15,
+    );
+    assert_success(&out, "scroll text bottom container");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser.scroll"),
+        "must contain ok browser.scroll"
+    );
+    assert!(
+        text.contains("direction: bottom"),
+        "must contain direction line"
+    );
+    assert!(
+        text.contains("container: #ab-scroll-container"),
+        "must contain container line"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "(() => { const el = document.getElementById('ab-scroll-container'); return String(el.scrollTop === el.scrollHeight - el.clientHeight); })()"
+        ),
+        "true"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn scroll_into_view_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_scroll_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "scroll",
+            "into-view",
+            "#ab-scroll-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--align",
+            "center",
+        ],
+        15,
+    );
+    assert_success(&out, "scroll into-view json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.scroll");
+    assert!(v["error"].is_null(), "error must be null on success");
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_eq!(v["data"]["action"], "scroll");
+    assert_eq!(v["data"]["target"]["selector"], "#ab-scroll-target");
+    assert_eq!(v["data"]["align"], "center");
+    assert_eq!(v["data"]["changed"]["scroll_changed"], true);
+    assert_eq!(v["data"]["changed"]["url_changed"], false);
+    assert_eq!(v["data"]["changed"]["focus_changed"], false);
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "(() => { const rect = document.getElementById('ab-scroll-target').getBoundingClientRect(); return String(rect.top >= 0 && rect.bottom <= window.innerHeight); })()"
+        ),
+        "true"
+    );
+    assert_meta(&v);
+
+    close_session(&sid);
+}
+
+#[test]
+fn scroll_into_view_xpath_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_scroll_fixture(&sid, &tid);
+
+    let xpath = "//div[@id='ab-scroll-target']";
+    let out = headless_json(
+        &[
+            "browser",
+            "scroll",
+            "into-view",
+            xpath,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--align",
+            "center",
+        ],
+        15,
+    );
+    assert_success(&out, "scroll into-view xpath json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.scroll");
+    assert!(v["error"].is_null(), "error must be null on success");
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_eq!(v["data"]["action"], "scroll");
+    assert_eq!(v["data"]["target"]["selector"], xpath);
+    assert_eq!(v["data"]["align"], "center");
+    assert_eq!(v["data"]["changed"]["scroll_changed"], true);
+    assert_eq!(v["data"]["changed"]["url_changed"], false);
+    assert_eq!(v["data"]["changed"]["focus_changed"], false);
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "(() => { const rect = document.getElementById('ab-scroll-target').getBoundingClientRect(); return String(rect.top >= 0 && rect.bottom <= window.innerHeight); })()"
+        ),
+        "true"
+    );
+    assert_meta(&v);
+
+    close_session(&sid);
+}
+
+#[test]
+fn scroll_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let out = headless_json(
+        &[
+            "browser",
+            "scroll",
+            "down",
+            "180",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "scroll nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.scroll");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn scroll_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let out = headless(
+        &[
+            "browser",
+            "scroll",
+            "down",
+            "180",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "scroll nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn scroll_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "scroll",
+            "down",
+            "180",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "scroll nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.scroll");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn scroll_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "scroll",
+            "down",
+            "180",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "scroll nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn scroll_missing_container_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "scroll",
+            "bottom",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--container",
+            "#definitely-missing-container",
+        ],
+        10,
+    );
+    assert_failure(&out, "scroll missing container json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.scroll");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["selector"],
+        "#definitely-missing-container"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn scroll_missing_container_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "scroll",
+            "bottom",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--container",
+            "#definitely-missing-container",
+        ],
+        10,
+    );
+    assert_failure(&out, "scroll missing container text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error ELEMENT_NOT_FOUND:"),
+        "text must contain error ELEMENT_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn scroll_into_view_missing_target_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_scroll_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "scroll",
+            "into-view",
+            "#definitely-missing-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "scroll into-view missing target json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.scroll");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["selector"],
+        "#definitely-missing-target"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn scroll_into_view_missing_target_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_scroll_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "scroll",
+            "into-view",
+            "#definitely-missing-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "scroll into-view missing target text");
     let text = stdout_str(&out);
 
     assert!(

@@ -133,12 +133,28 @@ pub enum BrowserCommands {
     Eval(interaction::eval::Cmd),
     /// Click an element
     Click(interaction::click::Cmd),
+    /// Hover over an element
+    Hover(interaction::hover::Cmd),
+    /// Focus an element
+    Focus(interaction::focus::Cmd),
+    /// Press a key or key combination
+    Press(interaction::press::Cmd),
     /// Fill an input field
     Fill(interaction::fill::Cmd),
     /// Type text (keystroke by keystroke)
     Type(interaction::type_text::Cmd),
     /// Select a value from a dropdown
     Select(interaction::select::Cmd),
+    /// Drag an element to a target
+    Drag(interaction::drag::Cmd),
+    /// Upload files to a file input
+    Upload(interaction::upload::Cmd),
+    /// Move the mouse to absolute coordinates
+    MouseMove(interaction::mouse_move::Cmd),
+    /// Get the current cursor position
+    CursorPosition(interaction::cursor_position::Cmd),
+    /// Scroll the page or a container
+    Scroll(interaction::scroll::Cmd),
 }
 
 impl BrowserCommands {
@@ -177,9 +193,17 @@ impl BrowserCommands {
             Self::InspectPoint(cmd) => Action::InspectPoint(cmd.clone()),
             Self::Eval(cmd) => Action::Eval(cmd.clone()),
             Self::Click(cmd) => Action::Click(cmd.clone()),
+            Self::Hover(cmd) => Action::Hover(cmd.clone()),
+            Self::Focus(cmd) => Action::Focus(cmd.clone()),
+            Self::Press(cmd) => Action::Press(cmd.clone()),
             Self::Type(cmd) => Action::Type(cmd.clone()),
             Self::Fill(cmd) => Action::Fill(cmd.clone()),
             Self::Select(cmd) => Action::Select(cmd.clone()),
+            Self::Drag(cmd) => Action::Drag(cmd.clone()),
+            Self::Upload(cmd) => Action::Upload(cmd.clone()),
+            Self::MouseMove(cmd) => Action::MouseMove(cmd.clone()),
+            Self::CursorPosition(cmd) => Action::CursorPosition(cmd.clone()),
+            Self::Scroll(cmd) => Action::Scroll(cmd.clone()),
             _ => return None,
         })
     }
@@ -211,9 +235,17 @@ impl BrowserCommands {
             Self::Screenshot { .. } => "browser.screenshot",
             Self::Eval(_) => interaction::eval::COMMAND_NAME,
             Self::Click(_) => interaction::click::COMMAND_NAME,
+            Self::Hover(_) => interaction::hover::COMMAND_NAME,
+            Self::Focus(_) => interaction::focus::COMMAND_NAME,
+            Self::Press(_) => interaction::press::COMMAND_NAME,
             Self::Fill(_) => interaction::fill::COMMAND_NAME,
             Self::Type(_) => interaction::type_text::COMMAND_NAME,
             Self::Select(_) => interaction::select::COMMAND_NAME,
+            Self::Drag(_) => interaction::drag::COMMAND_NAME,
+            Self::Upload(_) => interaction::upload::COMMAND_NAME,
+            Self::MouseMove(_) => interaction::mouse_move::COMMAND_NAME,
+            Self::CursorPosition(_) => interaction::cursor_position::COMMAND_NAME,
+            Self::Scroll(_) => interaction::scroll::COMMAND_NAME,
         }
     }
 
@@ -261,9 +293,17 @@ impl BrowserCommands {
                 result,
             ),
             Self::Click(cmd) => interaction::click::context(cmd, result),
+            Self::Hover(cmd) => interaction::hover::context(cmd, result),
+            Self::Focus(cmd) => interaction::focus::context(cmd, result),
+            Self::Press(cmd) => interaction::press::context(cmd, result),
             Self::Type(cmd) => interaction::type_text::context(cmd, result),
             Self::Fill(cmd) => interaction::fill::context(cmd, result),
             Self::Select(cmd) => interaction::select::context(cmd, result),
+            Self::Drag(cmd) => interaction::drag::context(cmd, result),
+            Self::Upload(cmd) => interaction::upload::context(cmd, result),
+            Self::MouseMove(cmd) => interaction::mouse_move::context(cmd, result),
+            Self::CursorPosition(cmd) => interaction::cursor_position::context(cmd, result),
+            Self::Scroll(cmd) => interaction::scroll::context(cmd, result),
             Self::Screenshot { session, tab, .. } => tab_context(session, tab),
         }
     }
@@ -299,6 +339,208 @@ mod tests {
             }
             other => panic!("expected setup command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_hover_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "hover",
+            "#submit",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser hover command should parse");
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_focus_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "focus",
+            "#submit",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser focus command should parse");
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_press_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "press",
+            "Enter",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser press command should parse");
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_drag_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "drag",
+            "#source",
+            "#target",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser drag command should parse");
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_upload_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "upload",
+            "#file-input",
+            "/tmp/example.txt",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser upload command should parse");
+    }
+
+    #[test]
+    fn try_parse_from_rejects_browser_upload_without_files() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "upload",
+            "#file-input",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(
+            cli.is_err(),
+            "browser upload should require at least one file"
+        );
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_eval_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "eval",
+            "2 + 2",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser eval command should parse");
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_mouse_move_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "mouse-move",
+            "120,140",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser mouse-move command should parse");
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_cursor_position_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "cursor-position",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser cursor-position command should parse");
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_scroll_direction_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "scroll",
+            "down",
+            "180",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser scroll direction command should parse");
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_scroll_edge_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "scroll",
+            "bottom",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+            "--container",
+            "#scroll-box",
+        ]);
+
+        assert!(cli.is_ok(), "browser scroll edge command should parse");
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_scroll_into_view_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "scroll",
+            "into-view",
+            "#target",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+            "--align",
+            "center",
+        ]);
+
+        assert!(cli.is_ok(), "browser scroll into-view command should parse");
     }
 
     #[test]

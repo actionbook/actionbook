@@ -197,6 +197,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         return e;
     }
 
+    // Store cursor position in registry for cursor-position command
+    {
+        let mut reg = registry.lock().await;
+        reg.set_cursor_position(&cmd.session, &cmd.tab, x, y);
+    }
+
     // Wait for potential navigation: poll for URL change with early exit.
     // Check at short intervals so fast navigations aren't delayed, but
     // keep polling long enough for slow navigations (SPA routers, redirects).

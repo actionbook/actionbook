@@ -1,0 +1,152 @@
+use clap::Args;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+
+use crate::action_result::ActionResult;
+use crate::browser::{element, navigation};
+use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target};
+use crate::daemon::registry::SharedRegistry;
+use crate::output::ResponseContext;
+
+/// Hover over an element
+#[derive(Args, Debug, Clone, Serialize, Deserialize)]
+pub struct Cmd {
+    /// CSS selector, XPath, or snapshot ref
+    pub selector: String,
+    /// Session ID
+    #[arg(long)]
+    #[serde(rename = "session_id")]
+    pub session: String,
+    /// Tab ID
+    #[arg(long)]
+    #[serde(rename = "tab_id")]
+    pub tab: String,
+}
+
+pub const COMMAND_NAME: &str = "browser.hover";
+
+pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
+    if let ActionResult::Fatal { code, .. } = result
+        && code == "SESSION_NOT_FOUND"
+    {
+        return None;
+    }
+    let (url, title) = match result {
+        ActionResult::Ok { data } => (
+            data.get("post_url")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(String::from),
+            data.get("post_title")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(String::from),
+        ),
+        _ => (None, None),
+    };
+    Some(ResponseContext {
+        session_id: cmd.session.clone(),
+        tab_id: Some(cmd.tab.clone()),
+        window_id: None,
+        url,
+        title,
+    })
+}
+
+pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
+    let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+
+    // Resolve selector to a DOM node (handles CSS, XPath, snapshot refs)
+    let node_id = match element::resolve_node(&cdp, &target_id, &cmd.selector).await {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
+
+    // Scroll element into view
+    if let Err(e) = element::scroll_into_view(&cdp, &target_id, node_id).await {
+        return e;
+    }
+
+    // Get a JS object reference for the resolved node
+    let resolve_resp = match cdp
+        .execute_on_tab(&target_id, "DOM.resolveNode", json!({ "nodeId": node_id }))
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => return cdp_error_to_result(e, "CDP_ERROR"),
+    };
+
+    let object_id = match resolve_resp
+        .pointer("/result/object/objectId")
+        .and_then(|v| v.as_str())
+    {
+        Some(id) => id.to_string(),
+        None => {
+            return ActionResult::fatal("CDP_ERROR", "DOM.resolveNode did not return objectId");
+        }
+    };
+
+    // Dispatch mouseenter, mouseover, and mousemove on the element via JS.
+    // CDP Input.dispatchMouseEvent with mouseMoved does not reliably produce
+    // the full set of DOM hover events in headless Chrome.
+    let hover_resp = match cdp
+        .execute_on_tab(
+            &target_id,
+            "Runtime.callFunctionOn",
+            json!({
+                "objectId": object_id,
+                "functionDeclaration": r#"function() {
+                    const rect = this.getBoundingClientRect();
+                    const cx = rect.left + rect.width / 2;
+                    const cy = rect.top + rect.height / 2;
+                    const shared = { clientX: cx, clientY: cy, screenX: cx, screenY: cy, view: window };
+                    this.dispatchEvent(new MouseEvent('mouseenter', { ...shared, bubbles: false }));
+                    this.dispatchEvent(new MouseEvent('mouseover', { ...shared, bubbles: true }));
+                    this.dispatchEvent(new MouseEvent('mousemove', { ...shared, bubbles: true }));
+                    return JSON.stringify({ x: cx, y: cy });
+                }"#,
+                "returnByValue": true,
+            }),
+        )
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => return cdp_error_to_result(e, "CDP_ERROR"),
+    };
+
+    let result_str = hover_resp
+        .pointer("/result/result/value")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if result_str.is_empty() {
+        return ActionResult::fatal("CDP_ERROR", "hover dispatch failed: empty result");
+    }
+
+    // Parse and store cursor position from the hover coordinates
+    if let Ok(coords) = serde_json::from_str::<serde_json::Value>(result_str) {
+        if let (Some(x), Some(y)) = (
+            coords.get("x").and_then(|v| v.as_f64()),
+            coords.get("y").and_then(|v| v.as_f64()),
+        ) {
+            let mut reg = registry.lock().await;
+            reg.set_cursor_position(&cmd.session, &cmd.tab, x, y);
+        }
+    }
+
+    let url = navigation::get_tab_url(&cdp, &target_id).await;
+    let title = navigation::get_tab_title(&cdp, &target_id).await;
+
+    ActionResult::ok(json!({
+        "action": "hover",
+        "target": { "selector": cmd.selector },
+        "changed": {
+            "url_changed": false,
+            "focus_changed": false,
+        },
+        "post_url": url,
+        "post_title": title,
+    }))
+}
