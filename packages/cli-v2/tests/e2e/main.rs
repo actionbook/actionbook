@@ -19,4 +19,5 @@ mod interaction;
 mod navigation;
 mod page_info;
 mod snapshot;
+mod describe_state;
 mod tab_management;
