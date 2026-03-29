@@ -5222,6 +5222,8 @@ fn scroll_json_down_page() {
     assert_eq!(v["data"]["direction"], "down");
     assert_eq!(v["data"]["pixels"], 180);
     assert_eq!(v["data"]["changed"]["scroll_changed"], true);
+    assert_eq!(v["data"]["changed"]["url_changed"], false);
+    assert_eq!(v["data"]["changed"]["focus_changed"], false);
     assert_eq!(eval_value(&sid, &tid, "String(window.scrollY)"), "180");
     assert_meta(&v);
 
@@ -5319,6 +5321,8 @@ fn scroll_into_view_json() {
     assert_eq!(v["data"]["target"]["selector"], "#ab-scroll-target");
     assert_eq!(v["data"]["align"], "center");
     assert_eq!(v["data"]["changed"]["scroll_changed"], true);
+    assert_eq!(v["data"]["changed"]["url_changed"], false);
+    assert_eq!(v["data"]["changed"]["focus_changed"], false);
     assert_eq!(
         eval_value(
             &sid,
