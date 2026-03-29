@@ -5068,3 +5068,52 @@ fn cursor_position_tab_not_found_text() {
 
     close_session(&sid);
 }
+
+// ========================================================================
+// Group 20b: cursor-position regression — non-mouse-move actions update position
+// ========================================================================
+
+#[test]
+fn cursor_position_after_click_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    // Click at coordinates — this should update cursor position
+    let click_out = headless_json(
+        &[
+            "browser",
+            "click",
+            "200,250",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&click_out, "click setup for cursor-position");
+
+    // Now cursor-position should reflect the click coordinates
+    let out = headless_json(
+        &[
+            "browser",
+            "cursor-position",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    let v = parse_json(&out);
+
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.cursor-position");
+    assert_eq!(v["data"]["x"], 200, "x should match click coordinate");
+    assert_eq!(v["data"]["y"], 250, "y should match click coordinate");
+
+    close_session(&sid);
+}
