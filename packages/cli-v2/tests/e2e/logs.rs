@@ -175,6 +175,10 @@ fn logs_console_text_output() {
             .starts_with(&format!("[{sid} {tid}]")),
         "header must start with [session_id tab_id]: {text}"
     );
+    assert!(
+        lines.first().unwrap_or(&"").contains("about:blank"),
+        "header must contain current URL: {text}"
+    );
     assert_eq!(lines.get(1), Some(&"1 log"));
     let log_line = lines.get(2).copied().unwrap_or_default();
     let parts: Vec<&str> = log_line.splitn(4, ' ').collect();
@@ -264,6 +268,62 @@ fn logs_console_tail() {
 
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["text"], "tail-3");
+}
+
+#[test]
+fn logs_console_since() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    seed_title(&sid, &tid);
+    emit_console(
+        &sid,
+        &tid,
+        "console.info('since-1'); console.info('since-2'); console.info('since-3'); void(0)",
+    );
+
+    let initial = headless_json(
+        &[
+            "browser",
+            "logs",
+            "console",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&initial, "logs console initial for since");
+    let initial_v = parse_json(&initial);
+    let items = initial_v["data"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 3);
+    let since_id = items[0]["id"].as_str().expect("item id must be string");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "logs",
+            "console",
+            "--since",
+            since_id,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "logs console since");
+    let v = parse_json(&out);
+    let items = v["data"]["items"].as_array().unwrap();
+
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["text"], "since-2");
+    assert_eq!(items[1]["text"], "since-3");
 }
 
 #[test]
@@ -392,6 +452,96 @@ fn logs_errors_source_filter() {
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["source"], "beta.js");
     assert_eq!(items[0]["text"], "beta-error");
+}
+
+#[test]
+fn logs_errors_tail() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    seed_title(&sid, &tid);
+    emit_errors(
+        &sid,
+        &tid,
+        "window.dispatchEvent(new ErrorEvent('error', { message: 'tail-alpha', filename: 'alpha.js' })); window.dispatchEvent(new ErrorEvent('error', { message: 'tail-beta', filename: 'beta.js' })); void(0)",
+    );
+
+    let out = headless_json(
+        &[
+            "browser",
+            "logs",
+            "errors",
+            "--tail",
+            "1",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "logs errors tail");
+    let v = parse_json(&out);
+    let items = v["data"]["items"].as_array().unwrap();
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["text"], "tail-beta");
+    assert_eq!(items[0]["source"], "beta.js");
+}
+
+#[test]
+fn logs_errors_clear() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    seed_title(&sid, &tid);
+    emit_errors(
+        &sid,
+        &tid,
+        "window.dispatchEvent(new ErrorEvent('error', { message: 'clear-error', filename: 'clear.js' })); void(0)",
+    );
+
+    let out = headless_json(
+        &[
+            "browser",
+            "logs",
+            "errors",
+            "--clear",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "logs errors clear");
+    let v = parse_json(&out);
+
+    assert_eq!(v["data"]["cleared"], true);
+    assert_eq!(v["data"]["items"].as_array().unwrap().len(), 1);
+
+    let after = headless_json(
+        &[
+            "browser",
+            "logs",
+            "errors",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&after, "logs errors after clear");
+    let after_v = parse_json(&after);
+    assert_eq!(after_v["data"]["cleared"], false);
+    assert_eq!(after_v["data"]["items"], serde_json::json!([]));
 }
 
 #[test]
