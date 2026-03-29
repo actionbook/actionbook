@@ -163,8 +163,8 @@ fn snap_json_envelope() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &["browser", "snapshot", "--session", &sid, "--tab", &tid],
@@ -212,8 +212,8 @@ fn snap_json_data_fields() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &["browser", "snapshot", "--session", &sid, "--tab", &tid],
@@ -256,8 +256,8 @@ fn snap_json_meta_truncated_false() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &["browser", "snapshot", "--session", &sid, "--tab", &tid],
@@ -284,8 +284,8 @@ fn snap_text_output() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless(
         &["browser", "snapshot", "--session", &sid, "--tab", &tid],
@@ -325,8 +325,8 @@ fn snap_text_no_extra_prefix() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless(
         &["browser", "snapshot", "--session", &sid, "--tab", &tid],
@@ -357,8 +357,8 @@ fn snap_interactive_flag_reduces_nodes() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     // Full snapshot
     let out_full = headless_json(
@@ -414,8 +414,8 @@ fn snap_compact_flag_reduces_nodes() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     // Full snapshot
     let out_full = headless_json(
@@ -461,8 +461,8 @@ fn snap_depth_flag_limits_nodes() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     // Full snapshot
     let out_full = headless_json(
@@ -506,8 +506,8 @@ fn snap_selector_flag_limits_subtree() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     // Full snapshot for baseline
     let out_full = headless_json(
@@ -555,8 +555,8 @@ fn snap_json_ref_starts_from_e1() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &["browser", "snapshot", "--session", &sid, "--tab", &tid],
@@ -595,8 +595,8 @@ fn snap_json_content_no_noise_roles() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &["browser", "snapshot", "--session", &sid, "--tab", &tid],
@@ -627,8 +627,8 @@ fn snap_json_nodes_have_required_fields() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &["browser", "snapshot", "--session", &sid, "--tab", &tid],
@@ -679,8 +679,8 @@ fn snap_interactive_compact_combined() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     // Full snapshot for baseline
     let out_full = headless_json(
@@ -740,8 +740,8 @@ fn snap_cursor_flag_increases_refs() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     // Default snapshot
     let out_default = headless_json(
@@ -787,9 +787,9 @@ fn snap_cursor_content_has_clickable() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
-    // Use a site likely to have cursor:pointer / onclick elements
     let (sid, tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
+    // Use a site likely to have cursor:pointer / onclick elements;
 
     let out = headless_json(
         &[
@@ -827,7 +827,6 @@ fn snap_session_not_found_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless_json(
         &[
@@ -857,7 +856,6 @@ fn snap_session_not_found_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -883,8 +881,8 @@ fn snap_tab_not_found_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, _tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &[
@@ -921,8 +919,8 @@ fn snap_tab_not_found_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, _tid) = start_session(URL_A);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless(
         &[
@@ -954,7 +952,6 @@ fn snap_missing_session_arg() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     // Missing --session
     let out = headless_json(&["browser", "snapshot", "--tab", "some-tab"], 10);
@@ -966,7 +963,6 @@ fn snap_missing_tab_arg() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     // Missing --tab
     let out = headless_json(&["browser", "snapshot", "--session", "some-session"], 10);

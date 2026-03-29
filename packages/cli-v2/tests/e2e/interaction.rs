@@ -470,8 +470,8 @@ fn click_selector_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_click_fixture(&sid, &tid);
 
     let out = headless_json(
@@ -504,8 +504,8 @@ fn click_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_click_fixture(&sid, &tid);
 
     let out = headless(
@@ -544,8 +544,8 @@ fn click_coordinates_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_click_fixture(&sid, &tid);
 
     let out = headless_json(
@@ -574,8 +574,8 @@ fn click_coordinates_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_click_fixture(&sid, &tid);
 
     let out = headless(
@@ -618,8 +618,8 @@ fn click_count_two_triggers_double_click() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_click_fixture(&sid, &tid);
 
     let out = headless_json(
@@ -650,8 +650,8 @@ fn click_right_button_dispatches_contextmenu() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_click_fixture(&sid, &tid);
 
     let out = headless_json(
@@ -685,8 +685,8 @@ fn click_middle_button_dispatches_auxclick() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_click_fixture(&sid, &tid);
 
     let out = headless_json(
@@ -720,8 +720,8 @@ fn click_new_tab_opens_link_in_new_tab() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_click_fixture(&sid, &tid);
 
     let out = headless_json(
@@ -766,8 +766,8 @@ fn click_new_tab_coordinates_without_href_does_not_open_new_tab() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_click_fixture(&sid, &tid);
 
     let out = headless_json(
@@ -805,8 +805,8 @@ fn click_navigation_updates_context_url() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_click_fixture(&sid, &tid);
 
     let out = headless_json(
@@ -850,7 +850,6 @@ fn click_session_not_found_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless_json(
         &[
@@ -880,7 +879,6 @@ fn click_session_not_found_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -907,8 +905,8 @@ fn click_tab_not_found_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &[
@@ -941,8 +939,8 @@ fn click_tab_not_found_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless(
         &[
@@ -971,8 +969,8 @@ fn click_missing_selector_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &[
@@ -1007,8 +1005,8 @@ fn click_missing_selector_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless(
         &[
@@ -1042,7 +1040,6 @@ fn click_invalid_coordinates_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     // These cases are intentionally coordinate-like but malformed, so they
     // should be rejected as invalid coordinates rather than treated as selectors.
@@ -1077,8 +1074,8 @@ fn type_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_type_fixture(&sid, &tid);
 
     let out = headless_json(
@@ -1131,8 +1128,8 @@ fn type_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_type_fixture(&sid, &tid);
 
     let out = headless(
@@ -1176,8 +1173,8 @@ fn type_with_spaces_and_punctuation_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_type_fixture(&sid, &tid);
     let typed_text = "Hello, world!";
 
@@ -1215,7 +1212,6 @@ fn type_session_not_found_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless_json(
         &[
@@ -1246,7 +1242,6 @@ fn type_session_not_found_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -1274,8 +1269,8 @@ fn type_tab_not_found_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &[
@@ -1309,8 +1304,8 @@ fn type_tab_not_found_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless(
         &[
@@ -1340,8 +1335,8 @@ fn type_missing_selector_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &[
@@ -1377,8 +1372,8 @@ fn type_missing_selector_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless(
         &[
@@ -1417,8 +1412,8 @@ fn fill_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_fill_fixture(&sid, &tid);
 
     let out = headless_json(
@@ -1463,8 +1458,8 @@ fn fill_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_fill_fixture(&sid, &tid);
 
     let out = headless(
@@ -1508,8 +1503,8 @@ fn fill_textarea_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_fill_fixture(&sid, &tid);
     let fill_text = "textarea value";
 
@@ -1559,8 +1554,8 @@ fn fill_replaces_existing_value_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_fill_fixture(&sid, &tid);
     let fill_text = "Hello, world!";
 
@@ -1602,7 +1597,6 @@ fn fill_session_not_found_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless_json(
         &[
@@ -1633,7 +1627,6 @@ fn fill_session_not_found_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -1661,8 +1654,8 @@ fn fill_tab_not_found_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &[
@@ -1696,8 +1689,8 @@ fn fill_tab_not_found_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless(
         &[
@@ -1727,8 +1720,8 @@ fn fill_missing_selector_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &[
@@ -1764,8 +1757,8 @@ fn fill_missing_selector_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless(
         &[
@@ -1804,8 +1797,8 @@ fn select_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_select_fixture(&sid, &tid);
 
     let out = headless_json(
@@ -1846,8 +1839,8 @@ fn select_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_select_fixture(&sid, &tid);
 
     let out = headless(
@@ -1895,8 +1888,8 @@ fn select_by_text_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
     install_select_fixture(&sid, &tid);
 
     let out = headless_json(
@@ -1942,7 +1935,6 @@ fn select_session_not_found_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless_json(
         &[
@@ -1973,7 +1965,6 @@ fn select_session_not_found_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
 
     let out = headless(
         &[
@@ -2001,8 +1992,8 @@ fn select_tab_not_found_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &[
@@ -2036,8 +2027,8 @@ fn select_tab_not_found_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless(
         &[
@@ -2067,8 +2058,8 @@ fn select_missing_selector_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &[
@@ -2104,8 +2095,8 @@ fn select_missing_selector_text() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless(
         &[

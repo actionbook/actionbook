@@ -150,8 +150,8 @@ fn inspect_point_json_happy_path() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
     inject_fixture(&sid, &tid);
 
     let out = headless_json(
@@ -235,8 +235,8 @@ fn inspect_point_text_happy_path() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
     inject_fixture(&sid, &tid);
 
     let out = headless(
@@ -306,8 +306,8 @@ fn inspect_point_with_parent_depth() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
     inject_fixture(&sid, &tid);
 
     let out = headless_json(
@@ -390,8 +390,8 @@ fn inspect_point_no_element() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
     // Don't inject fixture — about:blank with no content
 
     // Use coordinates far outside any content — should return null element
@@ -483,8 +483,8 @@ fn inspect_point_tab_not_found_json() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, _tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
 
     let out = headless_json(
         &[
@@ -543,8 +543,8 @@ fn inspect_point_invalid_coords() {
     if skip() {
         return;
     }
-    let _guard = SessionGuard::new();
     let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
 
     // Invalid coordinate format — must fail with INVALID_ARGUMENT
     let out = headless_json(
