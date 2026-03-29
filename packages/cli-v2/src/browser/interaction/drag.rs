@@ -197,27 +197,55 @@ fn build_response(
 
 // ── CDP helpers ────────────────────────────────────────────────────
 
-/// Ensure the viewport is large enough for the drag endpoints.
+/// Ensure the viewport height is large enough for the drag endpoints
+/// without changing the viewport width (to avoid flipping responsive
+/// breakpoints or triggering resize handlers).
 ///
-/// For coordinate destinations we know the needed height upfront. For
-/// selector destinations we use a generous default (1200px) that covers
-/// common fixed-position layouts. Returns `true` if the override was set.
+/// Returns `true` if the override was applied (and needs clearing).
 async fn ensure_viewport(
     cdp: &CdpSession,
     target_id: &str,
     destination: &DragDestination,
 ) -> bool {
+    // Read the current viewport dimensions
+    let current = cdp
+        .execute_on_tab(
+            target_id,
+            "Runtime.evaluate",
+            json!({
+                "expression": "({w:window.innerWidth,h:window.innerHeight})",
+                "returnByValue": true,
+            }),
+        )
+        .await
+        .ok();
+    let (cur_w, cur_h) = current
+        .as_ref()
+        .and_then(|v| v.pointer("/result/result/value"))
+        .map(|v| {
+            (
+                v["w"].as_u64().unwrap_or(800),
+                v["h"].as_u64().unwrap_or(600),
+            )
+        })
+        .unwrap_or((800, 600));
+
     let min_h: u64 = match destination {
         DragDestination::Coordinates(_, y) => (*y as u64) + 100,
         DragDestination::Selector(_) => 1200,
     };
-    let h = min_h.max(900);
+
+    // Only resize if the current viewport is too short
+    if cur_h >= min_h {
+        return false;
+    }
+
     cdp.execute_on_tab(
         target_id,
         "Emulation.setDeviceMetricsOverride",
         json!({
-            "width": 1280_u64,
-            "height": h,
+            "width": cur_w,
+            "height": min_h,
             "deviceScaleFactor": 1,
             "mobile": false,
         }),
