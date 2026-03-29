@@ -214,7 +214,7 @@ fn css_query_js(selector_json: &str) -> String {
         return {{
             selector: raw + ':nth-of-type(' + pos + ')',
             tag: el.tagName.toLowerCase(),
-            text: isVisible(el) ? (el.innerText || el.textContent || '').trim().substring(0, 80) : '',
+            text: (el.innerText || el.textContent || '').trim().substring(0, 80),
             visible: cs.display !== 'none' && cs.visibility !== 'hidden' && rect.width > 0 && rect.height > 0,
             enabled: !el.disabled
         }};
