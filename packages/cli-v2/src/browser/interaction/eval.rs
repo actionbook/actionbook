@@ -4,6 +4,7 @@ use serde_json::json;
 
 use crate::action_result::ActionResult;
 use crate::browser::navigation;
+use crate::browser::observation::logs_console::ENSURE_LOG_CAPTURE_JS;
 use crate::daemon::cdp_session::get_cdp_and_target;
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
@@ -66,6 +67,15 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Ok(v) => v,
         Err(e) => return e,
     };
+
+    // Install log capture hook before eval so console.* calls in the expression are captured.
+    let _ = cdp
+        .execute_on_tab(
+            &target_id,
+            "Runtime.evaluate",
+            json!({ "expression": ENSURE_LOG_CAPTURE_JS, "returnByValue": true }),
+        )
+        .await;
 
     let resp = match cdp
         .execute_on_tab(

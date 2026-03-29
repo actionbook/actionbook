@@ -644,6 +644,24 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("path: {path}"));
             }
         }
+        "browser.logs.console" | "browser.logs.errors" => {
+            // §10.12-§10.13: N log(s) then level timestamp source text per item
+            if let Some(items) = data.get("items").and_then(|v| v.as_array()) {
+                let count = items.len();
+                let label = if count == 1 { "log" } else { "logs" };
+                lines.push(format!("{count} {label}"));
+                for item in items {
+                    let level = item.get("level").and_then(|v| v.as_str()).unwrap_or("log");
+                    let ts = item
+                        .get("timestamp_ms")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    let source = item.get("source").and_then(|v| v.as_str()).unwrap_or("");
+                    let text = item.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                    lines.push(format!("{level} {ts} {source} {text}"));
+                }
+            }
+        }
         "browser.eval" => {
             if let Some(val) = data.get("value") {
                 lines.push(val.as_str().unwrap_or(&val.to_string()).to_string());
