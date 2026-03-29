@@ -158,8 +158,20 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let pre_url = navigation::get_tab_url(&cdp, &target_id).await;
     let pre_focus = get_active_element_id(&cdp, &target_id).await;
 
-    // Dispatch drag sequence: mousePressed → mouseMoved → mouseReleased
-    if let Err(e) = dispatch_drag(&cdp, &target_id, src_x, src_y, dst_x, dst_y, &cmd.button).await
+    // Dispatch drag via CDP Input events. We temporarily enlarge the
+    // viewport so elements at large coordinates (e.g. position:fixed
+    // beyond the default viewport) are reachable by Input.dispatchMouseEvent
+    // and by the page's own elementFromPoint calls.
+    if let Err(e) = dispatch_drag(
+        &cdp,
+        &target_id,
+        src_x,
+        src_y,
+        dst_x,
+        dst_y,
+        &cmd.button,
+    )
+    .await
     {
         return e;
     }
@@ -221,11 +233,13 @@ fn build_response(
 
 // ── CDP helpers ────────────────────────────────────────────────────
 
-/// Dispatch the CDP mouse events for a drag operation.
+/// Dispatch CDP mouse events for a drag operation.
 ///
-/// Sequence: mousePressed at source → mouseMoved along path → mouseReleased
-/// at destination. Intermediate mouseMoved events ensure the page sees the
-/// drag gesture (fixtures track mousemove count).
+/// Temporarily enlarges the viewport via `Emulation.setDeviceMetricsOverride`
+/// so that both source and destination coordinates are within the visible area.
+/// This ensures `Input.dispatchMouseEvent` hits the correct elements and
+/// page-level `elementFromPoint` calls resolve properly. The override is
+/// cleared after the drag sequence completes.
 async fn dispatch_drag(
     cdp: &CdpSession,
     target_id: &str,
@@ -241,59 +255,89 @@ async fn dispatch_drag(
         _ => 1, // left
     };
 
-    // 1. mousePressed at source
-    cdp.execute_on_tab(
-        target_id,
-        "Input.dispatchMouseEvent",
-        json!({
-            "type": "mousePressed",
-            "x": src_x,
-            "y": src_y,
-            "button": button,
-            "clickCount": 1,
-            "buttons": buttons_mask,
-        }),
-    )
-    .await
-    .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+    // Ensure viewport is large enough to contain both endpoints
+    let needed_w = (src_x.max(dst_x) + 100.0) as u64;
+    let needed_h = (src_y.max(dst_y) + 100.0) as u64;
+    let _ = cdp
+        .execute_on_tab(
+            target_id,
+            "Emulation.setDeviceMetricsOverride",
+            json!({
+                "width": needed_w.max(800),
+                "height": needed_h.max(600),
+                "deviceScaleFactor": 1,
+                "mobile": false,
+            }),
+        )
+        .await;
 
-    // 2. mouseMoved along the path (a few intermediate steps for realism)
-    let steps = 5;
-    for i in 1..=steps {
-        let t = i as f64 / steps as f64;
-        let mx = src_x + (dst_x - src_x) * t;
-        let my = src_y + (dst_y - src_y) * t;
+    // 1. mousePressed at source
+    let result = async {
         cdp.execute_on_tab(
             target_id,
             "Input.dispatchMouseEvent",
             json!({
-                "type": "mouseMoved",
-                "x": mx,
-                "y": my,
+                "type": "mousePressed",
+                "x": src_x,
+                "y": src_y,
                 "button": button,
+                "clickCount": 1,
                 "buttons": buttons_mask,
             }),
         )
         .await
         .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+
+        // 2. mouseMoved along the path
+        let steps = 5;
+        for i in 1..=steps {
+            let t = i as f64 / steps as f64;
+            let mx = src_x + (dst_x - src_x) * t;
+            let my = src_y + (dst_y - src_y) * t;
+            cdp.execute_on_tab(
+                target_id,
+                "Input.dispatchMouseEvent",
+                json!({
+                    "type": "mouseMoved",
+                    "x": mx,
+                    "y": my,
+                    "button": button,
+                    "buttons": buttons_mask,
+                }),
+            )
+            .await
+            .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+        }
+
+        // 3. mouseReleased at destination
+        cdp.execute_on_tab(
+            target_id,
+            "Input.dispatchMouseEvent",
+            json!({
+                "type": "mouseReleased",
+                "x": dst_x,
+                "y": dst_y,
+                "button": button,
+                "clickCount": 1,
+            }),
+        )
+        .await
+        .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+
+        Ok::<(), ActionResult>(())
     }
+    .await;
 
-    // 3. mouseReleased at destination
-    cdp.execute_on_tab(
-        target_id,
-        "Input.dispatchMouseEvent",
-        json!({
-            "type": "mouseReleased",
-            "x": dst_x,
-            "y": dst_y,
-            "button": button,
-            "clickCount": 1,
-        }),
-    )
-    .await
-    .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+    // Always clear the viewport override
+    let _ = cdp
+        .execute_on_tab(
+            target_id,
+            "Emulation.clearDeviceMetricsOverride",
+            json!({}),
+        )
+        .await;
 
-    Ok(())
+    result
 }
 
 /// Snapshot of the active element for focus-change detection.
