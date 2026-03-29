@@ -213,6 +213,39 @@ fn assert_focus_success(
     assert_meta(v);
 }
 
+fn assert_press_success(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_keys: &str,
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.press");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "press");
+    assert_eq!(data["keys"], expected_keys);
+    assert!(
+        data.get("target").is_none() || data["target"].is_null(),
+        "press should not require a target in the response when keys are used"
+    );
+    assert!(
+        data["changed"]["url_changed"].is_boolean(),
+        "data.changed.url_changed must be a boolean"
+    );
+    assert!(
+        data["changed"]["focus_changed"].is_boolean(),
+        "data.changed.focus_changed must be a boolean"
+    );
+
+    assert_meta(v);
+}
+
 fn start_session(url: &str) -> (String, String) {
     let out = headless_json(
         &[
@@ -629,6 +662,59 @@ fn install_focus_fixture(session_id: &str, tab_id: &str) {
     assert_eq!(
         value, "ab-focus-other",
         "focus fixture should install successfully"
+    );
+}
+
+fn install_press_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-press-fixture');
+  if (existing) existing.remove();
+
+  window.__ab_press_keydown_count = 0;
+  window.__ab_press_keyup_count = 0;
+  window.__ab_press_events = [];
+
+  const root = document.createElement('div');
+  root.id = 'ab-press-fixture';
+  root.innerHTML = `
+    <style>
+      #ab-press-input {
+        position: fixed;
+        top: 710px;
+        left: 40px;
+        width: 260px;
+        height: 40px;
+        z-index: 2147483647;
+      }
+    </style>
+    <input id="ab-press-input" type="text" value="seed" />
+  `;
+  document.body.appendChild(root);
+
+  const input = document.getElementById('ab-press-input');
+  input.addEventListener('keydown', (event) => {
+    window.__ab_press_keydown_count += 1;
+    window.__ab_press_events.push(
+      'keydown:' + event.key + ':' + event.ctrlKey + ':' + event.shiftKey
+    );
+  });
+  input.addEventListener('keyup', (event) => {
+    window.__ab_press_keyup_count += 1;
+    window.__ab_press_events.push(
+      'keyup:' + event.key + ':' + event.ctrlKey + ':' + event.shiftKey
+    );
+  });
+
+  input.focus();
+  return document.activeElement && document.activeElement.id;
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(
+        value, "ab-press-input",
+        "press fixture should install successfully"
     );
 }
 
@@ -2881,6 +2967,309 @@ fn focus_missing_selector_text() {
     assert!(
         text.contains("error ELEMENT_NOT_FOUND:"),
         "text must contain error ELEMENT_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 15: press — command wiring, success path, and error path
+// ========================================================================
+
+#[test]
+fn press_json_single_key() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_press_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "press",
+            "Enter",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "press json single key");
+    let v = parse_json(&out);
+
+    assert_press_success(&v, &sid, &tid, "Enter");
+    assert_eq!(v["data"]["changed"]["url_changed"], false);
+    assert_eq!(v["data"]["changed"]["focus_changed"], false);
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_press_keydown_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_press_keyup_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "window.__ab_press_events.includes('keydown:Enter:false:false') ? 'yes' : 'no'"
+        ),
+        "yes"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "window.__ab_press_events.includes('keyup:Enter:false:false') ? 'yes' : 'no'"
+        ),
+        "yes"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn press_text_chord() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_press_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "press",
+            "Control+A",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "press text chord");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser.press"),
+        "must contain ok browser.press"
+    );
+    assert!(
+        text.contains("keys: Control+A"),
+        "must contain keys line with the chord"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "window.__ab_press_events.includes('keydown:a:true:false') ? 'yes' : 'no'"
+        ),
+        "yes"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "window.__ab_press_events.includes('keyup:a:true:false') ? 'yes' : 'no'"
+        ),
+        "yes"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn press_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "press",
+            "Enter",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "press nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.press");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn press_session_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless(
+        &[
+            "browser",
+            "press",
+            "Enter",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "press nonexistent session text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "text must contain error SESSION_NOT_FOUND: got {text}"
+    );
+}
+
+#[test]
+fn press_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "press",
+            "Enter",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "press nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.press");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn press_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "press",
+            "Enter",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "press nonexistent tab text");
+    let text = stdout_str(&out);
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "text must contain error TAB_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn press_invalid_chord_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "press",
+            "Control+",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "press invalid chord json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.press");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "INVALID_ARGUMENT");
+
+    close_session(&sid);
+}
+
+#[test]
+fn press_invalid_chord_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless(
+        &[
+            "browser",
+            "press",
+            "Control+",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "press invalid chord text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("error INVALID_ARGUMENT:"),
+        "text must contain error INVALID_ARGUMENT: got {text}"
     );
 
     close_session(&sid);

@@ -317,4 +317,20 @@ mod tests {
 
         assert!(cli.is_ok(), "browser focus command should parse");
     }
+
+    #[test]
+    fn try_parse_from_accepts_browser_press_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "press",
+            "Enter",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser press command should parse");
+    }
 }
