@@ -275,4 +275,20 @@ mod tests {
             other => panic!("expected setup command, got {other:?}"),
         }
     }
+
+    #[test]
+    fn try_parse_from_accepts_browser_hover_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "hover",
+            "#submit",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser hover command should parse");
+    }
 }

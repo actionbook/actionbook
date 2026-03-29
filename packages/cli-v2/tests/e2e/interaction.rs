@@ -155,6 +155,35 @@ fn assert_select_success(
     assert_meta(v);
 }
 
+fn assert_hover_success(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_selector: &str,
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser.hover");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "hover");
+    assert_eq!(data["target"]["selector"], expected_selector);
+    assert!(
+        data["changed"]["url_changed"].is_boolean(),
+        "data.changed.url_changed must be a boolean"
+    );
+    assert!(
+        data["changed"]["focus_changed"].is_boolean(),
+        "data.changed.focus_changed must be a boolean"
+    );
+
+    assert_meta(v);
+}
+
 fn start_session(url: &str) -> (String, String) {
     let out = headless_json(
         &[
@@ -453,6 +482,64 @@ fn install_select_fixture(session_id: &str, tab_id: &str) {
 
     let value = eval_value(session_id, tab_id, expression);
     assert_eq!(value, "ok", "select fixture should install successfully");
+}
+
+fn install_hover_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-hover-fixture');
+  if (existing) existing.remove();
+
+  window.__ab_hover_enter_count = 0;
+  window.__ab_hover_over_count = 0;
+  window.__ab_hover_move_count = 0;
+  window.__ab_hover_last_target = '';
+
+  const root = document.createElement('div');
+  root.id = 'ab-hover-fixture';
+  root.innerHTML = `
+    <style>
+      #ab-hover-target {
+        position: fixed;
+        top: 540px;
+        left: 40px;
+        width: 220px;
+        height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #d1fae5;
+        color: #111827;
+        z-index: 2147483647;
+      }
+    </style>
+    <div id="ab-hover-target">Hover target</div>
+  `;
+  document.body.appendChild(root);
+
+  const target = document.getElementById('ab-hover-target');
+  target.addEventListener('mouseenter', () => {
+    window.__ab_hover_enter_count += 1;
+    window.__ab_hover_last_target = target.id;
+    document.body.setAttribute('data-hover-enter', String(window.__ab_hover_enter_count));
+  });
+  target.addEventListener('mouseover', () => {
+    window.__ab_hover_over_count += 1;
+    window.__ab_hover_last_target = target.id;
+    document.body.setAttribute('data-hover-over', String(window.__ab_hover_over_count));
+  });
+  target.addEventListener('mousemove', () => {
+    window.__ab_hover_move_count += 1;
+    window.__ab_hover_last_target = target.id;
+    document.body.setAttribute('data-hover-move', String(window.__ab_hover_move_count));
+  });
+
+  return 'ok';
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(value, "ok", "hover fixture should install successfully");
 }
 
 fn list_tabs(session_id: &str) -> serde_json::Value {
@@ -2130,6 +2217,197 @@ fn select_missing_selector_text() {
     assert!(
         text.contains("error ELEMENT_NOT_FOUND:"),
         "text must contain error ELEMENT_NOT_FOUND: got {text}"
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 13: hover — command wiring, success path, and error path
+// ========================================================================
+
+#[test]
+fn hover_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_hover_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "hover",
+            "#ab-hover-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "hover json");
+    let v = parse_json(&out);
+
+    assert_hover_success(&v, &sid, &tid, "#ab-hover-target");
+    assert_eq!(v["data"]["changed"]["url_changed"], false);
+    assert_eq!(v["data"]["changed"]["focus_changed"], false);
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_hover_enter_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_hover_over_count)"),
+        "1"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_hover_move_count !== 0)"),
+        "true"
+    );
+    assert_eq!(
+        eval_value(&sid, &tid, "window.__ab_hover_last_target"),
+        "ab-hover-target"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn hover_text() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+    install_hover_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "hover",
+            "#ab-hover-target",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "hover text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser.hover"),
+        "must contain ok browser.hover"
+    );
+    assert!(
+        text.contains("target: #ab-hover-target"),
+        "must contain target line with selector"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn hover_session_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "hover",
+            "#ab-hover-target",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "hover nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.hover");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn hover_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, _tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "hover",
+            "#ab-hover-target",
+            "--session",
+            &sid,
+            "--tab",
+            "nonexistent-tab-id",
+        ],
+        10,
+    );
+    assert_failure(&out, "hover nonexistent tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.hover");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(
+        v["context"].is_object(),
+        "context must be present when session found"
+    );
+    assert_eq!(v["context"]["session_id"], sid);
+
+    close_session(&sid);
+}
+
+#[test]
+fn hover_missing_selector_json() {
+    if skip() {
+        return;
+    }
+    let _guard = SessionGuard::new();
+    let (sid, tid) = start_session(TEST_URL);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "hover",
+            "#definitely-missing-element",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "hover missing selector json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.hover");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["selector"],
+        "#definitely-missing-element"
     );
 
     close_session(&sid);
