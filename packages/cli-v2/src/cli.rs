@@ -106,6 +106,12 @@ pub enum BrowserCommands {
     Url(observation::url::Cmd),
     /// Get viewport dimensions
     Viewport(observation::viewport::Cmd),
+    /// Read all attributes on an element
+    Attrs(observation::attrs::Cmd),
+    /// Read an element bounding box
+    Box(observation::r#box::Cmd),
+    /// Read computed styles for an element
+    Styles(observation::styles::Cmd),
     /// Inspect element at coordinates
     InspectPoint(observation::inspect_point::Cmd),
     /// Take screenshot
@@ -162,6 +168,9 @@ impl BrowserCommands {
             Self::Title(cmd) => Action::Title(cmd.clone()),
             Self::Url(cmd) => Action::Url(cmd.clone()),
             Self::Viewport(cmd) => Action::Viewport(cmd.clone()),
+            Self::Attrs(cmd) => Action::Attrs(cmd.clone()),
+            Self::Box(cmd) => Action::Box(cmd.clone()),
+            Self::Styles(cmd) => Action::Styles(cmd.clone()),
             Self::InspectPoint(cmd) => Action::InspectPoint(cmd.clone()),
             Self::Eval(cmd) => Action::Eval(cmd.clone()),
             Self::Click(cmd) => Action::Click(cmd.clone()),
@@ -191,6 +200,9 @@ impl BrowserCommands {
             Self::Title(_) => observation::title::COMMAND_NAME,
             Self::Url(_) => observation::url::COMMAND_NAME,
             Self::Viewport(_) => observation::viewport::COMMAND_NAME,
+            Self::Attrs(_) => observation::attrs::COMMAND_NAME,
+            Self::Box(_) => observation::r#box::COMMAND_NAME,
+            Self::Styles(_) => observation::styles::COMMAND_NAME,
             Self::InspectPoint(_) => observation::inspect_point::COMMAND_NAME,
             Self::Screenshot { .. } => "browser.screenshot",
             Self::Eval(_) => interaction::eval::COMMAND_NAME,
@@ -217,6 +229,9 @@ impl BrowserCommands {
             Self::Title(cmd) => observation::title::context(cmd, result),
             Self::Url(cmd) => observation::url::context(cmd, result),
             Self::Viewport(cmd) => observation::viewport::context(cmd, result),
+            Self::Attrs(cmd) => observation::attrs::context(cmd, result),
+            Self::Box(cmd) => observation::r#box::context(cmd, result),
+            Self::Styles(cmd) => observation::styles::context(cmd, result),
             Self::InspectPoint(cmd) => observation::inspect_point::context(cmd, result),
             Self::Eval(cmd) => interaction::eval::context(cmd, result),
             Self::Back(a) => navigation::back::context(
@@ -278,6 +293,36 @@ mod tests {
                 assert!(cmd.reset);
             }
             other => panic!("expected setup command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_styles_names_after_options() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "styles",
+            "#target",
+            "--session",
+            "s1",
+            "--tab",
+            "t1",
+            "color",
+            "backgroundColor",
+            "z-index",
+        ])
+        .expect("parse styles");
+
+        match cli.command {
+            Some(Commands::Browser {
+                command: BrowserCommands::Styles(cmd),
+            }) => {
+                assert_eq!(cmd.selector, "#target");
+                assert_eq!(cmd.session, "s1");
+                assert_eq!(cmd.tab, "t1");
+                assert_eq!(cmd.names, vec!["color", "backgroundColor", "z-index"]);
+            }
+            other => panic!("expected browser styles command, got {other:?}"),
         }
     }
 }

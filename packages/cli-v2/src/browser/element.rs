@@ -96,6 +96,36 @@ pub async fn resolve_element_center(
     get_element_center(cdp, target_id, node_id, selector).await
 }
 
+/// Convert a DOM `nodeId` to a remote JS object ID suitable for
+/// `Runtime.callFunctionOn`.
+pub async fn resolve_object_id(
+    cdp: &CdpSession,
+    target_id: &str,
+    node_id: i64,
+) -> Result<String, ActionResult> {
+    let resolve_resp = cdp
+        .execute_on_tab(target_id, "DOM.resolveNode", json!({ "nodeId": node_id }))
+        .await
+        .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+
+    resolve_resp
+        .pointer("/result/object/objectId")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| ActionResult::fatal("CDP_ERROR", "could not resolve element to JS object"))
+}
+
+/// Convenience: selector string → `(nodeId, objectId)` in one call.
+pub async fn resolve_selector_object(
+    cdp: &CdpSession,
+    target_id: &str,
+    selector: &str,
+) -> Result<(i64, String), ActionResult> {
+    let node_id = resolve_node(cdp, target_id, selector).await?;
+    let object_id = resolve_object_id(cdp, target_id, node_id).await?;
+    Ok((node_id, object_id))
+}
+
 // ── Private resolvers ──────────────────────────────────────────────
 
 /// CSS selector → nodeId via `DOM.querySelector`.

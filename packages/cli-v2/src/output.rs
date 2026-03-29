@@ -385,6 +385,64 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("{w}x{h}"));
             }
         }
+        "browser.attrs" => {
+            if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
+                lines.push(format!("target: {sel}"));
+            }
+            if let Some(attrs) = data.get("value").and_then(|v| v.as_object()) {
+                let mut order: Vec<String> = data
+                    .get("__attr_order")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if order.is_empty() {
+                    order = attrs.keys().cloned().collect();
+                    order.sort();
+                }
+                for key in order {
+                    if let Some(value) = attrs.get(&key) {
+                        lines.push(format!("{key}: {}", text_scalar(value)));
+                    }
+                }
+            }
+        }
+        "browser.box" => {
+            if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
+                lines.push(format!("target: {sel}"));
+            }
+            if let Some(value) = data.get("value") {
+                for key in ["x", "y", "width", "height", "right", "bottom"] {
+                    if let Some(field) = value.get(key) {
+                        lines.push(format!("{key}: {}", text_scalar(field)));
+                    }
+                }
+            }
+        }
+        "browser.styles" => {
+            if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
+                lines.push(format!("target: {sel}"));
+            }
+            if let Some(styles) = data.get("value").and_then(|v| v.as_object()) {
+                let order: Vec<String> = data
+                    .get("__prop_order")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_else(|| styles.keys().cloned().collect());
+                for key in order {
+                    if let Some(value) = styles.get(&key) {
+                        lines.push(format!("{key}: {}", text_scalar(value)));
+                    }
+                }
+            }
+        }
         "browser.inspect-point" => {
             // §10.11: role "name" / selector / point
             if let Some(element) = data.get("element") {
@@ -421,5 +479,15 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(s.to_string());
             }
         }
+    }
+}
+
+fn text_scalar(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        Value::Bool(b) => b.to_string(),
+        other => other.to_string(),
     }
 }
