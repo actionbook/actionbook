@@ -2,7 +2,7 @@ use clap::{Args, Parser, Subcommand};
 
 use crate::action::Action;
 use crate::action_result::ActionResult;
-use crate::browser::{cookies, interaction, navigation, observation, session, tab, wait};
+use crate::browser::{cookies, interaction, navigation, observation, session, storage, tab, wait};
 use crate::output::ResponseContext;
 use crate::setup;
 
@@ -154,6 +154,20 @@ Examples:
         command: CookiesCommands,
     },
 
+    // ── Storage ────────────────────────────────────────────────
+    /// Manage local storage (window.localStorage)
+    #[command(name = "local-storage")]
+    LocalStorage {
+        #[command(subcommand)]
+        command: StorageSubCommands,
+    },
+    /// Manage session storage (window.sessionStorage)
+    #[command(name = "session-storage")]
+    SessionStorage {
+        #[command(subcommand)]
+        command: StorageSubCommands,
+    },
+
     // ── Wait ───────────────────────────────────────────────────
     /// Wait for a browser condition
     Wait {
@@ -228,6 +242,48 @@ pub enum CookiesCommands {
     Clear(cookies::clear::Cmd),
 }
 
+#[derive(Subcommand, Debug, Clone)]
+#[command(disable_help_subcommand = true)]
+pub enum StorageSubCommands {
+    /// List all key-value entries
+    List(StorageArgs),
+    /// Get a value by key
+    Get(StorageKeyArgs),
+    /// Set a key-value entry
+    Set(StorageSetArgs),
+    /// Delete a key
+    Delete(StorageKeyArgs),
+    /// Clear the value for a key
+    Clear(StorageKeyArgs),
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct StorageArgs {
+    #[arg(long)]
+    pub session: String,
+    #[arg(long)]
+    pub tab: String,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct StorageKeyArgs {
+    pub key: String,
+    #[arg(long)]
+    pub session: String,
+    #[arg(long)]
+    pub tab: String,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct StorageSetArgs {
+    pub key: String,
+    pub value: String,
+    #[arg(long)]
+    pub session: String,
+    #[arg(long)]
+    pub tab: String,
+}
+
 impl BrowserCommands {
     /// Convert to wire Action. Returns None for unimplemented commands.
     pub fn to_action(&self) -> Option<Action> {
@@ -277,6 +333,8 @@ impl BrowserCommands {
                 CookiesCommands::Delete(cmd) => Action::CookiesDelete(cmd.clone()),
                 CookiesCommands::Clear(cmd) => Action::CookiesClear(cmd.clone()),
             },
+            Self::LocalStorage { command } => storage_to_action(command, storage::StorageKind::Local),
+            Self::SessionStorage { command } => storage_to_action(command, storage::StorageKind::Session),
             Self::Logs { command } => match command {
                 LogsCommands::Console(cmd) => Action::LogsConsole(cmd.clone()),
                 LogsCommands::Errors(cmd) => Action::LogsErrors(cmd.clone()),
@@ -343,6 +401,8 @@ impl BrowserCommands {
                 CookiesCommands::Delete(_) => cookies::delete::COMMAND_NAME,
                 CookiesCommands::Clear(_) => cookies::clear::COMMAND_NAME,
             },
+            Self::LocalStorage { command } => storage_command_name(command, storage::StorageKind::Local),
+            Self::SessionStorage { command } => storage_command_name(command, storage::StorageKind::Session),
             Self::Logs { command } => match command {
                 LogsCommands::Console(_) => observation::logs_console::COMMAND_NAME,
                 LogsCommands::Errors(_) => observation::logs_errors::COMMAND_NAME,
@@ -406,6 +466,8 @@ impl BrowserCommands {
                 CookiesCommands::Delete(cmd) => cookies::delete::context(cmd, result),
                 CookiesCommands::Clear(cmd) => cookies::clear::context(cmd, result),
             },
+            Self::LocalStorage { command } => storage_context(command, storage::StorageKind::Local, result),
+            Self::SessionStorage { command } => storage_context(command, storage::StorageKind::Session, result),
             Self::Logs { command } => match command {
                 LogsCommands::Console(cmd) => observation::logs_console::context(cmd, result),
                 LogsCommands::Errors(cmd) => observation::logs_errors::context(cmd, result),
@@ -452,6 +514,83 @@ impl BrowserCommands {
             Self::Scroll(cmd) => interaction::scroll::context(cmd, result),
             Self::Screenshot(cmd) => observation::screenshot::context(cmd, result),
         }
+    }
+}
+
+/// Build an `Action` from storage subcommand args + kind.
+fn storage_to_action(cmd: &StorageSubCommands, kind: storage::StorageKind) -> Action {
+    match cmd {
+        StorageSubCommands::List(a) => Action::StorageList(storage::list::Cmd {
+            session: a.session.clone(),
+            tab: a.tab.clone(),
+            kind,
+        }),
+        StorageSubCommands::Get(a) => Action::StorageGet(storage::get::Cmd {
+            key: a.key.clone(),
+            session: a.session.clone(),
+            tab: a.tab.clone(),
+            kind,
+        }),
+        StorageSubCommands::Set(a) => Action::StorageSet(storage::set::Cmd {
+            key: a.key.clone(),
+            value: a.value.clone(),
+            session: a.session.clone(),
+            tab: a.tab.clone(),
+            kind,
+        }),
+        StorageSubCommands::Delete(a) => Action::StorageDelete(storage::delete::Cmd {
+            key: a.key.clone(),
+            session: a.session.clone(),
+            tab: a.tab.clone(),
+            kind,
+        }),
+        StorageSubCommands::Clear(a) => Action::StorageClear(storage::clear::Cmd {
+            key: a.key.clone(),
+            session: a.session.clone(),
+            tab: a.tab.clone(),
+            kind,
+        }),
+    }
+}
+
+/// Return the command name string for a storage subcommand + kind.
+fn storage_command_name(cmd: &StorageSubCommands, kind: storage::StorageKind) -> &'static str {
+    match cmd {
+        StorageSubCommands::List(_) => storage::list::command_name(kind),
+        StorageSubCommands::Get(_) => storage::get::command_name(kind),
+        StorageSubCommands::Set(_) => storage::set::command_name(kind),
+        StorageSubCommands::Delete(_) => storage::delete::command_name(kind),
+        StorageSubCommands::Clear(_) => storage::clear::command_name(kind),
+    }
+}
+
+/// Build response context for a storage subcommand.
+fn storage_context(
+    cmd: &StorageSubCommands,
+    kind: storage::StorageKind,
+    result: &ActionResult,
+) -> Option<ResponseContext> {
+    match cmd {
+        StorageSubCommands::List(a) => storage::list::context(
+            &storage::list::Cmd { session: a.session.clone(), tab: a.tab.clone(), kind },
+            result,
+        ),
+        StorageSubCommands::Get(a) => storage::get::context(
+            &storage::get::Cmd { key: a.key.clone(), session: a.session.clone(), tab: a.tab.clone(), kind },
+            result,
+        ),
+        StorageSubCommands::Set(a) => storage::set::context(
+            &storage::set::Cmd { key: a.key.clone(), value: a.value.clone(), session: a.session.clone(), tab: a.tab.clone(), kind },
+            result,
+        ),
+        StorageSubCommands::Delete(a) => storage::delete::context(
+            &storage::delete::Cmd { key: a.key.clone(), session: a.session.clone(), tab: a.tab.clone(), kind },
+            result,
+        ),
+        StorageSubCommands::Clear(a) => storage::clear::context(
+            &storage::clear::Cmd { key: a.key.clone(), session: a.session.clone(), tab: a.tab.clone(), kind },
+            result,
+        ),
     }
 }
 

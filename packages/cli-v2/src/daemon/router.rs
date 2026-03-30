@@ -49,6 +49,11 @@ pub async fn route(action: &Action, registry: &SharedRegistry) -> ActionResult {
         Action::CookiesSet(cmd) => browser::cookies::set::execute(cmd, registry).await,
         Action::CookiesDelete(cmd) => browser::cookies::delete::execute(cmd, registry).await,
         Action::CookiesClear(cmd) => browser::cookies::clear::execute(cmd, registry).await,
+        Action::StorageList(cmd) => browser::storage::list::execute(cmd, registry).await,
+        Action::StorageGet(cmd) => browser::storage::get::execute(cmd, registry).await,
+        Action::StorageSet(cmd) => browser::storage::set::execute(cmd, registry).await,
+        Action::StorageDelete(cmd) => browser::storage::delete::execute(cmd, registry).await,
+        Action::StorageClear(cmd) => browser::storage::clear::execute(cmd, registry).await,
         Action::WaitElement(cmd) => browser::wait::element::execute(cmd, registry).await,
         Action::WaitNavigation(cmd) => browser::wait::navigation::execute(cmd, registry).await,
         Action::WaitNetworkIdle(cmd) => {

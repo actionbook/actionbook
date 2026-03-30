@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::browser::{cookies, interaction, navigation, observation, session, tab, wait};
+use crate::browser::{cookies, interaction, navigation, observation, session, storage, tab, wait};
 
 /// CLI → Daemon action protocol. Each variant wraps the command's Cmd type.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,6 +51,13 @@ pub enum Action {
     CookiesSet(cookies::set::Cmd),
     CookiesDelete(cookies::delete::Cmd),
     CookiesClear(cookies::clear::Cmd),
+
+    // ── Storage ────────────────────────────────────────────────
+    StorageList(storage::list::Cmd),
+    StorageGet(storage::get::Cmd),
+    StorageSet(storage::set::Cmd),
+    StorageDelete(storage::delete::Cmd),
+    StorageClear(storage::clear::Cmd),
 
     // ── Wait ───────────────────────────────────────────────────
     WaitElement(wait::element::Cmd),
@@ -114,6 +121,11 @@ impl Action {
             Action::CookiesSet(_) => cookies::set::COMMAND_NAME,
             Action::CookiesDelete(_) => cookies::delete::COMMAND_NAME,
             Action::CookiesClear(_) => cookies::clear::COMMAND_NAME,
+            Action::StorageList(cmd) => storage::list::command_name(cmd.kind),
+            Action::StorageGet(cmd) => storage::get::command_name(cmd.kind),
+            Action::StorageSet(cmd) => storage::set::command_name(cmd.kind),
+            Action::StorageDelete(cmd) => storage::delete::command_name(cmd.kind),
+            Action::StorageClear(cmd) => storage::clear::command_name(cmd.kind),
             Action::WaitElement(_) => wait::element::COMMAND_NAME,
             Action::WaitNavigation(_) => wait::navigation::COMMAND_NAME,
             Action::WaitNetworkIdle(_) => wait::network_idle::COMMAND_NAME,

@@ -218,6 +218,12 @@ pub fn format_text(
                     | "browser.cookies.set"
                     | "browser.cookies.delete"
                     | "browser.cookies.clear"
+                    | "browser.local-storage.set"
+                    | "browser.local-storage.delete"
+                    | "browser.local-storage.clear"
+                    | "browser.session-storage.set"
+                    | "browser.session-storage.delete"
+                    | "browser.session-storage.clear"
             );
 
             if is_action {
@@ -725,6 +731,38 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
             }
         }
         "browser.cookies.set" | "browser.cookies.delete" | "browser.cookies.clear" => {
+            // is_action already emits "ok {command}"; no additional text fields needed
+        }
+        "browser.local-storage.list" | "browser.session-storage.list" => {
+            let items = data.get("items").and_then(|v| v.as_array());
+            let count = items.map(|v| v.len()).unwrap_or(0);
+            let label = if count == 1 { "key" } else { "keys" };
+            lines.push(format!("{count} {label}"));
+            if let Some(items) = items {
+                for item in items {
+                    let key = item.get("key").and_then(|v| v.as_str()).unwrap_or("");
+                    let val = item.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                    lines.push(format!("{key}={val}"));
+                }
+            }
+        }
+        "browser.local-storage.get" | "browser.session-storage.get" => {
+            if let Some(item) = data.get("item") {
+                if item.is_null() {
+                    lines.push("item: null".to_string());
+                } else {
+                    let key = item.get("key").and_then(|v| v.as_str()).unwrap_or("");
+                    let val = item.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                    lines.push(format!("{key}={val}"));
+                }
+            }
+        }
+        "browser.local-storage.set"
+        | "browser.local-storage.delete"
+        | "browser.local-storage.clear"
+        | "browser.session-storage.set"
+        | "browser.session-storage.delete"
+        | "browser.session-storage.clear" => {
             // is_action already emits "ok {command}"; no additional text fields needed
         }
         _ => {

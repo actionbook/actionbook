@@ -1,5 +1,6 @@
 pub mod cookies;
 pub mod element;
+pub mod storage;
 pub mod interaction;
 pub mod navigation;
 pub mod observation;
