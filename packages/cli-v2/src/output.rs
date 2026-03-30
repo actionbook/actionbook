@@ -380,6 +380,12 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
             {
                 lines.push(format!("by_text: {by_text}"));
             }
+            if let Some(by_ref) = data
+                .pointer("/value_summary/by_ref")
+                .and_then(|v| v.as_bool())
+            {
+                lines.push(format!("by_ref: {by_ref}"));
+            }
         }
         "browser.click" => {
             if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {

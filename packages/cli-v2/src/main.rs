@@ -166,6 +166,7 @@ async fn handle_browser(
                         cdp_endpoint: None,
                         header: vec![],
                         set_session_id: None,
+                        stealth: true,
                     });
                 let result = ActionResult::fatal(err.error_code(), err.to_string());
                 let duration = start.elapsed();
@@ -346,6 +347,32 @@ Observation:
   describe <selector>     --session --tab  Describe element properties
   state <selector>        --session --tab  Get element state flags
   inspect-point <x,y>    --session --tab  Inspect element at coordinates
+  query one|all|count <selector>  --session --tab  Query elements
+  query nth <n> <selector>        --session --tab  Query nth element (1-based)
+
+Logs:
+  logs console        --session --tab  Get console logs
+  logs errors         --session --tab  Get error logs (exceptions + rejections)
+
+Wait:
+  wait element <selector>  --session --tab  Wait for element to appear
+  wait navigation          --session --tab  Wait for navigation to complete
+  wait network-idle        --session --tab  Wait for network to become idle
+  wait condition <expr>    --session --tab  Wait for JS expression to be truthy
+
+Cookies:
+  cookies list        --session      List all cookies
+  cookies get <name>  --session      Get a cookie by name
+  cookies set <name> <value>  --session  Set a cookie
+  cookies delete <name>  --session   Delete a cookie
+  cookies clear       --session      Clear cookies
+
+Storage (local-storage | session-storage):
+  <storage> list      --session --tab  List all key-value entries
+  <storage> get <key> --session --tab  Get a value by key
+  <storage> set <key> <value>  --session --tab  Set a key-value entry
+  <storage> delete <key>  --session --tab  Delete a key
+  <storage> clear <key>   --session --tab  Clear a key
 
 Interaction:
   click <selector|x,y>   --session --tab  Click element or coordinates

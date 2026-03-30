@@ -19,6 +19,8 @@ use crate::harness::{
     unique_session, url_a, url_b,
 };
 
+const DEFAULT_LOCAL_SESSION_ID: &str = "SLOCAL-1";
+
 // ===========================================================================
 // 1. lifecycle_open_and_close — JSON (needs default session ID → SoloEnv)
 // ===========================================================================
@@ -36,7 +38,7 @@ fn lifecycle_open_and_close_json() {
     assert_eq!(v["ok"], true);
     assert_eq!(v["command"], "browser.start");
     assert!(v["error"].is_null(), "start: error should be null");
-    assert_eq!(v["data"]["session"]["session_id"], "local-1");
+    assert_eq!(v["data"]["session"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
     assert_eq!(v["data"]["session"]["mode"], "local");
     assert_eq!(v["data"]["session"]["status"], "running");
     assert!(v["data"]["session"]["headless"].is_boolean());
@@ -46,28 +48,34 @@ fn lifecycle_open_and_close_json() {
     assert!(v["data"]["tab"]["url"].is_string());
     assert!(v["data"]["tab"]["title"].is_string());
     assert_eq!(v["data"]["reused"], false);
-    assert_eq!(v["context"]["session_id"], "local-1");
+    assert_eq!(v["context"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
     assert_tab_id(&v["context"]["tab_id"]);
     assert!(v["meta"]["duration_ms"].is_number());
 
     // status
-    let out = env.headless_json(&["browser", "status", "--session", "local-1"], 10);
+    let out = env.headless_json(
+        &["browser", "status", "--session", DEFAULT_LOCAL_SESSION_ID],
+        10,
+    );
     assert_success(&out, "status");
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
     assert_eq!(v["command"], "browser.status");
-    assert_eq!(v["context"]["session_id"], "local-1");
+    assert_eq!(v["context"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
 
     // close
-    let out = env.headless_json(&["browser", "close", "--session", "local-1"], 30);
+    let out = env.headless_json(
+        &["browser", "close", "--session", DEFAULT_LOCAL_SESSION_ID],
+        30,
+    );
     assert_success(&out, "close");
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
     assert_eq!(v["command"], "browser.close");
-    assert_eq!(v["data"]["session_id"], "local-1");
+    assert_eq!(v["data"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
     assert_eq!(v["data"]["status"], "closed");
     assert!(v["data"]["closed_tabs"].is_number());
-    assert_eq!(v["context"]["session_id"], "local-1");
+    assert_eq!(v["context"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
     assert!(v["meta"]["duration_ms"].is_number());
 }
 
@@ -86,25 +94,31 @@ fn lifecycle_open_and_close_text() {
     assert_success(&out, "start text");
     let text = stdout_str(&out);
     assert!(
-        text.contains("[local-1"),
-        "start text: should contain [local-1"
+        text.contains("[SLOCAL-1"),
+        "start text: should contain [SLOCAL-1"
     );
     assert!(text.contains("ok browser.start"));
     assert!(text.contains("mode: local"));
     assert!(text.contains("status: running"));
     assert!(text.contains("title:"));
 
-    let out = env.headless(&["browser", "status", "--session", "local-1"], 10);
+    let out = env.headless(
+        &["browser", "status", "--session", DEFAULT_LOCAL_SESSION_ID],
+        10,
+    );
     assert_success(&out, "status text");
     let text = stdout_str(&out);
-    assert!(text.contains("[local-1]"));
+    assert!(text.contains("[SLOCAL-1]"));
     assert!(text.contains("status: running"));
     assert!(text.contains("mode: local"));
 
-    let out = env.headless(&["browser", "close", "--session", "local-1"], 30);
+    let out = env.headless(
+        &["browser", "close", "--session", DEFAULT_LOCAL_SESSION_ID],
+        30,
+    );
     assert_success(&out, "close text");
     let text = stdout_str(&out);
-    assert!(text.contains("[local-1]"));
+    assert!(text.contains("[SLOCAL-1]"));
     assert!(text.contains("ok browser.close"));
     assert!(text.contains("closed_tabs:"));
 }
@@ -126,7 +140,10 @@ fn lifecycle_open_headless_json() {
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["session"]["headless"], true);
 
-    env.headless(&["browser", "close", "--session", "local-1"], 30);
+    env.headless(
+        &["browser", "close", "--session", DEFAULT_LOCAL_SESSION_ID],
+        30,
+    );
 }
 
 // ===========================================================================
@@ -716,13 +733,13 @@ fn lifecycle_start_reuse_existing_json() {
     assert_success(&out, "first start");
     let v = parse_json(&out);
     assert_eq!(v["data"]["reused"], false);
-    assert_eq!(v["data"]["session"]["session_id"], "local-1");
+    assert_eq!(v["data"]["session"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
 
     let out = env.headless_json(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "second start (reuse)");
     let v = parse_json(&out);
     assert_eq!(v["data"]["reused"], true);
-    assert_eq!(v["data"]["session"]["session_id"], "local-1");
+    assert_eq!(v["data"]["session"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
     assert_eq!(v["data"]["session"]["status"], "running");
 
     let out = env.headless_json(&["browser", "list-sessions"], 10);
@@ -730,7 +747,10 @@ fn lifecycle_start_reuse_existing_json() {
     let v = parse_json(&out);
     assert_eq!(v["data"]["total_sessions"], serde_json::json!(1));
 
-    env.headless(&["browser", "close", "--session", "local-1"], 30);
+    env.headless(
+        &["browser", "close", "--session", DEFAULT_LOCAL_SESSION_ID],
+        30,
+    );
 }
 
 #[test]
@@ -745,11 +765,14 @@ fn lifecycle_start_reuse_existing_text() {
     let out = env.headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "second start (reuse) text");
     let text = stdout_str(&out);
-    assert!(text.contains("[local-1"));
+    assert!(text.contains("[SLOCAL-1"));
     assert!(text.contains("ok browser.start"));
     assert!(text.contains("status: running"));
 
-    env.headless(&["browser", "close", "--session", "local-1"], 30);
+    env.headless(
+        &["browser", "close", "--session", DEFAULT_LOCAL_SESSION_ID],
+        30,
+    );
 }
 
 // ===========================================================================
@@ -799,7 +822,7 @@ fn lifecycle_start_reuse_with_open_url_json() {
     assert_success(&out, "second start (reuse + navigate)");
     let v = parse_json(&out);
     assert_eq!(v["data"]["reused"], true);
-    assert_eq!(v["data"]["session"]["session_id"], "local-1");
+    assert_eq!(v["data"]["session"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
     assert!(
         v["data"]["tab"]["url"]
             .as_str()
@@ -815,7 +838,7 @@ fn lifecycle_start_reuse_with_open_url_json() {
             "eval",
             "window.location.href",
             "--session",
-            "local-1",
+            DEFAULT_LOCAL_SESSION_ID,
             "--tab",
             &tab_id,
         ],
@@ -825,7 +848,10 @@ fn lifecycle_start_reuse_with_open_url_json() {
     let v = parse_json(&out);
     assert!(v["data"]["value"].as_str().unwrap_or("").contains("page-b"));
 
-    env.headless(&["browser", "close", "--session", "local-1"], 30);
+    env.headless(
+        &["browser", "close", "--session", DEFAULT_LOCAL_SESSION_ID],
+        30,
+    );
 }
 
 // ===========================================================================

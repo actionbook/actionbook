@@ -15,14 +15,16 @@ use crate::output::ResponseContext;
 Examples:
   actionbook browser select \"#country\" \"us\" --session s1 --tab t1
   actionbook browser select @e7 \"United States\" --by-text --session s1 --tab t1
+  actionbook browser select \"#country\" @e12 --by-ref --session s1 --tab t1
 
 Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
 Selects an option in a <select> element by its value attribute.
-Use --by-text to match the visible display text instead.")]
+Use --by-text to match the visible display text instead.
+Use --by-ref to select an option by its snapshot ref (@eN).")]
 pub struct Cmd {
     /// Selector for <select> element (CSS, XPath, or @ref)
     pub selector: String,
-    /// Value to select
+    /// Value to select (option value, display text with --by-text, or @ref with --by-ref)
     pub value: String,
     /// Session ID
     #[arg(long)]
@@ -36,6 +38,10 @@ pub struct Cmd {
     #[arg(long)]
     #[serde(default)]
     pub by_text: bool,
+    /// Match by snapshot ref (@eN) instead of value attribute
+    #[arg(long)]
+    #[serde(default)]
+    pub by_ref: bool,
 }
 
 pub const COMMAND_NAME: &str = "browser.select";
@@ -69,6 +75,13 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
+    if cmd.by_text && cmd.by_ref {
+        return ActionResult::fatal(
+            "INVALID_ARGUMENT",
+            "--by-text and --by-ref are mutually exclusive",
+        );
+    }
+
     let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
@@ -80,24 +93,47 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return e,
     };
 
-    // Select the option by value or by visible text
-    let value_json = serde_json::to_string(&cmd.value).unwrap_or_default();
-    let by_text = cmd.by_text;
-
-    let fn_decl = format!(
-        r#"function() {{
-            if (this.tagName !== 'SELECT') return 'not a select element';
-            const opts = Array.from(this.options);
-            const opt = {by_text}
-                ? opts.find(o => o.textContent.trim() === {value_json})
-                : opts.find(o => o.value === {value_json});
-            if (!opt) return 'option not found';
-            this.value = opt.value;
-            this.dispatchEvent(new Event('input', {{ bubbles: true }}));
-            this.dispatchEvent(new Event('change', {{ bubbles: true }}));
-            return 'ok';
-        }}"#
-    );
+    // Build JS function + arguments based on mode
+    let (fn_decl, call_args) = if cmd.by_ref {
+        // Resolve option ref → pass the element directly via CDP arguments
+        let (_opt_node_id, opt_object_id) = match ctx.resolve_object(&cmd.value).await {
+            Ok(v) => v,
+            Err(e) => return e,
+        };
+        (
+            r#"function(optEl) {
+                if (this.tagName !== 'SELECT') return 'not a select element';
+                if (!optEl || optEl.tagName !== 'OPTION') return 'not an option element';
+                if (!Array.from(this.options).includes(optEl)) return 'option not in this select';
+                this.value = optEl.value;
+                this.dispatchEvent(new Event('input', { bubbles: true }));
+                this.dispatchEvent(new Event('change', { bubbles: true }));
+                return 'ok';
+            }"#
+            .to_string(),
+            json!([{ "objectId": opt_object_id }]),
+        )
+    } else {
+        let value_json = serde_json::to_string(&cmd.value).unwrap_or_default();
+        let by_text = cmd.by_text;
+        (
+            format!(
+                r#"function() {{
+                    if (this.tagName !== 'SELECT') return 'not a select element';
+                    const opts = Array.from(this.options);
+                    const opt = {by_text}
+                        ? opts.find(o => o.textContent.trim() === {value_json})
+                        : opts.find(o => o.value === {value_json});
+                    if (!opt) return 'option not found';
+                    this.value = opt.value;
+                    this.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    this.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    return 'ok';
+                }}"#
+            ),
+            json!([]),
+        )
+    };
 
     let resp = match ctx
         .execute_in_frame(
@@ -105,6 +141,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             json!({
                 "objectId": object_id,
                 "functionDeclaration": fn_decl,
+                "arguments": call_args,
                 "returnByValue": true,
             }),
         )
@@ -127,6 +164,21 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 format!("option not found: '{}'", cmd.value),
             );
         }
+        "not an option element" => {
+            return ActionResult::fatal(
+                "INVALID_ARGUMENT",
+                format!("ref '{}' does not point to an <option> element", cmd.value),
+            );
+        }
+        "option not in this select" => {
+            return ActionResult::fatal(
+                "INVALID_ARGUMENT",
+                format!(
+                    "option '{}' is not in the target <select> element",
+                    cmd.value
+                ),
+            );
+        }
         other => {
             return ActionResult::fatal("CDP_ERROR", format!("select failed: {other}"));
         }
@@ -141,6 +193,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         "value_summary": {
             "value": cmd.value,
             "by_text": cmd.by_text,
+            "by_ref": cmd.by_ref,
         },
         "post_url": url,
         "post_title": title,

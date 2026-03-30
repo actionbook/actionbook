@@ -46,7 +46,7 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let (mode, headless, profile, open_url, cdp_endpoint, headers, cdp, chrome_process);
+    let (mode, headless, stealth, profile, open_url, cdp_endpoint, headers, cdp, chrome_process);
     {
         let mut reg = registry.lock().await;
         let mut entry = match reg.remove(&cmd.session) {
@@ -61,6 +61,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         };
         mode = entry.mode;
         headless = entry.headless;
+        stealth = entry.stealth;
         profile = entry.profile.clone();
         open_url = entry.tabs.first().map(|t| t.url.clone());
         cdp_endpoint = entry.cdp_endpoint.clone();
@@ -95,6 +96,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         cdp_endpoint,
         header: headers,
         set_session_id: Some(cmd.session.clone()),
+        stealth,
     };
 
     let result = super::start::execute(&start_cmd, registry).await;

@@ -51,6 +51,14 @@ pub struct Cmd {
     /// Specify a semantic session ID
     #[arg(long)]
     pub set_session_id: Option<String>,
+    /// Enable stealth/anti-detection mode (default: true). Use --no-stealth to disable.
+    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[serde(default = "default_stealth")]
+    pub stealth: bool,
+}
+
+fn default_stealth() -> bool {
+    true
 }
 
 pub const COMMAND_NAME: &str = "browser.start";
@@ -175,6 +183,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 profile_name,
                 mode,
                 headless,
+                cmd.stealth,
             ) {
                 Ok(session_id) => StartDisposition::Reserved(session_id),
                 Err(e) => return ActionResult::fatal(e.error_code(), e.to_string()),
@@ -220,7 +229,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             let page_ws = format!("ws://127.0.0.1:{port}/devtools/page/{target_id}");
             if let Err(e) = cdp_navigate(
                 &page_ws,
-                &ensure_scheme(url).unwrap_or_else(|_| url.to_string()),
+                &ensure_scheme(url).unwrap_or_else(|_| "about:blank".to_string()),
             )
             .await
             {
@@ -254,7 +263,8 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             &executable,
             headless,
             &user_data_dir.to_string_lossy(),
-            cmd.open_url.as_deref(),
+            None,
+            cmd.stealth,
         )
         .await
         {
@@ -279,9 +289,6 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             }
         };
 
-        if cmd.open_url.is_some() {
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        }
         let targets = browser::list_targets(port).await.unwrap_or_default();
         (Some(chrome), Some(port), ws_url, targets)
     };
@@ -335,13 +342,46 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             .await;
         }
     };
+    // Fetch real User-Agent from browser, strip Headless markers for stealth.
+    // Only fetched when stealth is enabled; passed to attach() which gates injection on Some(ua).
+    let user_agent: Option<String> = if cmd.stealth {
+        if let Ok(v) = cdp
+            .execute("Browser.getVersion", serde_json::json!({}), None)
+            .await
+        {
+            let raw = v["result"]["userAgent"].as_str().unwrap_or("").to_string();
+            let ua = raw
+                .replace("HeadlessChrome", "Chrome")
+                .replace("Headless", "");
+            if ua.is_empty() { None } else { Some(ua) }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     for (native_id, ..) in &native_tabs {
-        if let Err(e) = cdp.attach(native_id).await {
+        if let Err(e) = cdp.attach(native_id, user_agent.as_deref()).await {
             tracing::warn!("failed to attach tab {native_id}: {e}");
         }
     }
 
     let first_native_id = native_tabs.first().map(|t| t.0.clone()).unwrap_or_default();
+
+    // Navigate to open_url after attach so the stealth script is already injected.
+    if let Some(url) = &cmd.open_url
+        && !first_native_id.is_empty()
+    {
+        let final_url = ensure_scheme(url).unwrap_or_else(|_| "about:blank".to_string());
+        let _ = cdp
+            .execute_on_tab(
+                &first_native_id,
+                "Page.navigate",
+                serde_json::json!({ "url": final_url }),
+            )
+            .await;
+    }
 
     // Get real-time info for the first tab
     let (first_url, first_title) = if !first_native_id.is_empty() {
@@ -376,6 +416,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
     entry.chrome_process = chrome_process;
     entry.cdp = Some(cdp);
+    entry.stealth_ua = user_agent;
 
     let first_short_id = entry
         .tabs
@@ -427,7 +468,7 @@ async fn reuse_running_session(
     target: ReuseTarget,
 ) -> ActionResult {
     if let Some(url) = &cmd.open_url {
-        let final_url = ensure_scheme(url).unwrap_or_else(|_| url.to_string());
+        let final_url = ensure_scheme(url).unwrap_or_else(|_| "about:blank".to_string());
         if let Some(ref cdp) = target.cdp
             && !target.first_native_id.is_empty()
         {
@@ -585,6 +626,7 @@ async fn execute_cloud(
             profile_name,
             Mode::Cloud,
             headless,
+            cmd.stealth,
         ) {
             Ok(sid) => sid,
             Err(e) => return ActionResult::fatal(e.error_code(), e.to_string()),
@@ -628,7 +670,7 @@ async fn execute_cloud(
 
     // Attach all tabs
     for (native_id, ..) in &tabs {
-        if let Err(e) = cdp.attach(native_id).await {
+        if let Err(e) = cdp.attach(native_id, None).await {
             tracing::warn!("cloud: failed to attach tab {native_id}: {e}");
         }
     }
