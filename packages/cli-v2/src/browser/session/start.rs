@@ -371,7 +371,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     entry.chrome_process = chrome_process;
     entry.cdp = Some(cdp);
 
-    let first_short_id = entry.tabs.first().map(|t| t.id.0.clone()).unwrap_or_default();
+    let first_short_id = entry
+        .tabs
+        .first()
+        .map(|t| t.id.0.clone())
+        .unwrap_or_default();
 
     ActionResult::ok(json!({
         "session": {
@@ -679,7 +683,11 @@ async fn execute_cloud(
     entry.cdp_endpoint = Some(cdp_endpoint.to_string());
     entry.headers = headers.to_vec();
 
-    let first_short_id = entry.tabs.first().map(|t| t.id.0.clone()).unwrap_or_default();
+    let first_short_id = entry
+        .tabs
+        .first()
+        .map(|t| t.id.0.clone())
+        .unwrap_or_default();
 
     ActionResult::ok(json!({
         "session": {
