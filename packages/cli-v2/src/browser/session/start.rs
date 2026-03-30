@@ -10,9 +10,9 @@ use crate::config::DEFAULT_PROFILE;
 use crate::daemon::browser;
 use crate::daemon::cdp::{cdp_navigate, ensure_scheme, ensure_scheme_or_fatal};
 use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result};
-use crate::daemon::registry::{SessionState, SharedRegistry, TabEntry};
+use crate::daemon::registry::{SessionState, SharedRegistry};
 use crate::output::ResponseContext;
-use crate::types::{Mode, SessionId, TabId};
+use crate::types::{Mode, SessionId};
 
 /// Start or attach a browser session
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
@@ -58,6 +58,7 @@ pub const COMMAND_NAME: &str = "browser.start";
 struct ReuseTarget {
     session_id: String,
     first_tab_id: String,
+    first_native_id: String,
     cdp: Option<CdpSession>,
     cdp_port: Option<u16>,
 }
@@ -149,6 +150,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                         .tabs
                         .first()
                         .map(|tab| tab.id.0.clone())
+                        .unwrap_or_default(),
+                    first_native_id: existing
+                        .tabs
+                        .first()
+                        .map(|tab| tab.native_id.clone())
                         .unwrap_or_default(),
                     cdp: existing.cdp.clone(),
                     cdp_port: existing.cdp_port,
@@ -292,14 +298,15 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         targets = browser::list_targets(p).await.unwrap_or(targets);
     }
 
-    let mut tabs = Vec::new();
+    // Collect (native_id, url, title) tuples; short IDs are assigned when pushed into the entry.
+    let mut native_tabs: Vec<(String, String, String)> = Vec::new();
     for t in &targets {
-        let target_id = t
+        let native_id = t
             .get("id")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        if !target_id.is_empty() {
+        if !native_id.is_empty() {
             let url = t
                 .get("url")
                 .and_then(|v| v.as_str())
@@ -310,11 +317,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            tabs.push(TabEntry {
-                id: TabId(target_id),
-                url,
-                title,
-            });
+            native_tabs.push((native_id, url, title));
         }
     }
 
@@ -332,17 +335,17 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             .await;
         }
     };
-    for tab in &tabs {
-        if let Err(e) = cdp.attach(&tab.id.0).await {
-            tracing::warn!("failed to attach tab {}: {e}", tab.id);
+    for (native_id, ..) in &native_tabs {
+        if let Err(e) = cdp.attach(native_id).await {
+            tracing::warn!("failed to attach tab {native_id}: {e}");
         }
     }
 
-    let first_tab_id = tabs.first().map(|t| t.id.0.clone()).unwrap_or_default();
+    let first_native_id = native_tabs.first().map(|t| t.0.clone()).unwrap_or_default();
 
     // Get real-time info for the first tab
-    let (first_url, first_title) = if !first_tab_id.is_empty() {
-        get_tab_info_from_targets(&targets, &first_tab_id)
+    let (first_url, first_title) = if !first_native_id.is_empty() {
+        get_tab_info_from_targets(&targets, &first_native_id)
     } else {
         (
             cmd.open_url.as_deref().unwrap_or("about:blank").to_string(),
@@ -368,9 +371,17 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     entry.status = SessionState::Running;
     entry.cdp_port = port;
     entry.ws_url = ws_url.clone();
-    entry.tabs = tabs;
+    for (native_id, url, title) in native_tabs {
+        entry.push_tab(native_id, url, title);
+    }
     entry.chrome_process = chrome_process;
     entry.cdp = Some(cdp);
+
+    let first_short_id = entry
+        .tabs
+        .first()
+        .map(|t| t.id.0.clone())
+        .unwrap_or_default();
 
     ActionResult::ok(json!({
         "session": {
@@ -381,7 +392,8 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             "cdp_endpoint": ws_url,
         },
         "tab": {
-            "tab_id": first_tab_id,
+            "tab_id": first_short_id,
+            "native_tab_id": first_native_id,
             "url": first_url,
             "title": first_title,
         },
@@ -417,11 +429,11 @@ async fn reuse_running_session(
     if let Some(url) = &cmd.open_url {
         let final_url = ensure_scheme(url).unwrap_or_else(|_| url.to_string());
         if let Some(ref cdp) = target.cdp
-            && !target.first_tab_id.is_empty()
+            && !target.first_native_id.is_empty()
         {
             let nav_result = cdp
                 .execute_on_tab(
-                    &target.first_tab_id,
+                    &target.first_native_id,
                     "Page.navigate",
                     serde_json::json!({ "url": final_url }),
                 )
@@ -436,7 +448,7 @@ async fn reuse_running_session(
     // For local sessions, refresh tab info from /json/list; for cloud, use registry
     let (tab_url, tab_title) = if let Some(port) = target.cdp_port {
         let targets = browser::list_targets(port).await.unwrap_or_default();
-        get_tab_info_from_targets(&targets, &target.first_tab_id)
+        get_tab_info_from_targets(&targets, &target.first_native_id)
     } else {
         // Cloud: get info from registry
         let reg = registry.lock().await;
@@ -444,7 +456,7 @@ async fn reuse_running_session(
             entry
                 .tabs
                 .iter()
-                .find(|t| t.id.0 == target.first_tab_id)
+                .find(|t| t.native_id == target.first_native_id)
                 .map(|t| (t.url.clone(), t.title.clone()))
                 .unwrap_or_default()
         } else {
@@ -499,11 +511,8 @@ async fn fail_reserved_start_with_chrome(
     ActionResult::fatal(code, message)
 }
 
-fn cleanup_chrome_process(chrome_process: Option<Child>) {
-    if let Some(mut chrome) = chrome_process {
-        let _ = chrome.kill();
-        let _ = chrome.wait();
-    }
+fn cleanup_chrome_process(mut chrome_process: Option<Child>) {
+    crate::daemon::chrome_reaper::kill_and_reap_option(&mut chrome_process);
 }
 
 // ── Cloud mode ──────────────────────────────────────────────────────
@@ -618,16 +627,16 @@ async fn execute_cloud(
     };
 
     // Attach all tabs
-    for tab in &tabs {
-        if let Err(e) = cdp.attach(&tab.id.0).await {
-            tracing::warn!("cloud: failed to attach tab {}: {e}", tab.id);
+    for (native_id, ..) in &tabs {
+        if let Err(e) = cdp.attach(native_id).await {
+            tracing::warn!("cloud: failed to attach tab {native_id}: {e}");
         }
     }
 
     // Navigate first tab if open_url provided and we didn't just create with it
     if let Some(url) = &cmd.open_url
         && !tabs.is_empty()
-        && tabs[0].url != *url
+        && tabs[0].1 != *url
     {
         let final_url = match ensure_scheme_or_fatal(url) {
             Ok(u) => u,
@@ -636,21 +645,21 @@ async fn execute_cloud(
                 return e;
             }
         };
-        let first_id = &tabs[0].id.0;
+        let first_native = &tabs[0].0;
         if let Err(e) = cdp
-            .execute_on_tab(first_id, "Page.navigate", json!({ "url": final_url }))
+            .execute_on_tab(first_native, "Page.navigate", json!({ "url": final_url }))
             .await
         {
             tracing::warn!("cloud: navigate on start failed: {e}");
         }
     }
 
-    let first_tab_id = tabs.first().map(|t| t.id.0.clone()).unwrap_or_default();
+    let first_native_id = tabs.first().map(|t| t.0.clone()).unwrap_or_default();
     let first_url = tabs
         .first()
-        .map(|t| t.url.clone())
+        .map(|t| t.1.clone())
         .unwrap_or_else(|| "about:blank".to_string());
-    let first_title = tabs.first().map(|t| t.title.clone()).unwrap_or_default();
+    let first_title = tabs.first().map(|t| t.2.clone()).unwrap_or_default();
 
     // ── Finalize registry entry ──
     let mut reg = registry.lock().await;
@@ -669,11 +678,19 @@ async fn execute_cloud(
     entry.status = SessionState::Running;
     entry.cdp_port = None;
     entry.ws_url = ws_url.clone();
-    entry.tabs = tabs;
+    for (native_id, url, title) in tabs {
+        entry.push_tab(native_id, url, title);
+    }
     entry.chrome_process = None;
     entry.cdp = Some(cdp);
     entry.cdp_endpoint = Some(cdp_endpoint.to_string());
     entry.headers = headers.to_vec();
+
+    let first_short_id = entry
+        .tabs
+        .first()
+        .map(|t| t.id.0.clone())
+        .unwrap_or_default();
 
     ActionResult::ok(json!({
         "session": {
@@ -684,7 +701,8 @@ async fn execute_cloud(
             "cdp_endpoint": redact_endpoint(cdp_endpoint),
         },
         "tab": {
-            "tab_id": first_tab_id,
+            "tab_id": first_short_id,
+            "native_tab_id": first_native_id,
             "url": first_url,
             "title": first_title,
         },
@@ -693,7 +711,10 @@ async fn execute_cloud(
 }
 
 /// Discover page tabs via CDP Target.getTargets.
-async fn discover_tabs_via_cdp(cdp: &CdpSession) -> Result<Vec<TabEntry>, crate::error::CliError> {
+/// Returns (native_id, url, title) tuples; short IDs are assigned by `SessionEntry::push_tab`.
+async fn discover_tabs_via_cdp(
+    cdp: &CdpSession,
+) -> Result<Vec<(String, String, String)>, crate::error::CliError> {
     let resp = cdp.execute_browser("Target.getTargets", json!({})).await?;
     let target_infos = resp
         .pointer("/result/targetInfos")
@@ -701,11 +722,11 @@ async fn discover_tabs_via_cdp(cdp: &CdpSession) -> Result<Vec<TabEntry>, crate:
         .cloned()
         .unwrap_or_default();
 
-    let tabs: Vec<TabEntry> = target_infos
+    let tabs = target_infos
         .iter()
         .filter(|t| t.get("type").and_then(|v| v.as_str()) == Some("page"))
         .filter_map(|t| {
-            let target_id = t.get("targetId").and_then(|v| v.as_str())?;
+            let native_id = t.get("targetId").and_then(|v| v.as_str())?;
             let url = t
                 .get("url")
                 .and_then(|v| v.as_str())
@@ -716,25 +737,22 @@ async fn discover_tabs_via_cdp(cdp: &CdpSession) -> Result<Vec<TabEntry>, crate:
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            Some(TabEntry {
-                id: TabId(target_id.to_string()),
-                url,
-                title,
-            })
+            Some((native_id.to_string(), url, title))
         })
         .collect();
     Ok(tabs)
 }
 
 /// Create a new tab via CDP Target.createTarget.
+/// Returns (native_id, url, title); short ID is assigned by `SessionEntry::push_tab`.
 async fn create_tab_via_cdp(
     cdp: &CdpSession,
     url: &str,
-) -> Result<TabEntry, crate::error::CliError> {
+) -> Result<(String, String, String), crate::error::CliError> {
     let resp = cdp
         .execute_browser("Target.createTarget", json!({ "url": url }))
         .await?;
-    let target_id = resp
+    let native_id = resp
         .pointer("/result/targetId")
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
@@ -743,11 +761,7 @@ async fn create_tab_via_cdp(
             )
         })?
         .to_string();
-    Ok(TabEntry {
-        id: TabId(target_id),
-        url: url.to_string(),
-        title: String::new(),
-    })
+    Ok((native_id, url.to_string(), String::new()))
 }
 
 /// Build a session response for reuse or new session.
@@ -768,6 +782,7 @@ fn make_session_response(
         },
         "tab": {
             "tab_id": first_tab.map(|t| t.id.0.as_str()).unwrap_or(""),
+            "native_tab_id": first_tab.map(|t| t.native_id.as_str()).unwrap_or(""),
             "url": first_tab.map(|t| t.url.as_str()).unwrap_or(""),
             "title": first_tab.map(|t| t.title.as_str()).unwrap_or(""),
         },

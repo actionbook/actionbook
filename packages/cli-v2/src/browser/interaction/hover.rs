@@ -14,12 +14,12 @@ use crate::output::ResponseContext;
 #[command(after_help = "\
 Examples:
   actionbook browser hover \"#menu-item\" --session s1 --tab t1
-  actionbook browser hover \"a.dropdown-toggle\" --session s1 --tab t1
+  actionbook browser hover @e3 --session s1 --tab t1
 
 Moves the mouse over the element to trigger hover states (tooltips, dropdowns, etc.).
-Accepts a CSS selector, XPath, or snapshot ref (@eN).")]
+Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).")]
 pub struct Cmd {
-    /// CSS selector, XPath, or snapshot ref
+    /// Selector (CSS, XPath, or @ref)
     pub selector: String,
     /// Session ID
     #[arg(long)]

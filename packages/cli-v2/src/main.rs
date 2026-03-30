@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use clap::Parser;
 use serde_json::json;
@@ -27,6 +27,52 @@ async fn main() {
         return;
     }
 
+    // Intercept help-like invocations before clap to show our custom help
+    // messages instead of clap's auto-generated output.
+    //
+    // All of these should show the same custom output:
+    //   actionbook              → top-level help
+    //   actionbook help         → top-level help
+    //   actionbook --help / -h  → top-level help
+    //   actionbook browser              → browser grouped help
+    //   actionbook browser help         → browser grouped help
+    //   actionbook browser --help / -h  → browser grouped help
+    {
+        let raw_args: Vec<String> = std::env::args().collect();
+        // Collect non-flag args after the binary name, skipping --timeout's value
+        let mut positional_args: Vec<&str> = Vec::new();
+        let mut skip_next = false;
+        for arg in &raw_args[1..] {
+            if skip_next {
+                skip_next = false;
+                continue;
+            }
+            if arg == "--timeout" {
+                skip_next = true;
+                continue;
+            }
+            if arg.starts_with('-') {
+                continue;
+            }
+            positional_args.push(arg);
+        }
+        let json_mode = raw_args.iter().any(|a| a == "--json");
+
+        match positional_args.as_slice() {
+            // `actionbook` (no args), `actionbook --help`, `actionbook help`
+            [] | ["help"] => {
+                handle_help(json_mode);
+                return;
+            }
+            // `actionbook browser`, `actionbook browser --help`, `actionbook browser help`
+            ["browser"] | ["browser", "help"] => {
+                handle_browser_help(json_mode);
+                return;
+            }
+            _ => {}
+        }
+    }
+
     let cli = Cli::parse();
     let json_output = cli.json;
     let is_setup_command = matches!(cli.command.as_ref(), Some(Commands::Setup(_)));
@@ -38,8 +84,8 @@ async fn main() {
     }
 
     if cli.command.is_none() {
-        eprintln!("error: no subcommand provided. Run `actionbook --help` for usage.");
-        std::process::exit(1);
+        handle_help(json_output);
+        return;
     }
 
     let result = run(cli).await;
@@ -76,10 +122,11 @@ async fn main() {
 
 async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let json_mode = cli.json;
+    let timeout_ms = cli.timeout;
 
     match cli.command.unwrap() {
         Commands::Browser { command } => {
-            handle_browser(command, json_mode).await?;
+            handle_browser(command, json_mode, timeout_ms).await?;
         }
         Commands::Setup(cmd) => {
             actionbook_cli::setup::execute(&cmd, json_mode).await?;
@@ -97,6 +144,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 async fn handle_browser(
     command: BrowserCommands,
     json_mode: bool,
+    timeout_ms: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if matches!(command, BrowserCommands::Help) {
         handle_browser_help(json_mode);
@@ -159,9 +207,37 @@ async fn handle_browser(
         }
     };
 
-    // Connect to daemon and execute
-    let mut client = DaemonClient::connect().await?;
-    let result = client.send_action(&action).await?;
+    // Connect to daemon and execute, with optional global timeout across the whole request.
+    let result = if let Some(timeout_ms) = timeout_ms {
+        let execution = async {
+            let mut client = DaemonClient::connect().await?;
+            client.send_action(&action).await
+        };
+        match tokio::time::timeout(Duration::from_millis(timeout_ms), execution).await {
+            Ok(result) => result?,
+            Err(_) => {
+                let result = ActionResult::fatal_with_hint(
+                    "TIMEOUT",
+                    format!("{command_name} timed out after {timeout_ms}ms"),
+                    "increase --timeout or retry the command",
+                );
+                let duration = start.elapsed();
+                let context = command.context(&result);
+                if json_mode {
+                    let envelope =
+                        JsonEnvelope::from_result(&command_name, context, &result, duration);
+                    println!("{}", serde_json::to_string(&envelope)?);
+                } else {
+                    let text = output::format_text(&command_name, &context, &result);
+                    println!("{text}");
+                }
+                std::process::exit(1);
+            }
+        }
+    } else {
+        let mut client = DaemonClient::connect().await?;
+        client.send_action(&action).await?
+    };
     let duration = start.elapsed();
 
     // Build context from command + result
@@ -264,7 +340,38 @@ Observation:
   text [<selector>]   --session --tab  Read element/page text
   value <selector>    --session --tab  Read input value
   attr <selector> <name>  --session --tab  Read element attribute
+  attrs <selector>        --session --tab  Read all element attributes
+  box <selector>          --session --tab  Read element bounding box
+  styles <selector> [names...]  --session --tab  Read computed styles
+  describe <selector>     --session --tab  Describe element properties
+  state <selector>        --session --tab  Get element state flags
   inspect-point <x,y>    --session --tab  Inspect element at coordinates
+  query one|all|count <selector>  --session --tab  Query elements
+  query nth <n> <selector>        --session --tab  Query nth element (1-based)
+
+Logs:
+  logs console        --session --tab  Get console logs
+  logs errors         --session --tab  Get error logs (exceptions + rejections)
+
+Wait:
+  wait element <selector>  --session --tab  Wait for element to appear
+  wait navigation          --session --tab  Wait for navigation to complete
+  wait network-idle        --session --tab  Wait for network to become idle
+  wait condition <expr>    --session --tab  Wait for JS expression to be truthy
+
+Cookies:
+  cookies list        --session      List all cookies
+  cookies get <name>  --session      Get a cookie by name
+  cookies set <name> <value>  --session  Set a cookie
+  cookies delete <name>  --session   Delete a cookie
+  cookies clear       --session      Clear cookies
+
+Storage (local-storage | session-storage):
+  <storage> list      --session --tab  List all key-value entries
+  <storage> get <key> --session --tab  Get a value by key
+  <storage> set <key> <value>  --session --tab  Set a key-value entry
+  <storage> delete <key>  --session --tab  Delete a key
+  <storage> clear <key>   --session --tab  Clear a key
 
 Interaction:
   click <selector|x,y>   --session --tab  Click element or coordinates

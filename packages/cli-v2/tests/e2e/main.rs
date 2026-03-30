@@ -27,4 +27,5 @@ mod screenshot;
 mod snapshot;
 mod storage;
 mod tab_management;
+mod timeout;
 mod wait;

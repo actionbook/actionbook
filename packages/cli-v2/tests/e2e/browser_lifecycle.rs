@@ -14,8 +14,9 @@ use std::sync::{Arc, Barrier};
 use std::time::Duration;
 
 use crate::harness::{
-    SessionGuard, SoloEnv, assert_failure, assert_success, headless, headless_json, new_tab_json,
-    parse_json, skip, start_session, stdout_str, unique_session, url_a, url_b,
+    SessionGuard, SoloEnv, assert_failure, assert_native_tab_id, assert_success, assert_tab_id,
+    headless, headless_json, new_tab_json, parse_json, skip, start_session, stdout_str,
+    unique_session, url_a, url_b,
 };
 
 const DEFAULT_LOCAL_SESSION_ID: &str = "SLOCAL-1";
@@ -42,13 +43,13 @@ fn lifecycle_open_and_close_json() {
     assert_eq!(v["data"]["session"]["status"], "running");
     assert!(v["data"]["session"]["headless"].is_boolean());
     assert!(v["data"]["session"]["cdp_endpoint"].is_string());
-    assert!(v["data"]["tab"]["tab_id"].is_string());
-    assert!(!v["data"]["tab"]["tab_id"].as_str().unwrap().is_empty());
+    assert_tab_id(&v["data"]["tab"]["tab_id"]);
+    assert_native_tab_id(&v["data"]["tab"]["native_tab_id"]);
     assert!(v["data"]["tab"]["url"].is_string());
     assert!(v["data"]["tab"]["title"].is_string());
     assert_eq!(v["data"]["reused"], false);
     assert_eq!(v["context"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
-    assert!(v["context"]["tab_id"].is_string());
+    assert_tab_id(&v["context"]["tab_id"]);
     assert!(v["meta"]["duration_ms"].is_number());
 
     // status
@@ -226,7 +227,7 @@ fn lifecycle_status_json() {
     assert!(v["data"]["session"]["tabs_count"].is_number());
     let tabs = v["data"]["tabs"].as_array().expect("tabs should be array");
     assert!(!tabs.is_empty());
-    assert!(tabs[0]["tab_id"].is_string());
+    assert_tab_id(&tabs[0]["tab_id"]);
     assert!(tabs[0]["url"].is_string());
     assert!(tabs[0]["title"].is_string());
     let caps = &v["data"]["capabilities"];
@@ -604,7 +605,9 @@ fn lifecycle_concurrent_parallel_operations() {
     );
     assert_success(&out, "start alpha");
     let _guard_a = SessionGuard::new(&sid_a);
-    let alpha_tab = parse_json(&out)["data"]["tab"]["tab_id"]
+    let alpha_json = parse_json(&out);
+    assert_tab_id(&alpha_json["data"]["tab"]["tab_id"]);
+    let alpha_tab = alpha_json["data"]["tab"]["tab_id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -627,7 +630,9 @@ fn lifecycle_concurrent_parallel_operations() {
     );
     assert_success(&out, "start beta");
     let _guard_b = SessionGuard::new(&sid_b);
-    let beta_tab = parse_json(&out)["data"]["tab"]["tab_id"]
+    let beta_json = parse_json(&out);
+    assert_tab_id(&beta_json["data"]["tab"]["tab_id"]);
+    let beta_tab = beta_json["data"]["tab"]["tab_id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -798,6 +803,8 @@ fn lifecycle_start_reuse_with_open_url_json() {
     assert_success(&out, "first start");
     let v = parse_json(&out);
     assert_eq!(v["data"]["reused"], false);
+    assert_tab_id(&v["data"]["tab"]["tab_id"]);
+    assert_native_tab_id(&v["data"]["tab"]["native_tab_id"]);
     let tab_id = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
 
     let out = env.headless_json(
@@ -1115,4 +1122,478 @@ fn lifecycle_set_session_id_rejects_duplicate_id() {
         v["error"]["code"], "SESSION_ALREADY_EXISTS",
         "must return SESSION_ALREADY_EXISTS for duplicate ID"
     );
+}
+
+// ===========================================================================
+// Daemon singleton and lifecycle tests
+// ===========================================================================
+
+/// Two concurrent `browser start` commands should share one daemon.
+#[test]
+fn daemon_singleton_concurrent_start() {
+    if skip() {
+        return;
+    }
+    let env = Arc::new(SoloEnv::new());
+    let barrier = Arc::new(Barrier::new(2));
+
+    let handles: Vec<_> = (0..2)
+        .map(|i| {
+            let env = env.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                // Each thread uses a unique profile to avoid SESSION_ALREADY_EXISTS
+                env.headless_json(
+                    &[
+                        "browser",
+                        "start",
+                        "--mode",
+                        "local",
+                        "--headless",
+                        "--profile",
+                        &format!("conc-prof-{i}"),
+                        "--set-session-id",
+                        &format!("conc-{i}"),
+                    ],
+                    30,
+                )
+            })
+        })
+        .collect();
+
+    let results: Vec<Output> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+    // Both CLI invocations must succeed (one starts the daemon, the other
+    // connects to the same daemon and starts a second session).
+    for (i, out) in results.iter().enumerate() {
+        assert!(
+            out.status.success(),
+            "concurrent start {i} must succeed.\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    // Only one daemon process should be running (check PID file)
+    let pid_path = std::path::Path::new(&env.actionbook_home).join("daemon.pid");
+    let pid_str = std::fs::read_to_string(&pid_path).expect("PID file should exist");
+    let pid: u32 = pid_str.trim().parse().expect("PID should be a number");
+    let status = std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .output()
+        .unwrap();
+    assert!(status.status.success(), "daemon PID {pid} should be alive");
+}
+
+/// Daemon exits after idle timeout when no sessions are active.
+#[test]
+fn daemon_idle_timeout() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+
+    // Short idle timeout (2s) + short housekeeping interval (2s) for fast test.
+    let out = env.headless_json_with_env(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "idle-test",
+        ],
+        &[
+            ("ACTIONBOOK_DAEMON_IDLE_TIMEOUT_SECS", "2"),
+            ("ACTIONBOOK_DAEMON_HOUSEKEEPING_INTERVAL_SECS", "2"),
+        ],
+        30,
+    );
+    assert_success(&out, "start for idle test");
+
+    // Close the session
+    let out = env.headless_json(&["browser", "close", "--session", "idle-test"], 10);
+    assert_success(&out, "close for idle test");
+
+    // Read daemon PID
+    let pid_path = std::path::Path::new(&env.actionbook_home).join("daemon.pid");
+    let pid_str = std::fs::read_to_string(&pid_path).expect("PID file should exist");
+    let pid: u32 = pid_str.trim().parse().expect("PID should be a number");
+
+    // Wait for daemon to exit (2s idle + 2s housekeeping + margin)
+    let start = std::time::Instant::now();
+    let mut exited = false;
+    while start.elapsed() < Duration::from_secs(15) {
+        let status = std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .output()
+            .unwrap();
+        if !status.status.success() {
+            exited = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+    assert!(exited, "daemon should have exited after idle timeout");
+}
+
+/// Daemon does NOT exit when sessions are still active, even past idle timeout.
+#[test]
+fn daemon_no_idle_exit_with_active_session() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+
+    let out = env.headless_json_with_env(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "keep-alive",
+        ],
+        &[
+            ("ACTIONBOOK_DAEMON_IDLE_TIMEOUT_SECS", "2"),
+            ("ACTIONBOOK_DAEMON_HOUSEKEEPING_INTERVAL_SECS", "2"),
+        ],
+        30,
+    );
+    assert_success(&out, "start for keep-alive test");
+
+    let pid_path = std::path::Path::new(&env.actionbook_home).join("daemon.pid");
+    let pid_str = std::fs::read_to_string(&pid_path).expect("PID file should exist");
+    let pid: u32 = pid_str.trim().parse().expect("PID should be a number");
+
+    // Wait 10 seconds — past the idle timeout + housekeeping interval
+    std::thread::sleep(Duration::from_secs(10));
+
+    // Daemon should still be alive because the session was never closed
+    let status = std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .output()
+        .unwrap();
+    assert!(
+        status.status.success(),
+        "daemon should still be alive with active session"
+    );
+}
+
+/// After daemon crash (SIGKILL), a new CLI invocation recovers.
+#[test]
+fn daemon_crash_recovery() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+
+    // Start daemon
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "crash-test",
+        ],
+        30,
+    );
+    assert_success(&out, "start before crash");
+
+    // Kill daemon with SIGKILL (skips graceful Chrome shutdown)
+    let pid_path = std::path::Path::new(&env.actionbook_home).join("daemon.pid");
+    let pid_str = std::fs::read_to_string(&pid_path).expect("PID file should exist");
+    let pid: u32 = pid_str.trim().parse().expect("PID should be a number");
+    let _ = std::process::Command::new("kill")
+        .args(["-9", &pid.to_string()])
+        .output();
+
+    // Wait for daemon to exit
+    std::thread::sleep(Duration::from_secs(1));
+
+    // Kill orphaned Chrome processes (SIGKILL skips daemon's graceful cleanup)
+    let profiles_dir = std::path::Path::new(&env.actionbook_home).join("profiles");
+    if profiles_dir.exists() {
+        let _ = std::process::Command::new("pkill")
+            .args(["-f", &format!("--user-data-dir={}", profiles_dir.display())])
+            .output();
+        std::thread::sleep(Duration::from_millis(500));
+    }
+
+    // Do NOT manually remove stale daemon.sock/ready files — the production code
+    // (client auto-start + daemon stale-socket cleanup) must handle these.
+
+    // New CLI invocation should auto-start a new daemon and succeed.
+    // Use a different profile to avoid Chrome profile lock from the killed process.
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            "crash-recovery-prof",
+            "--set-session-id",
+            "crash-recovery",
+        ],
+        30,
+    );
+    assert_success(&out, "start after crash recovery");
+}
+
+/// After `browser close`, Chrome processes for that session must not remain.
+#[test]
+fn close_kills_chrome_process() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+
+    // Start a session — this spawns a Chrome process
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "leak-test",
+        ],
+        30,
+    );
+    assert_success(&out, "start leak-test");
+
+    // Find Chrome processes under this env's profile dir
+    let profiles_dir = std::path::Path::new(&env.actionbook_home).join("profiles");
+    let chrome_pids_before = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        !chrome_pids_before.is_empty(),
+        "expected at least one Chrome process before close, found none"
+    );
+
+    // Close the session
+    let out = env.headless_json(&["browser", "close", "--session", "leak-test"], 30);
+    assert_success(&out, "close leak-test");
+
+    // Wait briefly for process to fully exit
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Verify all Chrome processes for this profile dir are gone
+    let chrome_pids_after = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        chrome_pids_after.is_empty(),
+        "Chrome processes should not remain after close, but found PIDs: {:?}",
+        chrome_pids_after
+    );
+}
+
+/// After daemon graceful shutdown, no Chrome processes should remain.
+#[test]
+fn daemon_shutdown_kills_all_chrome() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+
+    // Start two sessions
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "shutdown-a",
+            "--profile",
+            "prof-shutdown-a",
+        ],
+        30,
+    );
+    assert_success(&out, "start shutdown-a");
+
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "shutdown-b",
+            "--profile",
+            "prof-shutdown-b",
+        ],
+        30,
+    );
+    assert_success(&out, "start shutdown-b");
+
+    let profiles_dir = std::path::Path::new(&env.actionbook_home).join("profiles");
+    let pids_before = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        pids_before.len() >= 2,
+        "expected at least 2 Chrome processes, found {}",
+        pids_before.len()
+    );
+
+    // Send SIGTERM to daemon (graceful shutdown)
+    let pid_path = std::path::Path::new(&env.actionbook_home).join("daemon.pid");
+    let pid_str = std::fs::read_to_string(&pid_path).expect("PID file should exist");
+    let pid: u32 = pid_str.trim().parse().expect("PID should be a number");
+    let _ = std::process::Command::new("kill")
+        .args([&pid.to_string()])
+        .output();
+
+    // Wait for daemon and Chrome to exit
+    std::thread::sleep(Duration::from_secs(2));
+
+    let pids_after = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        pids_after.is_empty(),
+        "all Chrome processes should be killed on daemon shutdown, but found PIDs: {:?}",
+        pids_after
+    );
+}
+
+/// After `browser restart`, old Chrome processes must be killed and new ones spawned.
+#[test]
+fn restart_kills_old_chrome_and_spawns_new() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+    let profiles_dir = std::path::Path::new(&env.actionbook_home).join("profiles");
+
+    // Start a session
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "restart-leak",
+            "--profile",
+            "restart-leak-prof",
+        ],
+        30,
+    );
+    assert_success(&out, "start restart-leak");
+
+    // Record Chrome PIDs before restart
+    let pids_before = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        !pids_before.is_empty(),
+        "expected Chrome processes before restart"
+    );
+
+    // Restart the session
+    let out = env.headless_json(&["browser", "restart", "--session", "restart-leak"], 30);
+    assert_success(&out, "restart restart-leak");
+
+    // Wait for old Chrome to fully exit
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Verify: old PIDs should all be gone
+    for old_pid in &pids_before {
+        let alive = std::process::Command::new("kill")
+            .args(["-0", &old_pid.to_string()])
+            .output()
+            .is_ok_and(|o| o.status.success());
+        assert!(
+            !alive,
+            "old Chrome PID {old_pid} should be dead after restart"
+        );
+    }
+
+    // Verify: new Chrome processes should exist
+    let pids_after = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        !pids_after.is_empty(),
+        "expected new Chrome processes after restart"
+    );
+
+    // Verify: the new PIDs are different from the old ones
+    for new_pid in &pids_after {
+        assert!(
+            !pids_before.contains(new_pid),
+            "new PID {new_pid} should not be in old PID set {:?}",
+            pids_before
+        );
+    }
+
+    // Clean up
+    let _ = env.headless_json(&["browser", "close", "--session", "restart-leak"], 30);
+}
+
+/// Closing an already-closed session returns SESSION_NOT_FOUND (no panic/crash).
+#[test]
+fn double_close_returns_not_found() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "double-close",
+        ],
+        30,
+    );
+    assert_success(&out, "start double-close");
+
+    // First close succeeds
+    let out = env.headless_json(&["browser", "close", "--session", "double-close"], 30);
+    assert_success(&out, "first close");
+
+    // Second close returns SESSION_NOT_FOUND
+    let out = env.headless_json(&["browser", "close", "--session", "double-close"], 30);
+    assert_failure(&out, "second close should fail");
+    let v = parse_json(&out);
+    assert_eq!(v["error"]["code"], "SESSION_NOT_FOUND");
+}
+
+/// Helper: find Chrome PIDs whose --user-data-dir is under the given directory.
+/// Uses `--` to prevent pgrep from interpreting the pattern as options.
+fn find_chrome_pids_for_dir(profiles_dir: &std::path::Path) -> Vec<u32> {
+    let pattern = format!("--user-data-dir={}", profiles_dir.display());
+    let output = std::process::Command::new("pgrep")
+        .args(["-f", "--", &pattern])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .filter_map(|l| l.trim().parse::<u32>().ok())
+            .collect(),
+        Ok(o) if o.status.code() == Some(1) => {
+            // Exit code 1 = no matches found (not an error)
+            vec![]
+        }
+        Ok(o) => {
+            // Unexpected exit code — surface it so infra failures aren't silent
+            panic!(
+                "pgrep returned unexpected exit code {:?}: {}",
+                o.status.code(),
+                String::from_utf8_lossy(&o.stderr)
+            );
+        }
+        Err(e) => {
+            panic!("failed to run pgrep: {e}");
+        }
+    }
 }

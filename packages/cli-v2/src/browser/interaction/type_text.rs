@@ -14,13 +14,14 @@ use crate::output::ResponseContext;
 #[command(after_help = "\
 Examples:
   actionbook browser type \"#search\" \"hello world\" --session s1 --tab t1
-  actionbook browser type \"textarea\" \"line one\\nline two\" --session s1 --tab t1
+  actionbook browser type @e4 \"hello world\" --session s1 --tab t1
 
+Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
 Types each character individually, firing keydown/keypress/keyup events.
 Use for fields with autocomplete, live validation, or input listeners.
 For simple value setting without events, use fill instead.")]
 pub struct Cmd {
-    /// Target element selector
+    /// Selector (CSS, XPath, or @ref)
     pub selector: String,
     /// Text to type
     pub text: String,

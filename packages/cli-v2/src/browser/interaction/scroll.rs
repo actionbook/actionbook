@@ -18,16 +18,17 @@ Examples:
   actionbook browser scroll top --session s1 --tab t1
   actionbook browser scroll bottom --session s1 --tab t1
   actionbook browser scroll into-view \"#footer\" --session s1 --tab t1
+  actionbook browser scroll into-view @e8 --session s1 --tab t1
   actionbook browser scroll down 300 --container \"#sidebar\" --session s1 --tab t1
 
 Directions: up, down, left, right (with pixel amount), top, bottom (jump to edge).
-Use into-view with a selector to scroll an element into the viewport.
+Use into-view with a selector or snapshot ref (@eN) to scroll an element into the viewport.
 Use --container to scroll within a specific scrollable element.
 Use --align with into-view to control alignment (start, center, end, nearest).")]
 pub struct Cmd {
     /// Direction or action: up, down, left, right, top, bottom, into-view
     pub direction: String,
-    /// Pixels (for directional) or selector (for into-view)
+    /// Pixels (for directional) or selector/ref (for into-view)
     pub value: Option<String>,
     /// Session ID
     #[arg(long)]

@@ -13,10 +13,12 @@ use crate::output::ResponseContext;
 #[command(after_help = "\
 Examples:
   actionbook browser attr \"a.link\" href --session s1 --tab t1
-  actionbook browser attr \"#email\" aria-label --session s1 --tab t1
-  actionbook browser attr \"img\" src --session s1 --tab t1")]
+  actionbook browser attr @e3 aria-label --session s1 --tab t1
+  actionbook browser attr \"img\" src --session s1 --tab t1
+
+Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).")]
 pub struct Cmd {
-    /// Target element selector
+    /// Selector (CSS, XPath, or @ref)
     pub selector: String,
     /// Attribute name to read
     pub name: String,

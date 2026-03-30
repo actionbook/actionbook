@@ -51,6 +51,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         .map(|t| {
             json!({
                 "tab_id": t.id.to_string(),
+                "native_tab_id": t.native_id,
                 "url": t.url,
                 "title": t.title,
             })

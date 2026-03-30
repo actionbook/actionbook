@@ -14,11 +14,13 @@ use crate::output::ResponseContext;
 Examples:
   actionbook browser html --session s1 --tab t1
   actionbook browser html \"#main\" --session s1 --tab t1
+  actionbook browser html @e3 --session s1 --tab t1
 
+Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
 Without a selector, returns the full page HTML.
 With a selector, returns the outer HTML of the matched element.")]
 pub struct Cmd {
-    /// Optional target element selector. Omit to read the full page HTML.
+    /// Selector (CSS, XPath, or @ref). Omit to read the full page HTML.
     pub selector: Option<String>,
     /// Session ID
     #[arg(long)]

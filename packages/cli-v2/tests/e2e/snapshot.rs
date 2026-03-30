@@ -23,7 +23,7 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str,
+    stdout_str, unique_session, wait_page_ready,
 };
 
 const URL_A: &str = "https://actionbook.dev";
@@ -126,6 +126,7 @@ fn assert_content_has_refs(v: &serde_json::Value) {
 
 /// Start a headless session, return (session_id, tab_id).
 fn start_session(url: &str) -> (String, String) {
+    let (sid, profile) = unique_session("s");
     let out = headless_json(
         &[
             "browser",
@@ -133,6 +134,10 @@ fn start_session(url: &str) -> (String, String) {
             "--mode",
             "local",
             "--headless",
+            "--set-session-id",
+            &sid,
+            "--profile",
+            &profile,
             "--open-url",
             url,
         ],
@@ -145,6 +150,7 @@ fn start_session(url: &str) -> (String, String) {
         .unwrap()
         .to_string();
     let tid = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
+    wait_page_ready(&sid, &tid);
     (sid, tid)
 }
 

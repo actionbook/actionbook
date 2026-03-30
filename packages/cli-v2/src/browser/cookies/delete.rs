@@ -61,7 +61,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             }
         };
         let target_id = match entry.tabs.first() {
-            Some(t) => t.id.0.clone(),
+            Some(t) => t.native_id.clone(),
             None => {
                 return ActionResult::fatal(
                     "NO_TAB",

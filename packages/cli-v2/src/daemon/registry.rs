@@ -9,10 +9,11 @@ use crate::daemon::cdp_session::CdpSession;
 use crate::error::CliError;
 use crate::types::{Mode, SessionId, TabId};
 
-/// Tab metadata. `id` is Chrome's native CDP target ID.
+/// Tab metadata. `id` is the short user-facing ID (e.g. "t1"). `native_id` is Chrome's CDP target ID.
 #[derive(Debug, Clone)]
 pub struct TabEntry {
     pub id: TabId,
+    pub native_id: String,
     pub url: String,
     pub title: String,
 }
@@ -57,6 +58,16 @@ pub struct SessionEntry {
     pub cdp_endpoint: Option<String>,
     /// Custom headers for cloud CDP connections (e.g. auth tokens).
     pub headers: Vec<(String, String)>,
+    /// Counter for assigning short tab IDs (t1, t2, ...).
+    pub next_tab_id: u32,
+}
+
+impl Drop for SessionEntry {
+    fn drop(&mut self) {
+        // Last-resort backstop: kill the Chrome process if it wasn't
+        // explicitly cleaned up via kill_and_reap_async / close path.
+        crate::daemon::chrome_reaper::kill_and_reap_option(&mut self.chrome_process);
+    }
 }
 
 impl SessionEntry {
@@ -74,11 +85,24 @@ impl SessionEntry {
             cdp: None,
             cdp_endpoint: None,
             headers: Vec::new(),
+            next_tab_id: 1,
         }
     }
 
     pub fn tabs_count(&self) -> usize {
         self.tabs.len()
+    }
+
+    /// Append a tab with an auto-assigned short ID (t1, t2, ...).
+    pub fn push_tab(&mut self, native_id: String, url: String, title: String) {
+        let short_id = format!("t{}", self.next_tab_id);
+        self.next_tab_id += 1;
+        self.tabs.push(TabEntry {
+            id: TabId(short_id),
+            native_id,
+            url,
+            title,
+        });
     }
 }
 
@@ -207,6 +231,11 @@ impl SessionRegistry {
 
     pub fn list(&self) -> Vec<&SessionEntry> {
         self.sessions.values().collect()
+    }
+
+    /// Returns `true` if any session is in Starting or Running state.
+    pub fn has_active_sessions(&self) -> bool {
+        self.sessions.values().any(|entry| entry.status.is_active())
     }
 
     /// Get url and title for a tab.
@@ -450,6 +479,76 @@ mod tests {
         assert_eq!(
             registry.get(next.as_str()).map(|entry| entry.status),
             Some(SessionState::Starting)
+        );
+    }
+
+    #[test]
+    fn has_active_sessions_empty_registry() {
+        let registry = SessionRegistry::new();
+        assert!(!registry.has_active_sessions());
+    }
+
+    #[test]
+    fn has_active_sessions_with_starting_session() {
+        let mut registry = SessionRegistry::new();
+        registry
+            .reserve_session_start(Some("s1"), Some("prof"), "prof", Mode::Local, true)
+            .unwrap();
+        assert!(registry.has_active_sessions());
+    }
+
+    #[test]
+    fn has_active_sessions_all_closed() {
+        let mut registry = SessionRegistry::new();
+        let sid = registry
+            .reserve_session_start(Some("s1"), Some("prof"), "prof", Mode::Local, true)
+            .unwrap();
+        // Transition to Closed
+        if let Some(entry) = registry.get_mut(sid.as_str()) {
+            entry.status = SessionState::Closed;
+        }
+        assert!(!registry.has_active_sessions());
+    }
+
+    #[test]
+    fn drop_session_entry_kills_chrome_process() {
+        use std::process::Command;
+
+        let child = Command::new("sleep")
+            .arg("3600")
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id();
+
+        // Verify process is alive
+        assert!(
+            Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .output()
+                .is_ok_and(|o| o.status.success()),
+            "process should be alive before drop"
+        );
+
+        // Create a SessionEntry with the child process and drop it
+        {
+            let mut entry = SessionEntry::starting(
+                crate::types::SessionId::new("drop-test").unwrap(),
+                Mode::Local,
+                true,
+                "test-profile".to_string(),
+            );
+            entry.chrome_process = Some(child);
+            // entry is dropped here
+        }
+
+        // After drop, the process must be dead
+        let alive = Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .output()
+            .is_ok_and(|o| o.status.success());
+        assert!(
+            !alive,
+            "Chrome process should be killed when SessionEntry is dropped"
         );
     }
 }

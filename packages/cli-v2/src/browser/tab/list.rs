@@ -92,18 +92,19 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             .tabs
             .iter()
             .filter_map(|t| {
-                let target_id = &t.id.0;
+                let native_id = &t.native_id;
                 target_infos
                     .iter()
                     .find(|tgt| {
-                        tgt.get("targetId").and_then(|v| v.as_str()) == Some(target_id)
+                        tgt.get("targetId").and_then(|v| v.as_str()) == Some(native_id.as_str())
                             && tgt.get("type").and_then(|v| v.as_str()) == Some("page")
                     })
                     .map(|tgt| {
                         let url = tgt.get("url").and_then(|v| v.as_str()).unwrap_or("");
                         let title = tgt.get("title").and_then(|v| v.as_str()).unwrap_or("");
                         json!({
-                            "tab_id": target_id,
+                            "tab_id": t.id.0,
+                            "native_tab_id": native_id,
                             "url": url,
                             "title": title,
                         })

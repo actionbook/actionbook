@@ -189,14 +189,33 @@ async fn resolve_css(
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
 
-    let query = cdp
+    let query = match cdp
         .execute_on_tab(
             target_id,
             "DOM.querySelector",
             json!({ "nodeId": root_id, "selector": selector }),
         )
         .await
-        .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+    {
+        Ok(v) => v,
+        Err(e) => {
+            let msg = e.to_string();
+            // CDP -32000 "DOM Error while querying" means invalid CSS selector syntax
+            if msg.contains("DOM Error while querying") {
+                return Err(ActionResult::Fatal {
+                    code: "ELEMENT_NOT_FOUND".to_string(),
+                    message: format!("invalid CSS selector: '{selector}'"),
+                    hint: if selector.starts_with('@') {
+                        "snapshot refs must use @eN format (e.g. @e5), not @N".to_string()
+                    } else {
+                        "check your selector syntax".to_string()
+                    },
+                    details: Some(json!({ "selector": selector })),
+                });
+            }
+            return Err(cdp_error_to_result(e, "CDP_ERROR"));
+        }
+    };
 
     let node_id = query
         .pointer("/result/nodeId")

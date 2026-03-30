@@ -11,6 +11,17 @@ use crate::output::ResponseContext;
 
 /// Get error logs (window error events + unhandled rejections).
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser logs errors --session s1 --tab t1
+  actionbook browser logs errors --source app.js --session s1 --tab t1
+  actionbook browser logs errors --tail 5 --session s1 --tab t1
+  actionbook browser logs errors --since err-3 --session s1 --tab t1
+  actionbook browser logs errors --clear --session s1 --tab t1
+
+Captures uncaught exceptions and unhandled promise rejections.
+Use --source to filter by originating file. Use --since to poll for new entries.
+Use --clear to reset the error buffer after retrieval.")]
 pub struct Cmd {
     /// Session ID
     #[arg(long)]

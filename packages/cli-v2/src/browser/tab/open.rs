@@ -5,9 +5,8 @@ use serde_json::json;
 use crate::action_result::ActionResult;
 use crate::daemon::cdp::ensure_scheme_or_fatal;
 use crate::daemon::cdp_session::cdp_error_to_result;
-use crate::daemon::registry::{SharedRegistry, TabEntry};
+use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
-use crate::types::TabId;
 
 /// Open a new tab
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
@@ -106,16 +105,13 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         return cdp_error_to_result(e, "CDP_ERROR");
     }
 
-    // Register the new tab
-    {
+    // Register the new tab and capture the assigned short ID
+    let short_tab_id = {
         let mut reg = registry.lock().await;
         match reg.get_mut(&cmd.session) {
             Some(e) => {
-                e.tabs.push(TabEntry {
-                    id: TabId(target_id.clone()),
-                    url: final_url.clone(),
-                    title: String::new(),
-                });
+                e.push_tab(target_id.clone(), final_url.clone(), String::new());
+                e.tabs.last().map(|t| t.id.0.clone()).unwrap_or_default()
             }
             None => {
                 // Session was closed concurrently — detach and close the target
@@ -129,11 +125,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 );
             }
         }
-    }
+    };
 
     ActionResult::ok(json!({
         "tab": {
-            "tab_id": target_id,
+            "tab_id": short_tab_id,
+            "native_tab_id": target_id,
             "url": final_url,
             "title": "",
         },

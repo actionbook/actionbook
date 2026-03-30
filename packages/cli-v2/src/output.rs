@@ -380,6 +380,12 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
             {
                 lines.push(format!("by_text: {by_text}"));
             }
+            if let Some(by_ref) = data
+                .pointer("/value_summary/by_ref")
+                .and_then(|v| v.as_bool())
+            {
+                lines.push(format!("by_ref: {by_ref}"));
+            }
         }
         "browser.click" => {
             if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
@@ -538,15 +544,11 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
             }
         }
         "browser.describe" => {
-            let summary = {
-                let role = data.get("role").and_then(|v| v.as_str()).unwrap_or("");
-                let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                if name.is_empty() {
-                    role.to_string()
-                } else {
-                    format!("{role} \"{name}\"")
-                }
-            };
+            let summary = data
+                .get("summary")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             lines.push(summary);
             if let Some(nearby) = data.get("nearby").filter(|v| !v.is_null()) {
                 if let Some(p) = nearby.get("parent").and_then(|v| v.as_str()) {

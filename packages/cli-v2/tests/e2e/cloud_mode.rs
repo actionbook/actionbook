@@ -12,8 +12,8 @@
 
 use crate::harness::{
     SessionGuard, SoloEnv, assert_context_with_session, assert_context_with_tab,
-    assert_error_envelope, assert_failure, assert_meta, assert_success, assert_tab_id, headless,
-    headless_json, parse_json, skip, stdout_str, url_a, url_b, url_c,
+    assert_error_envelope, assert_failure, assert_meta, assert_native_tab_id, assert_success,
+    assert_tab_id, headless, headless_json, parse_json, skip, stdout_str, url_a, url_b, url_c,
 };
 use std::env;
 use std::process::Command as StdCommand;
@@ -129,6 +129,8 @@ fn assert_cloud_session(v: &serde_json::Value) {
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null(), "error must be null on success");
     assert_eq!(v["command"], "browser.start");
+    assert_tab_id(&v["data"]["tab"]["tab_id"]);
+    assert_native_tab_id(&v["data"]["tab"]["native_tab_id"]);
     let session = &v["data"]["session"];
     assert_eq!(session["mode"], "cloud");
     assert_eq!(session["status"], "running");
@@ -163,6 +165,8 @@ fn start_cloud_json(ws_url: &str) -> (String, String) {
         .as_str()
         .unwrap()
         .to_string();
+    assert_tab_id(&v["data"]["tab"]["tab_id"]);
+    assert_native_tab_id(&v["data"]["tab"]["native_tab_id"]);
     let tid = v["data"]["tab"]["tab_id"]
         .as_str()
         .unwrap_or("")
@@ -190,6 +194,8 @@ fn start_cloud_with_headers_json(ws_url: &str, headers: &[&str]) -> (String, Str
         .as_str()
         .unwrap()
         .to_string();
+    assert_tab_id(&v["data"]["tab"]["tab_id"]);
+    assert_native_tab_id(&v["data"]["tab"]["native_tab_id"]);
     let tid = v["data"]["tab"]["tab_id"]
         .as_str()
         .unwrap_or("")
@@ -201,6 +207,8 @@ fn open_cloud_tab_json(sid: &str, url: &str) -> String {
     let out = headless_json(&["browser", "new-tab", url, "--session", sid], 15);
     assert_success(&out, "cloud new-tab");
     let v = parse_json(&out);
+    assert_tab_id(&v["data"]["tab"]["tab_id"]);
+    assert_native_tab_id(&v["data"]["tab"]["native_tab_id"]);
     v["data"]["tab"]["tab_id"].as_str().unwrap().to_string()
 }
 
@@ -549,6 +557,8 @@ fn cloud_list_tabs_json() {
     let tabs = v["data"]["tabs"].as_array().expect("tabs should be array");
     for tab in tabs {
         assert_tab_id(&tab["tab_id"]);
+        assert_native_tab_id(&tab["native_tab_id"]);
+        assert_ne!(tab["tab_id"], tab["native_tab_id"]);
     }
     assert_meta(&v);
 }
@@ -587,11 +597,13 @@ fn cloud_new_tab_json() {
     assert_eq!(v["command"], "browser.new-tab");
     assert_eq!(v["data"]["created"], true);
     assert_tab_id(&v["data"]["tab"]["tab_id"]);
-    assert_context_with_session(&v, &sid);
-    assert!(
-        v["context"]["tab_id"].is_string(),
-        "context should have tab_id for new-tab"
+    assert_native_tab_id(&v["data"]["tab"]["native_tab_id"]);
+    assert_ne!(
+        v["data"]["tab"]["tab_id"],
+        v["data"]["tab"]["native_tab_id"]
     );
+    assert_context_with_session(&v, &sid);
+    assert_tab_id(&v["context"]["tab_id"]);
     assert_meta(&v);
 
     let out = headless_json(&["browser", "list-tabs", "--session", &sid], 10);
@@ -630,9 +642,9 @@ fn cloud_new_tab_sequential_ids_json() {
     let t2 = open_cloud_tab_json(&sid, &url_a());
     let t3 = open_cloud_tab_json(&sid, &url_b());
 
-    assert_ne!(t1, t2, "tab IDs must be unique");
-    assert_ne!(t2, t3, "tab IDs must be unique");
-    assert_ne!(t1, t3, "tab IDs must be unique");
+    assert_eq!(t1, "t1");
+    assert_eq!(t2, "t2");
+    assert_eq!(t3, "t3");
 }
 
 #[test]

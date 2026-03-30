@@ -14,12 +14,13 @@ use crate::output::ResponseContext;
 #[command(after_help = "\
 Examples:
   actionbook browser fill \"#email\" \"user@example.com\" --session s1 --tab t1
-  actionbook browser fill \"input[name=q]\" \"search query\" --session s1 --tab t1
+  actionbook browser fill @e4 \"search query\" --session s1 --tab t1
 
+Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
 Sets the value instantly (no per-character events). Use for standard inputs.
 For fields that need keystroke events (autocomplete, validation), use type instead.")]
 pub struct Cmd {
-    /// Target element selector
+    /// Selector (CSS, XPath, or @ref)
     pub selector: String,
     /// Value to fill
     pub value: String,

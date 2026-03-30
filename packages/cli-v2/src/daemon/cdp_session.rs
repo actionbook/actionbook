@@ -32,7 +32,9 @@ type TabNetPending = Arc<Mutex<HashMap<String, i64>>>;
 #[derive(Clone)]
 pub struct CdpSession {
     /// Channel to send raw WS text messages to the writer task.
-    writer_tx: mpsc::Sender<String>,
+    /// Wrapped in Option so `close()` can take it out, closing the channel
+    /// and propagating shutdown to both reader and writer background tasks.
+    writer_tx: Arc<Mutex<Option<mpsc::Sender<String>>>>,
     /// In-flight requests keyed by message ID.
     pending: PendingRequests,
     /// Atomic counter for generating unique message IDs.
@@ -95,7 +97,7 @@ impl CdpSession {
         ));
 
         Ok(CdpSession {
-            writer_tx,
+            writer_tx: Arc::new(Mutex::new(Some(writer_tx))),
             pending,
             next_id,
             tab_sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -239,6 +241,26 @@ impl CdpSession {
         rx
     }
 
+    /// Gracefully shut down background reader/writer tasks and close the
+    /// WebSocket connection. Idempotent — safe to call multiple times.
+    ///
+    /// Drops the writer channel sender, which causes the writer loop to exit,
+    /// which closes the WS connection, which causes the reader loop to exit,
+    /// which fails all pending requests with `SessionClosed`.
+    pub async fn close(&self) {
+        // Take and drop the writer sender — closes the channel.
+        self.writer_tx.lock().await.take();
+
+        // Fail all pending requests immediately instead of waiting for
+        // the reader loop to notice the connection drop.
+        let mut map = self.pending.lock().await;
+        for (_, tx) in map.drain() {
+            let _ = tx.send(Err(CliError::SessionClosed(
+                "session was closed".to_string(),
+            )));
+        }
+    }
+
     /// Low-level: send a CDP command and wait for its response.
     pub async fn execute(
         &self,
@@ -260,10 +282,19 @@ impl CdpSession {
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.insert(id, tx);
 
-        if self.writer_tx.send(msg.to_string()).await.is_err() {
+        // Clone the sender (if still open) so we don't hold the mutex
+        // across the potentially-blocking send().await.
+        let writer = self.writer_tx.lock().await.clone();
+        let send_result = match writer {
+            Some(tx) => tx.send(msg.to_string()).await,
+            None => Err(mpsc::error::SendError(msg.to_string())),
+        };
+        if send_result.is_err() {
             // Clean up pending entry to avoid leak
             self.pending.lock().await.remove(&id);
-            return Err(CliError::CdpError("writer channel closed".to_string()));
+            return Err(CliError::SessionClosed(
+                "session was closed while command was pending".to_string(),
+            ));
         }
 
         let resp = rx
@@ -340,12 +371,14 @@ impl CdpSession {
             }
         }
 
-        // Connection dropped — fail all pending requests.
-        // Use generic CdpError here; cdp_error_to_result will upgrade to
-        // CloudConnectionLost for cloud sessions based on session mode.
+        // Connection dropped — fail all pending requests with SessionClosed.
+        // cdp_error_to_result will further upgrade to CloudConnectionLost
+        // for cloud sessions based on session mode.
         let mut map = pending.lock().await;
         for (_, tx) in map.drain() {
-            let _ = tx.send(Err(CliError::CdpError("connection closed".to_string())));
+            let _ = tx.send(Err(CliError::SessionClosed(
+                "session was closed while command was pending".to_string(),
+            )));
         }
     }
 
@@ -364,12 +397,12 @@ impl CdpSession {
 
 // ─── Helper ──────────────────────────────────────────────────────────
 
-/// Extract CdpSession and tab target_id from the registry.
+/// Extract CdpSession and native target_id from the registry.
 ///
+/// `tab_id` is the short user-facing ID (e.g. "t1"); the returned target_id
+/// is Chrome's native CDP target ID needed for `execute_on_tab`.
 /// Returns `ActionResult` errors for SESSION_NOT_FOUND, TAB_NOT_FOUND,
 /// or missing CDP connection.
-/// Extract CdpSession from the registry and verify the tab exists.
-/// Since tab_id IS the native target_id, just return it directly.
 pub async fn get_cdp_and_target(
     registry: &crate::daemon::registry::SharedRegistry,
     session_id: &str,
@@ -388,14 +421,18 @@ pub async fn get_cdp_and_target(
             format!("no CDP connection for session '{session_id}'"),
         )
     })?;
-    if !entry.tabs.iter().any(|t| t.id.0 == tab_id) {
-        return Err(crate::action_result::ActionResult::fatal(
-            "TAB_NOT_FOUND",
-            format!("tab '{tab_id}' not found"),
-        ));
-    }
-    // tab_id IS the native target_id
-    Ok((cdp, tab_id.to_string()))
+    let native_id = entry
+        .tabs
+        .iter()
+        .find(|t| t.id.0 == tab_id)
+        .map(|t| t.native_id.clone())
+        .ok_or_else(|| {
+            crate::action_result::ActionResult::fatal(
+                "TAB_NOT_FOUND",
+                format!("tab '{tab_id}' not found"),
+            )
+        })?;
+    Ok((cdp, native_id))
 }
 
 /// Convert a CliError from CDP operations into an ActionResult.
@@ -407,6 +444,11 @@ pub fn cdp_error_to_result(e: CliError, default_code: &str) -> crate::action_res
             "CLOUD_CONNECTION_LOST",
             e.to_string(),
             "cloud connection lost — retry or run `actionbook browser start --mode cloud ...` to reconnect",
+        ),
+        CliError::SessionClosed(_) => crate::action_result::ActionResult::fatal_with_hint(
+            "SESSION_CLOSED",
+            e.to_string(),
+            "the session was closed while a command was still in flight — start a new session",
         ),
         _ => crate::action_result::ActionResult::fatal(default_code, e.to_string()),
     }
@@ -871,6 +913,58 @@ mod tests {
         assert!(
             rx_a.try_recv().is_err(),
             "should not receive event destined for a different session"
+        );
+    }
+
+    // ── 11. test_close_stops_background_tasks ────────────────────────
+
+    #[tokio::test]
+    async fn test_close_stops_background_tasks() {
+        let (url, mut conns) = mock_ws_server().await;
+        let cdp = CdpSession::connect(&url).await.unwrap();
+        let (_reader, _writer) = conns.recv().await.unwrap();
+
+        // close() should terminate reader/writer tasks
+        cdp.close().await;
+
+        // After close, sending a command should fail (not hang).
+        // Use a timeout to prevent infinite hang if close() is a no-op.
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            cdp.execute("Test.method", json!({}), None),
+        )
+        .await;
+
+        match result {
+            Ok(Err(_)) => {} // Expected: execute returns error immediately
+            Ok(Ok(_)) => panic!("execute after close() should fail, not succeed"),
+            Err(_) => {
+                panic!("execute after close() hung — close() did not shut down background tasks")
+            }
+        }
+    }
+
+    // ── 12. test_close_idempotent ────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_close_idempotent() {
+        let (url, mut conns) = mock_ws_server().await;
+        let cdp = CdpSession::connect(&url).await.unwrap();
+        let (_reader, _writer) = conns.recv().await.unwrap();
+
+        // Calling close() twice should not panic
+        cdp.close().await;
+        cdp.close().await;
+
+        // And execute should still fail after double close
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            cdp.execute("Test.method", json!({}), None),
+        )
+        .await;
+        assert!(
+            matches!(result, Ok(Err(_))),
+            "execute after double close() should fail"
         );
     }
 }

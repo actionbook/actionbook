@@ -2,16 +2,24 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str,
+    stdout_str, unique_session, wait_page_ready,
 };
 
 const DESCRIBE_SELECTOR: &str = "#describe-target";
+const DESCRIBE_DISABLED_SELECTOR: &str = "#describe-disabled";
+const DESCRIBE_CHECKED_SELECTOR: &str = "#describe-checked";
+const DESCRIBE_MULTI_SELECTOR: &str = "#describe-multi";
+const DESCRIBE_NEARBY_FILTER_SELECTOR: &str = "#describe-nearby-target";
+const DESCRIBE_UNCHECKED_SELECTOR: &str = "#describe-unchecked";
+const DESCRIBE_SELECTED_SELECTOR: &str = "#describe-selected";
+const DESCRIBE_UNSELECTED_SELECTOR: &str = "#describe-unselected";
 const STATE_SELECTOR: &str = "#state-target";
 const STATE_CHECKED_SELECTOR: &str = "#state-checked";
 const STATE_DISABLED_SELECTOR: &str = "#state-disabled";
 const STATE_HIDDEN_SELECTOR: &str = "#state-hidden";
 
 fn start_session() -> (String, String) {
+    let (sid, profile) = unique_session("s");
     let out = headless_json(
         &[
             "browser",
@@ -19,6 +27,10 @@ fn start_session() -> (String, String) {
             "--mode",
             "local",
             "--headless",
+            "--set-session-id",
+            &sid,
+            "--profile",
+            &profile,
             "--open-url",
             "about:blank",
         ],
@@ -46,6 +58,7 @@ fn start_session() -> (String, String) {
     );
     assert_success(&goto_out, "goto about:blank");
 
+    wait_page_ready(&sid, &tid);
     (sid, tid)
 }
 
@@ -58,6 +71,14 @@ document.body.innerHTML = `
       <button id="describe-target" type="button">Edit</button>
     </li>
   </ul>
+  <button id="describe-disabled" type="button" disabled>Edit</button>
+  <label><input id="describe-checked" type="checkbox" checked>Agree</label>
+  <label><input id="describe-multi" type="checkbox" checked disabled>Confirm</label>
+  <label><input id="describe-unchecked" type="checkbox">Later</label>
+  <select>
+    <option id="describe-selected" selected>Red</option>
+    <option id="describe-unselected">Blue</option>
+  </select>
   <input id="state-target" type="text" value="query" placeholder="Search">
   <input id="state-checked" type="checkbox" checked>
   <input id="state-disabled" type="text" value="locked" disabled>
@@ -68,6 +89,25 @@ document.querySelector('#state-target').focus();
 void(0)"#;
     let out = headless_json(&["browser", "eval", js, "--session", sid, "--tab", tid], 10);
     assert_success(&out, "inject fixture");
+}
+
+fn inject_nearby_significance_fixture(sid: &str, tid: &str) {
+    let js = r#"document.body.style.margin = '0';
+document.body.innerHTML = `
+  <div id="nearby-structural-parent">
+    <div id="nearby-empty-previous"></div>
+    <div id="describe-nearby-target" aria-label="Profile card">
+      <div id="nearby-empty-child"></div>
+      <span id="nearby-text-child">Helper text</span>
+      <button id="nearby-button-child" type="button">Open</button>
+    </div>
+    <div id="nearby-named-next" aria-label="Status chip"></div>
+  </div>
+`;
+document.title = 'Describe Nearby Filter Fixture';
+void(0)"#;
+    let out = headless_json(&["browser", "eval", js, "--session", sid, "--tab", tid], 10);
+    assert_success(&out, "inject nearby significance fixture");
 }
 
 fn assert_meta(v: &serde_json::Value) {
@@ -85,6 +125,40 @@ fn assert_error_envelope(v: &serde_json::Value, expected_code: &str) {
     assert!(v["error"]["retryable"].is_boolean());
     assert!(v["error"]["details"].is_object() || v["error"]["details"].is_null());
     assert_meta(v);
+}
+
+fn describe_json(sid: &str, tid: &str, selector: &str) -> serde_json::Value {
+    let out = headless_json(
+        &[
+            "browser",
+            "describe",
+            selector,
+            "--session",
+            sid,
+            "--tab",
+            tid,
+        ],
+        10,
+    );
+    assert_success(&out, &format!("describe {selector} json"));
+    parse_json(&out)
+}
+
+fn describe_text(sid: &str, tid: &str, selector: &str) -> String {
+    let out = headless(
+        &[
+            "browser",
+            "describe",
+            selector,
+            "--session",
+            sid,
+            "--tab",
+            tid,
+        ],
+        10,
+    );
+    assert_success(&out, &format!("describe {selector} text"));
+    stdout_str(&out)
 }
 
 #[test]
@@ -242,6 +316,183 @@ fn describe_nearby_text_output() {
     assert_eq!(lines.get(1), Some(&"button \"Edit\""));
     assert_eq!(lines.get(2), Some(&"parent: listitem \"John Smith\""));
     assert_eq!(lines.get(3), Some(&"previous_sibling: text \"John Smith\""));
+}
+
+#[test]
+fn describe_nearby_filters_structural_nodes_json() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_nearby_significance_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "describe",
+            DESCRIBE_NEARBY_FILTER_SELECTOR,
+            "--nearby",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "describe nearby significance json");
+    let v = parse_json(&out);
+
+    let nearby = &v["data"]["nearby"];
+    assert!(nearby["parent"].is_null());
+    assert!(nearby["previous_sibling"].is_null());
+    assert_eq!(nearby["next_sibling"], "div \"Status chip\"");
+
+    let children = nearby["children"].as_array().unwrap();
+    assert_eq!(children.len(), 2);
+    assert_eq!(children[0], "text \"Helper text\"");
+    assert_eq!(children[1], "button \"Open\"");
+}
+
+#[test]
+fn describe_nearby_filters_structural_nodes_text_output() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_nearby_significance_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "describe",
+            DESCRIBE_NEARBY_FILTER_SELECTOR,
+            "--nearby",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "describe nearby significance text");
+    let text = stdout_str(&out);
+    let lines: Vec<&str> = text.lines().collect();
+
+    assert!(
+        lines
+            .first()
+            .unwrap_or(&"")
+            .starts_with(&format!("[{sid} {tid}]")),
+        "header must start with [session_id tab_id]: {text}"
+    );
+    assert_eq!(lines.get(1), Some(&"div \"Profile card\""));
+    assert_eq!(lines.get(2), Some(&"next_sibling: div \"Status chip\""));
+    assert_eq!(lines.get(3), Some(&"child: text \"Helper text\""));
+    assert_eq!(lines.get(4), Some(&"child: button \"Open\""));
+    assert_eq!(lines.len(), 5);
+}
+
+#[test]
+fn describe_summary_disabled_qualifier_json() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    let v = describe_json(&sid, &tid, DESCRIBE_DISABLED_SELECTOR);
+    assert_eq!(v["data"]["summary"], "button \"Edit\" [disabled]");
+}
+
+#[test]
+fn describe_summary_checked_qualifier_json() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    let v = describe_json(&sid, &tid, DESCRIBE_CHECKED_SELECTOR);
+    assert_eq!(v["data"]["summary"], "checkbox \"Agree\" [checked]");
+}
+
+#[test]
+fn describe_summary_selected_qualifier_json() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    let v = describe_json(&sid, &tid, DESCRIBE_SELECTED_SELECTOR);
+    assert_eq!(v["data"]["summary"], "option \"Red\" [selected]");
+}
+
+#[test]
+fn describe_summary_multiple_qualifiers_json() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    let v = describe_json(&sid, &tid, DESCRIBE_MULTI_SELECTOR);
+    assert_eq!(
+        v["data"]["summary"],
+        "checkbox \"Confirm\" [disabled, checked]"
+    );
+}
+
+#[test]
+fn describe_summary_default_states_have_no_qualifier_json() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    let unchecked = describe_json(&sid, &tid, DESCRIBE_UNCHECKED_SELECTOR);
+    assert_eq!(unchecked["data"]["summary"], "checkbox \"Later\"");
+
+    let unselected = describe_json(&sid, &tid, DESCRIBE_UNSELECTED_SELECTOR);
+    assert_eq!(unselected["data"]["summary"], "option \"Blue\"");
+}
+
+#[test]
+fn describe_text_output_with_qualifier() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    let text = describe_text(&sid, &tid, DESCRIBE_DISABLED_SELECTOR);
+    let lines: Vec<&str> = text.lines().collect();
+
+    assert!(
+        lines
+            .first()
+            .unwrap_or(&"")
+            .starts_with(&format!("[{sid} {tid}]")),
+        "header must start with [session_id tab_id]: {text}"
+    );
+    assert_eq!(lines.get(1), Some(&"button \"Edit\" [disabled]"));
 }
 
 #[test]

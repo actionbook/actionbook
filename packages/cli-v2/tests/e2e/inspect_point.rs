@@ -17,13 +17,14 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str,
+    stdout_str, unique_session, wait_page_ready,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
 /// Start a headless session on about:blank, return (session_id, tab_id).
 fn start_session() -> (String, String) {
+    let (sid, profile) = unique_session("s");
     let out = headless_json(
         &[
             "browser",
@@ -31,6 +32,10 @@ fn start_session() -> (String, String) {
             "--mode",
             "local",
             "--headless",
+            "--set-session-id",
+            &sid,
+            "--profile",
+            &profile,
             "--open-url",
             "about:blank",
         ],
@@ -59,6 +64,7 @@ fn start_session() -> (String, String) {
     );
     assert_success(&goto_out, "goto about:blank");
 
+    wait_page_ready(&sid, &tid);
     (sid, tid)
 }
 

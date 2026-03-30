@@ -100,7 +100,7 @@ pub async fn launch_chrome(
         let port = rx
             .recv_timeout(std::time::Duration::from_secs(15))
             .map_err(|_| {
-                let _ = child.kill();
+                crate::daemon::chrome_reaper::kill_and_reap(&mut child);
                 CliError::CdpConnectionFailed(
                     "Chrome did not print DevTools listening URL within 15s".to_string(),
                 )

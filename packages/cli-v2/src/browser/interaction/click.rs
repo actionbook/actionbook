@@ -8,9 +8,8 @@ use crate::action_result::ActionResult;
 use crate::browser::element::TabContext;
 use crate::browser::navigation;
 use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result};
-use crate::daemon::registry::{SharedRegistry, TabEntry};
+use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
-use crate::types::TabId;
 
 fn default_button() -> String {
     "left".to_string()
@@ -25,14 +24,16 @@ fn default_count() -> u32 {
 #[command(after_help = "\
 Examples:
   actionbook browser click \"#submit\" --session s1 --tab t1
+  actionbook browser click @e5 --session s1 --tab t1
   actionbook browser click 420,310 --session s1 --tab t1
   actionbook browser click \"a.link\" --new-tab --session s1 --tab t1
   actionbook browser click \"#item\" --count 2 --session s1 --tab t1
 
 Accepts a CSS selector, XPath, snapshot ref (@eN), or x,y coordinates.
+Refs come from snapshot output (e.g. [ref=e5]).
 Use --count 2 for double-click. Use --new-tab to open links in a new tab.")]
 pub struct Cmd {
-    /// CSS selector or x,y coordinates
+    /// CSS selector, XPath, @ref, or x,y coordinates
     pub selector: String,
     /// Session ID
     #[arg(long)]
@@ -358,11 +359,7 @@ async fn open_in_new_tab(
     let mut reg = registry.lock().await;
     match reg.get_mut(session_id) {
         Some(entry) => {
-            entry.tabs.push(TabEntry {
-                id: TabId(new_target_id),
-                url: url.to_string(),
-                title: String::new(),
-            });
+            entry.push_tab(new_target_id, url.to_string(), String::new());
         }
         None => {
             // Session vanished concurrently — detach and close the orphan
