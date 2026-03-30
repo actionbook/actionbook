@@ -40,6 +40,7 @@ async fn launch_chrome_adds_stealth_flags_and_omits_open_url_arg() {
         true,
         user_data_dir.to_str().expect("user data dir"),
         Some("https://example.com/stealth-check"),
+        true,
     )
     .await
     .expect("launch fake chrome");
@@ -134,5 +135,30 @@ fn goto_source_no_longer_registers_document_start_scripts() {
     assert!(
         !source.contains("Page.addScriptToEvaluateOnNewDocument"),
         "goto.rs should stop registering document-start scripts once attach() owns stealth injection"
+    );
+}
+
+#[test]
+fn start_source_exposes_stealth_flags_and_defaults_them_on() {
+    let source = read_src("browser/session/start.rs");
+    // Cmd struct should have a stealth field
+    assert!(
+        source.contains("pub stealth: bool"),
+        "start.rs Cmd should have a stealth field"
+    );
+    // Default value function must return true
+    assert!(
+        source.contains("fn default_stealth() -> bool") && source.contains("true"),
+        "default_stealth() should return true"
+    );
+    // Clap annotation for --stealth/--no-stealth with default true
+    assert!(
+        source.contains("default_value = \"true\""),
+        "stealth arg should default to true"
+    );
+    // stealth is passed to launch_chrome
+    assert!(
+        source.contains("cmd.stealth"),
+        "cmd.stealth should be used (e.g. passed to launch_chrome)"
     );
 }

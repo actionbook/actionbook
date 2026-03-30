@@ -111,7 +111,14 @@ impl CdpSession {
     /// Sends `Target.attachToTarget` with `flatten: true` and stores the
     /// returned `sessionId` for future `execute_on_tab` calls.
     /// Idempotent: if already attached, returns the existing sessionId.
-    pub async fn attach(&self, target_id: &str) -> Result<String, CliError> {
+    ///
+    /// `user_agent`: if `Some`, stealth injection (Page.enable + script + UA override) is applied.
+    /// Pass `None` to skip stealth (e.g. when stealth mode is disabled).
+    pub async fn attach(
+        &self,
+        target_id: &str,
+        user_agent: Option<&str>,
+    ) -> Result<String, CliError> {
         // Check if already attached (idempotent)
         if let Some(existing) = self.tab_sessions.lock().await.get(target_id).cloned() {
             return Ok(existing);
@@ -147,6 +154,35 @@ impl CdpSession {
         let _ = self
             .execute("Network.enable", json!({}), Some(&session_id))
             .await;
+
+        // Apply stealth when user_agent is provided (stealth mode enabled).
+        if let Some(ua) = user_agent {
+            // Enable Page domain (required before addScriptToEvaluateOnNewDocument).
+            let _ = self
+                .execute("Page.enable", json!({}), Some(&session_id))
+                .await;
+
+            // Inject stealth script so it runs at document start on every navigation.
+            let stealth_source = &*crate::browser::stealth::STEALTH_JS;
+            let _ = self
+                .execute(
+                    "Page.addScriptToEvaluateOnNewDocument",
+                    json!({ "source": stealth_source }),
+                    Some(&session_id),
+                )
+                .await;
+
+            // Override User-Agent to remove "HeadlessChrome" and other automation hints.
+            if !ua.is_empty() {
+                let _ = self
+                    .execute(
+                        "Emulation.setUserAgentOverride",
+                        json!({ "userAgent": ua }),
+                        Some(&session_id),
+                    )
+                    .await;
+            }
+        }
 
         Ok(session_id)
     }
@@ -587,7 +623,7 @@ mod tests {
 
         // Attach
         let cdp_clone = cdp.clone();
-        let attach_handle = tokio::spawn(async move { cdp_clone.attach("TARGET_ABC").await });
+        let attach_handle = tokio::spawn(async move { cdp_clone.attach("TARGET_ABC", None).await });
 
         let msg = read_json(&mut reader).await;
         assert_eq!(msg["method"], "Target.attachToTarget");

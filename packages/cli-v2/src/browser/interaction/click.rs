@@ -348,7 +348,7 @@ async fn open_in_new_tab(
         .to_string();
 
     // Attach — rollback on failure
-    if let Err(e) = cdp.attach(&new_target_id).await {
+    if let Err(e) = cdp.attach(&new_target_id, None).await {
         let _ = cdp
             .execute_browser("Target.closeTarget", json!({ "targetId": new_target_id }))
             .await;

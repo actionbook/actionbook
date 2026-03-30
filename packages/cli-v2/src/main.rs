@@ -166,6 +166,7 @@ async fn handle_browser(
                         cdp_endpoint: None,
                         header: vec![],
                         set_session_id: None,
+                        stealth: true,
                     });
                 let result = ActionResult::fatal(err.error_code(), err.to_string());
                 let duration = start.elapsed();

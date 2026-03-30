@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::browser::observation::logs_console::ENSURE_LOG_CAPTURE_JS;
 use crate::daemon::cdp::ensure_scheme_or_fatal;
 use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target};
 use crate::daemon::registry::SharedRegistry;
@@ -73,20 +72,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let from_url = super::get_tab_url(&cdp, &target_id).await;
 
     if !target_id.is_empty() {
-        // Page.enable must be called before addScriptToEvaluateOnNewDocument will be honoured.
-        // Idempotent in Chrome — safe to call on every goto.
+        // Page.enable is idempotent — safe to call on every goto.
         let _ = cdp
             .execute_on_tab(&target_id, "Page.enable", json!({}))
-            .await;
-
-        // Register log capture hook to run at document start on this and future navigations.
-        // Idempotent — multiple registrations are harmless since the hook guards itself.
-        let _ = cdp
-            .execute_on_tab(
-                &target_id,
-                "Page.addScriptToEvaluateOnNewDocument",
-                json!({ "source": ENSURE_LOG_CAPTURE_JS }),
-            )
             .await;
 
         match cdp

@@ -97,7 +97,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     // Attach before registering — rollback on failure
-    if let Err(e) = cdp.attach(&target_id).await {
+    if let Err(e) = cdp.attach(&target_id, None).await {
         // Rollback: close the target we just created
         let _ = cdp
             .execute_browser("Target.closeTarget", json!({ "targetId": target_id }))

@@ -46,6 +46,7 @@ pub struct SessionEntry {
     pub id: SessionId,
     pub mode: Mode,
     pub headless: bool,
+    pub stealth: bool,
     pub profile: String,
     pub status: SessionState,
     pub cdp_port: Option<u16>,
@@ -71,11 +72,18 @@ impl Drop for SessionEntry {
 }
 
 impl SessionEntry {
-    pub fn starting(id: SessionId, mode: Mode, headless: bool, profile: String) -> Self {
+    pub fn starting(
+        id: SessionId,
+        mode: Mode,
+        headless: bool,
+        stealth: bool,
+        profile: String,
+    ) -> Self {
         Self {
             id,
             mode,
             headless,
+            stealth,
             profile,
             status: SessionState::Starting,
             cdp_port: None,
@@ -212,6 +220,7 @@ impl SessionRegistry {
         resolved_profile: &str,
         mode: Mode,
         headless: bool,
+        stealth: bool,
     ) -> Result<SessionId, CliError> {
         if mode == Mode::Local
             && let Some(existing_id) = self
@@ -226,6 +235,7 @@ impl SessionRegistry {
             session_id.clone(),
             mode,
             headless,
+            stealth,
             resolved_profile.to_string(),
         ));
         Ok(session_id)
@@ -333,6 +343,7 @@ mod tests {
             SessionId::new_unchecked(id),
             mode,
             true,
+            true,
             profile.to_string(),
         );
         if !active {
@@ -346,16 +357,23 @@ mod tests {
         let mut registry = SessionRegistry::new();
 
         let local_1 = registry
-            .reserve_session_start(None, Some("work"), "work", Mode::Local, true)
+            .reserve_session_start(None, Some("work"), "work", Mode::Local, true, true)
             .expect("reserve first local session");
         let local_2 = registry
-            .reserve_session_start(None, Some("personal"), "personal", Mode::Local, true)
+            .reserve_session_start(None, Some("personal"), "personal", Mode::Local, true, true)
             .expect("reserve second local session");
         let cloud_1 = registry
-            .reserve_session_start(None, Some("shared"), "shared", Mode::Cloud, true)
+            .reserve_session_start(None, Some("shared"), "shared", Mode::Cloud, true, true)
             .expect("reserve first cloud session");
         let ext_1 = registry
-            .reserve_session_start(None, Some("assistant"), "assistant", Mode::Extension, true)
+            .reserve_session_start(
+                None,
+                Some("assistant"),
+                "assistant",
+                Mode::Extension,
+                true,
+                true,
+            )
             .expect("reserve first extension session");
 
         assert_eq!(local_1.as_str(), "SLOCAL-1");
@@ -372,13 +390,34 @@ mod tests {
         insert_starting(&mut registry, "SEXT-9", Mode::Extension, "ext-9", true);
 
         let local = registry
-            .reserve_session_start(None, Some("fresh-local"), "fresh-local", Mode::Local, true)
+            .reserve_session_start(
+                None,
+                Some("fresh-local"),
+                "fresh-local",
+                Mode::Local,
+                true,
+                true,
+            )
             .expect("next local session");
         let cloud = registry
-            .reserve_session_start(None, Some("fresh-cloud"), "fresh-cloud", Mode::Cloud, true)
+            .reserve_session_start(
+                None,
+                Some("fresh-cloud"),
+                "fresh-cloud",
+                Mode::Cloud,
+                true,
+                true,
+            )
             .expect("next cloud session");
         let ext = registry
-            .reserve_session_start(None, Some("fresh-ext"), "fresh-ext", Mode::Extension, true)
+            .reserve_session_start(
+                None,
+                Some("fresh-ext"),
+                "fresh-ext",
+                Mode::Extension,
+                true,
+                true,
+            )
             .expect("next extension session");
 
         assert_eq!(local.as_str(), "SLOCAL-8");
@@ -393,7 +432,7 @@ mod tests {
         insert_starting(&mut registry, "SLOCAL-1", Mode::Local, "occupied", true);
 
         let sid = registry
-            .reserve_session_start(None, Some("wrap"), "wrap", Mode::Local, true)
+            .reserve_session_start(None, Some("wrap"), "wrap", Mode::Local, true, true)
             .expect("wrapped local session");
 
         assert_eq!(sid.as_str(), "SLOCAL-2");
@@ -410,6 +449,7 @@ mod tests {
                 "profile-that-should-not-matter",
                 Mode::Local,
                 true,
+                true,
             )
             .expect("manual id should bypass auto generation");
 
@@ -421,7 +461,7 @@ mod tests {
         let mut registry = SessionRegistry::new();
 
         let session_id = registry
-            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true)
+            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true, true)
             .expect("reserve first placeholder");
 
         let entry = registry
@@ -430,7 +470,7 @@ mod tests {
         assert_eq!(entry.status, SessionState::Starting);
 
         let err = registry
-            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true)
+            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true, true)
             .expect_err("second placeholder should be rejected");
 
         assert_eq!(err.error_code(), "SESSION_ALREADY_EXISTS");
@@ -441,12 +481,12 @@ mod tests {
         let mut registry = SessionRegistry::new();
 
         let first = registry
-            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true)
+            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true, true)
             .expect("reserve first placeholder");
         registry.remove(first.as_str());
 
         let second = registry
-            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true)
+            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true, true)
             .expect("retry after cleanup should succeed");
 
         assert_eq!(
@@ -467,6 +507,7 @@ mod tests {
                 "myprofile",
                 Mode::Local,
                 true,
+                true,
             )
             .expect("reserve first session");
 
@@ -477,6 +518,7 @@ mod tests {
                 Some("myprofile"),
                 "myprofile",
                 Mode::Local,
+                true,
                 true,
             )
             .expect_err("should reject: profile already occupied");
@@ -490,7 +532,7 @@ mod tests {
         insert_starting(&mut registry, "SLOCAL-1", Mode::Local, "testrace", false);
 
         let next = registry
-            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true)
+            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true, true)
             .expect("closed entry should not block new start");
 
         assert_eq!(next.as_str(), "SLOCAL-1");
@@ -510,7 +552,7 @@ mod tests {
     fn has_active_sessions_with_starting_session() {
         let mut registry = SessionRegistry::new();
         registry
-            .reserve_session_start(Some("s1"), Some("prof"), "prof", Mode::Local, true)
+            .reserve_session_start(Some("s1"), Some("prof"), "prof", Mode::Local, true, true)
             .unwrap();
         assert!(registry.has_active_sessions());
     }
@@ -519,7 +561,7 @@ mod tests {
     fn has_active_sessions_all_closed() {
         let mut registry = SessionRegistry::new();
         let sid = registry
-            .reserve_session_start(Some("s1"), Some("prof"), "prof", Mode::Local, true)
+            .reserve_session_start(Some("s1"), Some("prof"), "prof", Mode::Local, true, true)
             .unwrap();
         // Transition to Closed
         if let Some(entry) = registry.get_mut(sid.as_str()) {
@@ -552,6 +594,7 @@ mod tests {
             let mut entry = SessionEntry::starting(
                 crate::types::SessionId::new("drop-test").unwrap(),
                 Mode::Local,
+                true,
                 true,
                 "test-profile".to_string(),
             );
