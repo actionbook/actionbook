@@ -22,7 +22,7 @@ pub struct Cli {
     pub timeout: Option<u64>,
 
     /// Print version
-    #[arg(long)]
+    #[arg(long, short = 'v')]
     pub version: bool,
 
     #[command(subcommand)]
@@ -41,6 +41,8 @@ pub enum Commands {
     Setup(setup::Cmd),
     /// Show help
     Help,
+    /// Print version
+    Version,
 }
 
 /// Unimplemented tab-level command args.

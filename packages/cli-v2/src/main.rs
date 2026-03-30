@@ -87,6 +87,9 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         Commands::Help => {
             handle_help(json_mode);
         }
+        Commands::Version => {
+            handle_version(json_mode);
+        }
     }
     Ok(())
 }
