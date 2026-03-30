@@ -84,3 +84,57 @@ fn auto_start_daemon() -> Result<(), CliError> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parsed_build_version() -> (u64, u64, u64) {
+        let core = crate::BUILD_VERSION
+            .split('-')
+            .next()
+            .unwrap_or(crate::BUILD_VERSION);
+        let mut parts = core.split('.');
+        let major = parts.next().unwrap_or("0").parse().unwrap_or(0);
+        let minor = parts.next().unwrap_or("0").parse().unwrap_or(0);
+        let patch = parts.next().unwrap_or("0").parse().unwrap_or(0);
+        (major, minor, patch)
+    }
+
+    fn write_ready_file(version: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let ready_path = dir.path().join("daemon.ready");
+        std::fs::write(&ready_path, version).unwrap();
+        (dir, ready_path)
+    }
+
+    #[test]
+    fn check_version_accepts_same_major_minor_with_patch_hash_delta() {
+        let (major, minor, patch) = parsed_build_version();
+        let daemon_version = format!("{major}.{minor}.{}-hash2", patch + 1);
+        let (_dir, ready_path) = write_ready_file(&daemon_version);
+
+        let result = check_version(&ready_path);
+        assert!(
+            result.is_ok(),
+            "same major.minor should be compatible: cli={}, daemon={daemon_version}",
+            crate::BUILD_VERSION
+        );
+    }
+
+    #[test]
+    fn check_version_rejects_different_minor() {
+        let (major, minor, _) = parsed_build_version();
+        let daemon_version = format!("{major}.{}.0", minor + 1);
+        let (_dir, ready_path) = write_ready_file(&daemon_version);
+
+        let err = check_version(&ready_path).expect_err("different minor must be incompatible");
+        match err {
+            CliError::VersionMismatch { cli, daemon } => {
+                assert_eq!(cli, crate::BUILD_VERSION);
+                assert_eq!(daemon, daemon_version);
+            }
+            other => panic!("expected VersionMismatch, got {other:?}"),
+        }
+    }
+}
