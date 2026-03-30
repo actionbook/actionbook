@@ -360,7 +360,7 @@ async fn call_fn_on(
     function_declaration: &str,
     frame_id: Option<&str>,
 ) -> Result<(), ActionResult> {
-    crate::browser::element::execute_for_element(
+    crate::browser::element::execute_for_frame(
         cdp,
         target_id,
         frame_id,
@@ -399,7 +399,7 @@ async fn get_scroll_position(
     frame_id: Option<&str>,
 ) -> (f64, f64) {
     if let Some(object_id) = container_object_id {
-        let resp = crate::browser::element::execute_for_element(
+        let resp = crate::browser::element::execute_for_frame(
             cdp,
             target_id,
             frame_id,

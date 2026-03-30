@@ -25,7 +25,7 @@ use crate::error::CliError;
 ///
 /// - Cross-origin iframes (found in `cdp.iframe_sessions()`): use their dedicated session.
 /// - Same-origin iframes and main frame: use `execute_on_tab` (parent session).
-pub async fn execute_for_element(
+pub async fn execute_for_frame(
     cdp: &CdpSession,
     target_id: &str,
     frame_id: Option<&str>,
@@ -140,7 +140,7 @@ impl TabContext {
     /// Use for: DOM.focus, Runtime.callFunctionOn, Runtime.evaluate (on element),
     /// DOM.setFileInputFiles, etc. Falls back to execute_on_tab if no frame context.
     pub async fn execute_on_element(&self, method: &str, params: Value) -> Result<Value, CliError> {
-        execute_for_element(
+        execute_for_frame(
             &self.cdp,
             &self.target_id,
             self.resolved_frame_id.as_deref(),
@@ -177,7 +177,7 @@ async fn scroll_into_view_for_frame(
     node_id: i64,
     frame_id: Option<&str>,
 ) -> Result<(), ActionResult> {
-    execute_for_element(
+    execute_for_frame(
         cdp,
         target_id,
         frame_id,
@@ -196,7 +196,7 @@ async fn resolve_object_id_for_frame(
     node_id: i64,
     frame_id: Option<&str>,
 ) -> Result<String, ActionResult> {
-    let resolve_resp = execute_for_element(
+    let resolve_resp = execute_for_frame(
         cdp,
         target_id,
         frame_id,
@@ -221,7 +221,7 @@ async fn get_element_center_for_frame(
     selector: &str,
     frame_id: Option<&str>,
 ) -> Result<(f64, f64), ActionResult> {
-    let bm = execute_for_element(
+    let bm = execute_for_frame(
         cdp,
         target_id,
         frame_id,
@@ -440,7 +440,7 @@ async fn resolve_ref(
     })?;
 
     // Get document on the correct frame session
-    execute_for_element(
+    execute_for_frame(
         cdp,
         target_id,
         frame_id.as_deref(),
@@ -481,7 +481,7 @@ async fn resolve_backend_node(
     backend_node_id: i64,
     frame_id: Option<&str>,
 ) -> Result<Option<i64>, ActionResult> {
-    let resolve_resp = match execute_for_element(
+    let resolve_resp = match execute_for_frame(
         cdp,
         target_id,
         frame_id,
@@ -508,7 +508,7 @@ async fn resolve_backend_node(
         None => return Ok(None),
     };
 
-    let node_resp = execute_for_element(
+    let node_resp = execute_for_frame(
         cdp,
         target_id,
         frame_id,
@@ -539,7 +539,7 @@ async fn resolve_by_ax_query(
     name: &str,
     frame_id: Option<&str>,
 ) -> Result<Option<i64>, ActionResult> {
-    let resp = match execute_for_element(
+    let resp = match execute_for_frame(
         cdp,
         target_id,
         frame_id,
