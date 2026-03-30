@@ -219,9 +219,10 @@ fn tab_close_tab_json() {
     let (sid, _t1) = start_session(&url_a());
     let _guard = SessionGuard::new(&sid);
     let t2 = new_tab_json(&sid, &url_b());
+    assert_eq!(t2, "t2");
 
     let out = headless_json(
-        &["browser", "close-tab", "--session", &sid, "--tab", &t2],
+        &["browser", "close-tab", "--session", &sid, "--tab", "t2"],
         30,
     );
     assert_success(&out, "close-tab json");
