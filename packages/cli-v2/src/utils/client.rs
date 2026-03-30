@@ -60,9 +60,17 @@ impl DaemonClient {
     }
 }
 
+fn major_minor(version: &str) -> (&str, &str) {
+    let core = version.split('-').next().unwrap_or(version);
+    let mut parts = core.splitn(3, '.');
+    let major = parts.next().unwrap_or("0");
+    let minor = parts.next().unwrap_or("0");
+    (major, minor)
+}
+
 fn check_version(ready_path: &std::path::Path) -> Result<(), CliError> {
     let daemon_version = std::fs::read_to_string(ready_path).unwrap_or_default();
-    if daemon_version != crate::BUILD_VERSION {
+    if major_minor(&daemon_version) != major_minor(crate::BUILD_VERSION) {
         return Err(CliError::VersionMismatch {
             cli: crate::BUILD_VERSION.to_string(),
             daemon: daemon_version,
