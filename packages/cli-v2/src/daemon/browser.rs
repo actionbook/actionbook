@@ -234,4 +234,3 @@ fn parse_endpoint_port(endpoint: &str) -> Result<u16, CliError> {
         CliError::InvalidArgument(format!("invalid endpoint port in {endpoint}: {port_str}"))
     })
 }
-
