@@ -6,6 +6,12 @@ use crate::harness::{
 };
 
 const DESCRIBE_SELECTOR: &str = "#describe-target";
+const DESCRIBE_DISABLED_SELECTOR: &str = "#describe-disabled";
+const DESCRIBE_CHECKED_SELECTOR: &str = "#describe-checked";
+const DESCRIBE_MULTI_SELECTOR: &str = "#describe-multi";
+const DESCRIBE_UNCHECKED_SELECTOR: &str = "#describe-unchecked";
+const DESCRIBE_SELECTED_SELECTOR: &str = "#describe-selected";
+const DESCRIBE_UNSELECTED_SELECTOR: &str = "#describe-unselected";
 const STATE_SELECTOR: &str = "#state-target";
 const STATE_CHECKED_SELECTOR: &str = "#state-checked";
 const STATE_DISABLED_SELECTOR: &str = "#state-disabled";
@@ -56,8 +62,16 @@ document.body.innerHTML = `
     <li id="person-row" aria-label="John Smith">
       <span id="person-name">John Smith</span>
       <button id="describe-target" type="button">Edit</button>
+      <button id="describe-disabled" type="button" disabled>Edit</button>
     </li>
   </ul>
+  <label><input id="describe-checked" type="checkbox" checked>Agree</label>
+  <label><input id="describe-multi" type="checkbox" checked disabled>Confirm</label>
+  <label><input id="describe-unchecked" type="checkbox">Later</label>
+  <select>
+    <option id="describe-selected" selected>Red</option>
+    <option id="describe-unselected">Blue</option>
+  </select>
   <input id="state-target" type="text" value="query" placeholder="Search">
   <input id="state-checked" type="checkbox" checked>
   <input id="state-disabled" type="text" value="locked" disabled>
@@ -85,6 +99,40 @@ fn assert_error_envelope(v: &serde_json::Value, expected_code: &str) {
     assert!(v["error"]["retryable"].is_boolean());
     assert!(v["error"]["details"].is_object() || v["error"]["details"].is_null());
     assert_meta(v);
+}
+
+fn describe_json(sid: &str, tid: &str, selector: &str) -> serde_json::Value {
+    let out = headless_json(
+        &[
+            "browser",
+            "describe",
+            selector,
+            "--session",
+            sid,
+            "--tab",
+            tid,
+        ],
+        10,
+    );
+    assert_success(&out, &format!("describe {selector} json"));
+    parse_json(&out)
+}
+
+fn describe_text(sid: &str, tid: &str, selector: &str) -> String {
+    let out = headless(
+        &[
+            "browser",
+            "describe",
+            selector,
+            "--session",
+            sid,
+            "--tab",
+            tid,
+        ],
+        10,
+    );
+    assert_success(&out, &format!("describe {selector} text"));
+    stdout_str(&out)
 }
 
 #[test]
@@ -242,6 +290,105 @@ fn describe_nearby_text_output() {
     assert_eq!(lines.get(1), Some(&"button \"Edit\""));
     assert_eq!(lines.get(2), Some(&"parent: listitem \"John Smith\""));
     assert_eq!(lines.get(3), Some(&"previous_sibling: text \"John Smith\""));
+}
+
+#[test]
+fn describe_summary_disabled_qualifier_json() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    let v = describe_json(&sid, &tid, DESCRIBE_DISABLED_SELECTOR);
+    assert_eq!(v["data"]["summary"], "button \"Edit\" [disabled]");
+}
+
+#[test]
+fn describe_summary_checked_qualifier_json() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    let v = describe_json(&sid, &tid, DESCRIBE_CHECKED_SELECTOR);
+    assert_eq!(v["data"]["summary"], "checkbox \"Agree\" [checked]");
+}
+
+#[test]
+fn describe_summary_selected_qualifier_json() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    let v = describe_json(&sid, &tid, DESCRIBE_SELECTED_SELECTOR);
+    assert_eq!(v["data"]["summary"], "option \"Red\" [selected]");
+}
+
+#[test]
+fn describe_summary_multiple_qualifiers_json() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    let v = describe_json(&sid, &tid, DESCRIBE_MULTI_SELECTOR);
+    assert_eq!(
+        v["data"]["summary"],
+        "checkbox \"Confirm\" [disabled, checked]"
+    );
+}
+
+#[test]
+fn describe_summary_default_states_have_no_qualifier_json() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    let unchecked = describe_json(&sid, &tid, DESCRIBE_UNCHECKED_SELECTOR);
+    assert_eq!(unchecked["data"]["summary"], "checkbox \"Later\"");
+
+    let unselected = describe_json(&sid, &tid, DESCRIBE_UNSELECTED_SELECTOR);
+    assert_eq!(unselected["data"]["summary"], "option \"Blue\"");
+}
+
+#[test]
+fn describe_text_output_with_qualifier() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    let text = describe_text(&sid, &tid, DESCRIBE_DISABLED_SELECTOR);
+    let lines: Vec<&str> = text.lines().collect();
+
+    assert!(
+        lines
+            .first()
+            .unwrap_or(&"")
+            .starts_with(&format!("[{sid} {tid}]")),
+        "header must start with [session_id tab_id]: {text}"
+    );
+    assert_eq!(lines.get(1), Some(&"button \"Edit\" [disabled]"));
 }
 
 #[test]
