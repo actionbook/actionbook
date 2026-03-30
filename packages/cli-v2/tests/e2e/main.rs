@@ -25,5 +25,6 @@ mod pdf;
 mod query;
 mod screenshot;
 mod snapshot;
+mod storage;
 mod tab_management;
 mod wait;
