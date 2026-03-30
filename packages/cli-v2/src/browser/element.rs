@@ -233,6 +233,13 @@ async fn resolve_xpath(
 }
 
 /// Snapshot ref (`@eN`) → nodeId via RefCache + CDP.
+///
+/// Resolution strategy:
+/// 1. If backendNodeId is a real DOM ID (> 0), resolve via CDP directly.
+/// 2. If that fails (stale) OR the ID is synthetic (< 0, from AX nodes
+///    without a backing DOM node), fall back to Accessibility.queryAXTree
+///    using the stored role + name.
+#[allow(clippy::too_many_arguments)]
 async fn resolve_ref(
     cdp: &CdpSession,
     target_id: &str,
@@ -251,11 +258,17 @@ async fn resolve_ref(
         ));
     }
 
-    // Look up backendNodeId from the tab's RefCache
-    let backend_node_id = {
+    // Look up backendNodeId and metadata from the tab's RefCache
+    let (backend_node_id, role, name) = {
         let reg = registry.lock().await;
-        reg.peek_ref_cache(session_id, tab_id)
-            .and_then(|cache| cache.backend_node_id_for_ref(ref_id))
+        let cache = reg.peek_ref_cache(session_id, tab_id);
+        let bid = cache.and_then(|c| c.backend_node_id_for_ref(ref_id));
+        let entry = cache.and_then(|c| c.entry_for_ref(ref_id));
+        (
+            bid,
+            entry.map(|e| e.role.clone()).unwrap_or_default(),
+            entry.map(|e| e.name.clone()).unwrap_or_default(),
+        )
     };
 
     let backend_node_id = backend_node_id.ok_or_else(|| {
@@ -271,34 +284,63 @@ async fn resolve_ref(
         .await
         .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
 
-    // backendNodeId → objectId
-    let resolve_resp = cdp
+    // Try direct resolution for real backendNodeIds (> 0)
+    if backend_node_id > 0
+        && let Some(node_id) = resolve_backend_node(cdp, target_id, backend_node_id).await?
+    {
+        return Ok(node_id);
+    }
+
+    // Fallback: use role + name via Accessibility.queryAXTree
+    if !name.is_empty()
+        && let Some(node_id) = resolve_by_ax_query(cdp, target_id, &role, &name).await?
+    {
+        return Ok(node_id);
+    }
+
+    Err(ActionResult::fatal_with_hint(
+        "REF_STALE",
+        format!("snapshot ref '{selector}' could not be resolved (role={role}, name={name})"),
+        "run 'browser snapshot' again",
+    ))
+}
+
+/// Resolve a real backendNodeId (> 0) to a DOM nodeId via CDP.
+/// Returns `Ok(Some(nodeId))` on success, `Ok(None)` if stale,
+/// or `Err` for non-stale CDP errors (e.g. connection lost).
+async fn resolve_backend_node(
+    cdp: &CdpSession,
+    target_id: &str,
+    backend_node_id: i64,
+) -> Result<Option<i64>, ActionResult> {
+    let resolve_resp = match cdp
         .execute_on_tab(
             target_id,
             "DOM.resolveNode",
             json!({ "backendNodeId": backend_node_id }),
         )
         .await
-        .map_err(|_| {
-            ActionResult::fatal_with_hint(
-                "REF_STALE",
-                format!("snapshot ref '{selector}' is stale — element no longer exists in the DOM"),
-                "run 'browser snapshot' again",
-            )
-        })?;
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            // CDP -32000 = "Could not find node" → stale, try fallback
+            let err_str = format!("{e:?}");
+            if err_str.contains("-32000") {
+                return Ok(None);
+            }
+            // Other CDP errors (connection lost, etc.) → propagate
+            return Err(cdp_error_to_result(e, "CDP_ERROR"));
+        }
+    };
 
-    let object_id = resolve_resp
+    let object_id = match resolve_resp
         .pointer("/result/object/objectId")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            ActionResult::fatal_with_hint(
-                "REF_STALE",
-                format!("snapshot ref '{selector}' could not be resolved"),
-                "run 'browser snapshot' again",
-            )
-        })?;
+    {
+        Some(id) => id.to_string(),
+        None => return Ok(None),
+    };
 
-    // objectId → nodeId
     let node_resp = cdp
         .execute_on_tab(
             target_id,
@@ -313,15 +355,53 @@ async fn resolve_ref(
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
 
-    if node_id == 0 {
-        return Err(ActionResult::fatal_with_hint(
-            "REF_STALE",
-            format!("snapshot ref '{selector}' resolved but DOM node is inaccessible"),
-            "run 'browser snapshot' again",
-        ));
+    if node_id > 0 {
+        Ok(Some(node_id))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Fallback: find an element by ARIA role + accessible name via the AX tree.
+/// Uses `Accessibility.queryAXTree` which searches the accessibility tree
+/// for nodes matching the given role and name.
+async fn resolve_by_ax_query(
+    cdp: &CdpSession,
+    target_id: &str,
+    role: &str,
+    name: &str,
+) -> Result<Option<i64>, ActionResult> {
+    let resp = cdp
+        .execute_on_tab(
+            target_id,
+            "Accessibility.queryAXTree",
+            json!({ "accessibleName": name, "role": role }),
+        )
+        .await;
+
+    let resp = match resp {
+        Ok(r) => r,
+        Err(_) => return Ok(None), // AX query unsupported or failed — not fatal
+    };
+
+    // Find the first node with a valid backendDOMNodeId
+    let nodes = resp.pointer("/result/nodes").and_then(|v| v.as_array());
+
+    let nodes = match nodes {
+        Some(n) if !n.is_empty() => n,
+        _ => return Ok(None),
+    };
+
+    for node in nodes {
+        let bid = node["backendDOMNodeId"].as_i64().unwrap_or(0);
+        if bid > 0
+            && let Some(node_id) = resolve_backend_node(cdp, target_id, bid).await?
+        {
+            return Ok(Some(node_id));
+        }
     }
 
-    Ok(node_id)
+    Ok(None)
 }
 
 // ── Error helper ───────────────────────────────────────────────────

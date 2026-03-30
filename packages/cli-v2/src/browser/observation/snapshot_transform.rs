@@ -639,6 +639,13 @@ impl RefCache {
     pub fn backend_node_id_for_ref(&self, ref_id: &str) -> Option<i64> {
         self.ref_to_id.get(ref_id).copied()
     }
+
+    /// Reverse lookup: ref_id → full RefEntry (for role+name fallback).
+    pub fn entry_for_ref(&self, ref_id: &str) -> Option<&RefEntry> {
+        self.ref_to_id
+            .get(ref_id)
+            .and_then(|bid| self.id_to_ref.get(bid))
+    }
 }
 
 // ── P0: Empty leaf removal ───────────────────────────────────────────
