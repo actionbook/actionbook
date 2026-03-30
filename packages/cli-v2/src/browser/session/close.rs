@@ -50,6 +50,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // single-connection providers — frees the slot for reconnection)
     drop(entry.cdp.take());
 
+    // Capture profile name before killing Chrome — needed for directory cleanup.
+    let profile_name = entry.profile.clone();
+
     if let Some(mut child) = entry.chrome_process.take() {
         let _ = child.kill();
         tokio::task::spawn_blocking(move || {
@@ -59,6 +62,15 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Clean up snapshot RefCaches for this session
     reg.clear_session_ref_caches(&cmd.session);
+
+    // Remove the Chrome profile directory to avoid disk accumulation.
+    // This is best-effort — Chrome may still hold locks briefly after kill.
+    if !profile_name.is_empty() {
+        let profile_dir = crate::config::profiles_dir().join(&profile_name);
+        if profile_dir.exists() {
+            let _ = std::fs::remove_dir_all(&profile_dir);
+        }
+    }
 
     ActionResult::ok(json!({
         "session_id": cmd.session,

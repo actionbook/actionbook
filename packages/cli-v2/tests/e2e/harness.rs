@@ -287,7 +287,7 @@ pub fn headless_json_with_env(
 // ── Cleanup helpers ─────────────────────────────────────────────────
 
 /// RAII guard that ensures a single session is cleaned up even when a test panics.
-/// Only closes its own session — does NOT kill the daemon.
+/// Calls `browser close` which kills Chrome and removes the profile directory.
 pub struct SessionGuard {
     session_id: Option<String>,
 }
