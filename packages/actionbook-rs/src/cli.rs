@@ -6,53 +6,6 @@ use crate::commands;
 use crate::config::DEFAULT_EXTENSION_PORT;
 use crate::error::Result;
 
-/// Validate session name: must contain only alphanumeric characters, dashes,
-/// or underscores. Rejects names with any invalid characters to prevent
-/// silently routing to an unintended session.
-fn validate_session_name(s: &str) -> std::result::Result<String, String> {
-    if s.is_empty() {
-        return Err("Session name must not be empty".to_string());
-    }
-    if !s
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-    {
-        return Err(format!(
-            "Invalid session name '{}': only alphanumeric characters, dashes (-), and underscores (_) are allowed",
-            s
-        ));
-    }
-    Ok(s.to_string())
-}
-
-fn parse_session_env(raw: OsString) -> std::result::Result<Option<String>, String> {
-    let value = raw.to_string_lossy();
-    if value.is_empty() {
-        return Ok(None);
-    }
-    validate_session_name(&value).map(Some)
-}
-
-fn session_from_env() -> std::result::Result<Option<String>, String> {
-    match std::env::var_os("ACTIONBOOK_SESSION") {
-        Some(raw) => parse_session_env(raw),
-        None => Ok(None),
-    }
-}
-
-/// Parse truthy values: "true", "1", "yes" (case-insensitive) → true; everything else → false.
-/// Compatible with common env var conventions (e.g. `ACTIONBOOK_AUTO_CONNECT=1`).
-fn parse_truthy(s: &str) -> std::result::Result<bool, String> {
-    match s.to_ascii_lowercase().as_str() {
-        "true" | "1" | "yes" => Ok(true),
-        "false" | "0" | "no" | "" => Ok(false),
-        _ => Err(format!(
-            "Invalid boolean value '{}'. Expected: true/false/1/0/yes/no",
-            s
-        )),
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum SetupTarget {
     Claude,
@@ -81,39 +34,9 @@ pub enum BrowserMode {
 #[command(name = "actionbook", bin_name = "actionbook")]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
-    /// Browser executable path (overrides auto-discovery)
-    #[arg(long, env = "ACTIONBOOK_BROWSER_PATH", global = true)]
-    pub browser_path: Option<String>,
-
-    /// CDP port or WebSocket URL (e.g. 9222, ws://127.0.0.1:9222/..., wss://remote/...).
-    /// Endpoint is verified reachable before persisting to the profile.
-    #[arg(long, env = "ACTIONBOOK_CDP", global = true)]
-    pub cdp: Option<String>,
-
     /// Profile name to use
     #[arg(short = 'P', long, env = "ACTIONBOOK_PROFILE", global = true)]
     pub profile: Option<String>,
-
-    /// Session name for multi-session support (multiple tabs per profile).
-    /// Must contain only alphanumeric characters, dashes, or underscores.
-    #[arg(short = 'S', long, global = true, value_parser = validate_session_name)]
-    pub session: Option<String>,
-
-    /// Run in headless mode
-    #[arg(long, env = "ACTIONBOOK_HEADLESS", global = true)]
-    pub headless: bool,
-
-    /// Enable stealth mode (requires --features stealth)
-    #[arg(long, env = "ACTIONBOOK_STEALTH", global = true)]
-    pub stealth: bool,
-
-    /// Stealth OS profile: windows, macos-intel, macos-arm, linux
-    #[arg(long, env = "ACTIONBOOK_STEALTH_OS", global = true)]
-    pub stealth_os: Option<String>,
-
-    /// Stealth GPU profile (e.g., nvidia-rtx4080, apple-m4-max, intel-uhd630)
-    #[arg(long, env = "ACTIONBOOK_STEALTH_GPU", global = true)]
-    pub stealth_gpu: Option<String>,
 
     /// API key for authenticated access
     #[arg(
@@ -128,100 +51,12 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub json: bool,
 
-    /// Browser mode override (reads from config.toml by default)
-    #[arg(long, env = "ACTIONBOOK_BROWSER_MODE", value_enum, global = true)]
-    pub browser_mode: Option<BrowserMode>,
-
-    /// [Deprecated: use --browser-mode=extension] Route commands through Chrome Extension bridge
-    #[arg(long, env = "ACTIONBOOK_EXTENSION", global = true, hide = true)]
-    pub extension: bool,
-
-    /// [Deprecated] Extension bridge port override
-    #[arg(long, env = "ACTIONBOOK_EXTENSION_PORT", global = true, default_value_t = DEFAULT_EXTENSION_PORT, hide = true)]
-    pub extension_port: u16,
-
-    /// Enable verbose output
-    #[arg(short, long, global = true)]
-    pub verbose: bool,
-
-    /// Block image downloads (faster page loads)
-    #[arg(long, env = "ACTIONBOOK_BLOCK_IMAGES", global = true)]
-    pub block_images: bool,
-
-    /// Block images, fonts, CSS, and media (fastest page loads)
-    #[arg(long, env = "ACTIONBOOK_BLOCK_MEDIA", global = true)]
-    pub block_media: bool,
-
-    /// Disable CSS animations, transitions, and smooth scrolling on all pages
-    #[arg(long, env = "ACTIONBOOK_NO_ANIMATIONS", global = true)]
-    pub no_animations: bool,
-
-    /// Auto-dismiss JavaScript dialogs (alert, confirm, prompt)
-    #[arg(long, env = "ACTIONBOOK_AUTO_DISMISS_DIALOGS", global = true)]
-    pub auto_dismiss_dialogs: bool,
-
-    /// Session tag for log correlation (auto-generated if omitted)
-    #[arg(long, env = "ACTIONBOOK_SESSION_TAG", global = true)]
-    pub session_tag: Option<String>,
-
-    /// Rewrite URLs to privacy-friendly frontends (x.com→xcancel.com, reddit→old.reddit)
-    #[arg(long, env = "ACTIONBOOK_REWRITE_URLS", global = true)]
-    pub rewrite_urls: bool,
-
-    /// Wait hint for navigation: instant, fast, normal, slow, heavy, or milliseconds
-    #[arg(long, env = "ACTIONBOOK_WAIT_HINT", global = true)]
-    pub wait_hint: Option<String>,
-
-    /// Use Camoufox browser backend
-    #[arg(long, env = "ACTIONBOOK_CAMOFOX", global = true)]
-    pub camofox: bool,
-
-    /// Camoufox server port
-    #[arg(long, env = "ACTIONBOOK_CAMOFOX_PORT", global = true)]
-    pub camofox_port: Option<u16>,
-
-    /// Disable the per-profile daemon (persistent WS connection, Unix only).
-    /// On Unix, browser commands route CDP through a daemon process by default.
-    /// Use --no-daemon to fall back to direct per-command connections.
-    /// On non-Unix platforms, daemon is not available and this flag is ignored.
-    #[arg(
-        long = "no-daemon",
-        env = "ACTIONBOOK_NO_DAEMON",
-        global = true,
-        default_value_t = false
-    )]
-    pub no_daemon: bool,
-
-    /// Auto-discover and connect to a running Chrome instance
-    #[arg(
-        long,
-        env = "ACTIONBOOK_AUTO_CONNECT",
-        global = true,
-        value_parser = parse_truthy,
-        default_value_t = false,
-        default_missing_value = "true",
-        num_args = 0..=1,
-    )]
-    pub auto_connect: bool,
-
     #[command(subcommand)]
     pub command: Commands,
 }
 
 #[derive(Subcommand, Clone)]
 pub enum Commands {
-    /// Browser automation commands
-    Browser {
-        #[command(subcommand)]
-        command: BrowserCommands,
-    },
-
-    /// Application automation commands (control Electron apps, etc.)
-    App {
-        #[command(subcommand)]
-        command: AppCommands,
-    },
-
     /// Search for action manuals by keyword
     Search {
         /// Search keyword (e.g., "airbnb search", "google login")
@@ -280,7 +115,7 @@ pub enum Commands {
         command: ExtensionCommands,
     },
 
-    /// Daemon management (persistent WS connection per profile)
+    /// Daemon management (persistent browser session manager)
     Daemon {
         #[command(subcommand)]
         command: DaemonCommands,
@@ -314,928 +149,8 @@ pub enum Commands {
 }
 
 #[derive(Subcommand, Clone)]
-pub enum BrowserCommands {
-    /// Show browser status and detection results
-    Status,
-
-    /// Open a URL in a new tab (or new window with --new-window)
-    Open {
-        /// URL to open
-        url: String,
-        /// Open in a new browser window instead of a new tab
-        #[arg(long)]
-        new_window: bool,
-    },
-
-    /// Navigate current page to URL
-    Goto {
-        /// URL to navigate to
-        url: String,
-        /// Wait for navigation to complete (ms)
-        #[arg(long, default_value = "30000")]
-        timeout: u64,
-    },
-
-    /// Go back in history
-    Back,
-
-    /// Go forward in history
-    Forward,
-
-    /// Reload current page
-    Reload,
-
-    /// List all open pages/tabs
-    Pages,
-
-    /// Switch to a specific page by ID
-    Switch {
-        /// Page ID (from 'pages' command)
-        page_id: String,
-    },
-
-    /// Wait for an element to appear
-    Wait {
-        /// CSS selector to wait for
-        selector: String,
-        /// Timeout in milliseconds
-        #[arg(long, default_value = "30000")]
-        timeout: u64,
-    },
-
-    /// Wait for navigation to complete
-    WaitNav {
-        /// Timeout in milliseconds
-        #[arg(long, default_value = "30000")]
-        timeout: u64,
-    },
-
-    /// Click an element
-    Click {
-        /// CSS selector (or use --ref for snapshot ref)
-        #[arg(required_unless_present = "ref")]
-        selector: Option<String>,
-        /// Wait for element before clicking (ms), 0 to skip
-        #[arg(long, default_value = "0")]
-        wait: u64,
-        /// Snapshot ref (e.g., e0, e5) from last `browser snapshot`
-        #[arg(long, name = "ref")]
-        ref_id: Option<String>,
-        /// Use human-like bezier curve mouse movement
-        #[arg(long)]
-        human: bool,
-    },
-
-    /// Drag from one element to another
-    Drag {
-        /// CSS selector for the drag source element
-        from: String,
-        /// CSS selector for the drag target element
-        to: String,
-        /// Use human-like bezier curve mouse movement
-        #[arg(long)]
-        human: bool,
-    },
-
-    /// Type text into an element (appends to existing)
-    Type {
-        /// Text to type (required)
-        text: String,
-        /// CSS selector (or use --ref for snapshot ref)
-        #[arg(required_unless_present = "ref")]
-        selector: Option<String>,
-        /// Wait for element before typing (ms), 0 to skip
-        #[arg(long, default_value = "0")]
-        wait: u64,
-        /// Snapshot ref (e.g., e0, e5) from last `browser snapshot`
-        #[arg(long, name = "ref")]
-        ref_id: Option<String>,
-        /// Use human-like typing with natural delays and occasional typos
-        #[arg(long)]
-        human: bool,
-    },
-
-    /// Clear and type text into an element
-    Fill {
-        /// Text to fill (required)
-        text: String,
-        /// CSS selector (or use --ref for snapshot ref)
-        #[arg(required_unless_present = "ref")]
-        selector: Option<String>,
-        /// Wait for element before filling (ms), 0 to skip
-        #[arg(long, default_value = "0")]
-        wait: u64,
-        /// Snapshot ref (e.g., e0, e5) from last `browser snapshot`
-        #[arg(long, name = "ref")]
-        ref_id: Option<String>,
-    },
-
-    /// Select an option from dropdown
-    Select {
-        /// CSS selector for select element
-        selector: String,
-        /// Value to select
-        value: String,
-    },
-
-    /// Hover over an element
-    Hover {
-        /// CSS selector
-        selector: String,
-    },
-
-    /// Focus on an element
-    Focus {
-        /// CSS selector
-        selector: String,
-    },
-
-    /// Press a keyboard key
-    Press {
-        /// Key to press (e.g., Enter, Tab, Escape, ArrowDown)
-        key: String,
-    },
-
-    /// Send keyboard hotkey (e.g., Control+A, Control+Shift+ArrowRight)
-    Hotkey {
-        /// Keys separated by '+' (e.g., "Control+A", "Control+Shift+C")
-        keys: String,
-    },
-
-    /// Take a screenshot
-    Screenshot {
-        /// Output file path (default: screenshot.png)
-        #[arg(default_value = "screenshot.png")]
-        path: String,
-        /// Take full page screenshot
-        #[arg(long)]
-        full_page: bool,
-    },
-
-    /// Export page as PDF
-    Pdf {
-        /// Output file path
-        path: String,
-    },
-
-    /// Execute JavaScript
-    Eval {
-        /// JavaScript code to execute
-        code: String,
-    },
-
-    /// Get page HTML
-    Html {
-        /// Get only outer HTML of selector (optional)
-        selector: Option<String>,
-    },
-
-    /// Get page text content
-    Text {
-        /// Get only text of selector (optional)
-        selector: Option<String>,
-        /// Extraction mode: raw (innerText) or readability (smart extraction, default)
-        #[arg(long, default_value = "readability")]
-        mode: String,
-    },
-
-    /// Get accessibility snapshot via CDP Accessibility Tree
-    Snapshot {
-        /// Only show interactive elements (buttons, links, inputs)
-        #[arg(short = 'i', long)]
-        interactive: bool,
-        /// Include cursor-interactive elements (cursor:pointer, onclick, tabindex)
-        #[arg(short = 'C', long)]
-        cursor: bool,
-        /// Remove empty structural elements (generic, group, list, etc.)
-        #[arg(short = 'c', long)]
-        compact: bool,
-        /// Maximum tree depth
-        #[arg(short = 'd', long)]
-        depth: Option<usize>,
-        /// Scope to elements under this CSS selector
-        #[arg(short = 's', long)]
-        selector: Option<String>,
-        /// Output format: compact, json (default: compact)
-        #[arg(long, default_value = "compact")]
-        format: String,
-        /// Show diff from last snapshot (added/changed/removed)
-        #[arg(long)]
-        diff: bool,
-        /// Truncate output to approximately N tokens (for LLM context window management)
-        #[arg(long)]
-        max_tokens: Option<usize>,
-    },
-
-    /// Inspect DOM element at coordinates
-    Inspect {
-        /// X coordinate within viewport
-        x: f64,
-        /// Y coordinate within viewport
-        y: f64,
-        /// Optional description of what you're looking for
-        #[arg(long)]
-        desc: Option<String>,
-    },
-
-    /// Get viewport dimensions
-    Viewport,
-
-    /// Get or set cookies
-    Cookies {
-        #[command(subcommand)]
-        command: Option<CookiesCommands>,
-    },
-
-    /// Scroll the page
-    Scroll {
-        #[command(subcommand)]
-        direction: ScrollDirection,
-        /// Enable smooth scrolling
-        #[arg(long)]
-        smooth: bool,
-        /// Wait for scroll to complete (scrollend event)
-        #[arg(long)]
-        wait: bool,
-    },
-
-    /// Execute a batch of actions from JSON (stdin or file)
-    Batch {
-        /// Path to JSON file with actions (reads from stdin if omitted)
-        #[arg(long)]
-        file: Option<String>,
-        /// Delay between steps in milliseconds
-        #[arg(long, default_value = "50")]
-        delay: u64,
-    },
-
-    /// Rotate browser fingerprint (UA, platform, screen, hardware)
-    Fingerprint {
-        #[command(subcommand)]
-        command: FingerprintCommands,
-    },
-
-    /// Capture console log messages from the page
-    Console {
-        /// Duration to listen for messages in milliseconds (0 = snapshot current)
-        #[arg(long, default_value = "0")]
-        duration: u64,
-        /// Filter by log level: all, error, warning, info, log
-        #[arg(long, default_value = "all")]
-        level: String,
-    },
-
-    /// Wait for network to become idle (no pending requests)
-    WaitIdle {
-        /// Timeout in milliseconds
-        #[arg(long, default_value = "30000")]
-        timeout: u64,
-        /// Idle threshold in milliseconds (no requests for this long)
-        #[arg(long, default_value = "500")]
-        idle_time: u64,
-    },
-
-    /// Get detailed info about an element (bounding box, attributes, styles)
-    Info {
-        /// CSS selector
-        selector: String,
-    },
-
-    /// Manage localStorage and sessionStorage
-    Storage {
-        #[command(subcommand)]
-        command: StorageCommands,
-    },
-
-    /// Emulate a device (mobile, tablet, desktop presets)
-    Emulate {
-        /// Device name: iphone-14, iphone-se, pixel-7, ipad, desktop-hd, or custom WxH
-        device: String,
-    },
-
-    /// Wait for a JavaScript expression to return true
-    WaitFn {
-        /// JavaScript expression that should return a truthy value
-        expression: String,
-        /// Timeout in milliseconds
-        #[arg(long, default_value = "30000")]
-        timeout: u64,
-        /// Polling interval in milliseconds
-        #[arg(long, default_value = "100")]
-        interval: u64,
-    },
-
-    /// Upload file(s) to a file input element
-    Upload {
-        /// File path(s) to upload
-        #[arg(required = true)]
-        files: Vec<String>,
-        /// CSS selector for file input (auto-detects input[type="file"] if omitted)
-        #[arg(short = 's', long)]
-        selector: Option<String>,
-        /// Snapshot ref (e.g., e0) from last `browser snapshot`
-        #[arg(long, name = "ref")]
-        ref_id: Option<String>,
-        /// Wait for element before uploading (ms), 0 to skip
-        #[arg(long, default_value = "0")]
-        wait: u64,
-    },
-
-    /// Fetch page content in one shot (navigate → wait → extract → close)
-    Fetch {
-        /// URL to fetch
-        url: String,
-        /// Output format: snapshot, text, html (default: text)
-        #[arg(long, default_value = "text")]
-        format: String,
-        /// Truncate output to approximately N tokens
-        #[arg(long)]
-        max_tokens: Option<usize>,
-        /// Timeout in milliseconds for the entire operation
-        #[arg(long, default_value = "60000")]
-        timeout: u64,
-        /// Try HTTP fetch first, fallback to browser if needed
-        #[arg(long)]
-        lite: bool,
-    },
-
-    /// Close the browser
-    Close,
-
-    /// Restart the browser
-    Restart,
-
-    /// Connect to an existing browser
-    Connect {
-        /// CDP endpoint (port or WebSocket URL)
-        endpoint: String,
-        /// Optional HTTP headers for WebSocket auth (key:value pairs, repeatable)
-        #[arg(long = "header", short = 'H', value_name = "KEY:VALUE")]
-        headers: Vec<String>,
-    },
-
-    /// Manage browser tabs (list, create, switch, close)
-    Tab {
-        #[command(subcommand)]
-        command: TabCommands,
-    },
-
-    /// Switch iframe context
-    SwitchFrame {
-        /// Target: iframe selector, "parent", or "default" for main frame
-        target: String,
-    },
-
-    /// Manage sessions (multiple tabs per profile)
-    Session {
-        #[command(subcommand)]
-        command: SessionCommands,
-    },
-
-    /// Handle JavaScript dialogs (alert, confirm, prompt, beforeunload)
-    Dialog {
-        #[command(subcommand)]
-        command: DialogCommands,
-    },
-}
-
-#[derive(Subcommand, Clone)]
-pub enum SessionCommands {
-    /// List all sessions for the current profile
-    List,
-    /// Show the currently selected session name (set via -S flag or default)
-    Active,
-    /// Destroy a named session
-    Destroy {
-        /// Session name to destroy
-        name: String,
-    },
-}
-
-#[derive(Subcommand, Clone)]
-pub enum DialogCommands {
-    /// Accept the current dialog (with optional prompt text)
-    Accept {
-        /// Text to enter for prompt dialogs
-        text: Option<String>,
-    },
-    /// Dismiss/cancel the current dialog
-    Dismiss,
-    /// Check if a JavaScript dialog is currently open
-    Status,
-}
-
-#[derive(Subcommand, Clone)]
-pub enum AppCommands {
-    /// Launch an application by name (e.g., "Slack", "VSCode")
-    Launch {
-        /// Application name or bundle ID
-        app_name: String,
-    },
-
-    /// Attach to a running application by name or port
-    Attach {
-        /// Application name, bundle ID, or CDP port/WebSocket URL
-        target: String,
-    },
-
-    /// List all discoverable applications with CDP support
-    List,
-
-    /// Show application status and connection info
-    Status,
-
-    /// Close the connected application
-    Close,
-
-    /// Restart the connected application
-    Restart,
-
-    /// Navigate current window to URL
-    Goto {
-        /// URL to navigate to
-        url: String,
-        /// Wait for navigation to complete (ms)
-        #[arg(long, default_value = "30000")]
-        timeout: u64,
-    },
-
-    /// Go back in history
-    Back,
-
-    /// Go forward in history
-    Forward,
-
-    /// Reload current page
-    Reload,
-
-    /// List all open pages/windows
-    Pages,
-
-    /// Switch to a specific page by ID
-    Switch {
-        /// Page ID (from 'pages' command)
-        page_id: String,
-    },
-
-    /// Wait for an element to appear
-    Wait {
-        /// CSS selector to wait for
-        selector: String,
-        /// Timeout in milliseconds
-        #[arg(long, default_value = "30000")]
-        timeout: u64,
-    },
-
-    /// Wait for navigation to complete
-    WaitNav {
-        /// Timeout in milliseconds
-        #[arg(long, default_value = "30000")]
-        timeout: u64,
-    },
-
-    /// Click an element
-    Click {
-        /// CSS selector (or use --ref for snapshot ref)
-        #[arg(required_unless_present = "ref")]
-        selector: Option<String>,
-        /// Wait for element before clicking (ms), 0 to skip
-        #[arg(long, default_value = "0")]
-        wait: u64,
-        /// Snapshot ref (e.g., e0, e5) from last `app snapshot`
-        #[arg(long, name = "ref")]
-        ref_id: Option<String>,
-        /// Use human-like bezier curve mouse movement
-        #[arg(long)]
-        human: bool,
-    },
-
-    /// Drag from one element to another
-    Drag {
-        /// CSS selector for the drag source element
-        from: String,
-        /// CSS selector for the drag target element
-        to: String,
-        /// Use human-like bezier curve mouse movement
-        #[arg(long)]
-        human: bool,
-    },
-
-    /// Type text into an element (appends to existing)
-    Type {
-        /// Text to type (required)
-        text: String,
-        /// CSS selector (or use --ref for snapshot ref)
-        #[arg(required_unless_present = "ref")]
-        selector: Option<String>,
-        /// Wait for element before typing (ms), 0 to skip
-        #[arg(long, default_value = "0")]
-        wait: u64,
-        /// Snapshot ref (e.g., e0, e5) from last `app snapshot`
-        #[arg(long, name = "ref")]
-        ref_id: Option<String>,
-        /// Use human-like typing with natural delays and occasional typos
-        #[arg(long)]
-        human: bool,
-    },
-
-    /// Clear and type text into an element
-    Fill {
-        /// Text to fill (required)
-        text: String,
-        /// CSS selector (or use --ref for snapshot ref)
-        #[arg(required_unless_present = "ref")]
-        selector: Option<String>,
-        /// Wait for element before filling (ms), 0 to skip
-        #[arg(long, default_value = "0")]
-        wait: u64,
-        /// Snapshot ref (e.g., e0, e5) from last `app snapshot`
-        #[arg(long, name = "ref")]
-        ref_id: Option<String>,
-    },
-
-    /// Select an option from dropdown
-    Select {
-        /// CSS selector for select element
-        selector: String,
-        /// Value to select
-        value: String,
-    },
-
-    /// Hover over an element
-    Hover {
-        /// CSS selector
-        selector: String,
-    },
-
-    /// Focus on an element
-    Focus {
-        /// CSS selector
-        selector: String,
-    },
-
-    /// Press a keyboard key
-    Press {
-        /// Key to press (e.g., Enter, Tab, Escape, ArrowDown)
-        key: String,
-    },
-
-    /// Send keyboard hotkey (e.g., Control+A, Control+Shift+ArrowRight)
-    Hotkey {
-        /// Keys separated by '+' (e.g., "Control+A", "Control+Shift+C")
-        keys: String,
-    },
-
-    /// Take a screenshot
-    Screenshot {
-        /// Output file path (default: screenshot.png)
-        #[arg(default_value = "screenshot.png")]
-        path: String,
-        /// Take full page screenshot
-        #[arg(long)]
-        full_page: bool,
-    },
-
-    /// Export page as PDF
-    Pdf {
-        /// Output file path
-        path: String,
-    },
-
-    /// Execute JavaScript
-    Eval {
-        /// JavaScript code to execute
-        code: String,
-    },
-
-    /// Get page HTML
-    Html {
-        /// Get only outer HTML of selector (optional)
-        selector: Option<String>,
-    },
-
-    /// Get page text content
-    Text {
-        /// Get only text of selector (optional)
-        selector: Option<String>,
-        /// Extraction mode: raw (innerText) or readability (smart extraction, default)
-        #[arg(long, default_value = "readability")]
-        mode: String,
-    },
-
-    /// Get accessibility snapshot via CDP Accessibility Tree
-    Snapshot {
-        /// Only show interactive elements (buttons, links, inputs)
-        #[arg(short = 'i', long)]
-        interactive: bool,
-        /// Include cursor-interactive elements (cursor:pointer, onclick, tabindex)
-        #[arg(short = 'C', long)]
-        cursor: bool,
-        /// Remove empty structural elements (generic, group, list, etc.)
-        #[arg(short = 'c', long)]
-        compact: bool,
-        /// Maximum tree depth
-        #[arg(short = 'd', long)]
-        depth: Option<usize>,
-        /// Scope to elements under this CSS selector
-        #[arg(short = 's', long)]
-        selector: Option<String>,
-        /// Output format: compact, json (default: compact)
-        #[arg(long, default_value = "compact")]
-        format: String,
-        /// Show diff from last snapshot (added/changed/removed)
-        #[arg(long)]
-        diff: bool,
-        /// Truncate output to approximately N tokens (for LLM context window management)
-        #[arg(long)]
-        max_tokens: Option<usize>,
-    },
-
-    /// Inspect DOM element at coordinates
-    Inspect {
-        /// X coordinate within viewport
-        x: f64,
-        /// Y coordinate within viewport
-        y: f64,
-        /// Optional description of what you're looking for
-        #[arg(long)]
-        desc: Option<String>,
-    },
-
-    /// Get viewport dimensions
-    Viewport,
-
-    /// Get or set cookies
-    Cookies {
-        #[command(subcommand)]
-        command: Option<CookiesCommands>,
-    },
-
-    /// Scroll the page
-    Scroll {
-        #[command(subcommand)]
-        direction: ScrollDirection,
-        /// Enable smooth scrolling
-        #[arg(long)]
-        smooth: bool,
-        /// Wait for scroll to complete (scrollend event)
-        #[arg(long)]
-        wait: bool,
-    },
-
-    /// Execute a batch of actions from JSON (stdin or file)
-    Batch {
-        /// Path to JSON file with actions (reads from stdin if omitted)
-        #[arg(long)]
-        file: Option<String>,
-        /// Delay between steps in milliseconds
-        #[arg(long, default_value = "50")]
-        delay: u64,
-    },
-
-    /// Rotate fingerprint (UA, platform, screen, hardware)
-    Fingerprint {
-        #[command(subcommand)]
-        command: FingerprintCommands,
-    },
-
-    /// Capture console log messages from the page
-    Console {
-        /// Duration to listen for messages in milliseconds (0 = snapshot current)
-        #[arg(long, default_value = "0")]
-        duration: u64,
-        /// Filter by log level: all, error, warning, info, log
-        #[arg(long, default_value = "all")]
-        level: String,
-    },
-
-    /// Wait for network to become idle (no pending requests)
-    WaitIdle {
-        /// Timeout in milliseconds
-        #[arg(long, default_value = "30000")]
-        timeout: u64,
-        /// Idle threshold in milliseconds (no requests for this long)
-        #[arg(long, default_value = "500")]
-        idle_time: u64,
-    },
-
-    /// Get detailed info about an element (bounding box, attributes, styles)
-    Info {
-        /// CSS selector
-        selector: String,
-    },
-
-    /// Manage localStorage and sessionStorage
-    Storage {
-        #[command(subcommand)]
-        command: StorageCommands,
-    },
-
-    /// Emulate a device (mobile, tablet, desktop presets)
-    Emulate {
-        /// Device name: iphone-14, iphone-se, pixel-7, ipad, desktop-hd, or custom WxH
-        device: String,
-    },
-
-    /// Wait for a JavaScript expression to return true
-    WaitFn {
-        /// JavaScript expression that should return a truthy value
-        expression: String,
-        /// Timeout in milliseconds
-        #[arg(long, default_value = "30000")]
-        timeout: u64,
-        /// Polling interval in milliseconds
-        #[arg(long, default_value = "100")]
-        interval: u64,
-    },
-
-    /// Upload file(s) to a file input element
-    Upload {
-        /// File path(s) to upload
-        #[arg(required = true)]
-        files: Vec<String>,
-        /// CSS selector for file input (auto-detects input[type="file"] if omitted)
-        #[arg(short = 's', long)]
-        selector: Option<String>,
-        /// Snapshot ref (e.g., e0) from last `app snapshot`
-        #[arg(long, name = "ref")]
-        ref_id: Option<String>,
-        /// Wait for element before uploading (ms), 0 to skip
-        #[arg(long, default_value = "0")]
-        wait: u64,
-    },
-
-    /// Manage application tabs/windows (list, create, switch, close)
-    Tab {
-        #[command(subcommand)]
-        command: TabCommands,
-    },
-
-    /// Switch iframe context
-    SwitchFrame {
-        /// Target: iframe selector, "parent", or "default" for main frame
-        target: String,
-    },
-}
-
-#[derive(Subcommand, Clone)]
-pub enum TabCommands {
-    /// List all open tabs/pages
-    List,
-
-    /// Create a new tab (or new window with --new-window) with optional URL
-    New {
-        /// Optional URL to open in the new tab
-        url: Option<String>,
-        /// Open in a new browser window instead of a new tab
-        #[arg(long)]
-        new_window: bool,
-    },
-
-    /// Switch to a specific tab by ID
-    Switch {
-        /// Page/tab ID (get from 'tab list')
-        page_id: String,
-    },
-
-    /// Close a specific tab by ID
-    Close {
-        /// Page/tab ID to close (defaults to active tab)
-        page_id: Option<String>,
-    },
-
-    /// Show currently active tab
-    Active,
-}
-
-#[derive(Subcommand, Clone)]
-pub enum FingerprintCommands {
-    /// Generate and apply a new random fingerprint
-    Rotate {
-        /// Target OS: windows, mac, linux, random
-        #[arg(long, default_value = "random")]
-        os: String,
-        /// Target screen resolution (e.g., 1920x1080, random)
-        #[arg(long, default_value = "random")]
-        screen: String,
-    },
-}
-
-#[derive(Subcommand, Clone)]
-pub enum CookiesCommands {
-    /// List all cookies
-    List,
-    /// Get a specific cookie
-    Get {
-        /// Cookie name
-        name: String,
-    },
-    /// Set a cookie
-    Set {
-        /// Cookie name
-        name: String,
-        /// Cookie value
-        value: String,
-        /// Cookie domain (optional)
-        #[arg(long)]
-        domain: Option<String>,
-    },
-    /// Delete a cookie
-    Delete {
-        /// Cookie name
-        name: String,
-    },
-    /// Clear all cookies for the current page (or specified domain)
-    Clear {
-        /// Explicit domain to clear (e.g., "example.com")
-        #[arg(long)]
-        domain: Option<String>,
-        /// Preview which cookies would be cleared without deleting
-        #[arg(long)]
-        dry_run: bool,
-        /// Skip confirmation — required to actually clear
-        #[arg(short = 'y', long)]
-        yes: bool,
-    },
-}
-
-#[derive(Subcommand, Clone)]
-pub enum StorageCommands {
-    /// Get a value from localStorage
-    Get {
-        /// Key to get
-        key: String,
-        /// Use sessionStorage instead of localStorage
-        #[arg(long)]
-        session: bool,
-    },
-    /// Set a value in localStorage
-    Set {
-        /// Key to set
-        key: String,
-        /// Value to set
-        value: String,
-        /// Use sessionStorage instead of localStorage
-        #[arg(long)]
-        session: bool,
-    },
-    /// Remove a key from localStorage
-    Remove {
-        /// Key to remove
-        key: String,
-        /// Use sessionStorage instead of localStorage
-        #[arg(long)]
-        session: bool,
-    },
-    /// Clear all localStorage data
-    Clear {
-        /// Use sessionStorage instead of localStorage
-        #[arg(long)]
-        session: bool,
-    },
-    /// List all keys in localStorage
-    List {
-        /// Use sessionStorage instead of localStorage
-        #[arg(long)]
-        session: bool,
-    },
-}
-
-#[derive(Subcommand, Clone)]
-pub enum ScrollDirection {
-    /// Scroll down by pixels
-    Down {
-        /// Number of pixels to scroll (default: one viewport height)
-        #[arg(default_value = "0")]
-        pixels: i32,
-    },
-
-    /// Scroll up by pixels
-    Up {
-        /// Number of pixels to scroll (default: one viewport height)
-        #[arg(default_value = "0")]
-        pixels: i32,
-    },
-
-    /// Scroll to the bottom of the page
-    Bottom,
-
-    /// Scroll to the top of the page
-    Top,
-
-    /// Scroll to a specific element
-    To {
-        /// CSS selector
-        selector: String,
-        /// Alignment: start, center, end, nearest
-        #[arg(long, default_value = "center")]
-        align: String,
-    },
-}
-
-#[derive(Subcommand, Clone)]
 pub enum DaemonCommands {
-    /// Start daemon server for a profile (internal, auto-started)
+    /// Start daemon server (internal, auto-started)
     #[command(hide = true)]
     Serve {
         /// Profile name (overrides global --profile)
@@ -1243,10 +158,14 @@ pub enum DaemonCommands {
         profile: Option<String>,
     },
 
-    /// Check daemon status for the current profile
+    /// Start the daemon in the foreground (used by auto-start and for debugging)
+    #[command(name = "serve-v2")]
+    ServeV2,
+
+    /// Check daemon status
     Status,
 
-    /// Stop the daemon for the current profile
+    /// Stop the daemon
     Stop,
 }
 
@@ -1254,9 +173,6 @@ pub enum DaemonCommands {
 pub enum ExtensionCommands {
     #[command(hide = true)]
     /// Start the extension bridge WebSocket server
-    ///
-    /// Note: The bridge is automatically started when needed by browser commands.
-    /// This command is provided for debugging and manual control only.
     Serve {
         /// Port to listen on
         #[arg(long, default_value_t = DEFAULT_EXTENSION_PORT)]
@@ -1368,34 +284,13 @@ pub enum ProfileCommands {
 }
 
 impl Cli {
-    fn apply_session_env_fallback(&mut self) -> std::result::Result<(), clap::Error> {
-        if self.session.is_none() {
-            match session_from_env() {
-                Ok(session) => self.session = session,
-                Err(message) => {
-                    return Err(clap::Error::raw(
-                        clap::error::ErrorKind::ValueValidation,
-                        message,
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
-
     pub fn parse() -> Self {
-        let mut cli = <Self as Parser>::parse();
-        if let Err(err) = cli.apply_session_env_fallback() {
-            err.exit();
-        }
-        cli
+        <Self as Parser>::parse()
     }
 
     #[allow(dead_code)]
     pub fn try_parse() -> std::result::Result<Self, clap::Error> {
-        let mut cli = <Self as Parser>::try_parse()?;
-        cli.apply_session_env_fallback()?;
-        Ok(cli)
+        <Self as Parser>::try_parse()
     }
 
     #[allow(dead_code)]
@@ -1404,11 +299,7 @@ impl Cli {
         I: IntoIterator<Item = T>,
         T: Into<OsString> + Clone,
     {
-        let mut cli = <Self as Parser>::parse_from(itr);
-        if let Err(err) = cli.apply_session_env_fallback() {
-            err.exit();
-        }
-        cli
+        <Self as Parser>::parse_from(itr)
     }
 
     #[allow(dead_code)]
@@ -1417,17 +308,13 @@ impl Cli {
         I: IntoIterator<Item = T>,
         T: Into<OsString> + Clone,
     {
-        let mut cli = <Self as Parser>::try_parse_from(itr)?;
-        cli.apply_session_env_fallback()?;
-        Ok(cli)
+        <Self as Parser>::try_parse_from(itr)
     }
 
     pub async fn run(&self) -> Result<()> {
         crate::update_notifier::maybe_notify(self).await;
 
         match &self.command {
-            Commands::Browser { command } => commands::browser::run(self, command).await,
-            Commands::App { command } => commands::app::run(self, command).await,
             Commands::Extension { command } => commands::extension::run(self, command).await,
             Commands::Search {
                 query,
@@ -1477,20 +364,457 @@ impl Cli {
 
 #[cfg(test)]
 mod tests {
-    use super::Cli;
-    use std::sync::{Mutex, OnceLock};
+    use super::*;
 
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
+    #[test]
+    fn try_parse_from_parses_config_path() {
+        let parsed = Cli::try_parse_from(["actionbook", "config", "path"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Config {
+                command: ConfigCommands::Path
+            }
+        ));
     }
 
     #[test]
-    fn try_parse_from_treats_empty_actionbook_session_as_unset() {
-        let _guard = env_lock().lock().unwrap();
-        std::env::set_var("ACTIONBOOK_SESSION", "");
-        let parsed = Cli::try_parse_from(["actionbook", "config", "path"]).unwrap();
-        assert!(parsed.session.is_none());
-        std::env::remove_var("ACTIONBOOK_SESSION");
+    fn try_parse_from_parses_config_show() {
+        let parsed = Cli::try_parse_from(["actionbook", "config", "show"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Config {
+                command: ConfigCommands::Show
+            }
+        ));
+    }
+
+    #[test]
+    fn try_parse_from_parses_config_get() {
+        let parsed = Cli::try_parse_from(["actionbook", "config", "get", "api.base_url"]).unwrap();
+        if let Commands::Config {
+            command: ConfigCommands::Get { key },
+        } = parsed.command
+        {
+            assert_eq!(key, "api.base_url");
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_config_set() {
+        let parsed =
+            Cli::try_parse_from(["actionbook", "config", "set", "api.api_key", "sk-test-123"])
+                .unwrap();
+        if let Commands::Config {
+            command: ConfigCommands::Set { key, value },
+        } = parsed.command
+        {
+            assert_eq!(key, "api.api_key");
+            assert_eq!(value, "sk-test-123");
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_json_flag() {
+        let parsed = Cli::try_parse_from(["actionbook", "--json", "config", "show"]).unwrap();
+        assert!(parsed.json);
+    }
+
+    #[test]
+    fn try_parse_from_parses_profile_flag() {
+        let parsed =
+            Cli::try_parse_from(["actionbook", "--profile", "work", "config", "show"]).unwrap();
+        assert_eq!(parsed.profile.as_deref(), Some("work"));
+    }
+
+    #[test]
+    fn try_parse_from_parses_profile_list() {
+        let parsed = Cli::try_parse_from(["actionbook", "profile", "list"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Profile {
+                command: ProfileCommands::List
+            }
+        ));
+    }
+
+    #[test]
+    fn try_parse_from_parses_daemon_stop() {
+        let parsed = Cli::try_parse_from(["actionbook", "daemon", "stop"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Daemon {
+                command: DaemonCommands::Stop
+            }
+        ));
+    }
+
+    #[test]
+    fn browser_mode_serde_round_trip() {
+        for mode in [BrowserMode::Isolated, BrowserMode::Extension] {
+            let json = serde_json::to_string(&mode).unwrap();
+            let decoded: BrowserMode = serde_json::from_str(&json).unwrap();
+            assert_eq!(mode, decoded);
+        }
+    }
+
+    #[test]
+    fn browser_mode_aliases_deserialize() {
+        // "builtin" is an alias for Isolated
+        let mode: BrowserMode = serde_json::from_str("\"builtin\"").unwrap();
+        assert_eq!(mode, BrowserMode::Isolated);
+
+        // "system" is an alias for Extension
+        let mode: BrowserMode = serde_json::from_str("\"system\"").unwrap();
+        assert_eq!(mode, BrowserMode::Extension);
+    }
+
+    #[test]
+    fn setup_target_equality() {
+        assert_eq!(SetupTarget::Claude, SetupTarget::Claude);
+        assert_ne!(SetupTarget::Claude, SetupTarget::Cursor);
+        assert_eq!(SetupTarget::All, SetupTarget::All);
+    }
+
+    #[test]
+    fn try_parse_from_parses_search_with_all_options() {
+        let parsed = Cli::try_parse_from([
+            "actionbook",
+            "search",
+            "airbnb login",
+            "--domain",
+            "airbnb.com",
+            "--url",
+            "https://airbnb.com/login",
+            "--page",
+            "2",
+            "--page-size",
+            "20",
+        ])
+        .unwrap();
+        if let Commands::Search {
+            query,
+            domain,
+            url,
+            page,
+            page_size,
+        } = parsed.command
+        {
+            assert_eq!(query, "airbnb login");
+            assert_eq!(domain.as_deref(), Some("airbnb.com"));
+            assert_eq!(url.as_deref(), Some("https://airbnb.com/login"));
+            assert_eq!(page, 2);
+            assert_eq!(page_size, 20);
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_search_defaults() {
+        let parsed = Cli::try_parse_from(["actionbook", "search", "google"]).unwrap();
+        if let Commands::Search {
+            page, page_size, ..
+        } = parsed.command
+        {
+            assert_eq!(page, 1);
+            assert_eq!(page_size, 10);
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_get() {
+        let parsed = Cli::try_parse_from(["actionbook", "get", "airbnb.com:/:default"]).unwrap();
+        if let Commands::Get { area_id } = parsed.command {
+            assert_eq!(area_id, "airbnb.com:/:default");
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_act() {
+        let parsed =
+            Cli::try_parse_from(["actionbook", "act", "github.com:/login:default"]).unwrap();
+        if let Commands::Act { area_id } = parsed.command {
+            assert_eq!(area_id, "github.com:/login:default");
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_sources_list() {
+        let parsed = Cli::try_parse_from(["actionbook", "sources", "list"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Sources {
+                command: SourcesCommands::List
+            }
+        ));
+    }
+
+    #[test]
+    fn try_parse_from_parses_sources_search() {
+        let parsed = Cli::try_parse_from(["actionbook", "sources", "search", "google"]).unwrap();
+        if let Commands::Sources {
+            command: SourcesCommands::Search { query },
+        } = parsed.command
+        {
+            assert_eq!(query, "google");
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_config_edit() {
+        let parsed = Cli::try_parse_from(["actionbook", "config", "edit"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Config {
+                command: ConfigCommands::Edit
+            }
+        ));
+    }
+
+    #[test]
+    fn try_parse_from_parses_config_reset() {
+        let parsed = Cli::try_parse_from(["actionbook", "config", "reset"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Config {
+                command: ConfigCommands::Reset
+            }
+        ));
+    }
+
+    #[test]
+    fn try_parse_from_parses_profile_create_with_port() {
+        let parsed = Cli::try_parse_from([
+            "actionbook",
+            "profile",
+            "create",
+            "work",
+            "--cdp-port",
+            "9333",
+        ])
+        .unwrap();
+        if let Commands::Profile {
+            command: ProfileCommands::Create { name, cdp_port },
+        } = parsed.command
+        {
+            assert_eq!(name, "work");
+            assert_eq!(cdp_port, Some(9333));
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_profile_create_without_port() {
+        let parsed = Cli::try_parse_from(["actionbook", "profile", "create", "test"]).unwrap();
+        if let Commands::Profile {
+            command: ProfileCommands::Create { name, cdp_port },
+        } = parsed.command
+        {
+            assert_eq!(name, "test");
+            assert_eq!(cdp_port, None);
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_profile_delete() {
+        let parsed = Cli::try_parse_from(["actionbook", "profile", "delete", "old"]).unwrap();
+        if let Commands::Profile {
+            command: ProfileCommands::Delete { name },
+        } = parsed.command
+        {
+            assert_eq!(name, "old");
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_profile_show() {
+        let parsed = Cli::try_parse_from(["actionbook", "profile", "show", "dev"]).unwrap();
+        if let Commands::Profile {
+            command: ProfileCommands::Show { name },
+        } = parsed.command
+        {
+            assert_eq!(name, "dev");
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_daemon_status() {
+        let parsed = Cli::try_parse_from(["actionbook", "daemon", "status"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Daemon {
+                command: DaemonCommands::Status
+            }
+        ));
+    }
+
+    #[test]
+    fn try_parse_from_parses_setup_non_interactive() {
+        let parsed = Cli::try_parse_from([
+            "actionbook",
+            "setup",
+            "--non-interactive",
+            "--target",
+            "claude",
+            "--browser",
+            "isolated",
+        ])
+        .unwrap();
+        if let Commands::Setup {
+            target,
+            non_interactive,
+            browser,
+            reset,
+            ..
+        } = parsed.command
+        {
+            assert_eq!(target, Some(SetupTarget::Claude));
+            assert!(non_interactive);
+            assert_eq!(browser, Some(BrowserMode::Isolated));
+            assert!(!reset);
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_setup_reset() {
+        let parsed = Cli::try_parse_from(["actionbook", "setup", "--reset"]).unwrap();
+        if let Commands::Setup { reset, .. } = parsed.command {
+            assert!(reset);
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_extension_status() {
+        let parsed =
+            Cli::try_parse_from(["actionbook", "extension", "status", "--port", "19333"]).unwrap();
+        if let Commands::Extension {
+            command: ExtensionCommands::Status { port },
+        } = parsed.command
+        {
+            assert_eq!(port, 19333);
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_extension_install_force() {
+        let parsed =
+            Cli::try_parse_from(["actionbook", "extension", "install", "--force"]).unwrap();
+        if let Commands::Extension {
+            command: ExtensionCommands::Install { force },
+        } = parsed.command
+        {
+            assert!(force);
+        } else {
+            panic!("wrong command parsed");
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_extension_path() {
+        let parsed = Cli::try_parse_from(["actionbook", "extension", "path"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Extension {
+                command: ExtensionCommands::Path
+            }
+        ));
+    }
+
+    #[test]
+    fn try_parse_from_parses_extension_uninstall() {
+        let parsed = Cli::try_parse_from(["actionbook", "extension", "uninstall"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Extension {
+                command: ExtensionCommands::Uninstall
+            }
+        ));
+    }
+
+    #[test]
+    fn try_parse_from_api_key_flag() {
+        let parsed =
+            Cli::try_parse_from(["actionbook", "--api-key", "sk-secret", "config", "show"])
+                .unwrap();
+        assert_eq!(parsed.api_key.as_deref(), Some("sk-secret"));
+    }
+
+    #[test]
+    fn try_parse_from_no_json_by_default() {
+        let parsed = Cli::try_parse_from(["actionbook", "config", "show"]).unwrap();
+        assert!(!parsed.json);
+    }
+
+    #[test]
+    fn try_parse_from_no_profile_by_default() {
+        let parsed = Cli::try_parse_from(["actionbook", "config", "show"]).unwrap();
+        assert!(parsed.profile.is_none());
+    }
+
+    #[test]
+    fn try_parse_from_rejects_unknown_subcommand() {
+        let result = Cli::try_parse_from(["actionbook", "nonexistent"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn try_parse_from_search_requires_query() {
+        let result = Cli::try_parse_from(["actionbook", "search"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn try_parse_from_get_requires_area_id() {
+        let result = Cli::try_parse_from(["actionbook", "get"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn setup_target_all_variants() {
+        for target_str in [
+            "claude",
+            "codex",
+            "cursor",
+            "windsurf",
+            "antigravity",
+            "opencode",
+            "standalone",
+            "all",
+        ] {
+            let parsed =
+                Cli::try_parse_from(["actionbook", "setup", "--target", target_str]).unwrap();
+            assert!(matches!(parsed.command, Commands::Setup { .. }));
+        }
+    }
+
+    #[test]
+    fn browser_mode_invalid_deserialize() {
+        let result = serde_json::from_str::<BrowserMode>("\"invalid\"");
+        assert!(result.is_err());
     }
 }

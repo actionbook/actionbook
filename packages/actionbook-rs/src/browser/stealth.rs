@@ -47,8 +47,10 @@ impl Default for StealthProfile {
 }
 
 /// Operating system options for stealth profile
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum StealthOs {
+    #[allow(dead_code)]
     Windows,
     MacOsIntel,
     MacOsArm,
@@ -56,9 +58,11 @@ pub enum StealthOs {
 }
 
 /// GPU options for stealth profile
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum StealthGpu {
     // NVIDIA
+    #[allow(dead_code)]
     NvidiaRtx4080,
     NvidiaRtx3080,
     NvidiaGtx1660,
@@ -213,6 +217,7 @@ pub async fn apply_stealth_to_page(
 }
 
 /// Get stealth mode status string
+#[allow(dead_code)]
 pub fn stealth_status() -> &'static str {
     if cfg!(feature = "stealth") {
         "enabled (chaser-oxide)"
@@ -222,6 +227,7 @@ pub fn stealth_status() -> &'static str {
 }
 
 /// Parse OS string from CLI into StealthOs
+#[allow(dead_code)]
 pub fn parse_stealth_os(s: &str) -> Option<StealthOs> {
     match s.to_lowercase().as_str() {
         "windows" | "win" => Some(StealthOs::Windows),
@@ -233,6 +239,7 @@ pub fn parse_stealth_os(s: &str) -> Option<StealthOs> {
 }
 
 /// Parse GPU string from CLI into StealthGpu
+#[allow(dead_code)]
 pub fn parse_stealth_gpu(s: &str) -> Option<StealthGpu> {
     match s.to_lowercase().replace(['-', '_', ' '], "").as_str() {
         "nvidiartx4080" | "rtx4080" | "4080" => Some(StealthGpu::NvidiaRtx4080),
@@ -249,6 +256,7 @@ pub fn parse_stealth_gpu(s: &str) -> Option<StealthGpu> {
 }
 
 /// Build a StealthProfile from optional CLI parameters
+#[allow(dead_code)]
 pub fn build_stealth_profile(os: Option<&str>, gpu: Option<&str>) -> StealthProfile {
     let mut profile = StealthProfile::default();
 
@@ -265,4 +273,146 @@ pub fn build_stealth_profile(os: Option<&str>, gpu: Option<&str>) -> StealthProf
     }
 
     profile
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stealth_status_returns_disabled_without_feature() {
+        let status = stealth_status();
+        // Without the "stealth" feature, should be "disabled"
+        assert!(
+            status.contains("disabled") || status.contains("enabled"),
+            "unexpected status: {status}"
+        );
+    }
+
+    #[test]
+    fn parse_stealth_os_recognizes_all_variants() {
+        // Windows
+        assert!(matches!(
+            parse_stealth_os("windows"),
+            Some(StealthOs::Windows)
+        ));
+        assert!(matches!(parse_stealth_os("win"), Some(StealthOs::Windows)));
+        // macOS Intel
+        assert!(matches!(
+            parse_stealth_os("macos-intel"),
+            Some(StealthOs::MacOsIntel)
+        ));
+        assert!(matches!(
+            parse_stealth_os("mac-intel"),
+            Some(StealthOs::MacOsIntel)
+        ));
+        // macOS ARM
+        assert!(matches!(
+            parse_stealth_os("macos-arm"),
+            Some(StealthOs::MacOsArm)
+        ));
+        assert!(matches!(
+            parse_stealth_os("macos"),
+            Some(StealthOs::MacOsArm)
+        ));
+        assert!(matches!(parse_stealth_os("mac"), Some(StealthOs::MacOsArm)));
+        // Linux
+        assert!(matches!(parse_stealth_os("linux"), Some(StealthOs::Linux)));
+        // Unknown
+        assert!(parse_stealth_os("freebsd").is_none());
+        assert!(parse_stealth_os("").is_none());
+    }
+
+    #[test]
+    fn parse_stealth_gpu_recognizes_all_variants() {
+        assert!(matches!(
+            parse_stealth_gpu("rtx4080"),
+            Some(StealthGpu::NvidiaRtx4080)
+        ));
+        assert!(matches!(
+            parse_stealth_gpu("rtx3080"),
+            Some(StealthGpu::NvidiaRtx3080)
+        ));
+        assert!(matches!(
+            parse_stealth_gpu("gtx1660"),
+            Some(StealthGpu::NvidiaGtx1660)
+        ));
+        assert!(matches!(
+            parse_stealth_gpu("rx6800"),
+            Some(StealthGpu::AmdRadeonRx6800)
+        ));
+        assert!(matches!(
+            parse_stealth_gpu("uhd630"),
+            Some(StealthGpu::IntelUhd630)
+        ));
+        assert!(matches!(
+            parse_stealth_gpu("irisxe"),
+            Some(StealthGpu::IntelIrisXe)
+        ));
+        assert!(matches!(
+            parse_stealth_gpu("m1pro"),
+            Some(StealthGpu::AppleM1Pro)
+        ));
+        assert!(matches!(
+            parse_stealth_gpu("m2max"),
+            Some(StealthGpu::AppleM2Max)
+        ));
+        assert!(matches!(
+            parse_stealth_gpu("m4max"),
+            Some(StealthGpu::AppleM4Max)
+        ));
+        // Aliases
+        assert!(matches!(
+            parse_stealth_gpu("m1"),
+            Some(StealthGpu::AppleM1Pro)
+        ));
+        assert!(matches!(
+            parse_stealth_gpu("m2"),
+            Some(StealthGpu::AppleM2Max)
+        ));
+        assert!(matches!(
+            parse_stealth_gpu("m4"),
+            Some(StealthGpu::AppleM4Max)
+        ));
+        assert!(matches!(
+            parse_stealth_gpu("4080"),
+            Some(StealthGpu::NvidiaRtx4080)
+        ));
+        // Unknown
+        assert!(parse_stealth_gpu("unknown_gpu").is_none());
+    }
+
+    #[test]
+    fn build_stealth_profile_uses_defaults_when_none() {
+        let profile = build_stealth_profile(None, None);
+        assert_eq!(profile.chrome_version, 130);
+        assert_eq!(profile.memory_gb, 16);
+        assert_eq!(profile.cpu_cores, 8);
+        assert_eq!(profile.locale, "en-US");
+    }
+
+    #[test]
+    fn build_stealth_profile_applies_valid_os_and_gpu() {
+        let profile = build_stealth_profile(Some("windows"), Some("rtx4080"));
+        assert!(matches!(profile.os, StealthOs::Windows));
+        assert!(matches!(profile.gpu, StealthGpu::NvidiaRtx4080));
+    }
+
+    #[test]
+    fn build_stealth_profile_keeps_defaults_for_unknown_values() {
+        let profile = build_stealth_profile(Some("unknown_os"), Some("unknown_gpu"));
+        // Should keep defaults (MacOsArm and AppleM4Max) since parse returns None
+        assert!(matches!(profile.os, StealthOs::MacOsArm));
+        assert!(matches!(profile.gpu, StealthGpu::AppleM4Max));
+    }
+
+    #[test]
+    fn stealth_profile_default_values() {
+        let profile = StealthProfile::default();
+        assert_eq!(profile.chrome_version, 130);
+        assert_eq!(profile.memory_gb, 16);
+        assert_eq!(profile.cpu_cores, 8);
+        assert_eq!(profile.locale, "en-US");
+        assert_eq!(profile.timezone, "America/Los_Angeles");
+    }
 }

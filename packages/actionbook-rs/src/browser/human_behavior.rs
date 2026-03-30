@@ -126,7 +126,7 @@ pub fn generate_mouse_trajectory(start: Point, end: Point, steps: usize) -> Vec<
     // Generate control points for cubic Bezier curve
     // Add some randomness to make it look more human
     let distance = start.distance_to(&end);
-    let randomness = (distance * 0.2).max(20.0).min(100.0);
+    let randomness = (distance * 0.2).clamp(20.0, 100.0);
 
     let control1 = Point::new(
         start.x + (end.x - start.x) * 0.25 + rng.gen_range(-randomness..randomness),
@@ -178,9 +178,7 @@ pub fn calculate_movement_delays(points: &[Point], speed_multiplier: f64) -> Vec
     let total_distance: f64 = points.windows(2).map(|w| w[0].distance_to(&w[1])).sum();
 
     // Base duration: ~500ms for typical mouse movements
-    let base_duration_ms = (total_distance * 0.5 / speed_multiplier)
-        .max(100.0)
-        .min(2000.0);
+    let base_duration_ms = (total_distance * 0.5 / speed_multiplier).clamp(100.0, 2000.0);
 
     for i in 0..points.len() - 1 {
         let progress = i as f64 / (points.len() - 1) as f64;
@@ -445,5 +443,48 @@ mod tests {
         let normal = HumanBehaviorConfig::normal();
         assert_eq!(normal.mouse_speed, 1.0);
         assert_eq!(normal.typing_wpm, 60);
+    }
+
+    #[test]
+    fn random_pause_disabled_returns_zero() {
+        let config = HumanBehaviorConfig::fast(); // fast has enable_random_pauses = false
+        let pause = random_pause(&config);
+        assert_eq!(pause.as_millis(), 0);
+    }
+
+    #[test]
+    fn random_pause_enabled_returns_nonzero() {
+        let config = HumanBehaviorConfig::slow(); // slow has enable_random_pauses = true
+        let pause = random_pause(&config);
+        assert!(
+            pause.as_millis() >= config.pause_min_ms as u128,
+            "pause too short: {pause:?}"
+        );
+        assert!(
+            pause.as_millis() <= config.pause_max_ms as u128,
+            "pause too long: {pause:?}"
+        );
+    }
+
+    #[test]
+    fn point_new_and_fields() {
+        let p = Point::new(1.5, 2.5);
+        assert!((p.x - 1.5).abs() < 1e-9);
+        assert!((p.y - 2.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn generate_scroll_delays_zero_steps_returns_empty() {
+        let delays = generate_scroll_delays(0, true);
+        assert!(delays.is_empty());
+    }
+
+    #[test]
+    fn generate_mouse_trajectory_zero_steps() {
+        let start = Point::new(0.0, 0.0);
+        let end = Point::new(100.0, 100.0);
+        let trajectory = generate_mouse_trajectory(start, end, 0);
+        // Should still have start + end
+        assert_eq!(trajectory.len(), 2);
     }
 }

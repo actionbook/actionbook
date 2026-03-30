@@ -34,34 +34,6 @@ impl std::fmt::Display for CdpError {
     }
 }
 
-/// CDP Event: Page.javascriptDialogOpening
-///
-/// Fired when a JavaScript dialog (alert, confirm, prompt, beforeunload) appears.
-#[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct JavascriptDialogOpeningEvent {
-    pub url: String,
-    pub message: String,
-    #[serde(rename = "type")]
-    pub dialog_type: String,
-    #[serde(default)]
-    pub default_prompt: Option<String>,
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub has_browser_handler: Option<bool>,
-}
-
-/// Tracks a currently open JavaScript dialog.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PendingDialog {
-    pub dialog_type: String,
-    pub message: String,
-    pub url: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub default_prompt: Option<String>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,59 +67,33 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_dialog_opening_event() {
-        let json = r#"{
-            "url": "https://example.com",
-            "message": "Are you sure?",
-            "type": "confirm",
-            "defaultPrompt": null,
-            "hasBrowserHandler": false
-        }"#;
-        let event: JavascriptDialogOpeningEvent = serde_json::from_str(json).unwrap();
-        assert_eq!(event.dialog_type, "confirm");
-        assert_eq!(event.message, "Are you sure?");
-        assert_eq!(event.url, "https://example.com");
-        assert!(event.default_prompt.is_none());
-    }
-
-    #[test]
-    fn test_parse_dialog_opening_event_alert() {
-        let json = r#"{
-            "url": "https://example.com/page",
-            "message": "Hello!",
-            "type": "alert"
-        }"#;
-        let event: JavascriptDialogOpeningEvent = serde_json::from_str(json).unwrap();
-        assert_eq!(event.dialog_type, "alert");
-        assert_eq!(event.message, "Hello!");
-        assert!(event.default_prompt.is_none());
-        assert!(event.has_browser_handler.is_none());
-    }
-
-    #[test]
-    fn test_parse_dialog_opening_event_prompt() {
-        let json = r#"{
-            "url": "https://example.com",
-            "message": "Enter your name:",
-            "type": "prompt",
-            "defaultPrompt": "John"
-        }"#;
-        let event: JavascriptDialogOpeningEvent = serde_json::from_str(json).unwrap();
-        assert_eq!(event.dialog_type, "prompt");
-        assert_eq!(event.default_prompt.as_deref(), Some("John"));
-    }
-
-    #[test]
-    fn test_pending_dialog_serialization() {
-        let dialog = PendingDialog {
-            dialog_type: "alert".to_string(),
-            message: "Test alert".to_string(),
-            url: "https://example.com".to_string(),
-            default_prompt: None,
+    fn cdp_error_display_format() {
+        let err = CdpError {
+            code: -32001,
+            message: "Session not found".to_string(),
+            data: None,
         };
-        let json = serde_json::to_value(&dialog).unwrap();
-        assert_eq!(json["dialogType"], "alert");
-        assert_eq!(json["message"], "Test alert");
-        assert!(json.get("defaultPrompt").is_none()); // skip_serializing_if
+        assert_eq!(format!("{err}"), "CDP Error -32001: Session not found");
+    }
+
+    #[test]
+    fn cdp_error_with_data_field() {
+        let json = r#"{"code":-32000,"message":"Oops","data":{"detail":"extra info"}}"#;
+        let err: CdpError = serde_json::from_str(json).unwrap();
+        assert_eq!(err.code, -32000);
+        assert!(err.data.is_some());
+    }
+
+    #[test]
+    fn cdp_error_serialize_round_trip() {
+        let err = CdpError {
+            code: 1,
+            message: "test".to_string(),
+            data: None,
+        };
+        let json = serde_json::to_string(&err).unwrap();
+        let back: CdpError = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.code, err.code);
+        assert_eq!(back.message, err.message);
     }
 }

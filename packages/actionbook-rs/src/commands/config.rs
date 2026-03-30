@@ -30,10 +30,9 @@ async fn show(cli: &Cli) -> Result<()> {
     Ok(())
 }
 
-async fn set(_cli: &Cli, key: &str, value: &str) -> Result<()> {
-    let mut config = Config::load()?;
-
-    // Simple key-value setting (expand as needed)
+/// Apply a key-value pair to the config object. Returns an error for unknown
+/// keys or invalid values. Does NOT save the config — caller is responsible.
+fn apply_config_set(config: &mut Config, key: &str, value: &str) -> Result<()> {
     match key {
         "api.base_url" => config.api.base_url = value.to_string(),
         "api.api_key" => config.api.api_key = Some(value.to_string()),
@@ -63,31 +62,40 @@ async fn set(_cli: &Cli, key: &str, value: &str) -> Result<()> {
             )))
         }
     }
+    Ok(())
+}
 
+/// Retrieve a config value by key. Returns `Ok(Some(value))` for set keys,
+/// `Ok(None)` for unset optional keys, or an error for unknown keys.
+fn get_config_value(config: &Config, key: &str) -> Result<Option<String>> {
+    match key {
+        "api.base_url" => Ok(Some(config.api.base_url.clone())),
+        "api.api_key" => Ok(config.api.api_key.clone()),
+        "browser.executable" => Ok(config.browser.executable.clone()),
+        "browser.default_profile" => Ok(Some(config.browser.default_profile.clone())),
+        "browser.headless" => Ok(Some(config.browser.headless.to_string())),
+        "updates.enabled" => Ok(Some(config.updates.enabled.to_string())),
+        "updates.check_interval_seconds" => {
+            Ok(Some(config.updates.check_interval_seconds.to_string()))
+        }
+        _ => Err(ActionbookError::ConfigError(format!(
+            "Unknown config key: {}",
+            key
+        ))),
+    }
+}
+
+async fn set(_cli: &Cli, key: &str, value: &str) -> Result<()> {
+    let mut config = Config::load()?;
+    apply_config_set(&mut config, key, value)?;
     config.save()?;
     println!("{} Set {} = {}", "✓".green(), key, value);
-
     Ok(())
 }
 
 async fn get(cli: &Cli, key: &str) -> Result<()> {
     let config = Config::load()?;
-
-    let value = match key {
-        "api.base_url" => Some(config.api.base_url.clone()),
-        "api.api_key" => config.api.api_key.clone(),
-        "browser.executable" => config.browser.executable.clone(),
-        "browser.default_profile" => Some(config.browser.default_profile.clone()),
-        "browser.headless" => Some(config.browser.headless.to_string()),
-        "updates.enabled" => Some(config.updates.enabled.to_string()),
-        "updates.check_interval_seconds" => Some(config.updates.check_interval_seconds.to_string()),
-        _ => {
-            return Err(ActionbookError::ConfigError(format!(
-                "Unknown config key: {}",
-                key
-            )))
-        }
-    };
+    let value = get_config_value(&config, key)?;
 
     if cli.json {
         println!(
@@ -190,4 +198,177 @@ async fn path(cli: &Cli) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apply_set_api_base_url() {
+        let mut config = Config::default();
+        apply_config_set(&mut config, "api.base_url", "https://custom.api").unwrap();
+        assert_eq!(config.api.base_url, "https://custom.api");
+    }
+
+    #[test]
+    fn apply_set_api_key() {
+        let mut config = Config::default();
+        apply_config_set(&mut config, "api.api_key", "sk-test").unwrap();
+        assert_eq!(config.api.api_key.as_deref(), Some("sk-test"));
+    }
+
+    #[test]
+    fn apply_set_browser_executable() {
+        let mut config = Config::default();
+        apply_config_set(&mut config, "browser.executable", "/usr/bin/chrome").unwrap();
+        assert_eq!(
+            config.browser.executable.as_deref(),
+            Some("/usr/bin/chrome")
+        );
+    }
+
+    #[test]
+    fn apply_set_browser_default_profile() {
+        let mut config = Config::default();
+        apply_config_set(&mut config, "browser.default_profile", "work").unwrap();
+        assert_eq!(config.browser.default_profile, "work");
+    }
+
+    #[test]
+    fn apply_set_browser_headless_true() {
+        let mut config = Config::default();
+        apply_config_set(&mut config, "browser.headless", "true").unwrap();
+        assert!(config.browser.headless);
+    }
+
+    #[test]
+    fn apply_set_browser_headless_false() {
+        let mut config = Config::default();
+        config.browser.headless = true;
+        apply_config_set(&mut config, "browser.headless", "false").unwrap();
+        assert!(!config.browser.headless);
+    }
+
+    #[test]
+    fn apply_set_browser_headless_invalid() {
+        let mut config = Config::default();
+        let result = apply_config_set(&mut config, "browser.headless", "yes");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn apply_set_updates_enabled() {
+        let mut config = Config::default();
+        apply_config_set(&mut config, "updates.enabled", "false").unwrap();
+        assert!(!config.updates.enabled);
+    }
+
+    #[test]
+    fn apply_set_updates_enabled_invalid() {
+        let mut config = Config::default();
+        let result = apply_config_set(&mut config, "updates.enabled", "nope");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn apply_set_check_interval() {
+        let mut config = Config::default();
+        apply_config_set(&mut config, "updates.check_interval_seconds", "3600").unwrap();
+        assert_eq!(config.updates.check_interval_seconds, 3600);
+    }
+
+    #[test]
+    fn apply_set_check_interval_invalid() {
+        let mut config = Config::default();
+        let result = apply_config_set(&mut config, "updates.check_interval_seconds", "abc");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn apply_set_unknown_key_error() {
+        let mut config = Config::default();
+        let result = apply_config_set(&mut config, "nonexistent.key", "value");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn get_value_api_base_url() {
+        let config = Config::default();
+        let value = get_config_value(&config, "api.base_url").unwrap();
+        assert_eq!(value.as_deref(), Some("https://api.actionbook.dev"));
+    }
+
+    #[test]
+    fn get_value_api_key_none_by_default() {
+        let config = Config::default();
+        let value = get_config_value(&config, "api.api_key").unwrap();
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn get_value_browser_executable_none_by_default() {
+        let config = Config::default();
+        let value = get_config_value(&config, "browser.executable").unwrap();
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn get_value_browser_default_profile() {
+        let config = Config::default();
+        let value = get_config_value(&config, "browser.default_profile").unwrap();
+        assert_eq!(value.as_deref(), Some("actionbook"));
+    }
+
+    #[test]
+    fn get_value_browser_headless() {
+        let config = Config::default();
+        let value = get_config_value(&config, "browser.headless").unwrap();
+        assert_eq!(value.as_deref(), Some("false"));
+    }
+
+    #[test]
+    fn get_value_updates_enabled() {
+        let config = Config::default();
+        let value = get_config_value(&config, "updates.enabled").unwrap();
+        assert_eq!(value.as_deref(), Some("true"));
+    }
+
+    #[test]
+    fn get_value_check_interval() {
+        let config = Config::default();
+        let value = get_config_value(&config, "updates.check_interval_seconds").unwrap();
+        assert!(value.is_some());
+    }
+
+    #[test]
+    fn get_value_unknown_key_error() {
+        let config = Config::default();
+        let result = get_config_value(&config, "unknown.key");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn set_then_get_round_trip() {
+        let mut config = Config::default();
+        apply_config_set(&mut config, "api.base_url", "https://example.com").unwrap();
+        let value = get_config_value(&config, "api.base_url").unwrap();
+        assert_eq!(value.as_deref(), Some("https://example.com"));
+    }
+
+    #[test]
+    fn set_then_get_boolean_round_trip() {
+        let mut config = Config::default();
+        apply_config_set(&mut config, "browser.headless", "true").unwrap();
+        let value = get_config_value(&config, "browser.headless").unwrap();
+        assert_eq!(value.as_deref(), Some("true"));
+    }
+
+    #[test]
+    fn set_then_get_integer_round_trip() {
+        let mut config = Config::default();
+        apply_config_set(&mut config, "updates.check_interval_seconds", "7200").unwrap();
+        let value = get_config_value(&config, "updates.check_interval_seconds").unwrap();
+        assert_eq!(value.as_deref(), Some("7200"));
+    }
 }

@@ -6,6 +6,7 @@
 use rand::Rng;
 
 /// Generate a bezier curve mouse path from start to end point
+#[allow(dead_code)]
 pub fn bezier_mouse_path(start_x: f64, start_y: f64, end_x: f64, end_y: f64) -> Vec<(f64, f64)> {
     let mut rng = rand::thread_rng();
 
@@ -50,6 +51,7 @@ pub fn bezier_mouse_path(start_x: f64, start_y: f64, end_x: f64, end_y: f64) -> 
 }
 
 /// Generate a random start position offset from the target
+#[allow(dead_code)]
 pub fn random_start_offset(target_x: f64, target_y: f64) -> (f64, f64) {
     let mut rng = rand::thread_rng();
     let offset_x = rng.gen_range(50.0..250.0) * if rng.gen_bool(0.5) { 1.0 } else { -1.0 };
@@ -61,6 +63,7 @@ pub fn random_start_offset(target_x: f64, target_y: f64) -> (f64, f64) {
 }
 
 /// Generate typing delays for each character (milliseconds)
+#[allow(dead_code)]
 pub fn typing_delays(text: &str, fast: bool) -> Vec<(char, u64)> {
     let mut rng = rand::thread_rng();
     let base_delay: u64 = if fast { 40 } else { 80 };
@@ -74,7 +77,7 @@ pub fn typing_delays(text: &str, fast: bool) -> Vec<(char, u64)> {
 
         // Faster for repeated characters
         if ch == prev_char {
-            delay = delay / 2;
+            delay /= 2;
         }
 
         // Occasional pause (5% chance)
@@ -135,6 +138,7 @@ pub fn typing_delays(text: &str, fast: bool) -> Vec<(char, u64)> {
 }
 
 /// Pre-click delay (human pause before clicking)
+#[allow(dead_code)]
 pub fn pre_click_delay_ms() -> u64 {
     let mut rng = rand::thread_rng();
     rng.gen_range(50..200)
@@ -170,5 +174,110 @@ mod tests {
         let (sx, sy) = random_start_offset(100.0, 100.0);
         let dist = ((sx - 100.0).powi(2) + (sy - 100.0).powi(2)).sqrt();
         assert!(dist >= 50.0);
+    }
+
+    #[test]
+    fn random_start_offset_uses_both_offset_directions() {
+        let mut saw_left = false;
+        let mut saw_right = false;
+        let mut saw_up = false;
+        let mut saw_down = false;
+
+        for _ in 0..200 {
+            let (sx, sy) = random_start_offset(300.0, 300.0);
+            saw_left |= sx < 300.0;
+            saw_right |= sx > 300.0;
+            saw_up |= sy < 300.0;
+            saw_down |= sy > 300.0;
+
+            if saw_left && saw_right && saw_up && saw_down {
+                break;
+            }
+        }
+
+        assert!(saw_left, "never generated a negative x offset");
+        assert!(saw_right, "never generated a positive x offset");
+        assert!(saw_up, "never generated a negative y offset");
+        assert!(saw_down, "never generated a positive y offset");
+    }
+
+    #[test]
+    fn pre_click_delay_ms_within_range() {
+        for _ in 0..20 {
+            let delay = pre_click_delay_ms();
+            assert!((50..200).contains(&delay), "delay out of range: {delay}");
+        }
+    }
+
+    #[test]
+    fn click_hold_ms_within_range() {
+        for _ in 0..20 {
+            let hold = click_hold_ms();
+            assert!((30..120).contains(&hold), "hold out of range: {hold}");
+        }
+    }
+
+    #[test]
+    fn typing_delays_fast_mode_generates_entries() {
+        let delays = typing_delays("world", true);
+        assert!(delays.len() >= 5);
+    }
+
+    #[test]
+    fn typing_delays_empty_text() {
+        let delays = typing_delays("", false);
+        assert!(delays.is_empty());
+    }
+
+    #[test]
+    fn typing_delays_non_alphabetic_text_never_inserts_typos() {
+        let expected: Vec<char> = "1234-=[]".chars().collect();
+
+        for _ in 0..50 {
+            let delays = typing_delays("1234-=[]", false);
+            let chars: Vec<char> = delays.iter().map(|(ch, _)| *ch).collect();
+            assert_eq!(chars, expected);
+            assert!(!chars.contains(&'\u{0008}'));
+        }
+    }
+
+    #[test]
+    fn typing_delays_eventually_emits_uppercase_typo_and_backspace() {
+        let mut typo_triplet = None;
+
+        for _ in 0..400 {
+            let delays = typing_delays("AAAAAAAAAAAAAAAAAAAA", false);
+            for window in delays.windows(3) {
+                let wrong = window[0].0;
+                let backspace = window[1].0;
+                let corrected = window[2].0;
+
+                if wrong != 'A' && backspace == '\u{0008}' && corrected == 'A' {
+                    typo_triplet = Some((wrong, window[1].1, window[2].1));
+                    break;
+                }
+            }
+
+            if typo_triplet.is_some() {
+                break;
+            }
+        }
+
+        let (wrong, backspace_delay, corrected_delay) =
+            typo_triplet.expect("expected at least one uppercase typo sequence");
+        assert!(wrong.is_ascii_uppercase());
+        assert_ne!(wrong, 'A');
+        assert!((50..100).contains(&backspace_delay));
+        assert!((30..60).contains(&corrected_delay));
+    }
+
+    #[test]
+    fn bezier_path_endpoints_reasonable() {
+        let path = bezier_mouse_path(10.0, 20.0, 110.0, 120.0);
+        assert!(!path.is_empty());
+        // Path should contain coordinate values in a reasonable range
+        for (x, y) in &path {
+            assert!(x.is_finite() && y.is_finite());
+        }
     }
 }

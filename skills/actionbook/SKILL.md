@@ -134,19 +134,6 @@ actionbook browser wait "<selector>"           # Wait for element
 actionbook browser wait-nav                    # Wait for navigation
 ```
 
-### Dialogs (alert, confirm, prompt)
-
-When a JavaScript dialog appears, all other browser commands will hang until it is resolved. The CLI automatically warns you when a dialog is blocking the page.
-
-```bash
-actionbook browser dialog status               # Check if a dialog is currently open
-actionbook browser dialog accept               # Accept dialog (OK / confirm)
-actionbook browser dialog accept "my input"    # Accept prompt dialog with text
-actionbook browser dialog dismiss              # Dismiss/cancel dialog
-```
-
-If commands start timing out unexpectedly, check `browser dialog status` first — a pending dialog is the most common cause.
-
 `actionbook browser close` cleans up the browser session. Skip if the user requests the browser remain open.
 
 ## Examples

@@ -3,9 +3,10 @@
 /// Different websites have vastly different JS rendering times.
 /// This module provides sensible defaults per domain so that
 /// `browser fetch` and other one-shot commands wait just long enough.
-
+///
 /// Wait hint categories with associated millisecond durations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum WaitHint {
     /// Static pages, no JS needed (0 ms extra wait)
     Instant,
@@ -20,6 +21,7 @@ pub enum WaitHint {
 }
 
 impl WaitHint {
+    #[allow(dead_code)]
     pub fn as_millis(self) -> u64 {
         match self {
             WaitHint::Instant => 0,
@@ -33,6 +35,7 @@ impl WaitHint {
 
 /// Built-in domain → hint mapping.
 /// Domains are matched by suffix so `en.wikipedia.org` matches `wikipedia.org`.
+#[allow(dead_code)]
 const DOMAIN_HINTS: &[(&[&str], WaitHint)] = &[
     (&["x.com", "twitter.com", "xcancel.com"], WaitHint::Slow),
     (&["douyin.com", "tiktok.com"], WaitHint::Heavy),
@@ -47,6 +50,7 @@ const DOMAIN_HINTS: &[(&[&str], WaitHint)] = &[
 ];
 
 /// Parse a CLI hint string into a `WaitHint`.
+#[allow(dead_code)]
 fn parse_hint(s: &str) -> Option<WaitHint> {
     match s.to_ascii_lowercase().as_str() {
         "instant" => Some(WaitHint::Instant),
@@ -59,6 +63,7 @@ fn parse_hint(s: &str) -> Option<WaitHint> {
 }
 
 /// Extract the host from a URL string (cheap, no full URL parser needed).
+#[allow(dead_code)]
 fn extract_host(url: &str) -> Option<&str> {
     let after_scheme = url
         .strip_prefix("https://")
@@ -75,6 +80,7 @@ fn extract_host(url: &str) -> Option<&str> {
 }
 
 /// Check if `host` ends with `.domain` or equals `domain`.
+#[allow(dead_code)]
 fn host_matches(host: &str, domain: &str) -> bool {
     if host == domain {
         return true;
@@ -88,6 +94,7 @@ fn host_matches(host: &str, domain: &str) -> bool {
 /// 1. `cli_override` (e.g. `--wait-hint fast`) — highest
 /// 2. Domain match from `DOMAIN_HINTS`
 /// 3. Default: `WaitHint::Normal` (5 000 ms)
+#[allow(dead_code)]
 pub fn resolve_wait_ms(url: &str, cli_override: Option<&str>) -> u64 {
     // CLI override wins
     if let Some(hint_str) = cli_override {

@@ -1,0 +1,241 @@
+use std::io::{BufRead, BufReader};
+use std::process::{Child, Stdio};
+use std::time::Duration;
+
+use crate::error::CliError;
+
+/// Find Chrome executable on macOS/Linux.
+pub fn find_chrome() -> Result<String, CliError> {
+    let candidates = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        "google-chrome",
+        "google-chrome-stable",
+        "chromium",
+        "chromium-browser",
+    ];
+    for c in &candidates {
+        if std::path::Path::new(c).exists() {
+            return Ok(c.to_string());
+        }
+        if let Ok(output) = std::process::Command::new("which").arg(c).output()
+            && output.status.success()
+        {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return Ok(path);
+            }
+        }
+    }
+    Err(CliError::BrowserNotFound)
+}
+
+/// Launch Chrome with CDP enabled.
+/// Returns (Child, actual_cdp_port).
+/// Uses --remote-debugging-port=0 so Chrome picks a free port itself,
+/// then reads the actual port from stderr ("DevTools listening on ws://...").
+pub async fn launch_chrome(
+    executable: &str,
+    headless: bool,
+    user_data_dir: &str,
+    open_url: Option<&str>,
+) -> Result<(Child, u16), CliError> {
+    let mut args = vec![
+        "--remote-debugging-port=0".to_string(),
+        format!("--user-data-dir={user_data_dir}"),
+        "--no-first-run".to_string(),
+        "--no-default-browser-check".to_string(),
+    ];
+    if headless {
+        args.push("--headless=new".to_string());
+    }
+    if let Some(url) = open_url {
+        args.push(ensure_scheme(url));
+    }
+
+    let exe = executable.to_string();
+    // Spawn Chrome and read stderr in a blocking thread to avoid blocking tokio
+
+    tokio::task::spawn_blocking(move || -> Result<(Child, u16), CliError> {
+        let mut child = std::process::Command::new(&exe)
+            .args(&args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| CliError::BrowserLaunchFailed(e.to_string()))?;
+
+        let stderr = child.stderr.take().ok_or_else(|| {
+            CliError::BrowserLaunchFailed("failed to capture Chrome stderr".to_string())
+        })?;
+
+        // Read stderr to find "DevTools listening on ws://HOST:PORT/..."
+        let (tx, rx) = std::sync::mpsc::channel::<u16>();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                let line = match line {
+                    Ok(l) => l,
+                    Err(_) => break,
+                };
+                if line.contains("DevTools listening on")
+                    && let Some(ws_start) = line.find("ws://")
+                {
+                    let after_ws = &line[ws_start + 5..];
+                    if let Some(colon) = after_ws.find(':') {
+                        let after_colon = &after_ws[colon + 1..];
+                        let port_str: String = after_colon
+                            .chars()
+                            .take_while(|c| c.is_ascii_digit())
+                            .collect();
+                        if let Ok(p) = port_str.parse::<u16>() {
+                            let _ = tx.send(p);
+                            return;
+                        }
+                    }
+                }
+            }
+        });
+
+        let port = rx
+            .recv_timeout(std::time::Duration::from_secs(15))
+            .map_err(|_| {
+                crate::daemon::chrome_reaper::kill_and_reap(&mut child);
+                CliError::CdpConnectionFailed(
+                    "Chrome did not print DevTools listening URL within 15s".to_string(),
+                )
+            })?;
+
+        Ok((child, port))
+    })
+    .await
+    .map_err(|e| CliError::Internal(format!("spawn_blocking failed: {e}")))?
+}
+
+/// Discover the WebSocket debugger URL from Chrome's /json/version endpoint.
+pub async fn discover_ws_url(port: u16) -> Result<String, CliError> {
+    discover_ws_url_from_base(&format!("http://127.0.0.1:{port}")).await
+}
+
+pub async fn discover_ws_url_from_base(base_url: &str) -> Result<String, CliError> {
+    let url = format!("{}/json/version", base_url.trim_end_matches('/'));
+
+    // Up to 15 seconds (75 × 200ms)
+    for attempt in 0..75 {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        match reqwest::get(&url).await {
+            Ok(resp) => {
+                if let Ok(json) = resp.json::<serde_json::Value>().await
+                    && let Some(ws) = json.get("webSocketDebuggerUrl").and_then(|v| v.as_str())
+                {
+                    return Ok(ws.to_string());
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+    Err(CliError::CdpConnectionFailed(format!(
+        "Chrome did not expose CDP at {base_url} within 15s"
+    )))
+}
+
+/// Get list of targets (tabs) from Chrome.
+pub async fn list_targets(port: u16) -> Result<Vec<serde_json::Value>, CliError> {
+    list_targets_from_base(&format!("http://127.0.0.1:{port}")).await
+}
+
+pub async fn list_targets_from_base(base_url: &str) -> Result<Vec<serde_json::Value>, CliError> {
+    let url = format!("{}/json/list", base_url.trim_end_matches('/'));
+    let resp = reqwest::get(&url)
+        .await
+        .map_err(|e| CliError::CdpConnectionFailed(e.to_string()))?;
+    let targets: Vec<serde_json::Value> = resp
+        .json()
+        .await
+        .map_err(|e| CliError::CdpConnectionFailed(e.to_string()))?;
+    Ok(targets
+        .into_iter()
+        .filter(|t| t.get("type").and_then(|v| v.as_str()) == Some("page"))
+        .collect())
+}
+
+pub async fn resolve_cdp_endpoint(endpoint: &str) -> Result<(String, u16), CliError> {
+    let trimmed = endpoint.trim();
+    if trimmed.is_empty() {
+        return Err(CliError::InvalidArgument(
+            "cdp endpoint cannot be empty".to_string(),
+        ));
+    }
+
+    if let Ok(port) = trimmed.parse::<u16>() {
+        let ws_url = discover_ws_url(port).await?;
+        return Ok((ws_url, port));
+    }
+
+    if trimmed.starts_with("ws://") || trimmed.starts_with("wss://") {
+        let port = parse_endpoint_port(trimmed)?;
+        return Ok((trimmed.to_string(), port));
+    }
+
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        let port = parse_endpoint_port(trimmed)?;
+        let origin = endpoint_origin(trimmed)?;
+        let ws_url = discover_ws_url_from_base(&origin).await?;
+        return Ok((ws_url, port));
+    }
+
+    Err(CliError::InvalidArgument(format!(
+        "unsupported cdp endpoint: {trimmed}"
+    )))
+}
+
+fn endpoint_origin(endpoint: &str) -> Result<String, CliError> {
+    let scheme_end = endpoint
+        .find("://")
+        .ok_or_else(|| CliError::InvalidArgument(format!("invalid endpoint: {endpoint}")))?;
+    let after_scheme = &endpoint[scheme_end + 3..];
+    let authority = after_scheme
+        .split('/')
+        .next()
+        .ok_or_else(|| CliError::InvalidArgument(format!("invalid endpoint: {endpoint}")))?;
+    if authority.is_empty() {
+        return Err(CliError::InvalidArgument(format!(
+            "invalid endpoint: {endpoint}"
+        )));
+    }
+    Ok(format!("{}://{}", &endpoint[..scheme_end], authority))
+}
+
+fn parse_endpoint_port(endpoint: &str) -> Result<u16, CliError> {
+    let scheme_end = endpoint
+        .find("://")
+        .ok_or_else(|| CliError::InvalidArgument(format!("invalid endpoint: {endpoint}")))?;
+    let after_scheme = &endpoint[scheme_end + 3..];
+    let authority = after_scheme
+        .split('/')
+        .next()
+        .ok_or_else(|| CliError::InvalidArgument(format!("invalid endpoint: {endpoint}")))?;
+    let host_port = authority.rsplit('@').next().unwrap_or(authority);
+    let port_str = host_port
+        .rsplit_once(':')
+        .map(|(_, port)| port)
+        .ok_or_else(|| CliError::InvalidArgument(format!("endpoint missing port: {endpoint}")))?;
+    port_str.parse::<u16>().map_err(|_| {
+        CliError::InvalidArgument(format!("invalid endpoint port in {endpoint}: {port_str}"))
+    })
+}
+
+fn ensure_scheme(url: &str) -> String {
+    let lower = url.to_ascii_lowercase();
+    // Block dangerous protocols — same policy as cdp::ensure_scheme
+    if lower.starts_with("javascript:") || lower.starts_with("data:text/html") {
+        return "about:blank".to_string();
+    }
+    if url.contains("://") || url.starts_with("about:") || url.starts_with("chrome:") {
+        url.to_string()
+    } else {
+        format!("https://{url}")
+    }
+}

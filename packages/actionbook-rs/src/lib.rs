@@ -9,5 +9,6 @@ pub mod error;
 mod api;
 pub mod commands;
 #[cfg(unix)]
+#[allow(dead_code)]
 pub mod daemon;
 mod update_notifier;

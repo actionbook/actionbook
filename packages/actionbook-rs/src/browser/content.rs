@@ -10,19 +10,15 @@ use serde::{Deserialize, Serialize};
 /// Content format for page retrieval
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ContentFormat {
     /// Raw HTML content
+    #[default]
     Html,
     /// Markdown conversion (AI-friendly, ~80% token reduction)
     Markdown,
     /// Accessibility tree (semantic structure, ~95% size reduction)
     AccessibilityTree,
-}
-
-impl Default for ContentFormat {
-    fn default() -> Self {
-        Self::Html
-    }
 }
 
 impl std::fmt::Display for ContentFormat {
@@ -241,5 +237,50 @@ mod tests {
         let opts = ContentOptions::for_content_analysis();
         assert_eq!(opts.format, ContentFormat::Markdown);
         assert!(opts.optimize_for_ai);
+    }
+
+    #[test]
+    fn content_format_display() {
+        assert_eq!(ContentFormat::Html.to_string(), "html");
+        assert_eq!(ContentFormat::Markdown.to_string(), "markdown");
+        assert_eq!(
+            ContentFormat::AccessibilityTree.to_string(),
+            "accessibility-tree"
+        );
+    }
+
+    #[test]
+    fn content_format_parse_error_on_unknown() {
+        let err = "xml".parse::<ContentFormat>().unwrap_err();
+        assert!(err.contains("xml"));
+    }
+
+    #[test]
+    fn content_format_parse_a11y_alias() {
+        assert_eq!(
+            "a11y-tree".parse::<ContentFormat>().unwrap(),
+            ContentFormat::AccessibilityTree
+        );
+    }
+
+    #[test]
+    fn content_options_for_debugging() {
+        let opts = ContentOptions::for_debugging();
+        assert_eq!(opts.format, ContentFormat::Html);
+        assert!(opts.include_metadata);
+        assert!(!opts.optimize_for_ai);
+    }
+
+    #[test]
+    fn content_options_default() {
+        let opts = ContentOptions::default();
+        assert_eq!(opts.format, ContentFormat::Html);
+        assert!(!opts.include_metadata);
+        assert!(!opts.optimize_for_ai);
+    }
+
+    #[test]
+    fn content_format_default_is_html() {
+        assert_eq!(ContentFormat::default(), ContentFormat::Html);
     }
 }

@@ -106,6 +106,9 @@ handbooks/
 !packages/openclaw-plugin/skills/**
 skills-lock.json
 
+# Git worktrees
+.worktrees/
+
 # Browser Profile (Sensitive Session Data)
 .browser-profile/
 .alma-snapshots
@@ -115,3 +118,5 @@ store-assets/
 
 # Agent prompt files
 .agent-prompt-*.md
+
+.gstack/

@@ -2,11 +2,12 @@
 ///
 /// Rewrites URLs to use privacy-friendly frontends that are less likely
 /// to block automated access. Inspired by x-tweet-fetcher's Nitter pattern.
-
+///
 /// Attempt to rewrite a URL to a privacy-friendly frontend.
 ///
 /// Returns `(possibly_rewritten_url, was_rewritten)`.
 /// Only rewrites when the host matches a known rule.
+#[allow(dead_code)]
 pub fn maybe_rewrite(url: &str) -> (String, bool) {
     // Parse scheme + host + rest
     let (scheme, after_scheme) = if let Some(rest) = url.strip_prefix("https://") {
@@ -38,6 +39,7 @@ pub fn maybe_rewrite(url: &str) -> (String, bool) {
 }
 
 /// Map a host to its privacy-friendly replacement.
+#[allow(dead_code)]
 fn rewrite_host(host: &str) -> Option<&'static str> {
     match host {
         "x.com" | "www.x.com" | "twitter.com" | "www.twitter.com" | "mobile.twitter.com" => {

@@ -1,0 +1,4 @@
+docs/*
+!docs/cli/
+docs/cli/*
+!docs/cli/api-reference.md

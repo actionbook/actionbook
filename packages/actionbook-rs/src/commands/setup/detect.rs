@@ -166,6 +166,7 @@ fn detect_node_version() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::browser::BrowserInfo;
 
     #[test]
     fn test_detect_environment_returns_valid_struct() {
@@ -184,5 +185,90 @@ mod tests {
     fn test_print_environment_report_json_does_not_panic() {
         let env = detect_environment();
         print_environment_report(&env, true);
+    }
+
+    #[test]
+    fn test_environment_info_os_is_known_platform() {
+        let env = detect_environment();
+        // std::env::consts::OS always returns a known string
+        assert!(
+            [
+                "linux",
+                "macos",
+                "windows",
+                "freebsd",
+                "dragonfly",
+                "netbsd",
+                "openbsd",
+                "solaris"
+            ]
+            .contains(&env.os.as_str()),
+            "Unexpected OS: {}",
+            env.os
+        );
+    }
+
+    #[test]
+    fn test_print_environment_report_with_no_browsers() {
+        let env = EnvironmentInfo {
+            os: "linux".to_string(),
+            arch: "x86_64".to_string(),
+            shell: None,
+            browsers: vec![],
+            npx_available: false,
+            node_version: None,
+            existing_config: false,
+            existing_api_key: None,
+        };
+        // Both modes should not panic with empty browsers
+        print_environment_report(&env, false);
+        print_environment_report(&env, true);
+    }
+
+    #[test]
+    fn test_print_environment_report_with_browsers_and_shell() {
+        let browser = BrowserInfo {
+            browser_type: crate::browser::BrowserType::Chrome,
+            path: std::path::PathBuf::from("/usr/bin/google-chrome"),
+            version: Some("131.0.0.0".to_string()),
+        };
+        let env = EnvironmentInfo {
+            os: "linux".to_string(),
+            arch: "x86_64".to_string(),
+            shell: Some("/bin/zsh".to_string()),
+            browsers: vec![browser],
+            npx_available: true,
+            node_version: Some("v20.0.0".to_string()),
+            existing_config: true,
+            existing_api_key: Some("test-key".to_string()),
+        };
+        print_environment_report(&env, false);
+        print_environment_report(&env, true);
+    }
+
+    #[test]
+    fn test_print_environment_report_with_browser_no_version() {
+        let browser = BrowserInfo {
+            browser_type: crate::browser::BrowserType::Chrome,
+            path: std::path::PathBuf::from("/usr/bin/google-chrome"),
+            version: None,
+        };
+        let env = EnvironmentInfo {
+            os: "linux".to_string(),
+            arch: "x86_64".to_string(),
+            shell: None,
+            browsers: vec![browser],
+            npx_available: false,
+            node_version: None,
+            existing_config: false,
+            existing_api_key: None,
+        };
+        print_environment_report(&env, false);
+    }
+
+    #[test]
+    fn test_detect_node_version_runs_without_panic() {
+        // We don't assert the result since node may or may not be installed
+        let _version = detect_node_version();
     }
 }

@@ -324,3 +324,110 @@ impl ApiClient {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+
+    fn make_config_no_key() -> Config {
+        Config::default()
+    }
+
+    fn make_config_with_key(key: &str) -> Config {
+        let mut config = Config::default();
+        config.api.api_key = Some(key.to_string());
+        config
+    }
+
+    #[test]
+    fn test_from_config_succeeds_without_api_key() {
+        let config = make_config_no_key();
+        let result = ApiClient::from_config(&config);
+        assert!(result.is_ok(), "Should create client even without API key");
+    }
+
+    #[test]
+    fn test_from_config_succeeds_with_api_key() {
+        let config = make_config_with_key("test-api-key-123");
+        let result = ApiClient::from_config(&config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_from_config_uses_configured_base_url() {
+        let mut config = Config::default();
+        config.api.base_url = "https://custom.api.example.com".to_string();
+        let result = ApiClient::from_config(&config);
+        assert!(result.is_ok());
+        let client = result.unwrap();
+        assert_eq!(client.base_url, "https://custom.api.example.com");
+    }
+
+    #[test]
+    fn test_api_client_stores_api_key() {
+        let config = make_config_with_key("my-secret-key");
+        let client = ApiClient::from_config(&config).unwrap();
+        assert_eq!(client.api_key, Some("my-secret-key".to_string()));
+    }
+
+    #[test]
+    fn test_api_client_no_key_is_none() {
+        let config = make_config_no_key();
+        let client = ApiClient::from_config(&config).unwrap();
+        assert!(client.api_key.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_validate_api_key_returns_error_on_connection_failure() {
+        // Use a non-existent host to simulate connection failure
+        let mut config = Config::default();
+        config.api.base_url = "http://127.0.0.1:1".to_string(); // Port 1 is reserved/unreachable
+        config.api.api_key = Some("test-key".to_string());
+        let client = ApiClient::from_config(&config).unwrap();
+
+        let result = client.validate_api_key().await;
+        // Should get an error (connection refused)
+        assert!(
+            result.is_err(),
+            "Expected connection error, got {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_list_sources_fails_without_server() {
+        let mut config = Config::default();
+        config.api.base_url = "http://127.0.0.1:1".to_string();
+        let client = ApiClient::from_config(&config).unwrap();
+        let result = client.list_sources(Some(1)).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_search_actions_fails_without_server() {
+        use crate::api::types::SearchActionsParams;
+        let mut config = Config::default();
+        config.api.base_url = "http://127.0.0.1:1".to_string();
+        let client = ApiClient::from_config(&config).unwrap();
+        let params = SearchActionsParams {
+            query: "test".to_string(),
+            domain: None,
+            background: None,
+            url: None,
+            page: None,
+            page_size: None,
+        };
+        let result = client.search_actions(params).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_action_by_area_id_fails_without_server() {
+        let mut config = Config::default();
+        config.api.base_url = "http://127.0.0.1:1".to_string();
+        let client = ApiClient::from_config(&config).unwrap();
+        let result = client.get_action_by_area_id("some-area-id").await;
+        assert!(result.is_err());
+    }
+}

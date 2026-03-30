@@ -1,17 +1,5 @@
 # @actionbookdev/cli
 
-## 0.11.7
-
-### Patch Changes
-
-- [#318](https://github.com/actionbook/actionbook/pull/318) [`15c2154`](https://github.com/actionbook/actionbook/commit/15c21541204db88f7604490f8effdffd27ee68db) Thanks [@asensagent](https://github.com/asensagent)! - Add explicit JavaScript dialog support to the browser CLI, including dialog status, accept, and dismiss commands plus daemon warnings when a dialog is blocking the page.
-
-## 0.11.6
-
-### Patch Changes
-
-- [#305](https://github.com/actionbook/actionbook/pull/305) [`53b1603`](https://github.com/actionbook/actionbook/commit/53b1603466d7db14c9cca53a66982b1b8e7dc2e5) Thanks [@ZhangHanDong](https://github.com/ZhangHanDong)! - Fix screenshot CDP timeout: extend daemon timeout from 30s to 120s for Page.captureScreenshot and Page.printToPDF, and add timeout-only fallback to direct WS for idempotent read-only methods
-
 ## 0.11.5
 
 ### Patch Changes

@@ -1,0 +1,497 @@
+//! E2E tests for `browser wait`.
+
+use crate::harness::{
+    SessionGuard, assert_error_envelope, assert_failure, assert_meta, assert_success, headless,
+    headless_json, parse_json, skip, stdout_str, unique_session, url_a, url_b, wait_page_ready,
+};
+
+const ELEMENT_SELECTOR: &str = "#loaded";
+const CONDITION_EXPR: &str = "window.__waitReady === true";
+
+fn start_session(url: &str) -> (String, String) {
+    let (sid, profile) = unique_session("s");
+    let out = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            &sid,
+            "--profile",
+            &profile,
+            "--open-url",
+            url,
+        ],
+        30,
+    );
+    assert_success(&out, "start session");
+    let v = parse_json(&out);
+    let sid = v["data"]["session"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let tid = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
+
+    let goto_out = headless_json(
+        &["browser", "goto", url, "--session", &sid, "--tab", &tid],
+        30,
+    );
+    assert_success(&goto_out, "goto initial url");
+    wait_page_ready(&sid, &tid);
+
+    (sid, tid)
+}
+
+fn set_title(sid: &str, tid: &str, title: &str) {
+    let js = format!(
+        "document.title = {}; void(0)",
+        serde_json::to_string(title).unwrap()
+    );
+    let out = headless_json(
+        &["browser", "eval", &js, "--session", sid, "--tab", tid],
+        10,
+    );
+    assert_success(&out, "set title");
+}
+
+fn schedule_element(sid: &str, tid: &str) {
+    let js = r#"setTimeout(() => {
+  const el = document.createElement('div');
+  el.id = 'loaded';
+  el.textContent = 'Ready';
+  document.body.appendChild(el);
+}, 150);
+void(0)"#;
+    let out = headless_json(&["browser", "eval", js, "--session", sid, "--tab", tid], 10);
+    assert_success(&out, "schedule delayed element");
+}
+
+fn schedule_condition_true(sid: &str, tid: &str) {
+    let js = r#"setTimeout(() => {
+  window.__waitReady = true;
+}, 150);
+void(0)"#;
+    let out = headless_json(&["browser", "eval", js, "--session", sid, "--tab", tid], 10);
+    assert_success(&out, "schedule delayed condition");
+}
+
+fn schedule_navigation_to(sid: &str, tid: &str, destination_url: &str) {
+    let js = format!(
+        "setTimeout(() => {{ window.location.href = {}; }}, 150); void(0)",
+        serde_json::to_string(destination_url).unwrap()
+    );
+    let out = headless_json(
+        &["browser", "eval", &js, "--session", sid, "--tab", tid],
+        10,
+    );
+    assert_success(&out, "schedule delayed navigation");
+}
+
+#[test]
+fn wait_element_json_happy_path() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    set_title(&sid, &tid, "Wait Element Fixture");
+    schedule_element(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "element",
+            ELEMENT_SELECTOR,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "5000",
+        ],
+        10,
+    );
+    assert_success(&out, "wait element json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.wait.element");
+    assert_eq!(v["ok"], true);
+    assert!(v["error"].is_null());
+    assert_meta(&v);
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_eq!(v["context"]["title"], "Wait Element Fixture");
+    assert_eq!(v["data"]["kind"], "element");
+    assert_eq!(v["data"]["satisfied"], true);
+    assert!(v["data"]["elapsed_ms"].as_u64().is_some());
+    assert_eq!(v["data"]["observed_value"]["selector"], ELEMENT_SELECTOR);
+}
+
+#[test]
+fn wait_element_text_output() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    set_title(&sid, &tid, "Wait Element Text Fixture");
+    schedule_element(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "element",
+            ELEMENT_SELECTOR,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "5000",
+        ],
+        10,
+    );
+    assert_success(&out, "wait element text");
+    let text = stdout_str(&out);
+    let lines: Vec<&str> = text.lines().collect();
+
+    assert_eq!(
+        lines.first().copied(),
+        Some(format!("[{sid} {tid}] about:blank").as_str())
+    );
+    assert_eq!(lines.get(1), Some(&"ok browser.wait.element"));
+    assert!(
+        lines
+            .get(2)
+            .copied()
+            .unwrap_or_default()
+            .starts_with("elapsed_ms: "),
+        "missing elapsed_ms line: {text}"
+    );
+    assert_eq!(
+        lines.get(3),
+        Some(&format!("target: {ELEMENT_SELECTOR}").as_str())
+    );
+}
+
+#[test]
+fn wait_element_timeout_json() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "element",
+            "#never-there",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "150",
+        ],
+        10,
+    );
+    assert_failure(&out, "wait element timeout");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.wait.element");
+    assert!(v["context"].is_object());
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "TIMEOUT");
+    assert_eq!(v["error"]["retryable"], true);
+}
+
+#[test]
+fn wait_navigation_json_happy_path() {
+    if skip() {
+        return;
+    }
+
+    let page_a = url_a();
+    let page_b = url_b();
+    let (sid, tid) = start_session(&page_a);
+    let _guard = SessionGuard::new(&sid);
+    schedule_navigation_to(&sid, &tid, &page_b);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "navigation",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "10000",
+        ],
+        15,
+    );
+    assert_success(&out, "wait navigation json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.wait.navigation");
+    assert_eq!(v["ok"], true);
+    assert!(v["error"].is_null());
+    assert_meta(&v);
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_eq!(v["context"]["title"], "Page B");
+    assert!(
+        v["context"]["url"]
+            .as_str()
+            .unwrap_or("")
+            .contains("page-b"),
+        "context.url must point at page-b: {}",
+        v["context"]["url"]
+    );
+    assert_eq!(v["data"]["kind"], "navigation");
+    assert_eq!(v["data"]["satisfied"], true);
+    assert!(v["data"]["elapsed_ms"].as_u64().is_some());
+    assert!(
+        v["data"]["observed_value"]["url"]
+            .as_str()
+            .unwrap_or("")
+            .contains("page-b"),
+        "observed_value.url must point at page-b: {}",
+        v["data"]["observed_value"]
+    );
+    assert_eq!(v["data"]["observed_value"]["ready_state"], "complete");
+}
+
+#[test]
+fn wait_network_idle_json_happy_path() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session(&url_a());
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "network-idle",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "10000",
+        ],
+        15,
+    );
+    assert_success(&out, "wait network-idle json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.wait.network-idle");
+    assert_eq!(v["ok"], true);
+    assert!(v["error"].is_null());
+    assert_meta(&v);
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_eq!(v["context"]["title"], "Page A");
+    assert_eq!(v["data"]["kind"], "network-idle");
+    assert_eq!(v["data"]["satisfied"], true);
+    assert!(v["data"]["elapsed_ms"].as_u64().is_some());
+    assert_eq!(v["data"]["observed_value"]["idle"], true);
+}
+
+#[test]
+fn wait_condition_json_happy_path() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    set_title(&sid, &tid, "Wait Condition Fixture");
+    schedule_condition_true(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            CONDITION_EXPR,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "5000",
+        ],
+        10,
+    );
+    assert_success(&out, "wait condition json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.wait.condition");
+    assert_eq!(v["ok"], true);
+    assert!(v["error"].is_null());
+    assert_meta(&v);
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_eq!(v["context"]["title"], "Wait Condition Fixture");
+    assert_eq!(v["data"]["kind"], "condition");
+    assert_eq!(v["data"]["satisfied"], true);
+    assert!(v["data"]["elapsed_ms"].as_u64().is_some());
+    assert_eq!(v["data"]["observed_value"], true);
+}
+
+#[test]
+fn wait_condition_timeout_json() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "window.__waitNever === true",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "150",
+        ],
+        10,
+    );
+    assert_failure(&out, "wait condition timeout");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.wait.condition");
+    assert!(v["context"].is_object());
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "TIMEOUT");
+    assert_eq!(v["error"]["retryable"], true);
+}
+
+#[test]
+fn wait_condition_text_output() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    schedule_condition_true(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            CONDITION_EXPR,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "5000",
+        ],
+        10,
+    );
+    assert_success(&out, "wait condition text");
+    let text = stdout_str(&out);
+    let lines: Vec<&str> = text.lines().collect();
+
+    assert_eq!(
+        lines.first().copied(),
+        Some(format!("[{sid} {tid}] about:blank").as_str())
+    );
+    assert_eq!(lines.get(1), Some(&"ok browser.wait.condition"));
+    assert!(
+        lines
+            .get(2)
+            .copied()
+            .unwrap_or_default()
+            .starts_with("elapsed_ms: "),
+        "missing elapsed_ms line: {text}"
+    );
+    assert_eq!(lines.get(3), Some(&"observed_value: true"));
+}
+
+#[test]
+fn wait_session_not_found_json() {
+    if skip() {
+        return;
+    }
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "element",
+            ELEMENT_SELECTOR,
+            "--session",
+            "missing-session",
+            "--tab",
+            "any-tab",
+            "--timeout",
+            "500",
+        ],
+        10,
+    );
+    assert_failure(&out, "wait missing session");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.wait.element");
+    assert!(v["context"].is_null());
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+}
+
+#[test]
+fn wait_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+
+    let (sid, _tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "navigation",
+            "--session",
+            &sid,
+            "--tab",
+            "missing-tab",
+            "--timeout",
+            "500",
+        ],
+        10,
+    );
+    assert_failure(&out, "wait missing tab");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.wait.navigation");
+    assert!(v["context"].is_object());
+    assert_eq!(v["context"]["session_id"], sid);
+    assert!(v["context"]["tab_id"].is_null());
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+}

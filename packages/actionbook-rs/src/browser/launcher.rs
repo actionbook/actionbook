@@ -25,6 +25,67 @@ pub fn clean_chrome_locks(profile_dir: &std::path::Path) {
     }
 }
 
+/// Kill orphaned Chrome processes that are still using the given user-data-dir.
+///
+/// When a daemon crashes or is killed without cleanup, Chrome processes may
+/// survive and hold the profile directory lock. A new Chrome launched with
+/// the same `--user-data-dir` will detect the existing instance, forward the
+/// request, and exit immediately — making CDP unreachable on the new port.
+///
+/// This function finds and terminates those orphaned processes so that a
+/// fresh Chrome can start cleanly.
+pub fn kill_orphaned_chrome(user_data_dir: &std::path::Path) {
+    let dir_str = user_data_dir.to_string_lossy();
+
+    // Use `pgrep -f` to find processes whose command line contains the user-data-dir path
+    let output = match Command::new("pgrep")
+        .args(["-f", &dir_str])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => {
+            tracing::debug!("pgrep not available, skipping orphan cleanup: {}", e);
+            return;
+        }
+    };
+
+    let pids: Vec<u32> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse::<u32>().ok())
+        .collect();
+
+    if pids.is_empty() {
+        return;
+    }
+
+    tracing::info!(
+        "Found {} orphaned Chrome process(es) using {}, killing them",
+        pids.len(),
+        dir_str
+    );
+
+    // SIGTERM via kill command (avoids unsafe)
+    let pid_strs: Vec<String> = pids.iter().map(|p| p.to_string()).collect();
+    let _ = Command::new("kill")
+        .args(&pid_strs)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
+    // Brief wait for processes to exit
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Force-kill any survivors
+    let _ = Command::new("kill")
+        .arg("-9")
+        .args(&pid_strs)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
 /// Check if the last Chrome session exited uncleanly (crashed).
 pub fn was_unclean_exit(profile_dir: &std::path::Path) -> bool {
     let prefs_path = profile_dir.join("Default").join("Preferences");
@@ -166,6 +227,7 @@ impl BrowserLauncher {
             .join(profile_name)
     }
 
+    #[allow(dead_code)]
     fn resolve_user_data_dir(profile_name: &str, configured_dir: Option<&str>) -> PathBuf {
         configured_dir
             .map(|dir| PathBuf::from(shellexpand::tilde(dir).to_string()))
@@ -195,6 +257,7 @@ impl BrowserLauncher {
     }
 
     /// Create a launcher with a specific browser path
+    #[allow(dead_code)]
     pub fn with_browser_path(path: PathBuf) -> Result<Self> {
         if !path.exists() {
             return Err(ActionbookError::BrowserLaunchFailed(format!(
@@ -228,6 +291,7 @@ impl BrowserLauncher {
     }
 
     /// Create a launcher from profile configuration
+    #[allow(dead_code)]
     pub fn from_profile(profile_name: &str, profile: &ProfileConfig) -> Result<Self> {
         let mut launcher = if let Some(ref path) = profile.browser_path {
             Self::with_browser_path(PathBuf::from(path))?
@@ -245,6 +309,7 @@ impl BrowserLauncher {
     }
 
     /// Enable stealth mode (anti-detection Chrome flags)
+    #[allow(dead_code)]
     pub fn with_stealth(mut self, stealth: bool) -> Self {
         self.stealth = stealth;
         self
@@ -471,6 +536,11 @@ impl BrowserLauncher {
     /// Launch the browser and wait for CDP to be ready.
     /// If the configured CDP port is busy, automatically picks a free port.
     pub async fn launch_and_wait(&mut self) -> Result<(Child, String)> {
+        // Kill any orphaned Chrome processes using the same profile directory.
+        // Without this, a new Chrome detects the existing instance, forwards
+        // the request to it, and exits — making our CDP port unreachable.
+        kill_orphaned_chrome(&self.user_data_dir);
+
         // G3: Clean stale lock files and handle unclean exits
         clean_chrome_locks(&self.user_data_dir);
         if was_unclean_exit(&self.user_data_dir) {
@@ -501,16 +571,19 @@ impl BrowserLauncher {
             );
         }
 
-        let result = self.launch()?;
+        let mut child = self.launch()?;
 
-        // Wait for CDP to be ready
-        let cdp_url = self.wait_for_cdp().await?;
+        // Wait for CDP to be ready, checking child process health
+        let cdp_url = self.wait_for_cdp(&mut child).await?;
 
-        Ok((result, cdp_url))
+        Ok((child, cdp_url))
     }
 
-    /// Wait for CDP endpoint to be ready
-    async fn wait_for_cdp(&self) -> Result<String> {
+    /// Wait for CDP endpoint to be ready.
+    /// Also monitors the child process — if Chrome exits early (e.g. merged into
+    /// an existing instance using the same user-data-dir), we fail fast instead of
+    /// waiting the full timeout.
+    async fn wait_for_cdp(&self, child: &mut Child) -> Result<String> {
         let url = format!("http://127.0.0.1:{}/json/version", self.cdp_port);
 
         // Build client with NO_PROXY for localhost
@@ -519,9 +592,25 @@ impl BrowserLauncher {
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
-        // Try for up to 10 seconds
-        for i in 0..20 {
+        // Try for up to 15 seconds (30 * 500ms)
+        for i in 0..30 {
             sleep(Duration::from_millis(500)).await;
+
+            // Check if child process is still alive
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    return Err(ActionbookError::CdpConnectionFailed(format!(
+                        "Browser process exited early (status: {}). \
+                         This usually means another Chrome instance is already using \
+                         the same user-data-dir. Try: pkill -f 'actionbook/profiles'",
+                        status
+                    )));
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to check browser process status: {}", e);
+                }
+                Ok(None) => {} // still running, good
+            }
 
             match client.get(&url).send().await {
                 Ok(response) if response.status().is_success() => {
@@ -534,7 +623,7 @@ impl BrowserLauncher {
 
                     if let Some(ws_url) = json.get("webSocketDebuggerUrl").and_then(|v| v.as_str())
                     {
-                        tracing::info!("CDP ready at: {}", ws_url);
+                        tracing::info!("CDP ready at: {} (port {})", ws_url, self.cdp_port);
                         return Ok(ws_url.to_string());
                     }
                 }
@@ -542,14 +631,20 @@ impl BrowserLauncher {
                     tracing::debug!("CDP not ready yet (attempt {})", i + 1);
                 }
                 Err(e) => {
-                    tracing::debug!("CDP connection attempt {} failed: {}", i + 1, e);
+                    tracing::debug!(
+                        "CDP connection attempt {} failed (port {}): {}",
+                        i + 1,
+                        self.cdp_port,
+                        e
+                    );
                 }
             }
         }
 
-        Err(ActionbookError::CdpConnectionFailed(
-            "Timeout waiting for CDP to be ready".to_string(),
-        ))
+        Err(ActionbookError::CdpConnectionFailed(format!(
+            "Timeout waiting for CDP to be ready on port {}",
+            self.cdp_port
+        )))
     }
 
     /// Get the CDP WebSocket URL for an already running browser

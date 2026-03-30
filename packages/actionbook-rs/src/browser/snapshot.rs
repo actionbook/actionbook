@@ -15,12 +15,14 @@ use crate::error::Result;
 
 /// CDP Accessibility.getFullAXTree response envelope
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 pub struct AxTreeResponse {
     pub nodes: Vec<AxNode>,
 }
 
 /// Single node in the CDP accessibility tree
 #[derive(Deserialize, Debug, Clone)]
+#[allow(dead_code)]
 pub struct AxNode {
     #[serde(rename = "nodeId")]
     pub node_id: String,
@@ -44,6 +46,7 @@ pub struct AxNode {
 
 /// CDP AXValue structure: { type: "...", value: "..." }
 #[derive(Deserialize, Debug, Clone)]
+#[allow(dead_code)]
 pub struct AxValue {
     #[serde(rename = "type")]
     #[allow(dead_code)]
@@ -53,6 +56,7 @@ pub struct AxValue {
 
 impl AxValue {
     /// Extract string value from AXValue
+    #[allow(dead_code)]
     pub fn as_string(&self) -> String {
         if let Some(ref val) = self.value {
             if let Some(s) = val.as_str() {
@@ -80,6 +84,7 @@ impl AxValue {
 
 /// CDP AXProperty structure
 #[derive(Deserialize, Debug, Clone)]
+#[allow(dead_code)]
 pub struct AxProperty {
     pub name: String,
     pub value: Option<AxValue>,
@@ -87,6 +92,7 @@ pub struct AxProperty {
 
 /// A single node in the accessibility tree
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct A11yNode {
     /// Stable reference ID ("e0", "e1", ...) — only set for interactive/named content nodes
     #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
@@ -131,6 +137,7 @@ pub struct A11yNode {
 
 /// Cached ref→backendNodeId mapping for action resolution
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct RefCache {
     /// "e0" → backend_node_id
     pub refs: HashMap<String, i64>,
@@ -143,6 +150,7 @@ pub struct RefCache {
 
 /// Snapshot filter options
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum SnapshotFilter {
     All,
     Interactive,
@@ -150,6 +158,7 @@ pub enum SnapshotFilter {
 
 /// Snapshot output format
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum SnapshotFormat {
     /// Indented tree format: `- role "name" [ref=eN]` (~60-70% fewer tokens than JSON)
     Compact,
@@ -158,6 +167,7 @@ pub enum SnapshotFormat {
 }
 
 /// Interactive ARIA roles (from pinchtab/snapshot.go)
+#[allow(dead_code)]
 const INTERACTIVE_ROLES: &[&str] = &[
     "button",
     "link",
@@ -179,6 +189,7 @@ const INTERACTIVE_ROLES: &[&str] = &[
 ];
 
 /// Content roles — get refs only if they have a name
+#[allow(dead_code)]
 const CONTENT_ROLES: &[&str] = &[
     "heading",
     "cell",
@@ -193,6 +204,7 @@ const CONTENT_ROLES: &[&str] = &[
 ];
 
 /// Roles to skip entirely (noise — text content is already in parent's name)
+#[allow(dead_code)]
 const SKIP_ROLES: &[&str] = &[
     "InlineTextBox",
     "StaticText",
@@ -206,6 +218,7 @@ const SKIP_ROLES: &[&str] = &[
 ];
 
 /// Structural roles that may be removed during compact filtering
+#[allow(dead_code)]
 const STRUCTURAL_ROLES: &[&str] = &[
     "generic",
     "group",
@@ -234,6 +247,7 @@ const STRUCTURAL_ROLES: &[&str] = &[
 /// Builds a proper tree from CDP nodes, then renders with recursive traversal.
 /// Ignored nodes' children are promoted. RootWebArea/WebArea are unwrapped.
 /// Only interactive roles and named content roles get refs (eN).
+#[allow(dead_code)]
 pub fn parse_ax_tree(
     raw: serde_json::Value,
     filter: SnapshotFilter,
@@ -308,6 +322,7 @@ pub fn parse_ax_tree(
     let mut refs = HashMap::new();
     let mut ref_counter = 0usize;
 
+    #[allow(clippy::too_many_arguments)]
     fn render(
         ax_nodes: &[AxNode],
         children_map: &HashMap<usize, Vec<usize>>,
@@ -596,6 +611,7 @@ pub fn parse_ax_tree(
 
 /// Remove leaf nodes that are structural with no name, no ref, no value.
 /// These are empty `<div>`/`<span>` wrappers that add no information.
+#[allow(dead_code)]
 pub fn remove_empty_leaves(nodes: &[A11yNode]) -> Vec<A11yNode> {
     let structural_set: HashSet<&str> = STRUCTURAL_ROLES.iter().copied().collect();
     let mut has_child = vec![false; nodes.len()];
@@ -626,10 +642,10 @@ pub fn remove_empty_leaves(nodes: &[A11yNode]) -> Vec<A11yNode> {
         .collect()
 }
 
-/// Format nodes as indented tree (agent-browser style)
 ///
 /// Format: `- role "name" [disabled, ref=eN]: value`
 /// Attributes are combined in a single `[...]` block. Value uses `: value` suffix.
+#[allow(dead_code)]
 pub fn format_compact(nodes: &[A11yNode]) -> String {
     let mut out = String::new();
     for node in nodes {
@@ -697,6 +713,7 @@ pub fn format_compact(nodes: &[A11yNode]) -> String {
 
 /// Compute diff between two snapshots
 /// Returns (added, changed, removed)
+#[allow(dead_code)]
 pub fn diff_snapshots(
     prev: &[A11yNode],
     curr: &[A11yNode],
@@ -738,6 +755,7 @@ pub fn diff_snapshots(
 }
 
 /// Estimate token count for output
+#[allow(dead_code)]
 pub fn estimate_tokens(content: &str, format: SnapshotFormat) -> usize {
     let len = content.len();
     match format {
@@ -747,6 +765,7 @@ pub fn estimate_tokens(content: &str, format: SnapshotFormat) -> usize {
 }
 
 /// Estimate the token cost of a single node in a given format
+#[allow(dead_code)]
 fn estimate_node_tokens(node: &A11yNode, format: SnapshotFormat) -> usize {
     let ref_len = node.ref_id.as_ref().map(|r| r.len()).unwrap_or(0);
     let role_len = node.role.len();
@@ -762,6 +781,7 @@ fn estimate_node_tokens(node: &A11yNode, format: SnapshotFormat) -> usize {
 
 /// Truncate nodes to fit within a token budget.
 /// Returns the truncated node list and whether truncation occurred.
+#[allow(dead_code)]
 pub fn truncate_to_tokens(
     nodes: &[A11yNode],
     max_tokens: usize,
@@ -783,7 +803,7 @@ pub fn truncate_to_tokens(
 }
 
 /// Compact tree: keep only nodes with [ref=] or values, plus their ancestors.
-/// Matches agent-browser's compact_tree behavior.
+#[allow(dead_code)]
 pub fn compact_tree_nodes(nodes: &[A11yNode]) -> Vec<A11yNode> {
     let mut keep = vec![false; nodes.len()];
 
@@ -815,6 +835,7 @@ pub fn compact_tree_nodes(nodes: &[A11yNode]) -> Vec<A11yNode> {
 
 /// A cursor-interactive element detected via DOM inspection
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct CursorElement {
     pub selector: String,
     pub text: String,
@@ -822,74 +843,6 @@ pub struct CursorElement {
     pub has_onclick: bool,
     pub has_cursor_pointer: bool,
     pub has_tabindex: bool,
-}
-
-/// Find elements that are cursor-interactive but not in the accessibility tree.
-///
-/// Detects elements with `cursor: pointer`, `onclick`, or `tabindex` attributes
-/// that may not have ARIA roles but are still clickable/focusable.
-pub async fn find_cursor_interactive_elements(
-    driver: &mut super::router::BrowserDriver,
-    scope_selector: Option<&str>,
-) -> Result<Vec<CursorElement>> {
-    let scope = scope_selector.unwrap_or("document.body");
-    let js = format!(
-        r#"(function() {{
-    const root = {};
-    if (!root) return JSON.stringify([]);
-    const results = [];
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
-    const seen = new Set();
-    let node;
-    while (node = walker.nextNode()) {{
-        if (seen.has(node)) continue;
-        seen.add(node);
-        const tag = node.tagName.toLowerCase();
-        // Skip elements that already have ARIA roles (handled by AX tree)
-        if (node.getAttribute('role')) continue;
-        // Skip standard interactive elements (already in AX tree)
-        if (['a','button','input','select','textarea','summary','details'].includes(tag)) continue;
-        const style = window.getComputedStyle(node);
-        const hasCursorPointer = style.cursor === 'pointer';
-        const hasOnclick = node.hasAttribute('onclick') || node.onclick !== null;
-        const hasTabindex = node.hasAttribute('tabindex');
-        if (!hasCursorPointer && !hasOnclick && !hasTabindex) continue;
-        // Get concise text
-        let text = (node.textContent || '').trim().substring(0, 80);
-        if (!text && node.getAttribute('aria-label')) text = node.getAttribute('aria-label');
-        if (!text && node.getAttribute('title')) text = node.getAttribute('title');
-        // Build a simple selector
-        let sel = tag;
-        if (node.id) sel = '#' + node.id;
-        else if (node.className && typeof node.className === 'string') sel = tag + '.' + node.className.trim().split(/\s+/).join('.');
-        results.push({{
-            selector: sel,
-            text: text,
-            tagName: tag,
-            hasOnclick: hasOnclick,
-            hasCursorPointer: hasCursorPointer,
-            hasTabindex: hasTabindex,
-        }});
-        if (results.length >= 100) break;
-    }}
-    return JSON.stringify(results);
-}})()"#,
-        if scope_selector.is_some() {
-            format!("document.querySelector('{}')", scope.replace('\'', "\\'"))
-        } else {
-            "document.body".to_string()
-        }
-    );
-
-    let result_str = driver.eval(&js).await?;
-
-    // The eval result is JSON-stringified, possibly wrapped in quotes
-    let cleaned = result_str.trim().trim_matches('"');
-    // Unescape if needed (eval returns JSON string inside JSON string)
-    let unescaped = cleaned.replace("\\\"", "\"").replace("\\\\", "\\");
-
-    let elements: Vec<CursorElement> = serde_json::from_str(&unescaped).unwrap_or_default();
-    Ok(elements)
 }
 
 #[cfg(test)]
@@ -1064,5 +1017,481 @@ mod tests {
         assert_eq!(compacted[0].role, "banner");
         assert_eq!(compacted[1].role, "navigation");
         assert_eq!(compacted[2].role, "link");
+    }
+
+    #[test]
+    fn remove_empty_leaves_keeps_non_structural_nodes() {
+        let nodes = vec![
+            make_node(None, "button", "Click me", 0),
+            make_node(None, "link", "Home", 1),
+        ];
+        let result = remove_empty_leaves(&nodes);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn remove_empty_leaves_removes_empty_structural_nodes() {
+        let nodes = vec![
+            // "generic" is a structural role; no name, no ref, no children → should be removed
+            make_node(None, "generic", "", 0),
+            make_node(None, "button", "Click", 0),
+        ];
+        let result = remove_empty_leaves(&nodes);
+        // "generic" with no name/ref/children → removed; button kept
+        assert!(result.iter().any(|n| n.role == "button"));
+    }
+
+    #[test]
+    fn remove_empty_leaves_keeps_structural_nodes_with_children() {
+        let nodes = vec![
+            // "generic" has children (next node has deeper depth)
+            make_node(None, "generic", "", 0),
+            make_node(Some("e0"), "link", "Home", 1),
+        ];
+        let result = remove_empty_leaves(&nodes);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].role, "generic");
+    }
+
+    #[test]
+    fn diff_snapshots_detects_added_nodes() {
+        let prev = vec![make_node(Some("e0"), "button", "Submit", 0)];
+        let curr = vec![
+            make_node(Some("e0"), "button", "Submit", 0),
+            make_node(Some("e1"), "link", "Home", 0),
+        ];
+        let (added, changed, removed) = diff_snapshots(&prev, &curr);
+        assert_eq!(added.len(), 1);
+        assert_eq!(added[0].role, "link");
+        assert!(changed.is_empty());
+        assert!(removed.is_empty());
+    }
+
+    #[test]
+    fn diff_snapshots_detects_removed_nodes() {
+        let prev = vec![
+            make_node(Some("e0"), "button", "Submit", 0),
+            make_node(Some("e1"), "link", "Home", 0),
+        ];
+        let curr = vec![make_node(Some("e0"), "button", "Submit", 0)];
+        let (added, changed, removed) = diff_snapshots(&prev, &curr);
+        assert!(added.is_empty());
+        assert!(changed.is_empty());
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0].role, "link");
+    }
+
+    #[test]
+    fn diff_snapshots_empty_input_yields_empty_output() {
+        let (added, changed, removed) = diff_snapshots(&[], &[]);
+        assert!(added.is_empty());
+        assert!(changed.is_empty());
+        assert!(removed.is_empty());
+    }
+
+    #[test]
+    fn parse_ax_tree_basic_flat_tree() {
+        let raw = serde_json::json!({
+            "nodes": [
+                {
+                    "nodeId": "1",
+                    "backendDOMNodeId": 100,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "button" },
+                    "name": { "type": "computedString", "value": "Submit" },
+                    "childIds": [],
+                    "properties": []
+                }
+            ]
+        });
+        let (nodes, cache) = parse_ax_tree(raw, SnapshotFilter::Interactive, None, None).unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].role, "button");
+        assert_eq!(nodes[0].name, "Submit");
+        // e0 should be in the RefCache's refs map
+        assert!(cache.refs.contains_key("e0"));
+    }
+
+    #[test]
+    fn parse_ax_tree_ignored_nodes_skipped() {
+        let raw = serde_json::json!({
+            "nodes": [
+                {
+                    "nodeId": "1",
+                    "backendDOMNodeId": 101,
+                    "ignored": true,
+                    "role": { "type": "role", "value": "none" },
+                    "name": { "type": "computedString", "value": "" },
+                    "childIds": [],
+                    "properties": []
+                }
+            ]
+        });
+        let (nodes, _cache) = parse_ax_tree(raw, SnapshotFilter::Interactive, None, None).unwrap();
+        // Ignored nodes should be filtered out
+        assert!(nodes.is_empty());
+    }
+
+    #[test]
+    fn estimate_tokens_compact_vs_json() {
+        let content = "a".repeat(400);
+        let compact_tokens = estimate_tokens(&content, SnapshotFormat::Compact);
+        let json_tokens = estimate_tokens(&content, SnapshotFormat::Json);
+        // Compact divides by 4, JSON divides by 3 → compact should have fewer tokens
+        assert_eq!(compact_tokens, 100);
+        assert_eq!(json_tokens, 133); // floor(400/3)
+    }
+
+    #[test]
+    fn truncate_to_tokens_allows_all_nodes_when_budget_large() {
+        let nodes = vec![
+            make_node(Some("e0"), "button", "A", 0),
+            make_node(Some("e1"), "link", "B", 0),
+        ];
+        let (result, truncated) = truncate_to_tokens(&nodes, 10_000, SnapshotFormat::Compact);
+        assert_eq!(result.len(), 2);
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn compact_tree_empty_input_returns_empty() {
+        let result = compact_tree_nodes(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn format_compact_with_url_field() {
+        let mut node = make_node(Some("e0"), "link", "Homepage", 0);
+        node.url = Some("https://example.com".to_string());
+        let output = format_compact(&[node]);
+        assert!(output.contains("link \"Homepage\" [ref=e0]"));
+        assert!(output.contains("/url: https://example.com"));
+    }
+
+    #[test]
+    fn format_compact_with_expanded_and_selected() {
+        let mut node = make_node(Some("e0"), "treeitem", "Node", 0);
+        node.expanded = Some(true);
+        node.selected = true;
+        let output = format_compact(&[node]);
+        assert!(output.contains("expanded=true"));
+        assert!(output.contains("selected"));
+    }
+
+    #[test]
+    fn format_compact_with_focused_attr() {
+        let mut node = make_node(Some("e0"), "textbox", "Search", 0);
+        node.focused = true;
+        let output = format_compact(&[node]);
+        assert_eq!(output, "- textbox \"Search\" [focused, ref=e0]\n");
+    }
+
+    #[test]
+    fn ax_value_as_string_handles_various_types() {
+        // String value
+        let av = AxValue {
+            value_type: Some("string".to_string()),
+            value: Some(serde_json::Value::String("hello".to_string())),
+        };
+        assert_eq!(av.as_string(), "hello");
+
+        // Integer value
+        let av = AxValue {
+            value_type: Some("integer".to_string()),
+            value: Some(serde_json::json!(42i64)),
+        };
+        assert_eq!(av.as_string(), "42");
+
+        // Boolean value
+        let av = AxValue {
+            value_type: Some("boolean".to_string()),
+            value: Some(serde_json::json!(true)),
+        };
+        assert_eq!(av.as_string(), "true");
+
+        // None value
+        let av = AxValue {
+            value_type: None,
+            value: None,
+        };
+        assert_eq!(av.as_string(), "");
+    }
+
+    #[test]
+    fn ax_value_as_string_formats_float_variants() {
+        let integer_like = AxValue {
+            value_type: Some("number".to_string()),
+            value: Some(serde_json::json!(42.0)),
+        };
+        assert_eq!(integer_like.as_string(), "42");
+
+        let decimal = AxValue {
+            value_type: Some("number".to_string()),
+            value: Some(serde_json::json!(3.25)),
+        };
+        assert_eq!(decimal.as_string(), "3.25");
+    }
+
+    #[test]
+    fn parse_ax_tree_promotes_wrappers_and_extracts_properties() {
+        let raw = serde_json::json!({
+            "nodes": [
+                {
+                    "nodeId": "1",
+                    "backendDOMNodeId": 1,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "RootWebArea" },
+                    "name": { "type": "computedString", "value": "Root" },
+                    "childIds": ["2", "3", "9", "14", "missing"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "2",
+                    "backendDOMNodeId": 2,
+                    "ignored": true,
+                    "role": { "type": "role", "value": "generic" },
+                    "name": { "type": "computedString", "value": "" },
+                    "childIds": ["4"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "3",
+                    "backendDOMNodeId": 3,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "WebArea" },
+                    "name": { "type": "computedString", "value": "Inner" },
+                    "childIds": ["5"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "4",
+                    "backendDOMNodeId": 4,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "button" },
+                    "name": { "type": "computedString", "value": "Submit" },
+                    "value": { "type": "string", "value": "submit" },
+                    "childIds": [],
+                    "properties": [
+                        { "name": "disabled", "value": { "type": "boolean", "value": true } },
+                        { "name": "focused", "value": { "type": "boolean", "value": true } },
+                        { "name": "required", "value": { "type": "boolean", "value": true } },
+                        { "name": "checked", "value": { "type": "boolean", "value": true } },
+                        { "name": "expanded", "value": { "type": "boolean", "value": false } }
+                    ]
+                },
+                {
+                    "nodeId": "5",
+                    "ignored": false,
+                    "role": { "type": "role", "value": "heading" },
+                    "name": { "type": "computedString", "value": "Title" },
+                    "childIds": ["6"],
+                    "properties": [
+                        { "name": "level", "value": { "type": "integer", "value": 2 } }
+                    ]
+                },
+                {
+                    "nodeId": "6",
+                    "backendDOMNodeId": 6,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "link" },
+                    "name": { "type": "computedString", "value": "Nested link" },
+                    "childIds": [],
+                    "properties": [
+                        { "name": "url", "value": { "type": "string", "value": "https://example.com/title" } }
+                    ]
+                },
+                {
+                    "nodeId": "9",
+                    "backendDOMNodeId": 9,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "StaticText" },
+                    "name": { "type": "computedString", "value": "ignored" },
+                    "childIds": ["10", "11"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "10",
+                    "backendDOMNodeId": 10,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "link" },
+                    "name": { "type": "computedString", "value": "Docs" },
+                    "childIds": [],
+                    "properties": [
+                        { "name": "selected", "value": { "type": "boolean", "value": true } },
+                        { "name": "url", "value": { "type": "string", "value": "https://example.com/docs" } }
+                    ]
+                },
+                {
+                    "nodeId": "11",
+                    "backendDOMNodeId": 11,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "checkbox" },
+                    "name": { "type": "computedString", "value": "Choice" },
+                    "childIds": [],
+                    "properties": [
+                        { "name": "checked", "value": { "type": "string", "value": "mixed" } },
+                        { "name": "url", "value": { "type": "string", "value": "" } }
+                    ]
+                },
+                {
+                    "nodeId": "14",
+                    "backendDOMNodeId": 14,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "generic" },
+                    "name": { "type": "computedString", "value": "" },
+                    "childIds": ["15"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "15",
+                    "backendDOMNodeId": 15,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "link" },
+                    "name": { "type": "computedString", "value": "Scoped only" },
+                    "childIds": ["16"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "16",
+                    "backendDOMNodeId": 16,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "button" },
+                    "name": { "type": "computedString", "value": "Too deep" },
+                    "childIds": [],
+                    "properties": []
+                }
+            ]
+        });
+
+        let (nodes, cache) = parse_ax_tree(raw, SnapshotFilter::All, Some(1), None).unwrap();
+        let button = nodes.iter().find(|node| node.name == "Submit").unwrap();
+        assert_eq!(button.depth, 0);
+        assert_eq!(button.value.as_deref(), Some("submit"));
+        assert!(button.disabled);
+        assert!(button.focused);
+        assert!(button.required);
+        assert_eq!(button.checked.as_deref(), Some("true"));
+        assert_eq!(button.expanded, Some(false));
+
+        let heading = nodes.iter().find(|node| node.name == "Title").unwrap();
+        assert_eq!(heading.level, Some(2));
+        assert!(heading.ref_id.is_some());
+        assert!(!cache.refs.contains_key(heading.ref_id.as_ref().unwrap()));
+
+        let nested_link = nodes
+            .iter()
+            .find(|node| node.name == "Nested link")
+            .unwrap();
+        assert_eq!(nested_link.depth, 1);
+        assert_eq!(
+            nested_link.url.as_deref(),
+            Some("https://example.com/title")
+        );
+
+        let docs_link = nodes.iter().find(|node| node.name == "Docs").unwrap();
+        assert!(docs_link.selected);
+        assert_eq!(docs_link.url.as_deref(), Some("https://example.com/docs"));
+
+        let checkbox = nodes.iter().find(|node| node.name == "Choice").unwrap();
+        assert_eq!(checkbox.checked.as_deref(), Some("mixed"));
+        assert_eq!(checkbox.url, None);
+
+        assert!(nodes.iter().all(|node| node.name != "Too deep"));
+        assert!(cache.refs.contains_key("e0"));
+        assert!(cache.next_ref >= cache.refs.len());
+    }
+
+    #[test]
+    fn parse_ax_tree_scope_filter_keeps_scoped_descendant_only() {
+        let raw = serde_json::json!({
+            "nodes": [
+                {
+                    "nodeId": "1",
+                    "backendDOMNodeId": 1,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "RootWebArea" },
+                    "name": { "type": "computedString", "value": "Root" },
+                    "childIds": ["2", "14"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "2",
+                    "backendDOMNodeId": 2,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "generic" },
+                    "name": { "type": "computedString", "value": "" },
+                    "childIds": ["3"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "3",
+                    "backendDOMNodeId": 3,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "button" },
+                    "name": { "type": "computedString", "value": "Outside scope" },
+                    "childIds": [],
+                    "properties": []
+                },
+                {
+                    "nodeId": "14",
+                    "backendDOMNodeId": 14,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "generic" },
+                    "name": { "type": "computedString", "value": "" },
+                    "childIds": ["15"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "15",
+                    "backendDOMNodeId": 15,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "link" },
+                    "name": { "type": "computedString", "value": "Scoped only" },
+                    "childIds": ["16"],
+                    "properties": []
+                },
+                {
+                    "nodeId": "16",
+                    "backendDOMNodeId": 16,
+                    "ignored": false,
+                    "role": { "type": "role", "value": "button" },
+                    "name": { "type": "computedString", "value": "Too deep" },
+                    "childIds": [],
+                    "properties": []
+                }
+            ]
+        });
+
+        let (nodes, cache) =
+            parse_ax_tree(raw, SnapshotFilter::Interactive, Some(0), Some(15)).unwrap();
+
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].name, "Scoped only");
+        assert_eq!(nodes[0].depth, 0);
+        assert!(cache.refs.values().all(|backend_id| *backend_id == 15));
+    }
+
+    #[test]
+    fn remove_empty_leaves_keeps_structural_nodes_with_value() {
+        let mut generic = make_node(None, "generic", "", 0);
+        generic.value = Some("summary".to_string());
+        let result = remove_empty_leaves(&[generic]);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].value.as_deref(), Some("summary"));
+    }
+
+    #[test]
+    fn estimate_node_tokens_json_and_compact_tree_root_break() {
+        let mut json_node = make_node(Some("e1"), "textbox", "Search", 3);
+        json_node.value = Some("query".to_string());
+        let json_cost = estimate_node_tokens(&json_node, SnapshotFormat::Json);
+        let compact_cost = estimate_node_tokens(&json_node, SnapshotFormat::Compact);
+        assert!(json_cost > compact_cost);
+
+        let mut second_root = make_node(None, "main", "", 0);
+        second_root.value = Some("kept".to_string());
+        let compacted = compact_tree_nodes(&[make_node(None, "banner", "", 0), second_root]);
+        assert_eq!(compacted.len(), 1);
+        assert_eq!(compacted[0].role, "main");
     }
 }

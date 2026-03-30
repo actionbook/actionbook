@@ -161,7 +161,7 @@ impl ScreenResolution {
 
 /// GPU vendor and model
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
+#[allow(dead_code, clippy::upper_case_acronyms)]
 pub struct GPU {
     pub vendor: String,
     pub renderer: String,
@@ -393,7 +393,7 @@ impl HardwareConfig {
 }
 
 /// Fingerprint generator that creates statistically accurate configurations
-#[allow(dead_code)]
+#[allow(dead_code, clippy::large_enum_variant)]
 pub enum FingerprintGenerator {
     /// Random generator using thread RNG
     Random(ThreadRng),

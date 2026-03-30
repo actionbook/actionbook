@@ -433,4 +433,106 @@ mod tests {
         let path = Config::config_path_from_home(None);
         assert_eq!(path, PathBuf::from("./.actionbook/config.toml"));
     }
+
+    #[test]
+    fn set_profile_inserts_profile() {
+        let mut config = Config::default();
+        let profile = ProfileConfig::default();
+        config.set_profile("my-profile", profile.clone());
+        assert!(config.profiles.contains_key("my-profile"));
+    }
+
+    #[test]
+    fn remove_profile_removes_existing_non_default_profile() {
+        let mut config = Config::default();
+        config.set_profile("extra", ProfileConfig::default());
+        assert!(config.profiles.contains_key("extra"));
+        let result = config.remove_profile("extra");
+        assert!(result.is_ok());
+        assert!(!config.profiles.contains_key("extra"));
+    }
+
+    #[test]
+    fn remove_profile_returns_error_for_missing_profile() {
+        let mut config = Config::default();
+        let result = config.remove_profile("nonexistent");
+        assert!(matches!(result, Err(ActionbookError::ProfileNotFound(_))));
+    }
+
+    #[test]
+    fn effective_default_profile_name_trims_whitespace() {
+        let mut config = Config::default();
+        config.browser.default_profile = "  my-team  ".to_string();
+        assert_eq!(config.effective_default_profile_name(), "my-team");
+    }
+
+    #[test]
+    fn effective_default_profile_name_falls_back_to_actionbook_when_blank() {
+        let mut config = Config::default();
+        config.browser.default_profile = "   ".to_string();
+        assert_eq!(config.effective_default_profile_name(), "actionbook");
+    }
+
+    #[test]
+    fn api_config_default_values() {
+        let api = ApiConfig::default();
+        assert_eq!(api.base_url, "https://api.actionbook.dev");
+        assert!(api.api_key.is_none());
+    }
+
+    #[test]
+    fn updates_config_default_values() {
+        let updates = UpdatesConfig::default();
+        assert!(updates.enabled);
+        assert_eq!(updates.check_interval_seconds, 12 * 60 * 60);
+    }
+
+    #[test]
+    fn browser_config_default_values() {
+        let browser = BrowserConfig::default();
+        assert!(browser.executable.is_none());
+        assert_eq!(browser.default_profile, "actionbook");
+        assert!(!browser.headless);
+    }
+
+    #[test]
+    fn extension_config_default_values() {
+        let ext = ExtensionConfig::default();
+        assert_eq!(ext.port, DEFAULT_EXTENSION_PORT);
+        assert!(ext.auto_install);
+    }
+
+    #[test]
+    fn camofox_config_default_values() {
+        let cam = CamofoxConfig::default();
+        assert_eq!(cam.port, 9377);
+        assert!(cam.user_id.is_none());
+        assert!(cam.session_key.is_none());
+        assert!(!cam.use_webdriver);
+        assert!(!cam.headless);
+    }
+
+    #[test]
+    fn get_profile_returns_named_profile() {
+        let mut config = Config::default();
+        let profile = ProfileConfig {
+            headless: true,
+            ..Default::default()
+        };
+        config.set_profile("custom", profile);
+        let result = config.get_profile("custom").unwrap();
+        assert!(result.headless);
+    }
+
+    #[test]
+    fn config_serde_round_trip() {
+        let config = Config::default();
+        let serialized = toml::to_string_pretty(&config).unwrap();
+        let deserialized: Config = toml::from_str(&serialized).unwrap();
+        assert_eq!(
+            deserialized.browser.default_profile,
+            config.browser.default_profile
+        );
+        assert_eq!(deserialized.api.base_url, config.api.base_url);
+    }
 }

@@ -1,0 +1,74 @@
+[package]
+name = "actionbook-cli"
+version = "1.0.0"
+edition = "2024"
+description = "Actionbook CLI - Browser automation for AI agents"
+license = "MIT"
+keywords = ["browser", "automation", "cdp", "cli"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "actionbook"
+path = "src/main.rs"
+
+[lib]
+name = "actionbook_cli"
+path = "src/lib.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal", "process", "net", "io-util", "sync"] }
+
+# CDP WebSocket
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Error handling
+thiserror = "2"
+
+# HTTP (for Chrome CDP discovery endpoints)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Base64 (screenshot/PDF decoding)
+base64 = "0.22"
+
+# URL encoding
+urlencoding = "2"
+which = "8"
+
+# Interactive UI
+dialoguer = "0.11"
+colored = "3"
+indicatif = "0.17"
+console = "0.15"
+dirs = "6"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+
+[dev-dependencies]
+assert_cmd = "2"
+tempfile = "3"
+serde_json = "1"
+
+[[test]]
+name = "e2e"
+path = "tests/e2e/main.rs"
+harness = true
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

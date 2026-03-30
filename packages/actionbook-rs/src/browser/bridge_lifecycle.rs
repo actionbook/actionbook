@@ -4,8 +4,10 @@ use crate::browser::extension_bridge;
 use crate::error::{ActionbookError, Result};
 
 /// Timeout for the bridge to become reachable after spawning.
+#[allow(dead_code)]
 const BRIDGE_START_TIMEOUT: Duration = Duration::from_secs(5);
 /// Polling interval while waiting for the bridge to start.
+#[allow(dead_code)]
 const BRIDGE_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Ensure the extension bridge is running on the given port.
@@ -17,6 +19,7 @@ const BRIDGE_POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// 5. Return error if bridge doesn't start in time.
 ///
 /// Returns `true` if this call auto-started the bridge, `false` if it was already running.
+#[allow(dead_code)]
 pub async fn ensure_bridge_running(port: u16) -> Result<bool> {
     // Fast path: port is listening — verify it's actually our bridge via PID file.
     // A bare TCP probe can be fooled by unrelated processes occupying the same port.
@@ -93,6 +96,7 @@ pub async fn ensure_bridge_running(port: u16) -> Result<bool> {
 }
 
 /// Spawn the bridge as a fully detached background process.
+#[allow(dead_code)]
 fn spawn_detached(exe: &std::path::Path, port: u16) -> Result<()> {
     use std::process::{Command, Stdio};
 
@@ -169,24 +173,18 @@ pub async fn stop_bridge(port: u16) -> Result<()> {
                         .collect();
 
                     if let Some(&found_pid) = pids.first() {
-                        // TODO: Verify this PID actually belongs to an Actionbook bridge
-                        // is_actionbook_bridge_process function is not yet implemented
-                        // For now, just check if PID is alive
-                        if !extension_bridge::is_pid_alive(found_pid) {
-                            tracing::warn!(
-                                "Port {} was in use by PID {}, but process is no longer running",
-                                port,
-                                found_pid
-                            );
-                            return Ok(());
-                        }
-
-                        tracing::info!(
-                            "Found process on port {} with PID {} (no PID file, found via lsof)",
+                        // Without a PID file we cannot confirm this is an
+                        // Actionbook bridge process.  Killing an arbitrary
+                        // process would be dangerous, so bail out safely.
+                        tracing::warn!(
+                            "Port {} is in use by PID {} but no bridge PID file found — \
+                             refusing to kill an unverified process. \
+                             Use `kill {}` manually if you are sure.",
                             port,
+                            found_pid,
                             found_pid
                         );
-                        found_pid
+                        return Ok(());
                     } else {
                         tracing::warn!("Bridge running on port {} but cannot determine PID", port);
                         return Ok(());

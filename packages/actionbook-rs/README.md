@@ -973,27 +973,7 @@ actionbook browser wait-idle --timeout 10000 --idle-time 1000
 
 Monitors `fetch()` and `XMLHttpRequest` to track pending network requests. Returns when no requests have been in-flight for the specified idle time. Essential for SPAs that load data asynchronously after initial page load.
 
-### Dialog Handling
-
-Explicit commands to detect and resolve JavaScript dialogs (alert, confirm, prompt, beforeunload):
-
-```bash
-# Check if a dialog is blocking the page
-actionbook browser dialog status
-
-# Accept dialog (with optional prompt text)
-actionbook browser dialog accept
-actionbook browser dialog accept "my input"
-
-# Dismiss/cancel dialog
-actionbook browser dialog dismiss
-```
-
-When a dialog is open, all other browser commands will block. The CLI automatically warns on stderr when a pending dialog is detected, so agents can immediately distinguish "page blocked by dialog" from generic timeout or slowness.
-
-#### Auto-Dismiss (opt-in fallback)
-
-For unattended scenarios where you want all dialogs silently dismissed:
+### Dialog Auto-Handling
 
 ```bash
 # Enable globally — auto-dismiss all JS dialogs
@@ -1003,7 +983,7 @@ actionbook --auto-dismiss-dialogs browser open "https://example.com"
 export ACTIONBOOK_AUTO_DISMISS_DIALOGS=true
 ```
 
-Overrides `window.alert`, `window.confirm` (returns `true`), and `window.prompt` (returns default value). Logged dismissed dialogs are accessible via the console capture feature. The explicit `browser dialog` commands above are preferred for agent workflows since they give agents full control.
+Overrides `window.alert`, `window.confirm` (returns `true`), and `window.prompt` (returns default value). Logged dismissed dialogs are accessible via the console capture feature. Prevents JavaScript dialogs from blocking agent execution.
 
 ### Element Info
 
@@ -1255,6 +1235,8 @@ cargo test --test integration_test  # Integration tests only
 ### Test Coverage
 
 - **610+ tests** total (unit + integration + e2e)
+- Generate CLI unit-test coverage locally with `make coverage`
+- CI uploads `ut-coverage-report` with `lcov.info` and `coverage-summary.txt`, and adds the line coverage percentage to the workflow summary
 
 ## License
 

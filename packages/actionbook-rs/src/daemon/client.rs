@@ -1,159 +1,357 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+//! RPC client for communicating with the actionbook daemon over UDS.
+//!
+//! The [`DaemonClient`] connects to the daemon's Unix Domain Socket,
+//! sends [`Action`]s wrapped in the wire protocol, and returns
+//! [`ActionResult`]s. This is the only transport the CLI thin client needs.
 
-use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
+
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
-use super::lifecycle;
-use super::protocol::{self, DaemonRequest, DaemonResponse};
-use crate::error::{ActionbookError, Result};
+use super::action::Action;
+use super::action_result::ActionResult;
+use super::wire::{self, Request, Response};
 
-/// Client for communicating with a per-profile daemon over Unix Domain Socket.
+/// Default timeout for most commands (30 seconds).
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Default daemon socket path: `~/.actionbook/daemons/v2.sock`.
+pub fn default_socket_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".actionbook")
+        .join("daemons")
+        .join("v2.sock")
+}
+
+/// An RPC client that communicates with the daemon via UDS.
 pub struct DaemonClient {
-    profile: String,
-    session: Option<String>,
+    stream: UnixStream,
     next_id: AtomicU64,
+    timeout: Duration,
 }
 
 impl DaemonClient {
-    pub fn new(profile: String) -> Self {
-        Self {
-            profile,
-            session: None,
-            next_id: AtomicU64::new(1),
-        }
-    }
-
-    /// Create a client with a specific session name for multi-session routing.
-    pub fn with_session(profile: String, session: Option<String>) -> Self {
-        Self {
-            profile,
-            session,
-            next_id: AtomicU64::new(1),
-        }
-    }
-
-    /// Ensure the daemon is running and send a CDP command through it.
+    /// Connect to the daemon at the given socket path.
     ///
-    /// Returns `Ok(Value)` on success, or an error if the daemon is unreachable
-    /// or the CDP command fails.
-    pub async fn send_cdp(&self, method: &str, params: Value) -> Result<Value> {
-        // Always connect to the profile-level daemon socket.
-        // Session routing happens inside the daemon via the request's session field.
-        let sock_path = lifecycle::socket_path(&self.profile);
+    /// Returns a clear error with a hint if the socket is not available.
+    pub async fn connect(socket_path: &Path) -> Result<Self, ClientError> {
+        let stream =
+            UnixStream::connect(socket_path)
+                .await
+                .map_err(|e| ClientError::ConnectionFailed {
+                    path: socket_path.to_path_buf(),
+                    source: e,
+                })?;
+        Ok(DaemonClient {
+            stream,
+            next_id: AtomicU64::new(1),
+            timeout: DEFAULT_TIMEOUT,
+        })
+    }
 
-        let mut stream = UnixStream::connect(&sock_path).await.map_err(|e| {
-            ActionbookError::DaemonNotRunning(format!(
-                "Cannot connect to daemon for profile '{}': {}",
-                self.profile, e
-            ))
-        })?;
+    /// Override the default timeout.
+    #[allow(dead_code)]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
 
+    /// Send an action to the daemon and wait for the result.
+    pub async fn send_action(&mut self, action: Action) -> Result<ActionResult, ClientError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let request = DaemonRequest {
-            id,
-            method: method.to_string(),
-            params,
-            session: self.session.clone(),
+        let request = Request::new(id, action);
+
+        // Encode and send
+        let frame = wire::encode_frame(&request).map_err(ClientError::Serialize)?;
+        let send_recv = async {
+            self.stream
+                .write_all(&frame)
+                .await
+                .map_err(ClientError::Io)?;
+            self.stream.flush().await.map_err(ClientError::Io)?;
+
+            // Read 4-byte length prefix
+            let mut len_buf = [0u8; 4];
+            self.stream
+                .read_exact(&mut len_buf)
+                .await
+                .map_err(ClientError::Io)?;
+            let payload_len = u32::from_le_bytes(len_buf);
+
+            wire::validate_frame_length(payload_len).map_err(ClientError::Protocol)?;
+
+            // Read payload
+            let mut payload = vec![0u8; payload_len as usize];
+            self.stream
+                .read_exact(&mut payload)
+                .await
+                .map_err(ClientError::Io)?;
+
+            let response: Response =
+                wire::decode_payload(&payload).map_err(ClientError::Deserialize)?;
+
+            if response.id != id {
+                return Err(ClientError::Protocol(format!(
+                    "response id mismatch: expected {id}, got {}",
+                    response.id
+                )));
+            }
+
+            Ok(response.result)
         };
 
-        let encoded = protocol::encode_line(&request)
-            .map_err(|e| ActionbookError::DaemonError(format!("Encode error: {}", e)))?;
-
-        // Pre-send failure: daemon hasn't seen the command — safe to fall back.
-        stream.write_all(encoded.as_bytes()).await.map_err(|e| {
-            ActionbookError::DaemonNotRunning(format!("Failed to write to daemon socket: {}", e))
-        })?;
-
-        // ---- POINT OF NO RETURN ----
-        // After write_all succeeds, the daemon may have already forwarded the CDP
-        // command to the browser. All errors below use DaemonError (not DaemonNotRunning)
-        // so the caller can distinguish "never sent" from "maybe sent".
-
-        // Read response line
-        let (reader, _writer) = stream.into_split();
-        let mut lines = BufReader::new(reader).lines();
-
-        let line = lines
-            .next_line()
+        tokio::time::timeout(self.timeout, send_recv)
             .await
-            .map_err(|e| {
-                ActionbookError::DaemonError(format!(
-                    "Read error (command may have been executed): {}",
-                    e
-                ))
-            })?
-            .ok_or_else(|| {
-                ActionbookError::DaemonError(
-                    "Daemon closed connection without response (command may have been executed)"
-                        .to_string(),
+            .map_err(|_| ClientError::Timeout(self.timeout))?
+    }
+}
+
+/// Errors that can occur during daemon RPC communication.
+#[derive(Debug)]
+pub enum ClientError {
+    /// Could not connect to the daemon socket.
+    ConnectionFailed {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    /// I/O error during send/receive.
+    Io(std::io::Error),
+    /// Failed to serialize the request.
+    Serialize(serde_json::Error),
+    /// Failed to deserialize the response.
+    Deserialize(serde_json::Error),
+    /// Wire protocol violation.
+    Protocol(String),
+    /// The request timed out.
+    Timeout(Duration),
+}
+
+impl std::fmt::Display for ClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClientError::ConnectionFailed { path, source } => {
+                write!(
+                    f,
+                    "cannot connect to daemon at {}: {}\nhint: daemon not running, run `actionbook browser start`",
+                    path.display(),
+                    source,
                 )
-            })?;
-
-        let response: DaemonResponse = protocol::decode_line(&line)
-            .map_err(|e| ActionbookError::DaemonError(format!("Invalid response: {}", e)))?;
-
-        if response.id != id {
-            return Err(ActionbookError::DaemonError(format!(
-                "Response ID mismatch: expected {}, got {}",
-                id, response.id
-            )));
+            }
+            ClientError::Io(e) => write!(f, "daemon communication error: {e}"),
+            ClientError::Serialize(e) => write!(f, "failed to serialize request: {e}"),
+            ClientError::Deserialize(e) => write!(f, "failed to deserialize response: {e}"),
+            ClientError::Protocol(msg) => write!(f, "protocol error: {msg}"),
+            ClientError::Timeout(d) => {
+                write!(f, "request timed out after {:.0}s", d.as_secs_f64())
+            }
         }
-
-        if let Some(error) = response.error {
-            return Err(ActionbookError::DaemonError(error));
-        }
-
-        // Print dialog warning to stderr so agents/users can see it
-        if let Some(warning) = response.warning {
-            eprintln!("\x1b[33m⚠\x1b[0m {}", warning);
-        }
-
-        Ok(response.result.unwrap_or(Value::Null))
-    }
-
-    /// Profile name this client is configured for.
-    #[allow(dead_code)]
-    pub fn profile(&self) -> &str {
-        &self.profile
     }
 }
 
-/// Convenience function: ensure daemon is running and send a single CDP command.
-///
-/// Returns `None` if daemon cannot be started, `Some(Err)` on CDP failure,
-/// `Some(Ok(Value))` on success.
-#[allow(dead_code)]
-pub async fn try_send(profile: &str, method: &str, params: Value) -> Option<Result<Value>> {
-    // Ensure daemon is running
-    if let Err(e) = lifecycle::ensure_daemon(profile).await {
-        tracing::warn!("Failed to ensure daemon for profile '{}': {}", profile, e);
-        return None;
-    }
+impl std::error::Error for ClientError {}
 
-    let client = DaemonClient::new(profile.to_string());
-    Some(client.send_cdp(method, params).await)
-}
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daemon::action_result::ActionResult;
+    use crate::daemon::wire::{decode_payload, encode_frame, Request, Response};
+    use tempfile::tempdir;
+    use tokio::net::UnixListener;
+
+    #[test]
+    fn default_socket_path_ends_with_v2_sock() {
+        let p = default_socket_path();
+        assert!(p.ends_with("v2.sock"));
+        assert!(p.to_string_lossy().contains(".actionbook"));
+    }
+
+    #[test]
+    fn client_error_display_connection_failed() {
+        let err = ClientError::ConnectionFailed {
+            path: PathBuf::from("/tmp/test.sock"),
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, "not found"),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("daemon not running"));
+        assert!(msg.contains("browser start"));
+    }
+
+    #[test]
+    fn client_error_display_timeout() {
+        let err = ClientError::Timeout(Duration::from_secs(30));
+        assert!(err.to_string().contains("30s"));
+    }
+
+    async fn spawn_socket_server<F, Fut>(handler: F) -> (tempfile::TempDir, PathBuf)
+    where
+        F: FnOnce(tokio::net::UnixStream) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let dir = tempdir().unwrap();
+        let socket_path = dir.path().join("daemon.sock");
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            handler(stream).await;
+        });
+        (dir, socket_path)
+    }
 
     #[tokio::test]
-    async fn try_send_returns_none_for_nonexistent_profile() {
-        // No daemon running for this profile, ensure_daemon will fail
-        // because there's no session state to connect to
-        let result = try_send(
-            "nonexistent-test-profile-xyz",
-            "Runtime.evaluate",
-            serde_json::json!({}),
-        )
-        .await;
-        // Either None (daemon couldn't start) or Some(Err) (daemon started but no WS)
+    async fn connect_returns_connection_failed_for_missing_socket() {
+        let dir = tempdir().unwrap();
+        let socket_path = dir.path().join("missing.sock");
+        let result = DaemonClient::connect(&socket_path).await;
+
         match result {
-            None => {}         // Expected
-            Some(Err(_)) => {} // Also acceptable
-            Some(Ok(_)) => panic!("Should not succeed with nonexistent profile"),
+            Err(ClientError::ConnectionFailed { path, .. }) => assert_eq!(path, socket_path),
+            Ok(_) => panic!("expected ConnectionFailed, got Ok"),
+            Err(other) => panic!("expected ConnectionFailed, got {other}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn send_action_round_trips_success_response() {
+        let (_dir, socket_path) = spawn_socket_server(|mut stream| async move {
+            let mut len_buf = [0u8; 4];
+            stream.read_exact(&mut len_buf).await.unwrap();
+            let len = u32::from_le_bytes(len_buf);
+            let mut payload = vec![0; len as usize];
+            stream.read_exact(&mut payload).await.unwrap();
+            let request: Request = decode_payload(&payload).unwrap();
+            assert_eq!(request.id, 1);
+            assert!(matches!(request.action, Action::ListSessions));
+
+            let response = Response::new(1, ActionResult::ok(serde_json::json!({"items": []})));
+            let frame = encode_frame(&response).unwrap();
+            stream.write_all(&frame).await.unwrap();
+        })
+        .await;
+
+        let mut client = DaemonClient::connect(&socket_path).await.unwrap();
+        let result = client.send_action(Action::ListSessions).await.unwrap();
+
+        match result {
+            ActionResult::Ok { data } => assert_eq!(data["items"], serde_json::json!([])),
+            other => panic!("expected Ok, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn send_action_uses_monotonic_request_ids() {
+        let (_dir, socket_path) = spawn_socket_server(|mut stream| async move {
+            for expected_id in [1u64, 2u64] {
+                let mut len_buf = [0u8; 4];
+                stream.read_exact(&mut len_buf).await.unwrap();
+                let len = u32::from_le_bytes(len_buf);
+                let mut payload = vec![0; len as usize];
+                stream.read_exact(&mut payload).await.unwrap();
+                let request: Request = decode_payload(&payload).unwrap();
+                assert_eq!(request.id, expected_id);
+
+                let response = Response::new(
+                    expected_id,
+                    ActionResult::ok(serde_json::json!({"id": expected_id})),
+                );
+                let frame = encode_frame(&response).unwrap();
+                stream.write_all(&frame).await.unwrap();
+            }
+        })
+        .await;
+
+        let mut client = DaemonClient::connect(&socket_path).await.unwrap();
+        let first = client.send_action(Action::ListSessions).await.unwrap();
+        let second = client.send_action(Action::ListSessions).await.unwrap();
+
+        match first {
+            ActionResult::Ok { data } => assert_eq!(data["id"], 1),
+            other => panic!("expected Ok, got {other:?}"),
+        }
+        match second {
+            ActionResult::Ok { data } => assert_eq!(data["id"], 2),
+            other => panic!("expected Ok, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn send_action_returns_protocol_error_for_mismatched_response_id() {
+        let (_dir, socket_path) = spawn_socket_server(|mut stream| async move {
+            let mut len_buf = [0u8; 4];
+            stream.read_exact(&mut len_buf).await.unwrap();
+            let len = u32::from_le_bytes(len_buf);
+            let mut payload = vec![0; len as usize];
+            stream.read_exact(&mut payload).await.unwrap();
+            let _: Request = decode_payload(&payload).unwrap();
+
+            let response = Response::new(999, ActionResult::ok(serde_json::json!({"ok": true})));
+            let frame = encode_frame(&response).unwrap();
+            stream.write_all(&frame).await.unwrap();
+        })
+        .await;
+
+        let mut client = DaemonClient::connect(&socket_path).await.unwrap();
+        let result = client.send_action(Action::ListSessions).await;
+
+        match result {
+            Err(ClientError::Protocol(msg)) => assert!(msg.contains("response id mismatch")),
+            other => panic!("expected Protocol, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn send_action_returns_deserialize_error_for_invalid_payload() {
+        let (_dir, socket_path) = spawn_socket_server(|mut stream| async move {
+            let mut len_buf = [0u8; 4];
+            stream.read_exact(&mut len_buf).await.unwrap();
+            let len = u32::from_le_bytes(len_buf);
+            let mut payload = vec![0; len as usize];
+            stream.read_exact(&mut payload).await.unwrap();
+            let _: Request = decode_payload(&payload).unwrap();
+
+            let payload = br#"{"id":1,"result":"not-an-action-result"}"#;
+            let mut frame = Vec::new();
+            frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+            frame.extend_from_slice(payload);
+            stream.write_all(&frame).await.unwrap();
+        })
+        .await;
+
+        let mut client = DaemonClient::connect(&socket_path).await.unwrap();
+        let result = client.send_action(Action::ListSessions).await;
+
+        assert!(matches!(result, Err(ClientError::Deserialize(_))));
+    }
+
+    #[tokio::test]
+    async fn send_action_times_out_when_server_never_replies() {
+        let (_dir, socket_path) = spawn_socket_server(|mut stream| async move {
+            let mut len_buf = [0u8; 4];
+            stream.read_exact(&mut len_buf).await.unwrap();
+            let len = u32::from_le_bytes(len_buf);
+            let mut payload = vec![0; len as usize];
+            stream.read_exact(&mut payload).await.unwrap();
+            let _: Request = decode_payload(&payload).unwrap();
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        })
+        .await;
+
+        let mut client = DaemonClient::connect(&socket_path)
+            .await
+            .unwrap()
+            .with_timeout(Duration::from_millis(5));
+        let result = client.send_action(Action::ListSessions).await;
+
+        match result {
+            Err(ClientError::Timeout(d)) => assert_eq!(d, Duration::from_millis(5)),
+            other => panic!("expected Timeout, got {other:?}"),
         }
     }
 }

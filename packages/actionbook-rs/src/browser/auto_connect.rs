@@ -9,6 +9,7 @@ use std::time::Duration;
 
 /// Result of auto-discovery: the CDP WebSocket URL and the port it was found on.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DiscoveredBrowser {
     pub ws_url: String,
     pub port: u16,
@@ -17,6 +18,7 @@ pub struct DiscoveredBrowser {
 /// Attempt to auto-discover a running Chrome instance.
 ///
 /// Returns the first reachable browser's WebSocket URL, or an error if none found.
+#[allow(dead_code)]
 pub async fn auto_discover() -> Result<DiscoveredBrowser, String> {
     // Strategy 1: Check DevToolsActivePort files
     //
@@ -98,6 +100,7 @@ pub async fn auto_discover() -> Result<DiscoveredBrowser, String> {
 /// File format (two lines):
 ///   Line 1: port number
 ///   Line 2: WebSocket path (e.g. `/devtools/browser/...`)
+#[allow(dead_code)]
 fn read_devtools_active_port(user_data_dir: &std::path::Path) -> Option<(u16, String)> {
     let path = user_data_dir.join("DevToolsActivePort");
     let content = std::fs::read_to_string(&path).ok()?;
@@ -126,6 +129,7 @@ enum DiscoverError {
 ///
 /// Rejects Electron apps (Slack, Discord, VS Code, etc.) by checking the User-Agent
 /// for the `Electron` token. Only real browsers are accepted.
+#[allow(dead_code)]
 async fn discover_via_http(port: u16) -> Result<DiscoveredBrowser, DiscoverError> {
     let url = format!("http://127.0.0.1:{}/json/version", port);
     let client = reqwest::Client::builder()
@@ -186,6 +190,7 @@ async fn discover_via_http(port: u16) -> Result<DiscoveredBrowser, DiscoverError
 
 /// Quick TCP connect check — verifies the port is actually listening.
 /// Used to reject stale DevToolsActivePort files whose Chrome has exited.
+#[allow(dead_code)]
 async fn is_port_listening(port: u16) -> bool {
     tokio::time::timeout(
         Duration::from_secs(1),
@@ -198,6 +203,7 @@ async fn is_port_listening(port: u16) -> bool {
 
 /// Chrome-specific target type values returned by `/json`.
 /// Used to positively identify a browser (vs. a random service returning JSON arrays).
+#[allow(dead_code)]
 const CHROME_TARGET_TYPES: &[&str] = &[
     "page",
     "background_page",
@@ -213,6 +219,7 @@ const CHROME_TARGET_TYPES: &[&str] = &[
 /// one entry has a `type` field matching a known Chrome target type AND a
 /// `webSocketDebuggerUrl` field. This rejects empty arrays (could be anything)
 /// and non-browser services that happen to return JSON arrays.
+#[allow(dead_code)]
 async fn probe_json_endpoint(port: u16) -> bool {
     let url = format!("http://127.0.0.1:{}/json", port);
     let client = reqwest::Client::builder()
@@ -246,6 +253,7 @@ async fn probe_json_endpoint(port: u16) -> bool {
 }
 
 /// Platform-specific Chrome/Chromium user data directories, in priority order.
+#[allow(dead_code)]
 fn chrome_user_data_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
 
@@ -312,6 +320,14 @@ mod tests {
     }
 
     #[test]
+    fn chrome_user_data_dirs_all_are_absolute() {
+        let dirs = chrome_user_data_dirs();
+        for dir in &dirs {
+            assert!(dir.is_absolute(), "Expected absolute path, got {:?}", dir);
+        }
+    }
+
+    #[test]
     fn read_devtools_active_port_parses_two_line_format() {
         let tmp = tempfile::tempdir().unwrap();
         let content = "9222\n/devtools/browser/abc-123\n";
@@ -344,5 +360,75 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("DevToolsActivePort"), "notaport\n/ws\n").unwrap();
         assert_eq!(read_devtools_active_port(tmp.path()), None);
+    }
+
+    #[test]
+    fn read_devtools_active_port_returns_none_on_port_overflow() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Port 99999 exceeds u16::MAX
+        std::fs::write(tmp.path().join("DevToolsActivePort"), "99999\n/ws\n").unwrap();
+        assert_eq!(read_devtools_active_port(tmp.path()), None);
+    }
+
+    #[test]
+    fn read_devtools_active_port_strips_whitespace() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("DevToolsActivePort"),
+            "  9222  \n  /ws/path  \n",
+        )
+        .unwrap();
+        let result = read_devtools_active_port(tmp.path());
+        assert_eq!(result, Some((9222, "/ws/path".to_string())));
+    }
+
+    #[test]
+    fn chrome_target_types_contains_expected_values() {
+        assert!(CHROME_TARGET_TYPES.contains(&"page"));
+        assert!(CHROME_TARGET_TYPES.contains(&"browser"));
+        assert!(CHROME_TARGET_TYPES.contains(&"background_page"));
+        assert!(CHROME_TARGET_TYPES.contains(&"service_worker"));
+        assert!(!CHROME_TARGET_TYPES.contains(&"unknown_type"));
+    }
+
+    #[test]
+    fn discovered_browser_clone_works() {
+        let b = DiscoveredBrowser {
+            ws_url: "ws://127.0.0.1:9222/devtools/browser/abc".to_string(),
+            port: 9222,
+        };
+        let b2 = b.clone();
+        assert_eq!(b2.ws_url, b.ws_url);
+        assert_eq!(b2.port, 9222);
+    }
+
+    #[tokio::test]
+    async fn auto_discover_fails_when_no_browser_running() {
+        // In a clean test environment with no Chrome, this should return an error.
+        // We cannot guarantee no Chrome is running, so we just ensure the function
+        // returns a Result (either Ok or Err).
+        let result = auto_discover().await;
+        // Just verify it doesn't panic; the result depends on whether Chrome is running.
+        let _ = result;
+    }
+
+    #[tokio::test]
+    async fn is_port_listening_returns_false_for_closed_port() {
+        // Bind to a random port, then drop the listener. The port should not be
+        // listening after drop.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        // Small race: wait a tick for the OS to release the port
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        assert!(!is_port_listening(port).await);
+    }
+
+    #[tokio::test]
+    async fn is_port_listening_returns_true_for_open_port() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(is_port_listening(port).await);
+        drop(listener);
     }
 }

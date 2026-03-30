@@ -19,3 +19,20 @@ pub fn setup_theme() -> ColorfulTheme {
         ..ColorfulTheme::default()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn setup_theme_returns_colorful_theme() {
+        // Calling setup_theme() should not panic and should return a ColorfulTheme.
+        let _theme = setup_theme();
+    }
+
+    #[test]
+    fn setup_theme_can_be_called_multiple_times() {
+        let _t1 = setup_theme();
+        let _t2 = setup_theme();
+    }
+}

@@ -3,6 +3,7 @@
 /// Extracts meaningful text content from a page, stripping navigation,
 /// ads, modals, and other non-content elements. Returns ~800 tokens/page
 /// vs 10,000+ for full snapshot.
+#[allow(dead_code)]
 pub const READABILITY_JS: &str = r#"
 (function() {
     function extractReadable() {
@@ -38,8 +39,11 @@ pub const READABILITY_JS: &str = r#"
             }
         }
 
-        // 3. Remove scripts, styles, hidden elements
-        var removeSelectors = ['script', 'style', 'noscript', 'template', 'svg',
+        // 3. Remove scripts, styles, hidden elements, and obvious chrome
+        var removeSelectors = ['nav', 'footer', 'aside', 'header',
+                               '[role="navigation"]', '[role="banner"]',
+                               '[role="contentinfo"]', '[role="complementary"]',
+                               'script', 'style', 'noscript', 'template', 'svg',
                                '[hidden]', '[aria-hidden="true"]',
                                '[style*="display:none"]', '[style*="display: none"]'];
         for (var k = 0; k < removeSelectors.length; k++) {

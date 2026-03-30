@@ -8,10 +8,81 @@ mod daemon;
 mod error;
 mod update_notifier;
 
+use std::ffi::OsString;
+
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use cli::Cli;
 use error::{ActionbookError, Result};
+
+const ROOT_PRD_VERSION: &str = "1.0.0";
+
+fn print_root_contract_output(json: bool, text: &str) {
+    let text = text.trim_end();
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string(text).expect("serialize root contract string")
+        );
+    } else {
+        println!("{text}");
+    }
+}
+
+#[cfg(unix)]
+fn render_browser_help(path: &[String]) -> Option<String> {
+    let mut args = vec![OsString::from("actionbook"), OsString::from("browser")];
+    args.extend(path.iter().cloned().map(OsString::from));
+    args.push(OsString::from("--help"));
+    daemon::cli_v2::CliV2::render_augmented_help(args)
+}
+
+fn maybe_handle_root_help_or_version(args: &[String]) -> bool {
+    let json = args.iter().skip(1).any(|arg| arg == "--json");
+    let positionals: Vec<&str> = args
+        .iter()
+        .skip(1)
+        .filter(|arg| arg.as_str() != "--json")
+        .map(String::as_str)
+        .collect();
+
+    match positionals.as_slice() {
+        ["--version"] | ["-V"] => {
+            print_root_contract_output(json, ROOT_PRD_VERSION);
+            true
+        }
+        ["help"] => {
+            #[cfg(unix)]
+            if let Some(help) = render_browser_help(&[]) {
+                print_root_contract_output(json, &help);
+                return true;
+            }
+            false
+        }
+        ["help", "browser"] => {
+            #[cfg(unix)]
+            if let Some(help) = render_browser_help(&[]) {
+                print_root_contract_output(json, &help);
+                return true;
+            }
+            false
+        }
+        [first, second, rest @ ..] if *first == "help" && *second == "browser" => {
+            #[cfg(unix)]
+            if let Some(help) = render_browser_help(
+                &rest
+                    .iter()
+                    .map(|segment| (*segment).to_string())
+                    .collect::<Vec<_>>(),
+            ) {
+                print_root_contract_output(json, &help);
+                return true;
+            }
+            false
+        }
+        _ => false,
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -39,6 +110,43 @@ async fn main() -> Result<()> {
         .with(fmt::layer())
         .with(filter)
         .init();
+
+    if maybe_handle_root_help_or_version(&args) {
+        return Ok(());
+    }
+
+    // Route browser commands through the daemon (Unix only).
+    // If args contain "browser", always use the daemon CLI — never fall through
+    // to the legacy CLI (which no longer has a browser subcommand).
+    #[cfg(unix)]
+    {
+        // Only check the first positional arg (subcommand position), not all argv.
+        // This avoids misrouting when "browser" or "b" appears as a search query value.
+        let has_browser_arg = args
+            .get(1)
+            .map(|a| a.as_str() == "browser" || a.as_str() == "b")
+            .unwrap_or(false);
+        if has_browser_arg {
+            if let Some(help) = daemon::cli_v2::CliV2::render_augmented_help(std::env::args_os()) {
+                print!("{help}");
+                std::process::exit(0);
+            }
+        }
+        match daemon::cli_v2::CliV2::try_parse() {
+            Ok(cli_v2) => {
+                cli_v2.run().await;
+            }
+            Err(e) if has_browser_arg => {
+                // User intended a browser command but it failed to parse.
+                // Show the daemon CLI error (e.g. missing --session), not the
+                // legacy CLI's "unrecognized subcommand" error.
+                e.exit();
+            }
+            Err(_) => {
+                // Not a browser command — fall through to legacy CLI.
+            }
+        }
+    }
 
     let cli = Cli::parse();
     if let Err(e) = cli.run().await {

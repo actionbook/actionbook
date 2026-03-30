@@ -1,12 +1,15 @@
 [package]
 name = "actionbook"
-version = "0.11.7"
+version = "1.0.0"
 edition = "2021"
 description = "Actionbook CLI - Browser automation with zero installation"
 license = "MIT"
 repository = "https://github.com/anthropics/actionbook"
 keywords = ["browser", "automation", "cdp", "cli"]
 categories = ["command-line-utilities", "development-tools"]
+
+[package.metadata.cargo-machete]
+ignored = ["anyhow", "tower"]
 
 [lib]
 name = "actionbook"
@@ -32,6 +35,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signa
 chromiumoxide = { version = "0.8", features = ["tokio-runtime"], default-features = false }
 futures = "0.3"
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+tokio-stream = "0.1"
+tokio-util = "0.7"
 
 # HTTP client (for API calls)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -101,6 +106,11 @@ assert_cmd = "2"
 predicates = "3"
 serial_test = "3"
 criterion = { version = "0.5", features = ["html_reports"] }
+
+# E2E test binary — single binary with all e2e test modules
+[[test]]
+name = "e2e"
+path = "tests/e2e/main.rs"
 
 # Examples that depend on Camoufox modules (not active in refactor/browser-extension branch)
 [[example]]

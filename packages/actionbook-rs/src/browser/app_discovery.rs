@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 /// Information about a discovered Electron application.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct ElectronAppInfo {
     /// Application name (e.g., "Visual Studio Code")
     pub name: String,
@@ -19,6 +20,7 @@ pub struct ElectronAppInfo {
 }
 
 /// Well-known Electron applications with their platform-specific paths.
+#[allow(dead_code)]
 struct AppDefinition {
     name: &'static str,
     #[cfg(target_os = "macos")]
@@ -29,6 +31,7 @@ struct AppDefinition {
     windows_paths: &'static [&'static str],
 }
 
+#[allow(dead_code)]
 static KNOWN_APPS: &[AppDefinition] = &[
     AppDefinition {
         name: "Visual Studio Code",
@@ -102,6 +105,7 @@ static KNOWN_APPS: &[AppDefinition] = &[
 /// Discovers installed Electron applications on the current platform.
 ///
 /// Returns a list of detected apps with their executable paths.
+#[allow(dead_code)]
 pub fn discover_electron_apps() -> Vec<ElectronAppInfo> {
     let mut apps = Vec::new();
 
@@ -115,6 +119,7 @@ pub fn discover_electron_apps() -> Vec<ElectronAppInfo> {
 }
 
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 fn detect_app(app_def: &AppDefinition) -> Option<ElectronAppInfo> {
     let path = PathBuf::from(app_def.macos_path);
     if path.exists() {
@@ -129,6 +134,7 @@ fn detect_app(app_def: &AppDefinition) -> Option<ElectronAppInfo> {
 }
 
 #[cfg(target_os = "linux")]
+#[allow(dead_code)]
 fn detect_app(app_def: &AppDefinition) -> Option<ElectronAppInfo> {
     for path_str in app_def.linux_paths {
         let expanded = shellexpand::tilde(path_str);
@@ -145,6 +151,7 @@ fn detect_app(app_def: &AppDefinition) -> Option<ElectronAppInfo> {
 }
 
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 fn detect_app(app_def: &AppDefinition) -> Option<ElectronAppInfo> {
     for path_str in app_def.windows_paths {
         // Expand environment variables
@@ -226,6 +233,52 @@ fn detect_app(app_def: &AppDefinition) -> Option<ElectronAppInfo> {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+#[allow(dead_code)]
 fn detect_app(_app_def: &AppDefinition) -> Option<ElectronAppInfo> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discover_electron_apps_returns_vec_without_panic() {
+        // Just ensure the function runs without panicking on the current platform.
+        let apps = discover_electron_apps();
+        // apps may be empty (CI environment), but should not panic.
+        for app in &apps {
+            assert!(!app.name.is_empty());
+            assert!(app.path.to_str().is_some());
+        }
+    }
+
+    #[test]
+    fn electron_app_info_serde_round_trip_with_version() {
+        let info = ElectronAppInfo {
+            name: "Visual Studio Code".to_string(),
+            path: PathBuf::from("/Applications/Visual Studio Code.app/Contents/MacOS/Electron"),
+            version: Some("1.85.0".to_string()),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("Visual Studio Code"));
+        assert!(json.contains("1.85.0"));
+        let decoded: ElectronAppInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.name, "Visual Studio Code");
+        assert_eq!(decoded.version.as_deref(), Some("1.85.0"));
+    }
+
+    #[test]
+    fn electron_app_info_serde_omits_none_version() {
+        let info = ElectronAppInfo {
+            name: "Slack".to_string(),
+            path: PathBuf::from("/Applications/Slack.app/Contents/MacOS/Slack"),
+            version: None,
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        // skip_serializing_if = "Option::is_none" should omit version
+        assert!(!json.contains("version"));
+        let decoded: ElectronAppInfo = serde_json::from_str(&json).unwrap();
+        assert!(decoded.version.is_none());
+    }
 }

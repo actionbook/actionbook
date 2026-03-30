@@ -356,4 +356,125 @@ mod tests {
         assert_eq!(loaded.last_checked_unix, 123);
         assert_eq!(loaded.latest_version.as_deref(), Some("0.8.3"));
     }
+
+    #[test]
+    fn upgrade_command_cargo_and_unknown() {
+        assert_eq!(
+            upgrade_command(InstallChannel::Cargo),
+            "cargo install actionbook --locked"
+        );
+        assert_eq!(
+            upgrade_command(InstallChannel::Unknown),
+            "See release notes: https://github.com/actionbook/actionbook/releases"
+        );
+    }
+
+    #[test]
+    fn env_bool_returns_false_when_var_unset() {
+        std::env::remove_var("ACTIONBOOK_TEST_BOOL_UNSET_XYZ");
+        assert!(!env_bool("ACTIONBOOK_TEST_BOOL_UNSET_XYZ"));
+    }
+
+    #[test]
+    fn env_bool_parses_on_and_false_values() {
+        std::env::set_var("ACTIONBOOK_TEST_BOOL_ON", "on");
+        assert!(env_bool("ACTIONBOOK_TEST_BOOL_ON"));
+
+        std::env::set_var("ACTIONBOOK_TEST_BOOL_FALSE", "false");
+        assert!(!env_bool("ACTIONBOOK_TEST_BOOL_FALSE"));
+
+        std::env::set_var("ACTIONBOOK_TEST_BOOL_ZERO", "0");
+        assert!(!env_bool("ACTIONBOOK_TEST_BOOL_ZERO"));
+    }
+
+    #[test]
+    fn max_cli_version_returns_none_for_empty_list() {
+        let result = max_cli_version_in_releases(&[]);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn max_cli_version_skips_draft_releases() {
+        let releases = vec![
+            serde_json::json!({ "tag_name": "actionbook-cli-v1.0.0", "draft": true, "prerelease": false }),
+            serde_json::json!({ "tag_name": "actionbook-cli-v0.9.9", "draft": false, "prerelease": false }),
+        ];
+        let latest = max_cli_version_in_releases(&releases).unwrap();
+        assert_eq!(latest, Version::parse("0.9.9").unwrap());
+    }
+
+    #[test]
+    fn max_cli_version_skips_invalid_semver_tags() {
+        let releases = vec![
+            serde_json::json!({ "tag_name": "actionbook-cli-vnot-semver", "draft": false, "prerelease": false }),
+            serde_json::json!({ "tag_name": "actionbook-cli-v0.5.0", "draft": false, "prerelease": false }),
+        ];
+        let latest = max_cli_version_in_releases(&releases).unwrap();
+        assert_eq!(latest, Version::parse("0.5.0").unwrap());
+    }
+
+    #[test]
+    fn now_unix_returns_nonzero_timestamp() {
+        let ts = now_unix();
+        // Should be a reasonable Unix timestamp (after year 2020 = 1577836800)
+        assert!(ts > 1_577_836_800);
+    }
+
+    #[test]
+    fn load_cache_returns_err_for_missing_file() {
+        let path = std::path::PathBuf::from("/tmp/actionbook-nonexistent-cache-xyz.json");
+        assert!(load_cache(&path).is_err());
+    }
+
+    #[test]
+    fn load_cache_returns_err_for_malformed_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bad-cache.json");
+        std::fs::write(&path, "{not valid json}").unwrap();
+        assert!(load_cache(&path).is_err());
+    }
+
+    #[test]
+    fn save_cache_creates_parent_directory_if_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("dir").join("cache.json");
+        let cache = UpdateCache {
+            last_checked_unix: 999,
+            latest_version: None,
+        };
+        assert!(save_cache(&path, &cache).is_ok());
+        let loaded = load_cache(&path).unwrap();
+        assert_eq!(loaded.last_checked_unix, 999);
+        assert!(loaded.latest_version.is_none());
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn detect_install_channel_uses_env_var() {
+        std::env::set_var("ACTIONBOOK_INSTALL_CHANNEL", "brew");
+        assert_eq!(detect_install_channel(), InstallChannel::Brew);
+
+        std::env::set_var("ACTIONBOOK_INSTALL_CHANNEL", "npm");
+        assert_eq!(detect_install_channel(), InstallChannel::Npm);
+
+        std::env::set_var("ACTIONBOOK_INSTALL_CHANNEL", "cargo");
+        assert_eq!(detect_install_channel(), InstallChannel::Cargo);
+
+        std::env::set_var("ACTIONBOOK_INSTALL_CHANNEL", "script");
+        assert_eq!(detect_install_channel(), InstallChannel::Script);
+
+        std::env::set_var("ACTIONBOOK_INSTALL_CHANNEL", "unknown_channel");
+        // Falls through to path-based detection; just verify it doesn't panic.
+        let _ = detect_install_channel();
+
+        std::env::remove_var("ACTIONBOOK_INSTALL_CHANNEL");
+    }
+
+    #[test]
+    fn install_channel_equality() {
+        assert_eq!(InstallChannel::Brew, InstallChannel::Brew);
+        assert_ne!(InstallChannel::Brew, InstallChannel::Npm);
+        assert_ne!(InstallChannel::Cargo, InstallChannel::Script);
+        assert_eq!(InstallChannel::Unknown, InstallChannel::Unknown);
+    }
 }
