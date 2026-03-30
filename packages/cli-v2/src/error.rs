@@ -24,6 +24,8 @@ pub enum CliError {
     CdpConnectionFailed(String),
     #[error("cdp error: {0}")]
     CdpError(String),
+    #[error("session closed: {0}")]
+    SessionClosed(String),
     #[error("timeout")]
     Timeout,
     #[error("navigation failed: {0}")]
@@ -62,6 +64,7 @@ impl CliError {
             CliError::BrowserLaunchFailed(_) => "BROWSER_LAUNCH_FAILED",
             CliError::CdpConnectionFailed(_) => "CDP_CONNECTION_FAILED",
             CliError::CdpError(_) => "CDP_ERROR",
+            CliError::SessionClosed(_) => "SESSION_CLOSED",
             CliError::Timeout => "TIMEOUT",
             CliError::NavigationFailed(_) => "NAVIGATION_FAILED",
             CliError::ElementNotFound(_) => "ELEMENT_NOT_FOUND",
@@ -82,6 +85,9 @@ impl CliError {
                 "daemon is outdated. Kill the daemon process and retry"
             }
             CliError::DaemonNotRunning => "run a browser command to auto-start the daemon",
+            CliError::SessionClosed(_) => {
+                "the session was closed while a command was still in flight — start a new session"
+            }
             _ => "",
         }
     }

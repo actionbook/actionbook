@@ -263,7 +263,9 @@ impl CdpSession {
         if self.writer_tx.send(msg.to_string()).await.is_err() {
             // Clean up pending entry to avoid leak
             self.pending.lock().await.remove(&id);
-            return Err(CliError::CdpError("writer channel closed".to_string()));
+            return Err(CliError::SessionClosed(
+                "session was closed while command was pending".to_string(),
+            ));
         }
 
         let resp = rx
@@ -340,12 +342,14 @@ impl CdpSession {
             }
         }
 
-        // Connection dropped — fail all pending requests.
-        // Use generic CdpError here; cdp_error_to_result will upgrade to
-        // CloudConnectionLost for cloud sessions based on session mode.
+        // Connection dropped — fail all pending requests with SessionClosed.
+        // cdp_error_to_result will further upgrade to CloudConnectionLost
+        // for cloud sessions based on session mode.
         let mut map = pending.lock().await;
         for (_, tx) in map.drain() {
-            let _ = tx.send(Err(CliError::CdpError("connection closed".to_string())));
+            let _ = tx.send(Err(CliError::SessionClosed(
+                "session was closed while command was pending".to_string(),
+            )));
         }
     }
 
@@ -407,6 +411,11 @@ pub fn cdp_error_to_result(e: CliError, default_code: &str) -> crate::action_res
             "CLOUD_CONNECTION_LOST",
             e.to_string(),
             "cloud connection lost — retry or run `actionbook browser start --mode cloud ...` to reconnect",
+        ),
+        CliError::SessionClosed(_) => crate::action_result::ActionResult::fatal_with_hint(
+            "SESSION_CLOSED",
+            e.to_string(),
+            "the session was closed while a command was still in flight — start a new session",
         ),
         _ => crate::action_result::ActionResult::fatal(default_code, e.to_string()),
     }
