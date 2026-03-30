@@ -129,6 +129,25 @@ fn start_source_fetches_user_agent_dynamically_and_does_not_pass_open_url_to_lau
 }
 
 #[test]
+fn start_source_exposes_stealth_flags_and_defaults_them_on() {
+    let source = read_src("browser/session/start.rs");
+    assert!(
+        source.contains("stealth"),
+        "start.rs should expose a stealth flag in the start command"
+    );
+    assert!(
+        source.contains("no_stealth") || source.contains("no-stealth"),
+        "start.rs should expose a --no-stealth override"
+    );
+
+    let has_default_on_logic = source.contains("stealth.unwrap_or(true)")
+        || source.contains("cmd.stealth.unwrap_or(true)")
+        || source.contains("default_value_t = true")
+        || source.contains("default_value = \"true\"");
+    assert!(has_default_on_logic, "stealth should be enabled by default");
+}
+
+#[test]
 fn goto_source_no_longer_registers_document_start_scripts() {
     let source = read_src("browser/navigation/goto.rs");
     assert!(
