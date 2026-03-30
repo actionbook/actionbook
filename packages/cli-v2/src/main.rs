@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use serde_json::json;
 
 use actionbook_cli::action_result::ActionResult;
@@ -38,8 +38,8 @@ async fn main() {
     }
 
     if cli.command.is_none() {
-        eprintln!("error: no subcommand provided. Run `actionbook --help` for usage.");
-        std::process::exit(1);
+        Cli::command().print_help().ok();
+        return;
     }
 
     let result = run(cli).await;
