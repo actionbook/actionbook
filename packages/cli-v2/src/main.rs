@@ -27,10 +27,20 @@ async fn main() {
         return;
     }
 
-    // Intercept `actionbook browser --help` to show grouped help
-    // instead of clap's flat ungrouped listing.
+    // Intercept `--help` before clap to show our custom help messages
+    // instead of clap's auto-generated output.
     {
         let raw_args: Vec<String> = std::env::args().collect();
+        let has_help_flag = raw_args.iter().any(|a| a == "--help" || a == "-h");
+
+        // `actionbook --help` / `actionbook -h` (no subcommand)
+        if has_help_flag && !raw_args.iter().any(|a| a == "browser" || a == "setup") {
+            let json_mode = raw_args.iter().any(|a| a == "--json");
+            handle_help(json_mode);
+            return;
+        }
+
+        // `actionbook browser --help` (no subcommand after browser)
         if let Some(bi) = raw_args.iter().position(|a| a == "browser") {
             let tail = &raw_args[bi + 1..];
             let has_help_flag = tail.iter().any(|a| a == "--help" || a == "-h");
