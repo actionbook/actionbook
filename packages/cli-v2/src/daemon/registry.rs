@@ -62,6 +62,14 @@ pub struct SessionEntry {
     pub next_tab_id: u32,
 }
 
+impl Drop for SessionEntry {
+    fn drop(&mut self) {
+        // Last-resort backstop: kill the Chrome process if it wasn't
+        // explicitly cleaned up via kill_and_reap_async / close path.
+        crate::daemon::chrome_reaper::kill_and_reap_option(&mut self.chrome_process);
+    }
+}
+
 impl SessionEntry {
     pub fn starting(id: SessionId, mode: Mode, headless: bool, profile: String) -> Self {
         Self {
@@ -414,5 +422,47 @@ mod tests {
             entry.status = SessionState::Closed;
         }
         assert!(!registry.has_active_sessions());
+    }
+
+    #[test]
+    fn drop_session_entry_kills_chrome_process() {
+        use std::process::Command;
+
+        let child = Command::new("sleep")
+            .arg("3600")
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id();
+
+        // Verify process is alive
+        assert!(
+            Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .output()
+                .is_ok_and(|o| o.status.success()),
+            "process should be alive before drop"
+        );
+
+        // Create a SessionEntry with the child process and drop it
+        {
+            let mut entry = SessionEntry::starting(
+                crate::types::SessionId::new("drop-test").unwrap(),
+                Mode::Local,
+                true,
+                "test-profile".to_string(),
+            );
+            entry.chrome_process = Some(child);
+            // entry is dropped here
+        }
+
+        // After drop, the process must be dead
+        let alive = Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .output()
+            .is_ok_and(|o| o.status.success());
+        assert!(
+            !alive,
+            "Chrome process should be killed when SessionEntry is dropped"
+        );
     }
 }

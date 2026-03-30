@@ -35,7 +35,8 @@ pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Extract everything we need from the registry, then release the lock
     // before any slow I/O (Chrome kill, profile deletion).
-    let (closed_tabs, profile_name, chrome_process) = {
+    // Extract everything from registry then release the lock before slow I/O.
+    let (closed_tabs, cdp, chrome_process) = {
         let mut reg = registry.lock().await;
         let mut entry = match reg.remove(&cmd.session) {
             Some(e) => e,
@@ -48,39 +49,18 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             }
         };
         let tabs = entry.tabs_count();
-
-        // Drop CDP session to close WebSocket connection (important for cloud
-        // single-connection providers — frees the slot for reconnection)
-        drop(entry.cdp.take());
-
-        // Only clean up profile directory for local sessions (those with a
-        // Chrome child process). Cloud sessions don't own a local profile.
-        let profile = if entry.chrome_process.is_some() {
-            entry.profile.clone()
-        } else {
-            String::new()
-        };
-
         reg.clear_session_ref_caches(&cmd.session);
-
-        (tabs, profile, entry.chrome_process.take())
+        (tabs, entry.cdp.take(), entry.chrome_process.take())
     };
     // Registry lock released here — slow I/O below won't block other sessions.
 
-    if let Some(mut child) = chrome_process {
-        let _ = child.kill();
-        tokio::task::spawn_blocking(move || {
-            let _ = child.wait();
-        });
+    // Close CDP session (shuts down background tasks, frees cloud connection slot).
+    if let Some(cdp) = cdp {
+        cdp.close().await;
     }
 
-    // Remove the Chrome profile directory to avoid disk accumulation.
-    // Best-effort — Chrome may still hold locks briefly after kill.
-    if !profile_name.is_empty() {
-        let profile_dir = crate::config::profiles_dir().join(&profile_name);
-        if profile_dir.exists() {
-            let _ = std::fs::remove_dir_all(&profile_dir);
-        }
+    if let Some(child) = chrome_process {
+        crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
     }
 
     ActionResult::ok(json!({

@@ -1321,3 +1321,148 @@ fn daemon_crash_recovery() {
     );
     assert_success(&out, "start after crash recovery");
 }
+
+/// After `browser close`, Chrome processes for that session must not remain.
+#[test]
+fn close_kills_chrome_process() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+
+    // Start a session — this spawns a Chrome process
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "leak-test",
+        ],
+        30,
+    );
+    assert_success(&out, "start leak-test");
+
+    // Find Chrome processes under this env's profile dir
+    let profiles_dir = std::path::Path::new(&env.actionbook_home).join("profiles");
+    let chrome_pids_before = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        !chrome_pids_before.is_empty(),
+        "expected at least one Chrome process before close, found none"
+    );
+
+    // Close the session
+    let out = env.headless_json(&["browser", "close", "--session", "leak-test"], 30);
+    assert_success(&out, "close leak-test");
+
+    // Wait briefly for process to fully exit
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Verify all Chrome processes for this profile dir are gone
+    let chrome_pids_after = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        chrome_pids_after.is_empty(),
+        "Chrome processes should not remain after close, but found PIDs: {:?}",
+        chrome_pids_after
+    );
+}
+
+/// After daemon graceful shutdown, no Chrome processes should remain.
+#[test]
+fn daemon_shutdown_kills_all_chrome() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+
+    // Start two sessions
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "shutdown-a",
+            "--profile",
+            "prof-shutdown-a",
+        ],
+        30,
+    );
+    assert_success(&out, "start shutdown-a");
+
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "shutdown-b",
+            "--profile",
+            "prof-shutdown-b",
+        ],
+        30,
+    );
+    assert_success(&out, "start shutdown-b");
+
+    let profiles_dir = std::path::Path::new(&env.actionbook_home).join("profiles");
+    let pids_before = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        pids_before.len() >= 2,
+        "expected at least 2 Chrome processes, found {}",
+        pids_before.len()
+    );
+
+    // Send SIGTERM to daemon (graceful shutdown)
+    let pid_path = std::path::Path::new(&env.actionbook_home).join("daemon.pid");
+    let pid_str = std::fs::read_to_string(&pid_path).expect("PID file should exist");
+    let pid: u32 = pid_str.trim().parse().expect("PID should be a number");
+    let _ = std::process::Command::new("kill")
+        .args([&pid.to_string()])
+        .output();
+
+    // Wait for daemon and Chrome to exit
+    std::thread::sleep(Duration::from_secs(2));
+
+    let pids_after = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        pids_after.is_empty(),
+        "all Chrome processes should be killed on daemon shutdown, but found PIDs: {:?}",
+        pids_after
+    );
+}
+
+/// Helper: find Chrome PIDs whose --user-data-dir is under the given directory.
+/// Uses `--` to prevent pgrep from interpreting the pattern as options.
+fn find_chrome_pids_for_dir(profiles_dir: &std::path::Path) -> Vec<u32> {
+    let pattern = format!("--user-data-dir={}", profiles_dir.display());
+    let output = std::process::Command::new("pgrep")
+        .args(["-f", "--", &pattern])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .filter_map(|l| l.trim().parse::<u32>().ok())
+            .collect(),
+        Ok(o) if o.status.code() == Some(1) => {
+            // Exit code 1 = no matches found (not an error)
+            vec![]
+        }
+        Ok(o) => {
+            // Unexpected exit code — surface it so infra failures aren't silent
+            panic!(
+                "pgrep returned unexpected exit code {:?}: {}",
+                o.status.code(),
+                String::from_utf8_lossy(&o.stderr)
+            );
+        }
+        Err(e) => {
+            panic!("failed to run pgrep: {e}");
+        }
+    }
+}

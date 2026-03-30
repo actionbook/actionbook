@@ -46,7 +46,7 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let (mode, headless, profile, open_url, cdp_endpoint, headers);
+    let (mode, headless, profile, open_url, cdp_endpoint, headers, cdp, chrome_process);
     {
         let mut reg = registry.lock().await;
         let mut entry = match reg.remove(&cmd.session) {
@@ -63,21 +63,24 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         headless = entry.headless;
         profile = entry.profile.clone();
         open_url = entry.tabs.first().map(|t| t.url.clone());
-        // Preserve cloud fields across restart
         cdp_endpoint = entry.cdp_endpoint.clone();
         headers = entry
             .headers
             .iter()
             .map(|(k, v)| format!("{k}:{v}"))
             .collect::<Vec<_>>();
+        cdp = entry.cdp.take();
+        chrome_process = entry.chrome_process.take();
 
-        if let Some(ref mut child) = entry.chrome_process {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-
-        // Clean up snapshot RefCaches for this session
         reg.clear_session_ref_caches(&cmd.session);
+    }
+    // Registry lock released — slow cleanup below won't block other sessions.
+
+    if let Some(cdp) = cdp {
+        cdp.close().await;
+    }
+    if let Some(child) = chrome_process {
+        crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
     }
 
     let start_cmd = super::start::Cmd {

@@ -250,21 +250,32 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Graceful shutdown: kill all Chrome processes
-    {
+    // Graceful shutdown: collect all sessions, then release registry lock
+    // before slow I/O (CDP close + Chrome kill).
+    let entries_to_close = {
         let mut reg = registry.lock().await;
         let session_ids: Vec<String> = reg
             .list()
             .iter()
             .map(|s| s.id.as_str().to_string())
             .collect();
+        let mut entries = Vec::new();
         for sid in session_ids {
-            if let Some(mut entry) = reg.remove(&sid)
-                && let Some(ref mut child) = entry.chrome_process
-            {
-                let _ = child.kill();
-                let _ = child.wait();
+            if let Some(mut entry) = reg.remove(&sid) {
+                let cdp = entry.cdp.take();
+                let chrome = entry.chrome_process.take();
+                entries.push((cdp, chrome));
             }
+        }
+        entries
+    };
+    // Registry lock released — cleanup below runs without blocking.
+    for (cdp, chrome) in entries_to_close {
+        if let Some(cdp) = cdp {
+            cdp.close().await;
+        }
+        if let Some(child) = chrome {
+            crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
         }
     }
 

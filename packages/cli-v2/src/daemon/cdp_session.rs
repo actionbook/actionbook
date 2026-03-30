@@ -32,7 +32,9 @@ type TabNetPending = Arc<Mutex<HashMap<String, i64>>>;
 #[derive(Clone)]
 pub struct CdpSession {
     /// Channel to send raw WS text messages to the writer task.
-    writer_tx: mpsc::Sender<String>,
+    /// Wrapped in Option so `close()` can take it out, closing the channel
+    /// and propagating shutdown to both reader and writer background tasks.
+    writer_tx: Arc<Mutex<Option<mpsc::Sender<String>>>>,
     /// In-flight requests keyed by message ID.
     pending: PendingRequests,
     /// Atomic counter for generating unique message IDs.
@@ -95,7 +97,7 @@ impl CdpSession {
         ));
 
         Ok(CdpSession {
-            writer_tx,
+            writer_tx: Arc::new(Mutex::new(Some(writer_tx))),
             pending,
             next_id,
             tab_sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -239,6 +241,26 @@ impl CdpSession {
         rx
     }
 
+    /// Gracefully shut down background reader/writer tasks and close the
+    /// WebSocket connection. Idempotent — safe to call multiple times.
+    ///
+    /// Drops the writer channel sender, which causes the writer loop to exit,
+    /// which closes the WS connection, which causes the reader loop to exit,
+    /// which fails all pending requests with `SessionClosed`.
+    pub async fn close(&self) {
+        // Take and drop the writer sender — closes the channel.
+        self.writer_tx.lock().await.take();
+
+        // Fail all pending requests immediately instead of waiting for
+        // the reader loop to notice the connection drop.
+        let mut map = self.pending.lock().await;
+        for (_, tx) in map.drain() {
+            let _ = tx.send(Err(CliError::SessionClosed(
+                "session was closed".to_string(),
+            )));
+        }
+    }
+
     /// Low-level: send a CDP command and wait for its response.
     pub async fn execute(
         &self,
@@ -260,7 +282,14 @@ impl CdpSession {
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.insert(id, tx);
 
-        if self.writer_tx.send(msg.to_string()).await.is_err() {
+        // Clone the sender (if still open) so we don't hold the mutex
+        // across the potentially-blocking send().await.
+        let writer = self.writer_tx.lock().await.clone();
+        let send_result = match writer {
+            Some(tx) => tx.send(msg.to_string()).await,
+            None => Err(mpsc::error::SendError(msg.to_string())),
+        };
+        if send_result.is_err() {
             // Clean up pending entry to avoid leak
             self.pending.lock().await.remove(&id);
             return Err(CliError::SessionClosed(
@@ -884,6 +913,58 @@ mod tests {
         assert!(
             rx_a.try_recv().is_err(),
             "should not receive event destined for a different session"
+        );
+    }
+
+    // ── 11. test_close_stops_background_tasks ────────────────────────
+
+    #[tokio::test]
+    async fn test_close_stops_background_tasks() {
+        let (url, mut conns) = mock_ws_server().await;
+        let cdp = CdpSession::connect(&url).await.unwrap();
+        let (_reader, _writer) = conns.recv().await.unwrap();
+
+        // close() should terminate reader/writer tasks
+        cdp.close().await;
+
+        // After close, sending a command should fail (not hang).
+        // Use a timeout to prevent infinite hang if close() is a no-op.
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            cdp.execute("Test.method", json!({}), None),
+        )
+        .await;
+
+        match result {
+            Ok(Err(_)) => {} // Expected: execute returns error immediately
+            Ok(Ok(_)) => panic!("execute after close() should fail, not succeed"),
+            Err(_) => {
+                panic!("execute after close() hung — close() did not shut down background tasks")
+            }
+        }
+    }
+
+    // ── 12. test_close_idempotent ────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_close_idempotent() {
+        let (url, mut conns) = mock_ws_server().await;
+        let cdp = CdpSession::connect(&url).await.unwrap();
+        let (_reader, _writer) = conns.recv().await.unwrap();
+
+        // Calling close() twice should not panic
+        cdp.close().await;
+        cdp.close().await;
+
+        // And execute should still fail after double close
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            cdp.execute("Test.method", json!({}), None),
+        )
+        .await;
+        assert!(
+            matches!(result, Ok(Err(_))),
+            "execute after double close() should fail"
         );
     }
 }
