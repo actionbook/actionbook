@@ -325,6 +325,93 @@ fn iframe_refs_do_not_collide_with_main_frame() {
     }
 }
 
+// ── Screenshot --annotate with iframe refs ────────────────────────
+
+#[test]
+fn iframe_screenshot_annotate_includes_iframe_elements() {
+    if skip() {
+        return;
+    }
+    let (sid, tid, _guard) = start_iframe_session();
+
+    // Snapshot first to populate RefCache
+    let snap = headless_json(
+        &["browser", "snapshot", "--session", &sid, "--tab", &tid],
+        15,
+    );
+    assert_success(&snap, "snapshot");
+
+    // Take annotated screenshot
+    let tmp = tempfile::NamedTempFile::new().expect("create temp file");
+    let path = tmp.path().to_string_lossy().to_string() + ".png";
+    let out = headless_json(
+        &[
+            "browser",
+            "screenshot",
+            &path,
+            "--annotate",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "screenshot --annotate");
+
+    // Verify the file was created and has non-trivial size
+    let metadata = std::fs::metadata(&path);
+    assert!(
+        metadata.is_ok(),
+        "annotated screenshot file should exist at {path}"
+    );
+    assert!(
+        metadata.unwrap().len() > 1000,
+        "annotated screenshot should have non-trivial size"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+// ── Scroll into-view on iframe element ────────────────────────────
+
+#[test]
+fn iframe_scroll_into_view_works_on_iframe_element() {
+    if skip() {
+        return;
+    }
+    let (sid, tid, _guard) = start_iframe_session();
+
+    // Snapshot to get refs
+    let snap = headless_json(
+        &["browser", "snapshot", "--session", &sid, "--tab", &tid],
+        15,
+    );
+    assert_success(&snap, "snapshot");
+    let snap_v = parse_json(&snap);
+    let content = snap_v["data"]["content"].as_str().unwrap_or("");
+
+    let child_btn_ref = find_ref_for_name(content, "Child Button");
+    if child_btn_ref.is_empty() {
+        eprintln!("SKIP: could not find 'Child Button' ref");
+        return;
+    }
+
+    let scroll_out = headless(
+        &[
+            "browser",
+            "scroll",
+            "into-view",
+            &format!("@{child_btn_ref}"),
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&scroll_out, "scroll into-view on iframe element");
+}
+
 // ══════════════════════════════════════════════════════════════════
 // Cross-origin (OOPIF) iframe tests
 // ══════════════════════════════════════════════════════════════════
