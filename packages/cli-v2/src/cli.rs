@@ -2,7 +2,7 @@ use clap::{Args, Parser, Subcommand};
 
 use crate::action::Action;
 use crate::action_result::ActionResult;
-use crate::browser::{interaction, navigation, observation, session, tab, wait};
+use crate::browser::{cookies, interaction, navigation, observation, session, tab, wait};
 use crate::output::ResponseContext;
 use crate::setup;
 
@@ -147,6 +147,13 @@ Examples:
   actionbook browser screenshot /tmp/page.png --session s1 --tab t1")]
     Screenshot(observation::screenshot::Cmd),
 
+    // ── Cookies ────────────────────────────────────────────────
+    /// Manage browser cookies
+    Cookies {
+        #[command(subcommand)]
+        command: CookiesCommands,
+    },
+
     // ── Wait ───────────────────────────────────────────────────
     /// Wait for a browser condition
     Wait {
@@ -206,6 +213,21 @@ pub enum LogsCommands {
     Errors(observation::logs_errors::Cmd),
 }
 
+#[derive(Subcommand, Debug)]
+#[command(disable_help_subcommand = true)]
+pub enum CookiesCommands {
+    /// List all cookies (optionally filtered by domain)
+    List(cookies::list::Cmd),
+    /// Get a single cookie by name
+    Get(cookies::get::Cmd),
+    /// Set a cookie
+    Set(cookies::set::Cmd),
+    /// Delete a cookie by name
+    Delete(cookies::delete::Cmd),
+    /// Clear cookies (optionally filtered by domain)
+    Clear(cookies::clear::Cmd),
+}
+
 impl BrowserCommands {
     /// Convert to wire Action. Returns None for unimplemented commands.
     pub fn to_action(&self) -> Option<Action> {
@@ -248,6 +270,13 @@ impl BrowserCommands {
             Self::Query(cmd) => Action::Query(cmd.clone()),
             Self::InspectPoint(cmd) => Action::InspectPoint(cmd.clone()),
             Self::Pdf(cmd) => Action::Pdf(cmd.clone()),
+            Self::Cookies { command } => match command {
+                CookiesCommands::List(cmd) => Action::CookiesList(cmd.clone()),
+                CookiesCommands::Get(cmd) => Action::CookiesGet(cmd.clone()),
+                CookiesCommands::Set(cmd) => Action::CookiesSet(cmd.clone()),
+                CookiesCommands::Delete(cmd) => Action::CookiesDelete(cmd.clone()),
+                CookiesCommands::Clear(cmd) => Action::CookiesClear(cmd.clone()),
+            },
             Self::Logs { command } => match command {
                 LogsCommands::Console(cmd) => Action::LogsConsole(cmd.clone()),
                 LogsCommands::Errors(cmd) => Action::LogsErrors(cmd.clone()),
@@ -307,6 +336,13 @@ impl BrowserCommands {
             Self::Query(_) => observation::query::COMMAND_NAME,
             Self::InspectPoint(_) => observation::inspect_point::COMMAND_NAME,
             Self::Pdf(_) => observation::pdf::COMMAND_NAME,
+            Self::Cookies { command } => match command {
+                CookiesCommands::List(_) => cookies::list::COMMAND_NAME,
+                CookiesCommands::Get(_) => cookies::get::COMMAND_NAME,
+                CookiesCommands::Set(_) => cookies::set::COMMAND_NAME,
+                CookiesCommands::Delete(_) => cookies::delete::COMMAND_NAME,
+                CookiesCommands::Clear(_) => cookies::clear::COMMAND_NAME,
+            },
             Self::Logs { command } => match command {
                 LogsCommands::Console(_) => observation::logs_console::COMMAND_NAME,
                 LogsCommands::Errors(_) => observation::logs_errors::COMMAND_NAME,
@@ -363,6 +399,13 @@ impl BrowserCommands {
             Self::Query(cmd) => observation::query::context(cmd, result),
             Self::InspectPoint(cmd) => observation::inspect_point::context(cmd, result),
             Self::Pdf(cmd) => observation::pdf::context(cmd, result),
+            Self::Cookies { command } => match command {
+                CookiesCommands::List(cmd) => cookies::list::context(cmd, result),
+                CookiesCommands::Get(cmd) => cookies::get::context(cmd, result),
+                CookiesCommands::Set(cmd) => cookies::set::context(cmd, result),
+                CookiesCommands::Delete(cmd) => cookies::delete::context(cmd, result),
+                CookiesCommands::Clear(cmd) => cookies::clear::context(cmd, result),
+            },
             Self::Logs { command } => match command {
                 LogsCommands::Console(cmd) => observation::logs_console::context(cmd, result),
                 LogsCommands::Errors(cmd) => observation::logs_errors::context(cmd, result),

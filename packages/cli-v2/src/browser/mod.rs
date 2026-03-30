@@ -1,3 +1,4 @@
+pub mod cookies;
 pub mod element;
 pub mod interaction;
 pub mod navigation;

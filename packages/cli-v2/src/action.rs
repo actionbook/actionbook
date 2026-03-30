@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::browser::{interaction, navigation, observation, session, tab, wait};
+use crate::browser::{cookies, interaction, navigation, observation, session, tab, wait};
 
 /// CLI → Daemon action protocol. Each variant wraps the command's Cmd type.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +44,13 @@ pub enum Action {
     Pdf(observation::pdf::Cmd),
     LogsConsole(observation::logs_console::Cmd),
     LogsErrors(observation::logs_errors::Cmd),
+
+    // ── Cookies ────────────────────────────────────────────────
+    CookiesList(cookies::list::Cmd),
+    CookiesGet(cookies::get::Cmd),
+    CookiesSet(cookies::set::Cmd),
+    CookiesDelete(cookies::delete::Cmd),
+    CookiesClear(cookies::clear::Cmd),
 
     // ── Wait ───────────────────────────────────────────────────
     WaitElement(wait::element::Cmd),
@@ -102,6 +109,11 @@ impl Action {
             Action::Pdf(_) => observation::pdf::COMMAND_NAME,
             Action::LogsConsole(_) => observation::logs_console::COMMAND_NAME,
             Action::LogsErrors(_) => observation::logs_errors::COMMAND_NAME,
+            Action::CookiesList(_) => cookies::list::COMMAND_NAME,
+            Action::CookiesGet(_) => cookies::get::COMMAND_NAME,
+            Action::CookiesSet(_) => cookies::set::COMMAND_NAME,
+            Action::CookiesDelete(_) => cookies::delete::COMMAND_NAME,
+            Action::CookiesClear(_) => cookies::clear::COMMAND_NAME,
             Action::WaitElement(_) => wait::element::COMMAND_NAME,
             Action::WaitNavigation(_) => wait::navigation::COMMAND_NAME,
             Action::WaitNetworkIdle(_) => wait::network_idle::COMMAND_NAME,

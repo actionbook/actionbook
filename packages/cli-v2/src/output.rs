@@ -215,6 +215,9 @@ pub fn format_text(
                     | "browser.wait.navigation"
                     | "browser.wait.network-idle"
                     | "browser.wait.condition"
+                    | "browser.cookies.set"
+                    | "browser.cookies.delete"
+                    | "browser.cookies.clear"
             );
 
             if is_action {
@@ -694,6 +697,35 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
             if let Some(val) = data.get("value") {
                 lines.push(val.as_str().unwrap_or(&val.to_string()).to_string());
             }
+        }
+        "browser.cookies.list" => {
+            let items = data.get("items").and_then(|v| v.as_array());
+            let count = items.map(|v| v.len()).unwrap_or(0);
+            let label = if count == 1 { "cookie" } else { "cookies" };
+            lines.push(format!("{count} {label}"));
+            if let Some(items) = items {
+                for item in items {
+                    let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    let domain = item.get("domain").and_then(|v| v.as_str()).unwrap_or("");
+                    let path = item.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                    lines.push(format!("{name} {domain} {path}"));
+                }
+            }
+        }
+        "browser.cookies.get" => {
+            if let Some(item) = data.get("item") {
+                if item.is_null() {
+                    lines.push("item: null".to_string());
+                } else {
+                    let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    let domain = item.get("domain").and_then(|v| v.as_str()).unwrap_or("");
+                    let path = item.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                    lines.push(format!("{name} {domain} {path}"));
+                }
+            }
+        }
+        "browser.cookies.set" | "browser.cookies.delete" | "browser.cookies.clear" => {
+            // is_action already emits "ok {command}"; no additional text fields needed
         }
         _ => {
             // Generic: print data as-is
