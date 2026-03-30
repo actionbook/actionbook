@@ -120,6 +120,8 @@ kill $(ps aux | grep 'actionbook __daemon' | grep -v grep | awk '{print $2}')
 
 ## Phase 6: PR → CI → Review Comments
 
+**语言要求**: PR title、body、review comment 回复一律使用英文。
+
 ```bash
 git push -u origin <branch>
 gh pr create --base release/1.0.0 --title "..." --body "..."
