@@ -2,7 +2,7 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str, unique_session, url_a,
+    stdout_str, unique_session, url_a, wait_page_ready,
 };
 
 const PRIMARY_COOKIE: &str = "primary_cookie";
@@ -43,6 +43,7 @@ fn start_session(url: &str) -> (String, String) {
     );
     assert_success(&goto_out, "goto initial url");
 
+    wait_page_ready(&sid, &tid);
     (sid, tid)
 }
 

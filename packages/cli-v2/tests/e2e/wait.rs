@@ -2,7 +2,7 @@
 
 use crate::harness::{
     SessionGuard, assert_error_envelope, assert_failure, assert_meta, assert_success, headless,
-    headless_json, parse_json, skip, stdout_str, unique_session, url_a, url_b,
+    headless_json, parse_json, skip, stdout_str, unique_session, url_a, url_b, wait_page_ready,
 };
 
 const ELEMENT_SELECTOR: &str = "#loaded";
@@ -39,6 +39,7 @@ fn start_session(url: &str) -> (String, String) {
         30,
     );
     assert_success(&goto_out, "goto initial url");
+    wait_page_ready(&sid, &tid);
 
     (sid, tid)
 }

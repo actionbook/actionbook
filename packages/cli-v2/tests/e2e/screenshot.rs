@@ -5,7 +5,7 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str, unique_session,
+    stdout_str, unique_session, wait_page_ready,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -35,6 +35,7 @@ fn start_session() -> (String, String) {
         .unwrap()
         .to_string();
     let tid = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
+    wait_page_ready(&sid, &tid);
     (sid, tid)
 }
 

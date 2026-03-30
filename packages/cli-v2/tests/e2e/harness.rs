@@ -473,6 +473,7 @@ pub fn start_session(url: &str) -> (String, String) {
     assert_tab_id(&v["data"]["tab"]["tab_id"]);
     assert_native_tab_id(&v["data"]["tab"]["native_tab_id"]);
     let tid = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
+    wait_page_ready(&actual_sid, &tid);
     (actual_sid, tid)
 }
 
@@ -498,7 +499,36 @@ pub fn start_named_session(session_id: &str, profile: &str, url: &str) -> String
     let v = parse_json(&out);
     assert_tab_id(&v["data"]["tab"]["tab_id"]);
     assert_native_tab_id(&v["data"]["tab"]["native_tab_id"]);
-    v["data"]["tab"]["tab_id"].as_str().unwrap().to_string()
+    let tid = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
+    wait_page_ready(session_id, &tid);
+    tid
+}
+
+/// Poll `document.readyState === 'complete'` every 200ms, up to 2s.
+/// Prevents flaky failures under parallel load where Chrome hasn't finished
+/// rendering when the test starts interacting with the page.
+pub fn wait_page_ready(session_id: &str, tab_id: &str) {
+    for _ in 0..10 {
+        let out = headless_json(
+            &[
+                "browser",
+                "eval",
+                "document.readyState",
+                "--session",
+                session_id,
+                "--tab",
+                tab_id,
+            ],
+            5,
+        );
+        if out.status.success() {
+            let v = parse_json(&out);
+            if v["data"]["value"].as_str() == Some("complete") {
+                return;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
 }
 
 /// Close a session (asserts success).

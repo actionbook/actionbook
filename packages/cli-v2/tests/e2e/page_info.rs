@@ -7,7 +7,7 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str, unique_session,
+    stdout_str, unique_session, wait_page_ready,
 };
 
 const URL_A: &str = "https://actionbook.dev";
@@ -91,6 +91,7 @@ fn start_session(url: &str) -> (String, String) {
         30,
     );
     assert_success(&goto_out, "goto after start");
+    wait_page_ready(&sid, &tid);
     (sid, tid)
 }
 

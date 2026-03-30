@@ -2,7 +2,7 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str, unique_session,
+    stdout_str, unique_session, wait_page_ready,
 };
 
 fn start_session() -> (String, String) {
@@ -45,6 +45,7 @@ fn start_session() -> (String, String) {
     );
     assert_success(&goto_out, "goto about:blank");
 
+    wait_page_ready(&sid, &tid);
     (sid, tid)
 }
 

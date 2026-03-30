@@ -7,7 +7,7 @@
     "build": "cargo build --release",
     "test": "cargo test",
     "test:ut": "cargo test --lib",
-    "test:e2e": "RUN_E2E_TESTS=true cargo test --test e2e",
+    "test:e2e": "RUN_E2E_TESTS=true cargo test --test e2e -- --test-threads=8",
     "lint": "pnpm lint:fmt && pnpm lint:clippy",
     "lint:fmt": "cargo fmt -- --check",
     "lint:clippy": "cargo clippy -- -D warnings",
