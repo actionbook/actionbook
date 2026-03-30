@@ -6,9 +6,8 @@
 
 use std::process::Child;
 
-/// Kill and reap a Chrome child process. Sends SIGKILL to the process
-/// (or process group if launched with `setsid`), then waits for it to
-/// exit so we don't leave zombies.
+/// Kill and reap a Chrome child process. Sends SIGKILL to the child
+/// process, then waits for it to exit so we don't leave zombies.
 ///
 /// This is intentionally synchronous — callers in async contexts should
 /// wrap it in `spawn_blocking(...).await`.
