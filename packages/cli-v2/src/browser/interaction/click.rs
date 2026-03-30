@@ -334,6 +334,11 @@ async fn open_in_new_tab(
     session_id: &str,
     registry: &SharedRegistry,
 ) -> Result<(), ActionResult> {
+    // Get stealth_ua from session so the new tab gets the same stealth injection.
+    let stealth_ua = {
+        let reg = registry.lock().await;
+        reg.get(session_id).and_then(|e| e.stealth_ua.clone())
+    };
     let resp = cdp
         .execute_browser("Target.createTarget", json!({ "url": url }))
         .await
@@ -347,8 +352,9 @@ async fn open_in_new_tab(
         })?
         .to_string();
 
-    // Attach — rollback on failure
-    if let Err(e) = cdp.attach(&new_target_id, None).await {
+    // Attach — rollback on failure.
+    // Pass stealth_ua so new tabs get the same stealth injection.
+    if let Err(e) = cdp.attach(&new_target_id, stealth_ua.as_deref()).await {
         let _ = cdp
             .execute_browser("Target.closeTarget", json!({ "targetId": new_target_id }))
             .await;

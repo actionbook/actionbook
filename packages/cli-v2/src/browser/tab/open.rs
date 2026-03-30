@@ -54,12 +54,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return e,
     };
 
-    // Get CdpSession from registry
-    let cdp = {
+    // Get CdpSession and stealth_ua from registry
+    let (cdp, stealth_ua) = {
         let reg = registry.lock().await;
         match reg.get(&cmd.session) {
             Some(e) => match e.cdp.clone() {
-                Some(c) => c,
+                Some(c) => (c, e.stealth_ua.clone()),
                 None => {
                     return ActionResult::fatal_with_hint(
                         "INTERNAL_ERROR",
@@ -96,8 +96,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }
     };
 
-    // Attach before registering — rollback on failure
-    if let Err(e) = cdp.attach(&target_id, None).await {
+    // Attach before registering — rollback on failure.
+    // Pass stealth_ua so new tabs get the same stealth injection as the initial tab.
+    if let Err(e) = cdp.attach(&target_id, stealth_ua.as_deref()).await {
         // Rollback: close the target we just created
         let _ = cdp
             .execute_browser("Target.closeTarget", json!({ "targetId": target_id }))

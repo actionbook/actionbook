@@ -229,7 +229,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             let page_ws = format!("ws://127.0.0.1:{port}/devtools/page/{target_id}");
             if let Err(e) = cdp_navigate(
                 &page_ws,
-                &ensure_scheme(url).unwrap_or_else(|_| url.to_string()),
+                &ensure_scheme(url).unwrap_or_else(|_| "about:blank".to_string()),
             )
             .await
             {
@@ -373,7 +373,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     if let Some(url) = &cmd.open_url
         && !first_native_id.is_empty()
     {
-        let final_url = ensure_scheme(url).unwrap_or_else(|_| url.to_string());
+        let final_url = ensure_scheme(url).unwrap_or_else(|_| "about:blank".to_string());
         let _ = cdp
             .execute_on_tab(
                 &first_native_id,
@@ -416,6 +416,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
     entry.chrome_process = chrome_process;
     entry.cdp = Some(cdp);
+    entry.stealth_ua = user_agent;
 
     let first_short_id = entry
         .tabs
@@ -467,7 +468,7 @@ async fn reuse_running_session(
     target: ReuseTarget,
 ) -> ActionResult {
     if let Some(url) = &cmd.open_url {
-        let final_url = ensure_scheme(url).unwrap_or_else(|_| url.to_string());
+        let final_url = ensure_scheme(url).unwrap_or_else(|_| "about:blank".to_string());
         if let Some(ref cdp) = target.cdp
             && !target.first_native_id.is_empty()
         {

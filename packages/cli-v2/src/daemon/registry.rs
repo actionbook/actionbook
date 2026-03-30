@@ -47,6 +47,8 @@ pub struct SessionEntry {
     pub mode: Mode,
     pub headless: bool,
     pub stealth: bool,
+    /// Stealth user-agent string — needed when attaching new tabs so they get the same stealth injection.
+    pub stealth_ua: Option<String>,
     pub profile: String,
     pub status: SessionState,
     pub cdp_port: Option<u16>,
@@ -84,6 +86,7 @@ impl SessionEntry {
             mode,
             headless,
             stealth,
+            stealth_ua: None,
             profile,
             status: SessionState::Starting,
             cdp_port: None,
