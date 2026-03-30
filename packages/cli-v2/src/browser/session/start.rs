@@ -58,6 +58,7 @@ pub const COMMAND_NAME: &str = "browser.start";
 struct ReuseTarget {
     session_id: String,
     first_tab_id: String,
+    first_native_id: String,
     cdp: Option<CdpSession>,
     cdp_port: Option<u16>,
 }
@@ -149,6 +150,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                         .tabs
                         .first()
                         .map(|tab| tab.id.0.clone())
+                        .unwrap_or_default(),
+                    first_native_id: existing
+                        .tabs
+                        .first()
+                        .map(|tab| tab.native_id.clone())
                         .unwrap_or_default(),
                     cdp: existing.cdp.clone(),
                     cdp_port: existing.cdp_port,
@@ -371,7 +377,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     entry.chrome_process = chrome_process;
     entry.cdp = Some(cdp);
 
-    let first_short_id = entry.tabs.first().map(|t| t.id.0.clone()).unwrap_or_default();
+    let first_short_id = entry
+        .tabs
+        .first()
+        .map(|t| t.id.0.clone())
+        .unwrap_or_default();
 
     ActionResult::ok(json!({
         "session": {
@@ -419,11 +429,11 @@ async fn reuse_running_session(
     if let Some(url) = &cmd.open_url {
         let final_url = ensure_scheme(url).unwrap_or_else(|_| url.to_string());
         if let Some(ref cdp) = target.cdp
-            && !target.first_tab_id.is_empty()
+            && !target.first_native_id.is_empty()
         {
             let nav_result = cdp
                 .execute_on_tab(
-                    &target.first_tab_id,
+                    &target.first_native_id,
                     "Page.navigate",
                     serde_json::json!({ "url": final_url }),
                 )
@@ -438,7 +448,7 @@ async fn reuse_running_session(
     // For local sessions, refresh tab info from /json/list; for cloud, use registry
     let (tab_url, tab_title) = if let Some(port) = target.cdp_port {
         let targets = browser::list_targets(port).await.unwrap_or_default();
-        get_tab_info_from_targets(&targets, &target.first_tab_id)
+        get_tab_info_from_targets(&targets, &target.first_native_id)
     } else {
         // Cloud: get info from registry
         let reg = registry.lock().await;
@@ -446,7 +456,7 @@ async fn reuse_running_session(
             entry
                 .tabs
                 .iter()
-                .find(|t| t.id.0 == target.first_tab_id)
+                .find(|t| t.native_id == target.first_native_id)
                 .map(|t| (t.url.clone(), t.title.clone()))
                 .unwrap_or_default()
         } else {
@@ -679,7 +689,11 @@ async fn execute_cloud(
     entry.cdp_endpoint = Some(cdp_endpoint.to_string());
     entry.headers = headers.to_vec();
 
-    let first_short_id = entry.tabs.first().map(|t| t.id.0.clone()).unwrap_or_default();
+    let first_short_id = entry
+        .tabs
+        .first()
+        .map(|t| t.id.0.clone())
+        .unwrap_or_default();
 
     ActionResult::ok(json!({
         "session": {

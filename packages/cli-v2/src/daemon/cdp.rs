@@ -6,9 +6,6 @@ use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::error::CliError;
-use crate::types::TabId;
-
-use super::registry::SessionEntry;
 
 fn ws_text(s: String) -> Message {
     Message::Text(s.into())
@@ -19,38 +16,6 @@ fn msg_to_string(msg: &Message) -> Option<String> {
         Message::Text(t) => Some(t.to_string()),
         _ => None,
     }
-}
-
-/// Resolve WebSocket URL for a tab from a session entry.
-pub fn resolve_tab_ws_url(
-    tab_id: &str,
-    entry: &SessionEntry,
-) -> Result<String, crate::action_result::ActionResult> {
-    let parsed_tab: TabId = tab_id.parse().map_err(|e| {
-        crate::action_result::ActionResult::fatal(
-            "INVALID_ARGUMENT",
-            format!("invalid tab id: {e}"),
-        )
-    })?;
-    let tab = entry
-        .tabs
-        .iter()
-        .find(|t| t.id == parsed_tab)
-        .ok_or_else(|| {
-            crate::action_result::ActionResult::fatal(
-                "TAB_NOT_FOUND",
-                format!("tab '{tab_id}' not found"),
-            )
-        })?;
-    Ok(if !tab.id.0.is_empty() {
-        if let Some(port) = entry.cdp_port {
-            format!("ws://127.0.0.1:{}/devtools/page/{}", port, tab.id.0)
-        } else {
-            entry.ws_url.clone()
-        }
-    } else {
-        entry.ws_url.clone()
-    })
 }
 
 /// CDP Runtime.evaluate via WebSocket.

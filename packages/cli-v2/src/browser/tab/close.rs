@@ -54,7 +54,7 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let cdp;
+    let (cdp, native_id);
 
     {
         let reg = registry.lock().await;
@@ -69,13 +69,17 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             }
         };
 
-        if !entry.tabs.iter().any(|t| t.id.0 == cmd.tab) {
-            return ActionResult::fatal_with_hint(
-                "TAB_NOT_FOUND",
-                format!("tab '{}' not found in session '{}'", cmd.tab, cmd.session),
-                "run `actionbook browser list-tabs` to see available tabs",
-            );
-        }
+        let tab = match entry.tabs.iter().find(|t| t.id.0 == cmd.tab) {
+            Some(t) => t,
+            None => {
+                return ActionResult::fatal_with_hint(
+                    "TAB_NOT_FOUND",
+                    format!("tab '{}' not found in session '{}'", cmd.tab, cmd.session),
+                    "run `actionbook browser list-tabs` to see available tabs",
+                );
+            }
+        };
+        native_id = tab.native_id.clone();
 
         cdp = match entry.cdp.clone() {
             Some(c) => c,
@@ -90,11 +94,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
 
     // Detach from the persistent CDP session before closing
-    let _ = cdp.detach(&cmd.tab).await;
+    let _ = cdp.detach(&native_id).await;
 
     // Close via CDP Target.closeTarget (works for both local and cloud)
     match cdp
-        .execute_browser("Target.closeTarget", json!({ "targetId": cmd.tab }))
+        .execute_browser("Target.closeTarget", json!({ "targetId": native_id }))
         .await
     {
         Ok(resp) => {
@@ -104,7 +108,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true);
             if !success {
-                tracing::warn!("Target.closeTarget returned success=false for {}", cmd.tab);
+                tracing::warn!(
+                    "Target.closeTarget returned success=false for {}",
+                    native_id
+                );
             }
         }
         Err(e) => {
