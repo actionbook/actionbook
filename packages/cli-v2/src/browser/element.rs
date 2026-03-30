@@ -111,8 +111,7 @@ impl TabContext {
         let node_id = self.resolve_node(selector).await?;
         let frame_id = self.resolved_frame_id.as_deref();
         scroll_into_view_for_frame(&self.cdp, &self.target_id, node_id, frame_id).await?;
-        get_element_center_for_frame(&self.cdp, &self.target_id, node_id, selector, frame_id)
-            .await
+        get_element_center_for_frame(&self.cdp, &self.target_id, node_id, selector, frame_id).await
     }
 
     /// Selector → `(nodeId, objectId)`. Sets `resolved_frame_id`.
@@ -140,11 +139,7 @@ impl TabContext {
     ///
     /// Use for: DOM.focus, Runtime.callFunctionOn, Runtime.evaluate (on element),
     /// DOM.setFileInputFiles, etc. Falls back to execute_on_tab if no frame context.
-    pub async fn execute_in_frame(
-        &self,
-        method: &str,
-        params: Value,
-    ) -> Result<Value, CliError> {
+    pub async fn execute_in_frame(&self, method: &str, params: Value) -> Result<Value, CliError> {
         execute_for_frame(
             &self.cdp,
             &self.target_id,
@@ -445,9 +440,15 @@ async fn resolve_ref(
     })?;
 
     // Get document on the correct frame session
-    execute_for_frame(cdp, target_id, frame_id.as_deref(), "DOM.getDocument", json!({}))
-        .await
-        .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+    execute_for_frame(
+        cdp,
+        target_id,
+        frame_id.as_deref(),
+        "DOM.getDocument",
+        json!({}),
+    )
+    .await
+    .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
 
     // Try direct resolution for real backendNodeIds (> 0)
     if backend_node_id > 0

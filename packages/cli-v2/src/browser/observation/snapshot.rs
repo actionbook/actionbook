@@ -271,9 +271,7 @@ async fn fetch_iframe_ax_tree(
 async fn enable_iframe_sessions(cdp: &CdpSession) {
     let pending = cdp.drain_pending_iframe_enables().await;
     for sid in &pending {
-        let _ = cdp
-            .execute("DOM.enable", json!({}), Some(sid))
-            .await;
+        let _ = cdp.execute("DOM.enable", json!({}), Some(sid)).await;
         let _ = cdp
             .execute("Accessibility.enable", json!({}), Some(sid))
             .await;

@@ -262,7 +262,11 @@ async fn ensure_viewport(cdp: &CdpSession, target_id: &str, destination: &DragDe
 }
 
 /// Inner execute logic run under the enlarged viewport.
-async fn execute_inner(ctx: &mut TabContext, cmd: &Cmd, destination: &DragDestination) -> ActionResult {
+async fn execute_inner(
+    ctx: &mut TabContext,
+    cmd: &Cmd,
+    destination: &DragDestination,
+) -> ActionResult {
     // Resolve source element to centre coordinates
     let (src_x, src_y) = match ctx.resolve_center(&cmd.source).await {
         Ok(coords) => coords,

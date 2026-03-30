@@ -254,7 +254,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 }
 
 /// Resolve a selector to a CDP JS object ID via TabContext.
-async fn resolve_to_object_id(ctx: &mut TabContext, selector: &str) -> Result<String, ActionResult> {
+async fn resolve_to_object_id(
+    ctx: &mut TabContext,
+    selector: &str,
+) -> Result<String, ActionResult> {
     let (_node_id, object_id) = ctx.resolve_object(selector).await?;
     Ok(object_id)
 }

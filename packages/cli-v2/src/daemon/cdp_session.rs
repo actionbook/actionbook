@@ -455,10 +455,7 @@ impl CdpSession {
                                         .lock()
                                         .await
                                         .insert(target_id.to_string(), sid.to_string());
-                                    pending_iframe_enables
-                                        .lock()
-                                        .await
-                                        .push(sid.to_string());
+                                    pending_iframe_enables.lock().await.push(sid.to_string());
                                 }
                             }
                         }
@@ -467,10 +464,7 @@ impl CdpSession {
                         if let Some(sid) =
                             resp.pointer("/params/sessionId").and_then(|v| v.as_str())
                         {
-                            iframe_sessions
-                                .lock()
-                                .await
-                                .retain(|_, v| v != sid);
+                            iframe_sessions.lock().await.retain(|_, v| v != sid);
                         }
                     }
                     _ => {}

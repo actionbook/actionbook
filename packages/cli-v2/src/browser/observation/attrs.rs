@@ -89,10 +89,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }))
 }
 
-async fn get_attributes(
-    ctx: &TabContext,
-    object_id: &str,
-) -> Result<Value, ActionResult> {
+async fn get_attributes(ctx: &TabContext, object_id: &str) -> Result<Value, ActionResult> {
     let resp = ctx
         .execute_in_frame(
             "Runtime.callFunctionOn",
