@@ -93,11 +93,8 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Build source filter JS
     let source_filter = match &cmd.source {
         Some(src) => {
-            let src_json =
-                serde_json::to_string(src).unwrap_or_else(|_| format!("\"{}\"", src));
-            format!(
-                ".filter(function(e) {{ return e.source === {src_json}; }})"
-            )
+            let src_json = serde_json::to_string(src).unwrap_or_else(|_| format!("\"{}\"", src));
+            format!(".filter(function(e) {{ return e.source === {src_json}; }})")
         }
         None => String::new(),
     };
@@ -105,8 +102,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Build since filter JS (filter items with id seq > since id seq)
     let since_filter = match &cmd.since {
         Some(id) => {
-            let id_json =
-                serde_json::to_string(id).unwrap_or_else(|_| format!("\"{}\"", id));
+            let id_json = serde_json::to_string(id).unwrap_or_else(|_| format!("\"{}\"", id));
             format!(
                 ".filter(function(e) {{ return parseInt((e.id||'').split('-')[1]||'0') > parseInt(({id_json}).split('-')[1]||'0'); }})"
             )

@@ -980,3 +980,113 @@ fn lifecycle_start_concurrent_same_profile_rejects_second_json() {
 
     env.headless(&["browser", "close", "--session", &session_id], 30);
 }
+
+// ===========================================================================
+// set-session-id must not silently reuse an existing session
+// ===========================================================================
+
+/// When a session with profile P already exists and the user requests
+/// `--set-session-id NEW_ID --profile P`, the command must NOT silently
+/// reuse the existing session. It should fail with SESSION_ALREADY_EXISTS
+/// because profile P is already occupied.
+#[test]
+fn lifecycle_set_session_id_rejects_reuse_of_occupied_profile() {
+    if skip() {
+        return;
+    }
+    let (sid1, prof1) = unique_session("reuse");
+    let (sid2, _) = unique_session("reuse2");
+
+    // Start first session with profile
+    let out = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            &prof1,
+            "--set-session-id",
+            &sid1,
+        ],
+        30,
+    );
+    assert_success(&out, "start first session");
+    let _guard = SessionGuard::new(&sid1);
+
+    // Try to start second session with SAME profile but DIFFERENT session ID.
+    // Must NOT silently return the first session.
+    let out = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            &prof1,
+            "--set-session-id",
+            &sid2,
+        ],
+        30,
+    );
+    assert_failure(&out, "second start with set-session-id must fail");
+    let v = parse_json(&out);
+    assert_eq!(v["ok"], false);
+    assert_eq!(
+        v["error"]["code"], "SESSION_ALREADY_EXISTS",
+        "must return SESSION_ALREADY_EXISTS, not silently reuse"
+    );
+}
+
+/// When --set-session-id matches an already-running session's ID,
+/// the command must fail with SESSION_ALREADY_EXISTS, not silently reuse.
+#[test]
+fn lifecycle_set_session_id_rejects_duplicate_id() {
+    if skip() {
+        return;
+    }
+    let (sid, prof) = unique_session("dupid");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            &prof,
+            "--set-session-id",
+            &sid,
+        ],
+        30,
+    );
+    assert_success(&out, "start session");
+    let _guard = SessionGuard::new(&sid);
+
+    // Try to start again with the SAME session ID (different profile).
+    let (_, prof2) = unique_session("dupid2");
+    let out = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            &prof2,
+            "--set-session-id",
+            &sid,
+        ],
+        30,
+    );
+    assert_failure(&out, "duplicate set-session-id must fail");
+    let v = parse_json(&out);
+    assert_eq!(v["ok"], false);
+    assert_eq!(
+        v["error"]["code"], "SESSION_ALREADY_EXISTS",
+        "must return SESSION_ALREADY_EXISTS for duplicate ID"
+    );
+}

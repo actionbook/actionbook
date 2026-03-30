@@ -96,7 +96,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         let domain = cookie.get("domain").and_then(|v| v.as_str()).unwrap_or("");
         let path = cookie.get("path").and_then(|v| v.as_str()).unwrap_or("/");
         let params = json!({ "name": cmd.name, "domain": domain, "path": path });
-        if cdp.execute_on_tab(&target_id, "Network.deleteCookies", params).await.is_ok() {
+        if cdp
+            .execute_on_tab(&target_id, "Network.deleteCookies", params)
+            .await
+            .is_ok()
+        {
             deleted += 1;
         }
     }

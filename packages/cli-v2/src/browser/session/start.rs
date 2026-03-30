@@ -138,6 +138,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         let mut reg = registry.lock().await;
 
         if cdp_endpoint.is_none()
+            && cmd.set_session_id.is_none()
             && mode == Mode::Local
             && let Some(existing) = reg.find_local_session_by_profile(profile_name, mode)
         {

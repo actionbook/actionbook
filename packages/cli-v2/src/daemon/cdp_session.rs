@@ -230,7 +230,12 @@ impl CdpSession {
     ) -> mpsc::Receiver<Value> {
         let key = format!("{cdp_session_id}:{method}");
         let (tx, rx) = mpsc::channel(256);
-        self.event_subs.lock().await.entry(key).or_default().push(tx);
+        self.event_subs
+            .lock()
+            .await
+            .entry(key)
+            .or_default()
+            .push(tx);
         rx
     }
 
@@ -826,11 +831,10 @@ mod tests {
         )
         .await;
 
-        let event =
-            tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
-                .await
-                .expect("timed out waiting for event")
-                .expect("channel closed");
+        let event = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("timed out waiting for event")
+            .expect("channel closed");
 
         assert_eq!(event["method"], "Network.requestWillBeSent");
         assert_eq!(event["params"]["requestId"], "req-42");

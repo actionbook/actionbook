@@ -41,9 +41,7 @@ pub async fn route(action: &Action, registry: &SharedRegistry) -> ActionResult {
         Action::LogsConsole(cmd) => {
             browser::observation::logs_console::execute(cmd, registry).await
         }
-        Action::LogsErrors(cmd) => {
-            browser::observation::logs_errors::execute(cmd, registry).await
-        }
+        Action::LogsErrors(cmd) => browser::observation::logs_errors::execute(cmd, registry).await,
         Action::CookiesList(cmd) => browser::cookies::list::execute(cmd, registry).await,
         Action::CookiesGet(cmd) => browser::cookies::get::execute(cmd, registry).await,
         Action::CookiesSet(cmd) => browser::cookies::set::execute(cmd, registry).await,
@@ -51,9 +49,7 @@ pub async fn route(action: &Action, registry: &SharedRegistry) -> ActionResult {
         Action::CookiesClear(cmd) => browser::cookies::clear::execute(cmd, registry).await,
         Action::WaitElement(cmd) => browser::wait::element::execute(cmd, registry).await,
         Action::WaitNavigation(cmd) => browser::wait::navigation::execute(cmd, registry).await,
-        Action::WaitNetworkIdle(cmd) => {
-            browser::wait::network_idle::execute(cmd, registry).await
-        }
+        Action::WaitNetworkIdle(cmd) => browser::wait::network_idle::execute(cmd, registry).await,
         Action::WaitCondition(cmd) => browser::wait::condition::execute(cmd, registry).await,
         Action::Eval(cmd) => browser::interaction::eval::execute(cmd, registry).await,
         Action::Click(cmd) => browser::interaction::click::execute(cmd, registry).await,

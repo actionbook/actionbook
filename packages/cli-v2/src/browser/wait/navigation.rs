@@ -99,10 +99,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             let result_val = v.pointer("/result/result/value");
             if let Some(rv) = result_val {
                 let current_url = rv.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                let ready_state = rv
-                    .get("ready_state")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let ready_state = rv.get("ready_state").and_then(|v| v.as_str()).unwrap_or("");
 
                 let url_changed = current_url != initial_url.as_str();
 

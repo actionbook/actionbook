@@ -147,7 +147,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         params["expires"] = json!(exp);
     }
 
-    match cdp.execute_on_tab(&target_id, "Network.setCookie", params).await {
+    match cdp
+        .execute_on_tab(&target_id, "Network.setCookie", params)
+        .await
+    {
         Ok(_) => {}
         Err(e) => return ActionResult::fatal("CDP_ERROR", e.to_string()),
     };
