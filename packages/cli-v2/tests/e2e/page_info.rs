@@ -7,7 +7,7 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str,
+    stdout_str, unique_session,
 };
 
 const URL_A: &str = "https://actionbook.dev";
@@ -60,6 +60,7 @@ fn assert_error_envelope(v: &serde_json::Value, expected_code: &str) {
 /// confirmed real URL in CI environments where `--open-url` may resolve to
 /// `chrome-error://chromewebdata/` on network hiccups.
 fn start_session(url: &str) -> (String, String) {
+    let (sid, profile) = unique_session("s");
     let out = headless_json(
         &[
             "browser",
@@ -67,6 +68,10 @@ fn start_session(url: &str) -> (String, String) {
             "--mode",
             "local",
             "--headless",
+            "--set-session-id",
+            &sid,
+            "--profile",
+            &profile,
             "--open-url",
             url,
         ],

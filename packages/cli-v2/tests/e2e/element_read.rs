@@ -2,13 +2,14 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str,
+    stdout_str, unique_session,
 };
 
 const READER_SELECTOR: &str = "#reader";
 const EMAIL_SELECTOR: &str = "#email";
 
 fn start_session() -> (String, String) {
+    let (sid, profile) = unique_session("s");
     let out = headless_json(
         &[
             "browser",
@@ -16,6 +17,10 @@ fn start_session() -> (String, String) {
             "--mode",
             "local",
             "--headless",
+            "--set-session-id",
+            &sid,
+            "--profile",
+            &profile,
             "--open-url",
             "about:blank",
         ],
