@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use clap::{CommandFactory, Parser};
+use clap::Parser;
 use serde_json::json;
 
 use actionbook_cli::action_result::ActionResult;
@@ -27,45 +27,49 @@ async fn main() {
         return;
     }
 
-    // Intercept `--help` before clap to show our custom help messages
-    // instead of clap's auto-generated output.
+    // Intercept help-like invocations before clap to show our custom help
+    // messages instead of clap's auto-generated output.
+    //
+    // All of these should show the same custom output:
+    //   actionbook              → top-level help
+    //   actionbook help         → top-level help
+    //   actionbook --help / -h  → top-level help
+    //   actionbook browser              → browser grouped help
+    //   actionbook browser help         → browser grouped help
+    //   actionbook browser --help / -h  → browser grouped help
     {
         let raw_args: Vec<String> = std::env::args().collect();
-        let has_help_flag = raw_args.iter().any(|a| a == "--help" || a == "-h");
-
-        // `actionbook --help` / `actionbook -h` (no subcommand)
-        if has_help_flag && !raw_args.iter().any(|a| a == "browser" || a == "setup") {
-            let json_mode = raw_args.iter().any(|a| a == "--json");
-            handle_help(json_mode);
-            return;
-        }
-
-        // `actionbook browser --help` (no subcommand after browser)
-        if let Some(bi) = raw_args.iter().position(|a| a == "browser") {
-            let tail = &raw_args[bi + 1..];
-            let has_help_flag = tail.iter().any(|a| a == "--help" || a == "-h");
-            // Check for non-flag args after "browser" (skip --timeout value)
-            let mut has_subcommand = false;
-            let mut skip_next = false;
-            for arg in tail {
-                if skip_next {
-                    skip_next = false;
-                    continue;
-                }
-                if arg == "--timeout" {
-                    skip_next = true;
-                    continue;
-                }
-                if !arg.starts_with('-') {
-                    has_subcommand = true;
-                    break;
-                }
+        // Collect non-flag args after the binary name, skipping --timeout's value
+        let mut positional_args: Vec<&str> = Vec::new();
+        let mut skip_next = false;
+        for arg in &raw_args[1..] {
+            if skip_next {
+                skip_next = false;
+                continue;
             }
-            if has_help_flag && !has_subcommand {
-                let json_mode = raw_args.iter().any(|a| a == "--json");
+            if arg == "--timeout" {
+                skip_next = true;
+                continue;
+            }
+            if arg.starts_with('-') {
+                continue;
+            }
+            positional_args.push(arg);
+        }
+        let json_mode = raw_args.iter().any(|a| a == "--json");
+
+        match positional_args.as_slice() {
+            // `actionbook` (no args), `actionbook --help`, `actionbook help`
+            [] | ["help"] => {
+                handle_help(json_mode);
+                return;
+            }
+            // `actionbook browser`, `actionbook browser --help`, `actionbook browser help`
+            ["browser"] | ["browser", "help"] => {
                 handle_browser_help(json_mode);
                 return;
             }
+            _ => {}
         }
     }
 
@@ -80,7 +84,7 @@ async fn main() {
     }
 
     if cli.command.is_none() {
-        Cli::command().print_help().ok();
+        handle_help(json_output);
         return;
     }
 
