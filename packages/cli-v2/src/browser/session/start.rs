@@ -511,11 +511,8 @@ async fn fail_reserved_start_with_chrome(
     ActionResult::fatal(code, message)
 }
 
-fn cleanup_chrome_process(chrome_process: Option<Child>) {
-    if let Some(mut chrome) = chrome_process {
-        let _ = chrome.kill();
-        let _ = chrome.wait();
-    }
+fn cleanup_chrome_process(mut chrome_process: Option<Child>) {
+    crate::daemon::chrome_reaper::kill_and_reap_option(&mut chrome_process);
 }
 
 // ── Cloud mode ──────────────────────────────────────────────────────
