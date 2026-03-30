@@ -344,6 +344,7 @@ mod tests {
             cdp_endpoint: None,
             header: vec![],
             set_session_id: None,
+            stealth: true,
         }
     }
 
