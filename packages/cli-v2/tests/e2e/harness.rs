@@ -221,7 +221,8 @@ fn handle_http(mut stream: std::net::TcpStream) {
         );
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
-            body.len(), body
+            body.len(),
+            body
         );
         let _ = stream.write_all(response.as_bytes());
         return;
@@ -241,7 +242,8 @@ fn handle_http(mut stream: std::net::TcpStream) {
         );
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
-            body.len(), body
+            body.len(),
+            body
         );
         let _ = stream.write_all(response.as_bytes());
         return;
@@ -255,7 +257,8 @@ fn handle_http(mut stream: std::net::TcpStream) {
 </body></html>"#;
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
-            body.len(), body
+            body.len(),
+            body
         );
         let _ = stream.write_all(response.as_bytes());
         return;
@@ -333,15 +336,13 @@ fn handle_http_cross_origin(mut stream: std::net::TcpStream) {
         .unwrap_or("/");
 
     let body = match path {
-        "/iframe-child" => {
-            r#"<!DOCTYPE html><html><head><title>Cross-Origin Child</title></head>
+        "/iframe-child" => r#"<!DOCTYPE html><html><head><title>Cross-Origin Child</title></head>
 <body>
 <h2>Cross-Origin Content</h2>
 <input id="xo-input" value="xo-value" aria-label="XO Input">
 <button id="xo-btn" aria-label="XO Button">XO Click</button>
 </body></html>"#
-                .to_string()
-        }
+            .to_string(),
         _ => format!(
             "<!DOCTYPE html><html><head><title>XO</title></head><body><h1>XO</h1></body></html>"
         ),
@@ -349,7 +350,8 @@ fn handle_http_cross_origin(mut stream: std::net::TcpStream) {
 
     let response = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
-        body.len(), body
+        body.len(),
+        body
     );
     let _ = stream.write_all(response.as_bytes());
 }

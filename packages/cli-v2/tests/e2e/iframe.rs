@@ -47,7 +47,10 @@ fn iframe_snapshot_expands_child_content() {
     }
     let (sid, tid, _guard) = start_iframe_session();
 
-    let out = headless(&["browser", "snapshot", "--session", &sid, "--tab", &tid], 15);
+    let out = headless(
+        &["browser", "snapshot", "--session", &sid, "--tab", &tid],
+        15,
+    );
     assert_success(&out, "snapshot");
     let text = stdout_str(&out);
 
@@ -65,7 +68,9 @@ fn iframe_snapshot_expands_child_content() {
 
     // Child content should be expanded under the Iframe node
     assert!(
-        text.contains("Child Content") || text.contains("Child Input") || text.contains("Child Button"),
+        text.contains("Child Content")
+            || text.contains("Child Input")
+            || text.contains("Child Button"),
         "iframe child content should be expanded in snapshot.\nGot:\n{text}"
     );
 }
@@ -79,7 +84,13 @@ fn iframe_snapshot_interactive_filter_includes_iframe_elements() {
 
     let out = headless(
         &[
-            "browser", "snapshot", "-i", "--session", &sid, "--tab", &tid,
+            "browser",
+            "snapshot",
+            "-i",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
         ],
         15,
     );
@@ -120,7 +131,9 @@ fn iframe_html_reads_iframe_element() {
     let child_btn_ref = find_ref_for_name(content, "Child Button");
     if child_btn_ref.is_empty() {
         // If we can't find it by name, the iframe may not have expanded — skip gracefully
-        eprintln!("SKIP: could not find 'Child Button' ref in snapshot (iframe may not have loaded)");
+        eprintln!(
+            "SKIP: could not find 'Child Button' ref in snapshot (iframe may not have loaded)"
+        );
         return;
     }
 
@@ -302,10 +315,7 @@ fn iframe_refs_do_not_collide_with_main_frame() {
 
     if let Some(nodes) = nodes {
         // All refs should be unique
-        let refs: Vec<&str> = nodes
-            .iter()
-            .filter_map(|n| n["ref"].as_str())
-            .collect();
+        let refs: Vec<&str> = nodes.iter().filter_map(|n| n["ref"].as_str()).collect();
         let unique: std::collections::HashSet<&str> = refs.iter().copied().collect();
         assert_eq!(
             refs.len(),
@@ -358,7 +368,10 @@ fn xo_iframe_snapshot_expands_cross_origin_content() {
     }
     let (sid, tid, _guard) = start_xo_iframe_session();
 
-    let out = headless(&["browser", "snapshot", "--session", &sid, "--tab", &tid], 15);
+    let out = headless(
+        &["browser", "snapshot", "--session", &sid, "--tab", &tid],
+        15,
+    );
     assert_success(&out, "xo snapshot");
     let text = stdout_str(&out);
 

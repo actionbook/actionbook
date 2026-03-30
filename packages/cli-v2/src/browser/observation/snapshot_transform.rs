@@ -1881,7 +1881,10 @@ mod tests {
         let r1 = cache.get_or_assign(42, "button", "OK", None);
         // Iframe: same backendNodeId=42, different frame
         let r2 = cache.get_or_assign(42, "button", "Submit", Some("FRAME_ABC"));
-        assert_ne!(r1, r2, "same bid in different frames must get distinct refs");
+        assert_ne!(
+            r1, r2,
+            "same bid in different frames must get distinct refs"
+        );
         assert_eq!(r1, "e1");
         assert_eq!(r2, "e2");
     }
