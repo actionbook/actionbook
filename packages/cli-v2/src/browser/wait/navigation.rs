@@ -79,12 +79,19 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Record the URL at the moment the wait command starts so we can detect a change.
     let initial_url = nav_helpers::get_tab_url(&cdp, &target_id).await;
 
-    // Poll until URL has changed from initial AND document.readyState is 'complete'.
-    // This covers both the case where navigation starts after the wait call and
-    // the case where it is already in progress when the call arrives.
+    // Poll until URL changes and the new page reaches readyState=complete.
+    //
+    // Two-phase detection:
+    //   Phase 1 — wait for URL to differ from initial_url (navigation started).
+    //   Phase 2 — once URL changed, wait for readyState=complete (page loaded).
+    //
+    // This avoids a false-positive on the first poll when the original page
+    // already has readyState=complete but navigation hasn't fired yet.
     let js = r#"(function(){
         return { url: location.href, ready_state: document.readyState };
     })()"#;
+
+    let mut url_changed_seen = false;
 
     loop {
         let resp = cdp
@@ -101,11 +108,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 let current_url = rv.get("url").and_then(|v| v.as_str()).unwrap_or("");
                 let ready_state = rv.get("ready_state").and_then(|v| v.as_str()).unwrap_or("");
 
-                let url_changed = current_url != initial_url.as_str();
+                if current_url != initial_url.as_str() {
+                    url_changed_seen = true;
+                }
 
-                // Match reference: return on URL change OR readyState=complete.
-                // OR covers same-URL navigations/reloads where URL never changes.
-                if url_changed || ready_state == "complete" {
+                // Return once URL has changed and new page is fully loaded.
+                if url_changed_seen && ready_state == "complete" {
                     let elapsed_ms = start.elapsed().as_millis() as u64;
                     let title = nav_helpers::get_tab_title(&cdp, &target_id).await;
                     return ActionResult::ok(json!({

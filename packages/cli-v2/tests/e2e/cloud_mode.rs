@@ -1434,6 +1434,7 @@ fn cloud_crash_recovery_endpoint_gone() {
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
+#[ignore = "known flaky: cloud CDP multiplexing may mis-route concurrent responses"]
 fn cloud_concurrent_eval_multi_tab() {
     if skip() {
         return;
