@@ -136,7 +136,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     let resp = match ctx
-        .execute_in_frame(
+        .execute_on_element(
             "Runtime.callFunctionOn",
             json!({
                 "objectId": object_id,

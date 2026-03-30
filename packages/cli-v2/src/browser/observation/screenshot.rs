@@ -334,7 +334,7 @@ async fn collect_annotation_rects(
     // Batch resolve backendNodeId → objectId (frame-aware)
     let mut resolved: Vec<(super::snapshot_transform::RefEntry, String)> = Vec::new();
     for (backend_node_id, entry) in &entries {
-        let resp = crate::browser::element::execute_for_frame(
+        let resp = crate::browser::element::execute_for_element(
             cdp,
             target_id,
             entry.frame_id.as_deref(),
@@ -387,7 +387,7 @@ async fn get_rect_for_object(
     object_id: &str,
     frame_id: Option<&str>,
 ) -> Option<Rect> {
-    let resp = crate::browser::element::execute_for_frame(
+    let resp = crate::browser::element::execute_for_element(
         cdp,
         target_id,
         frame_id,

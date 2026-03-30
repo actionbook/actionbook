@@ -284,7 +284,7 @@ async fn get_element_href(
             let node_id = ctx.resolve_node(sel).await.ok()?;
             let object_id = ctx.resolve_object_id(node_id).await.ok()?;
             let eval = ctx
-                .execute_in_frame(
+                .execute_on_element(
                     "Runtime.callFunctionOn",
                     json!({
                         "objectId": object_id,

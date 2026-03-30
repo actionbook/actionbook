@@ -88,7 +88,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // CDP Input.dispatchMouseEvent with mouseMoved does not reliably produce
     // the full set of DOM hover events in headless Chrome.
     let hover_resp = match ctx
-        .execute_in_frame(
+        .execute_on_element(
             "Runtime.callFunctionOn",
             json!({
                 "objectId": object_id,

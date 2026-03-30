@@ -76,7 +76,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Stash a reference to the current activeElement, focus the target,
     // then compare with === for true element identity (not a lossy string).
     if let Err(e) = ctx
-        .execute_in_frame(
+        .execute_on_element(
             "Runtime.evaluate",
             json!({
                 "expression": "window.__ab_pre_focus = document.activeElement",
@@ -89,7 +89,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Focus the element via DOM.focus
     if let Err(e) = ctx
-        .execute_in_frame("DOM.focus", json!({ "nodeId": node_id }))
+        .execute_on_element("DOM.focus", json!({ "nodeId": node_id }))
         .await
     {
         return cdp_error_to_result(e, "CDP_ERROR");
@@ -97,7 +97,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Compare pre/post active element by reference identity
     let focus_changed = ctx
-        .execute_in_frame(
+        .execute_on_element(
             "Runtime.evaluate",
             json!({
                 "expression": "document.activeElement !== window.__ab_pre_focus",
@@ -111,7 +111,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Clean up the temporary global
     let _ = ctx
-        .execute_in_frame(
+        .execute_on_element(
             "Runtime.evaluate",
             json!({ "expression": "delete window.__ab_pre_focus" }),
         )

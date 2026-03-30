@@ -78,7 +78,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Focus the element
     if let Err(e) = ctx
-        .execute_in_frame("DOM.focus", json!({ "nodeId": node_id }))
+        .execute_on_element("DOM.focus", json!({ "nodeId": node_id }))
         .await
     {
         return cdp_error_to_result(e, "CDP_ERROR");
@@ -110,7 +110,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     );
 
     let resp = match ctx
-        .execute_in_frame(
+        .execute_on_element(
             "Runtime.callFunctionOn",
             json!({
                 "objectId": object_id,

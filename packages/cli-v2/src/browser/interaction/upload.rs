@@ -92,7 +92,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Set files on the input via DOM.setFileInputFiles
     if let Err(e) = ctx
-        .execute_in_frame(
+        .execute_on_element(
             "DOM.setFileInputFiles",
             json!({
                 "files": cmd.files,

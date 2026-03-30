@@ -9,7 +9,7 @@
 //! 3. **Snapshot ref** — prefix `@e`, e.g. `@e5`, via RefCache + CDP.
 //!
 //! iframe support: after resolving an `@eN` ref, `resolved_frame_id` is set
-//! so that subsequent `execute_in_frame()` calls route to the correct CDP
+//! so that subsequent `execute_on_element()` calls route to the correct CDP
 //! session for cross-origin iframes.
 
 use serde_json::{Value, json};
@@ -25,7 +25,7 @@ use crate::error::CliError;
 ///
 /// - Cross-origin iframes (found in `cdp.iframe_sessions()`): use their dedicated session.
 /// - Same-origin iframes and main frame: use `execute_on_tab` (parent session).
-pub async fn execute_for_frame(
+pub async fn execute_for_element(
     cdp: &CdpSession,
     target_id: &str,
     frame_id: Option<&str>,
@@ -51,7 +51,7 @@ pub async fn execute_for_frame(
 /// issue non-element CDP calls (e.g. `Input.dispatchMouseEvent`).
 ///
 /// After resolving a selector, `resolved_frame_id` tracks the frame
-/// the element belongs to. Use `execute_in_frame()` for subsequent
+/// the element belongs to. Use `execute_on_element()` for subsequent
 /// DOM/Runtime commands on that element.
 pub struct TabContext {
     pub cdp: CdpSession,
@@ -61,7 +61,7 @@ pub struct TabContext {
     tab_id: String,
     /// Frame context set by the most recent resolve_node / resolve_center / resolve_object call.
     /// None = main frame. Some(frame_id) = iframe element.
-    /// Used by execute_in_frame() for subsequent CDP commands on the same element.
+    /// Used by execute_on_element() for subsequent CDP commands on the same element.
     resolved_frame_id: Option<String>,
 }
 
@@ -139,8 +139,8 @@ impl TabContext {
     ///
     /// Use for: DOM.focus, Runtime.callFunctionOn, Runtime.evaluate (on element),
     /// DOM.setFileInputFiles, etc. Falls back to execute_on_tab if no frame context.
-    pub async fn execute_in_frame(&self, method: &str, params: Value) -> Result<Value, CliError> {
-        execute_for_frame(
+    pub async fn execute_on_element(&self, method: &str, params: Value) -> Result<Value, CliError> {
+        execute_for_element(
             &self.cdp,
             &self.target_id,
             self.resolved_frame_id.as_deref(),
@@ -177,7 +177,7 @@ async fn scroll_into_view_for_frame(
     node_id: i64,
     frame_id: Option<&str>,
 ) -> Result<(), ActionResult> {
-    execute_for_frame(
+    execute_for_element(
         cdp,
         target_id,
         frame_id,
@@ -196,7 +196,7 @@ async fn resolve_object_id_for_frame(
     node_id: i64,
     frame_id: Option<&str>,
 ) -> Result<String, ActionResult> {
-    let resolve_resp = execute_for_frame(
+    let resolve_resp = execute_for_element(
         cdp,
         target_id,
         frame_id,
@@ -221,7 +221,7 @@ async fn get_element_center_for_frame(
     selector: &str,
     frame_id: Option<&str>,
 ) -> Result<(f64, f64), ActionResult> {
-    let bm = execute_for_frame(
+    let bm = execute_for_element(
         cdp,
         target_id,
         frame_id,
@@ -440,7 +440,7 @@ async fn resolve_ref(
     })?;
 
     // Get document on the correct frame session
-    execute_for_frame(
+    execute_for_element(
         cdp,
         target_id,
         frame_id.as_deref(),
@@ -481,7 +481,7 @@ async fn resolve_backend_node(
     backend_node_id: i64,
     frame_id: Option<&str>,
 ) -> Result<Option<i64>, ActionResult> {
-    let resolve_resp = match execute_for_frame(
+    let resolve_resp = match execute_for_element(
         cdp,
         target_id,
         frame_id,
@@ -508,7 +508,7 @@ async fn resolve_backend_node(
         None => return Ok(None),
     };
 
-    let node_resp = execute_for_frame(
+    let node_resp = execute_for_element(
         cdp,
         target_id,
         frame_id,
@@ -539,7 +539,7 @@ async fn resolve_by_ax_query(
     name: &str,
     frame_id: Option<&str>,
 ) -> Result<Option<i64>, ActionResult> {
-    let resp = match execute_for_frame(
+    let resp = match execute_for_element(
         cdp,
         target_id,
         frame_id,

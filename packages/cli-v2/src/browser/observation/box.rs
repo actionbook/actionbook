@@ -87,7 +87,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
 async fn get_box(ctx: &TabContext, object_id: &str) -> Result<Value, ActionResult> {
     let resp = ctx
-        .execute_in_frame(
+        .execute_on_element(
             "Runtime.callFunctionOn",
             json!({
                 "objectId": object_id,

@@ -89,7 +89,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 async fn get_value(ctx: &mut TabContext, selector: &str) -> Result<Value, ActionResult> {
     let (_, object_id) = ctx.resolve_object(selector).await?;
     let resp = ctx
-        .execute_in_frame(
+        .execute_on_element(
             "Runtime.callFunctionOn",
             json!({
                 "objectId": object_id,

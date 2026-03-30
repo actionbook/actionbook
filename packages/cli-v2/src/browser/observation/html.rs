@@ -93,7 +93,7 @@ async fn get_html(ctx: &mut TabContext, selector: Option<&str>) -> Result<Value,
         Some(selector) => {
             let (_, object_id) = ctx.resolve_object(selector).await?;
             let resp = ctx
-                .execute_in_frame(
+                .execute_on_element(
                     "Runtime.callFunctionOn",
                     json!({
                         "objectId": object_id,

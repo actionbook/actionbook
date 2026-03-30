@@ -100,7 +100,7 @@ async fn get_attr(
     let function = format!(r#"function() {{ return this.getAttribute({attr_json}); }}"#);
 
     let resp = ctx
-        .execute_in_frame(
+        .execute_on_element(
             "Runtime.callFunctionOn",
             json!({
                 "objectId": object_id,
