@@ -335,8 +335,12 @@ impl BrowserCommands {
                 CookiesCommands::Delete(cmd) => Action::CookiesDelete(cmd.clone()),
                 CookiesCommands::Clear(cmd) => Action::CookiesClear(cmd.clone()),
             },
-            Self::LocalStorage { command } => storage_to_action(command, storage::StorageKind::Local),
-            Self::SessionStorage { command } => storage_to_action(command, storage::StorageKind::Session),
+            Self::LocalStorage { command } => {
+                storage_to_action(command, storage::StorageKind::Local)
+            }
+            Self::SessionStorage { command } => {
+                storage_to_action(command, storage::StorageKind::Session)
+            }
             Self::Logs { command } => match command {
                 LogsCommands::Console(cmd) => Action::LogsConsole(cmd.clone()),
                 LogsCommands::Errors(cmd) => Action::LogsErrors(cmd.clone()),
@@ -403,8 +407,12 @@ impl BrowserCommands {
                 CookiesCommands::Delete(_) => cookies::delete::COMMAND_NAME,
                 CookiesCommands::Clear(_) => cookies::clear::COMMAND_NAME,
             },
-            Self::LocalStorage { command } => storage_command_name(command, storage::StorageKind::Local),
-            Self::SessionStorage { command } => storage_command_name(command, storage::StorageKind::Session),
+            Self::LocalStorage { command } => {
+                storage_command_name(command, storage::StorageKind::Local)
+            }
+            Self::SessionStorage { command } => {
+                storage_command_name(command, storage::StorageKind::Session)
+            }
             Self::Logs { command } => match command {
                 LogsCommands::Console(_) => observation::logs_console::COMMAND_NAME,
                 LogsCommands::Errors(_) => observation::logs_errors::COMMAND_NAME,
@@ -468,8 +476,12 @@ impl BrowserCommands {
                 CookiesCommands::Delete(cmd) => cookies::delete::context(cmd, result),
                 CookiesCommands::Clear(cmd) => cookies::clear::context(cmd, result),
             },
-            Self::LocalStorage { command } => storage_context(command, storage::StorageKind::Local, result),
-            Self::SessionStorage { command } => storage_context(command, storage::StorageKind::Session, result),
+            Self::LocalStorage { command } => {
+                storage_context(command, storage::StorageKind::Local, result)
+            }
+            Self::SessionStorage { command } => {
+                storage_context(command, storage::StorageKind::Session, result)
+            }
             Self::Logs { command } => match command {
                 LogsCommands::Console(cmd) => observation::logs_console::context(cmd, result),
                 LogsCommands::Errors(cmd) => observation::logs_errors::context(cmd, result),
@@ -574,23 +586,48 @@ fn storage_context(
 ) -> Option<ResponseContext> {
     match cmd {
         StorageSubCommands::List(a) => storage::list::context(
-            &storage::list::Cmd { session: a.session.clone(), tab: a.tab.clone(), kind },
+            &storage::list::Cmd {
+                session: a.session.clone(),
+                tab: a.tab.clone(),
+                kind,
+            },
             result,
         ),
         StorageSubCommands::Get(a) => storage::get::context(
-            &storage::get::Cmd { key: a.key.clone(), session: a.session.clone(), tab: a.tab.clone(), kind },
+            &storage::get::Cmd {
+                key: a.key.clone(),
+                session: a.session.clone(),
+                tab: a.tab.clone(),
+                kind,
+            },
             result,
         ),
         StorageSubCommands::Set(a) => storage::set::context(
-            &storage::set::Cmd { key: a.key.clone(), value: a.value.clone(), session: a.session.clone(), tab: a.tab.clone(), kind },
+            &storage::set::Cmd {
+                key: a.key.clone(),
+                value: a.value.clone(),
+                session: a.session.clone(),
+                tab: a.tab.clone(),
+                kind,
+            },
             result,
         ),
         StorageSubCommands::Delete(a) => storage::delete::context(
-            &storage::delete::Cmd { key: a.key.clone(), session: a.session.clone(), tab: a.tab.clone(), kind },
+            &storage::delete::Cmd {
+                key: a.key.clone(),
+                session: a.session.clone(),
+                tab: a.tab.clone(),
+                kind,
+            },
             result,
         ),
         StorageSubCommands::Clear(a) => storage::clear::context(
-            &storage::clear::Cmd { key: a.key.clone(), session: a.session.clone(), tab: a.tab.clone(), kind },
+            &storage::clear::Cmd {
+                key: a.key.clone(),
+                session: a.session.clone(),
+                tab: a.tab.clone(),
+                kind,
+            },
             result,
         ),
     }
