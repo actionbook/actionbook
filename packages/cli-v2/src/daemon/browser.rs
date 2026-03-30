@@ -235,15 +235,3 @@ fn parse_endpoint_port(endpoint: &str) -> Result<u16, CliError> {
     })
 }
 
-fn ensure_scheme(url: &str) -> String {
-    let lower = url.to_ascii_lowercase();
-    // Block dangerous protocols — same policy as cdp::ensure_scheme
-    if lower.starts_with("javascript:") || lower.starts_with("data:text/html") {
-        return "about:blank".to_string();
-    }
-    if url.contains("://") || url.starts_with("about:") || url.starts_with("chrome:") {
-        url.to_string()
-    } else {
-        format!("https://{url}")
-    }
-}
