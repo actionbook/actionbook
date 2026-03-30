@@ -84,30 +84,39 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         return cdp_error_to_result(e, "CDP_ERROR");
     }
 
+    // Resolve to objectId so we can use callFunctionOn (works across frames,
+    // unlike document.activeElement which stays in the top-level context).
+    let object_id = match ctx.resolve_object_id(node_id).await {
+        Ok(oid) => oid,
+        Err(e) => return e,
+    };
+
     // Set value directly via JS and dispatch an input event (no key events)
     let value_json = serde_json::to_string(&cmd.value).unwrap_or_default();
-    let js = format!(
-        r#"(() => {{
-            const el = document.activeElement;
-            if (!el) return 'no active element';
-            const proto = el instanceof HTMLTextAreaElement
+    let fill_fn = format!(
+        r#"function() {{
+            const proto = this instanceof HTMLTextAreaElement
                 ? HTMLTextAreaElement.prototype
                 : HTMLInputElement.prototype;
-            const nativeSet = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-            if (nativeSet) {{
-                nativeSet.call(el, {value_json});
+            const nativeSet = Object.getOwnPropertyDescriptor(proto, 'value');
+            if (nativeSet && nativeSet.set) {{
+                nativeSet.set.call(this, {value_json});
             }} else {{
-                el.value = {value_json};
+                this.value = {value_json};
             }}
-            el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+            this.dispatchEvent(new Event('input', {{ bubbles: true }}));
             return 'ok';
-        }})()"#
+        }}"#
     );
 
     let resp = match ctx
         .execute_in_frame(
-            "Runtime.evaluate",
-            json!({ "expression": js, "returnByValue": true }),
+            "Runtime.callFunctionOn",
+            json!({
+                "objectId": object_id,
+                "functionDeclaration": fill_fn,
+                "returnByValue": true,
+            }),
         )
         .await
     {

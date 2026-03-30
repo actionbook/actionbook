@@ -203,6 +203,40 @@ fn handle_http(mut stream: std::net::TcpStream) {
         other => other.trim_start_matches('/'),
     };
 
+    // iframe test pages: parent embeds child via same-origin iframe
+    if path == "/iframe-parent" {
+        let port = local_server().port;
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Iframe Parent</title></head>
+<body>
+<h1>Main Page</h1>
+<input id="main-input" value="main-value" aria-label="Main Input">
+<iframe src="http://127.0.0.1:{port}/iframe-child" title="Child Frame" width="400" height="300"></iframe>
+<p>Footer</p>
+</body></html>"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(), body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+    if path == "/iframe-child" {
+        let body = r#"<!DOCTYPE html><html><head><title>Iframe Child</title></head>
+<body>
+<h2>Child Content</h2>
+<input id="child-input" value="child-value" aria-label="Child Input">
+<button id="child-btn" aria-label="Child Button">Click Me</button>
+</body></html>"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(), body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
     let body = format!(
         "<!DOCTYPE html><html><head><title>{title}</title></head>\
          <body><h1>{title}</h1></body></html>"
@@ -233,6 +267,11 @@ pub fn url_c() -> String {
 /// URL for a slow page used to verify CLI-level timeouts.
 pub fn url_slow() -> String {
     format!("http://127.0.0.1:{}/slow", local_server().port)
+}
+
+/// URL for an iframe test page (parent with embedded child iframe).
+pub fn url_iframe_parent() -> String {
+    format!("http://127.0.0.1:{}/iframe-parent", local_server().port)
 }
 
 // ── Per-test session isolation ─────────────────────────────────────

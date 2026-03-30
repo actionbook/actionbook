@@ -1871,6 +1871,63 @@ mod tests {
     }
 
     // ══════════════════════════════════════════════════════════════════
+    // P0: RefCache — iframe frame_id isolation
+    // ══════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_ref_cache_same_bid_different_frames_get_distinct_refs() {
+        let mut cache = RefCache::new();
+        // Main frame: backendNodeId=42
+        let r1 = cache.get_or_assign(42, "button", "OK", None);
+        // Iframe: same backendNodeId=42, different frame
+        let r2 = cache.get_or_assign(42, "button", "Submit", Some("FRAME_ABC"));
+        assert_ne!(r1, r2, "same bid in different frames must get distinct refs");
+        assert_eq!(r1, "e1");
+        assert_eq!(r2, "e2");
+    }
+
+    #[test]
+    fn test_ref_cache_frame_id_round_trip() {
+        let mut cache = RefCache::new();
+        cache.get_or_assign(42, "button", "OK", None);
+        cache.get_or_assign(55, "link", "Home", Some("FRAME_XYZ"));
+
+        // Main frame element: no frame_id
+        assert_eq!(cache.frame_id_for_ref("e1"), None);
+        // Iframe element: has frame_id
+        assert_eq!(cache.frame_id_for_ref("e2"), Some("FRAME_XYZ"));
+    }
+
+    #[test]
+    fn test_ref_cache_backend_node_id_for_ref_with_frames() {
+        let mut cache = RefCache::new();
+        cache.get_or_assign(42, "button", "OK", None);
+        cache.get_or_assign(42, "button", "Submit", Some("FRAME_1"));
+
+        assert_eq!(cache.backend_node_id_for_ref("e1"), Some(42));
+        assert_eq!(cache.backend_node_id_for_ref("e2"), Some(42));
+        // Both return 42 but they are distinct refs for distinct frames
+    }
+
+    #[test]
+    fn test_ref_cache_stable_across_snapshots_with_frames() {
+        let mut cache = RefCache::new();
+        // First snapshot
+        assert_eq!(cache.get_or_assign(42, "button", "OK", None), "e1");
+        assert_eq!(
+            cache.get_or_assign(42, "button", "Submit", Some("F1")),
+            "e2"
+        );
+
+        // Second snapshot — same (frame_id, bid) pairs keep same refs
+        assert_eq!(cache.get_or_assign(42, "button", "OK", None), "e1");
+        assert_eq!(
+            cache.get_or_assign(42, "button", "Submit", Some("F1")),
+            "e2"
+        );
+    }
+
+    // ══════════════════════════════════════════════════════════════════
     // Codex review fixes: collision resistance, escaping
     // ══════════════════════════════════════════════════════════════════
 
