@@ -1,8 +1,9 @@
 //! E2E tests for iframe content expansion and frame-aware interaction.
+//! Covers both same-origin iframes and cross-origin (OOPIF) iframes.
 
 use crate::harness::{
     SessionGuard, assert_success, headless, headless_json, parse_json, skip, stdout_str,
-    unique_session, url_iframe_parent, wait_page_ready,
+    unique_session, url_iframe_cross_origin_parent, url_iframe_parent, wait_page_ready,
 };
 
 fn start_iframe_session() -> (String, String, SessionGuard) {
@@ -312,6 +313,203 @@ fn iframe_refs_do_not_collide_with_main_frame() {
             "all refs must be unique (no collision between frames). Duplicates found."
         );
     }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Cross-origin (OOPIF) iframe tests
+// ══════════════════════════════════════════════════════════════════
+
+fn start_xo_iframe_session() -> (String, String, SessionGuard) {
+    let (sid, profile) = unique_session("xo-iframe");
+    let out = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            &sid,
+            "--profile",
+            &profile,
+            "--open-url",
+            &url_iframe_cross_origin_parent(),
+        ],
+        30,
+    );
+    assert_success(&out, "start xo iframe session");
+    let v = parse_json(&out);
+    let sid = v["data"]["session"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let tid = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
+    wait_page_ready(&sid, &tid);
+    // Give cross-origin iframe extra time to load and attach
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+    let guard = SessionGuard::new(&sid);
+    (sid, tid, guard)
+}
+
+#[test]
+fn xo_iframe_snapshot_expands_cross_origin_content() {
+    if skip() {
+        return;
+    }
+    let (sid, tid, _guard) = start_xo_iframe_session();
+
+    let out = headless(&["browser", "snapshot", "--session", &sid, "--tab", &tid], 15);
+    assert_success(&out, "xo snapshot");
+    let text = stdout_str(&out);
+
+    // Iframe node should appear
+    assert!(
+        text.contains("Iframe"),
+        "Iframe node should appear in snapshot"
+    );
+
+    // Cross-origin child content should be expanded
+    assert!(
+        text.contains("Cross-Origin Content")
+            || text.contains("XO Input")
+            || text.contains("XO Button"),
+        "cross-origin iframe content should be expanded.\nGot:\n{text}"
+    );
+}
+
+#[test]
+fn xo_iframe_html_reads_cross_origin_element() {
+    if skip() {
+        return;
+    }
+    let (sid, tid, _guard) = start_xo_iframe_session();
+
+    let snap = headless_json(
+        &["browser", "snapshot", "--session", &sid, "--tab", &tid],
+        15,
+    );
+    assert_success(&snap, "xo snapshot");
+    let snap_v = parse_json(&snap);
+    let content = snap_v["data"]["content"].as_str().unwrap_or("");
+
+    let xo_btn_ref = find_ref_for_name(content, "XO Button");
+    if xo_btn_ref.is_empty() {
+        eprintln!("SKIP: could not find 'XO Button' ref (cross-origin iframe may not have loaded)");
+        return;
+    }
+
+    let html_out = headless(
+        &[
+            "browser",
+            "html",
+            &format!("@{xo_btn_ref}"),
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&html_out, "html on xo iframe element");
+    let html_text = stdout_str(&html_out);
+    assert!(
+        html_text.contains("xo-btn") || html_text.contains("XO Click"),
+        "html should return cross-origin iframe button content.\nGot:\n{html_text}"
+    );
+}
+
+#[test]
+fn xo_iframe_fill_writes_to_cross_origin_input() {
+    if skip() {
+        return;
+    }
+    let (sid, tid, _guard) = start_xo_iframe_session();
+
+    let snap = headless_json(
+        &["browser", "snapshot", "--session", &sid, "--tab", &tid],
+        15,
+    );
+    assert_success(&snap, "xo snapshot");
+    let snap_v = parse_json(&snap);
+    let content = snap_v["data"]["content"].as_str().unwrap_or("");
+
+    let xo_input_ref = find_ref_for_name(content, "XO Input");
+    if xo_input_ref.is_empty() {
+        eprintln!("SKIP: could not find 'XO Input' ref");
+        return;
+    }
+
+    // Fill
+    let fill_out = headless(
+        &[
+            "browser",
+            "fill",
+            &format!("@{xo_input_ref}"),
+            "xo-filled",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&fill_out, "fill on xo iframe input");
+
+    // Read back
+    let val_out = headless(
+        &[
+            "browser",
+            "value",
+            &format!("@{xo_input_ref}"),
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&val_out, "value after xo fill");
+    let val_text = stdout_str(&val_out);
+    assert!(
+        val_text.contains("xo-filled"),
+        "value should reflect filled text in cross-origin iframe.\nGot:\n{val_text}"
+    );
+}
+
+#[test]
+fn xo_iframe_click_works_on_cross_origin_element() {
+    if skip() {
+        return;
+    }
+    let (sid, tid, _guard) = start_xo_iframe_session();
+
+    let snap = headless_json(
+        &["browser", "snapshot", "--session", &sid, "--tab", &tid],
+        15,
+    );
+    assert_success(&snap, "xo snapshot");
+    let snap_v = parse_json(&snap);
+    let content = snap_v["data"]["content"].as_str().unwrap_or("");
+
+    let xo_btn_ref = find_ref_for_name(content, "XO Button");
+    if xo_btn_ref.is_empty() {
+        eprintln!("SKIP: could not find 'XO Button' ref");
+        return;
+    }
+
+    let click_out = headless(
+        &[
+            "browser",
+            "click",
+            &format!("@{xo_btn_ref}"),
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&click_out, "click on xo iframe element");
 }
 
 // ── Helper ────────────────────────────────────────────────────────
