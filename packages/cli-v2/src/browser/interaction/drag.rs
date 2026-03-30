@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::browser::{element, navigation};
-use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result, get_cdp_and_target};
+use crate::browser::element::TabContext;
+use crate::browser::navigation;
+use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result};
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
@@ -138,7 +139,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     // Get CDP session and verify tab
-    let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
+    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -148,15 +149,16 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // offsets) are reachable by both DOM queries and Input.dispatchMouseEvent.
     // Coordinates are then resolved under this final viewport, avoiding the
     // stale-coordinate problem on responsive pages.
-    let viewport_set = ensure_viewport(&cdp, &target_id, &destination).await;
+    let viewport_set = ensure_viewport(&ctx.cdp, &ctx.target_id, &destination).await;
 
-    let result = execute_inner(&cdp, &target_id, cmd, &destination, registry).await;
+    let result = execute_inner(&ctx, cmd, &destination).await;
 
     // Always clear the viewport override
     if viewport_set {
-        let _ = cdp
+        let _ = ctx
+            .cdp
             .execute_on_tab(
-                &target_id,
+                &ctx.target_id,
                 "Emulation.clearDeviceMetricsOverride",
                 json!({}),
             )
@@ -258,24 +260,9 @@ async fn ensure_viewport(cdp: &CdpSession, target_id: &str, destination: &DragDe
 }
 
 /// Inner execute logic run under the enlarged viewport.
-async fn execute_inner(
-    cdp: &CdpSession,
-    target_id: &str,
-    cmd: &Cmd,
-    destination: &DragDestination,
-    registry: &SharedRegistry,
-) -> ActionResult {
+async fn execute_inner(ctx: &TabContext, cmd: &Cmd, destination: &DragDestination) -> ActionResult {
     // Resolve source element to centre coordinates
-    let (src_x, src_y) = match element::resolve_element_center(
-        cdp,
-        target_id,
-        &cmd.source,
-        registry,
-        &cmd.session,
-        &cmd.tab,
-    )
-    .await
-    {
+    let (src_x, src_y) = match ctx.resolve_center(&cmd.source).await {
         Ok(coords) => coords,
         Err(e) => return e,
     };
@@ -283,42 +270,41 @@ async fn execute_inner(
     // Resolve destination to coordinates
     let (dst_x, dst_y) = match destination {
         DragDestination::Coordinates(x, y) => (*x, *y),
-        DragDestination::Selector(sel) => {
-            match element::resolve_element_center(
-                cdp,
-                target_id,
-                sel,
-                registry,
-                &cmd.session,
-                &cmd.tab,
-            )
-            .await
-            {
-                Ok(coords) => coords,
-                Err(e) => return e,
-            }
-        }
+        DragDestination::Selector(sel) => match ctx.resolve_center(sel).await {
+            Ok(coords) => coords,
+            Err(e) => return e,
+        },
     };
 
     // Pre-drag state
-    let pre_url = navigation::get_tab_url(cdp, target_id).await;
-    let pre_focus = get_active_element_id(cdp, target_id).await;
+    let pre_url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
+    let pre_focus = get_active_element_id(&ctx.cdp, &ctx.target_id).await;
 
     // Dispatch drag: mousePressed → mouseMoved → mouseReleased
-    if let Err(e) = dispatch_drag(cdp, target_id, src_x, src_y, dst_x, dst_y, &cmd.button).await {
+    if let Err(e) = dispatch_drag(
+        &ctx.cdp,
+        &ctx.target_id,
+        src_x,
+        src_y,
+        dst_x,
+        dst_y,
+        &cmd.button,
+    )
+    .await
+    {
         return e;
     }
 
     // Store cursor position in registry for cursor-position command
     {
-        let mut reg = registry.lock().await;
-        reg.set_cursor_position(&cmd.session, &cmd.tab, dst_x, dst_y);
+        let mut reg = ctx.registry().lock().await;
+        reg.set_cursor_position(ctx.session_id(), ctx.tab_id(), dst_x, dst_y);
     }
 
     // Post-drag state
-    let post_url = navigation::get_tab_url(cdp, target_id).await;
-    let post_title = navigation::get_tab_title(cdp, target_id).await;
-    let post_focus = get_active_element_id(cdp, target_id).await;
+    let post_url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
+    let post_title = navigation::get_tab_title(&ctx.cdp, &ctx.target_id).await;
+    let post_focus = get_active_element_id(&ctx.cdp, &ctx.target_id).await;
 
     let url_changed = !pre_url.is_empty() && pre_url != post_url;
     let focus_changed = pre_focus != post_focus;

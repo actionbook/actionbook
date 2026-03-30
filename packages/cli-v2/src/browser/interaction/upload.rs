@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::browser::{element, navigation};
-use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target};
+use crate::browser::element::TabContext;
+use crate::browser::navigation;
+use crate::daemon::cdp_session::cdp_error_to_result;
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
@@ -77,30 +78,22 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
 
     // Get CDP session and verify tab
-    let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
+    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
 
     // Resolve the file input element
-    let node_id = match element::resolve_node(
-        &cdp,
-        &target_id,
-        &cmd.selector,
-        registry,
-        &cmd.session,
-        &cmd.tab,
-    )
-    .await
-    {
+    let node_id = match ctx.resolve_node(&cmd.selector).await {
         Ok(id) => id,
         Err(e) => return e,
     };
 
     // Set files on the input via DOM.setFileInputFiles
-    if let Err(e) = cdp
+    if let Err(e) = ctx
+        .cdp
         .execute_on_tab(
-            &target_id,
+            &ctx.target_id,
             "DOM.setFileInputFiles",
             json!({
                 "files": cmd.files,
@@ -112,8 +105,8 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         return cdp_error_to_result(e, "CDP_ERROR");
     }
 
-    let url = navigation::get_tab_url(&cdp, &target_id).await;
-    let title = navigation::get_tab_title(&cdp, &target_id).await;
+    let url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
+    let title = navigation::get_tab_title(&ctx.cdp, &ctx.target_id).await;
 
     ActionResult::ok(json!({
         "action": "upload",

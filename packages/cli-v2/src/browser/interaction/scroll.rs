@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::browser::{element, navigation};
-use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result, get_cdp_and_target};
+use crate::browser::element::TabContext;
+use crate::browser::navigation;
+use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result};
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
@@ -134,40 +135,38 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return e,
     };
 
-    let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
+    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
 
     // Ensure DOM tree is initialized (required for DOM.requestNode used by XPath resolution)
-    let _ = cdp
-        .execute_on_tab(&target_id, "DOM.getDocument", json!({}))
+    let _ = ctx
+        .cdp
+        .execute_on_tab(&ctx.target_id, "DOM.getDocument", json!({}))
         .await;
 
     // Resolve container to a JS object reference if specified
     let container_object_id = match &cmd.container {
-        Some(sel) => {
-            match resolve_to_object_id(&cdp, &target_id, sel, registry, &cmd.session, &cmd.tab)
-                .await
-            {
-                Ok(id) => Some(id),
-                Err(e) => return e,
-            }
-        }
+        Some(sel) => match resolve_to_object_id(&ctx, sel).await {
+            Ok(id) => Some(id),
+            Err(e) => return e,
+        },
         None => None,
     };
 
     // Pre-scroll state
-    let pre_url = navigation::get_tab_url(&cdp, &target_id).await;
-    let pre_focus = get_active_element_id(&cdp, &target_id).await;
-    let pre_scroll = get_scroll_position(&cdp, &target_id, container_object_id.as_deref()).await;
+    let pre_url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
+    let pre_focus = get_active_element_id(&ctx.cdp, &ctx.target_id).await;
+    let pre_scroll =
+        get_scroll_position(&ctx.cdp, &ctx.target_id, container_object_id.as_deref()).await;
 
     // Execute scroll
     match &mode {
         ScrollMode::Directional { direction, pixels } => {
             if let Err(e) = scroll_directional(
-                &cdp,
-                &target_id,
+                &ctx.cdp,
+                &ctx.target_id,
                 direction,
                 *pixels,
                 container_object_id.as_deref(),
@@ -178,34 +177,30 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             }
         }
         ScrollMode::Edge { direction } => {
-            if let Err(e) =
-                scroll_edge(&cdp, &target_id, direction, container_object_id.as_deref()).await
-            {
-                return e;
-            }
-        }
-        ScrollMode::IntoView { selector, align } => {
-            if let Err(e) = scroll_into_view(
-                &cdp,
-                &target_id,
-                selector,
-                align,
-                registry,
-                &cmd.session,
-                &cmd.tab,
+            if let Err(e) = scroll_edge(
+                &ctx.cdp,
+                &ctx.target_id,
+                direction,
+                container_object_id.as_deref(),
             )
             .await
             {
                 return e;
             }
         }
+        ScrollMode::IntoView { selector, align } => {
+            if let Err(e) = scroll_into_view(&ctx, selector, align).await {
+                return e;
+            }
+        }
     }
 
     // Post-scroll state
-    let post_url = navigation::get_tab_url(&cdp, &target_id).await;
-    let post_title = navigation::get_tab_title(&cdp, &target_id).await;
-    let post_focus = get_active_element_id(&cdp, &target_id).await;
-    let post_scroll = get_scroll_position(&cdp, &target_id, container_object_id.as_deref()).await;
+    let post_url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
+    let post_title = navigation::get_tab_title(&ctx.cdp, &ctx.target_id).await;
+    let post_focus = get_active_element_id(&ctx.cdp, &ctx.target_id).await;
+    let post_scroll =
+        get_scroll_position(&ctx.cdp, &ctx.target_id, container_object_id.as_deref()).await;
 
     let url_changed = !pre_url.is_empty() && pre_url != post_url;
     let focus_changed = pre_focus != post_focus;
@@ -243,25 +238,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     ActionResult::ok(data)
 }
 
-/// Resolve a selector to a CDP JS object ID via element::resolve_node + DOM.resolveNode.
-async fn resolve_to_object_id(
-    cdp: &CdpSession,
-    target_id: &str,
-    selector: &str,
-    registry: &SharedRegistry,
-    session_id: &str,
-    tab_id: &str,
-) -> Result<String, ActionResult> {
-    let node_id =
-        element::resolve_node(cdp, target_id, selector, registry, session_id, tab_id).await?;
-    let resp = cdp
-        .execute_on_tab(target_id, "DOM.resolveNode", json!({ "nodeId": node_id }))
-        .await
-        .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
-    resp.pointer("/result/object/objectId")
-        .and_then(|v| v.as_str())
-        .map(String::from)
-        .ok_or_else(|| ActionResult::fatal("CDP_ERROR", "DOM.resolveNode did not return objectId"))
+/// Resolve a selector to a CDP JS object ID via TabContext.
+async fn resolve_to_object_id(ctx: &TabContext, selector: &str) -> Result<String, ActionResult> {
+    let (_node_id, object_id) = ctx.resolve_object(selector).await?;
+    Ok(object_id)
 }
 
 /// Scroll by pixel amount in a given direction.
@@ -326,16 +306,11 @@ async fn scroll_edge(
 
 /// Scroll an element into view with alignment.
 async fn scroll_into_view(
-    cdp: &CdpSession,
-    target_id: &str,
+    ctx: &TabContext,
     selector: &str,
     align: &str,
-    registry: &SharedRegistry,
-    session_id: &str,
-    tab_id: &str,
 ) -> Result<(), ActionResult> {
-    let object_id =
-        resolve_to_object_id(cdp, target_id, selector, registry, session_id, tab_id).await?;
+    let object_id = resolve_to_object_id(ctx, selector).await?;
 
     let block = match align {
         "start" => "start",
@@ -345,8 +320,8 @@ async fn scroll_into_view(
     };
 
     call_fn_on(
-        cdp,
-        target_id,
+        &ctx.cdp,
+        &ctx.target_id,
         &object_id,
         &format!(
             "function() {{ this.scrollIntoView({{ block: '{block}', inline: 'nearest', behavior: 'instant' }}); return 'ok'; }}"

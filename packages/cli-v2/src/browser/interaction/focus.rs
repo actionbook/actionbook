@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::browser::{element, navigation};
-use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target};
+use crate::browser::element::TabContext;
+use crate::browser::navigation;
+use crate::daemon::cdp_session::cdp_error_to_result;
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
@@ -61,31 +62,23 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
+    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
 
     // Resolve selector to a DOM node
-    let node_id = match element::resolve_node(
-        &cdp,
-        &target_id,
-        &cmd.selector,
-        registry,
-        &cmd.session,
-        &cmd.tab,
-    )
-    .await
-    {
+    let node_id = match ctx.resolve_node(&cmd.selector).await {
         Ok(id) => id,
         Err(e) => return e,
     };
 
     // Stash a reference to the current activeElement, focus the target,
     // then compare with === for true element identity (not a lossy string).
-    if let Err(e) = cdp
+    if let Err(e) = ctx
+        .cdp
         .execute_on_tab(
-            &target_id,
+            &ctx.target_id,
             "Runtime.evaluate",
             json!({
                 "expression": "window.__ab_pre_focus = document.activeElement",
@@ -97,17 +90,19 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
 
     // Focus the element via DOM.focus
-    if let Err(e) = cdp
-        .execute_on_tab(&target_id, "DOM.focus", json!({ "nodeId": node_id }))
+    if let Err(e) = ctx
+        .cdp
+        .execute_on_tab(&ctx.target_id, "DOM.focus", json!({ "nodeId": node_id }))
         .await
     {
         return cdp_error_to_result(e, "CDP_ERROR");
     }
 
     // Compare pre/post active element by reference identity
-    let focus_changed = cdp
+    let focus_changed = ctx
+        .cdp
         .execute_on_tab(
-            &target_id,
+            &ctx.target_id,
             "Runtime.evaluate",
             json!({
                 "expression": "document.activeElement !== window.__ab_pre_focus",
@@ -120,16 +115,17 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         .unwrap_or(false);
 
     // Clean up the temporary global
-    let _ = cdp
+    let _ = ctx
+        .cdp
         .execute_on_tab(
-            &target_id,
+            &ctx.target_id,
             "Runtime.evaluate",
             json!({ "expression": "delete window.__ab_pre_focus" }),
         )
         .await;
 
-    let url = navigation::get_tab_url(&cdp, &target_id).await;
-    let title = navigation::get_tab_title(&cdp, &target_id).await;
+    let url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
+    let title = navigation::get_tab_title(&ctx.cdp, &ctx.target_id).await;
 
     ActionResult::ok(json!({
         "action": "focus",

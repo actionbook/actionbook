@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use crate::action_result::ActionResult;
-use crate::browser::{element, navigation};
-use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target};
+use crate::browser::{element::TabContext, navigation};
+use crate::daemon::cdp_session::cdp_error_to_result;
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
@@ -77,28 +77,19 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
+    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
 
-    let (_, object_id) = match element::resolve_selector_object(
-        &cdp,
-        &target_id,
-        &cmd.selector,
-        registry,
-        &cmd.session,
-        &cmd.tab,
-    )
-    .await
-    {
+    let (_, object_id) = match ctx.resolve_object(&cmd.selector).await {
         Ok(v) => v,
         Err(e) => return e,
     };
 
     let names = requested_style_names(&cmd.names);
-    let url = navigation::get_tab_url(&cdp, &target_id).await;
-    let value = match get_styles(&cdp, &target_id, &object_id, &names).await {
+    let url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
+    let value = match get_styles(&ctx.cdp, &ctx.target_id, &object_id, &names).await {
         Ok(v) => v,
         Err(e) => return e,
     };

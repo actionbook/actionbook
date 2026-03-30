@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::action_result::ActionResult;
-use crate::browser::{element, navigation};
-use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target};
+use crate::browser::{element::TabContext, navigation};
+use crate::daemon::cdp_session::cdp_error_to_result;
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
@@ -66,27 +66,17 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
+    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
 
-    let value = match get_attr(
-        &cdp,
-        &target_id,
-        &cmd.selector,
-        &cmd.name,
-        registry,
-        &cmd.session,
-        &cmd.tab,
-    )
-    .await
-    {
+    let value = match get_attr(&ctx, &cmd.selector, &cmd.name).await {
         Ok(v) => v,
         Err(e) => return e,
     };
-    let url = navigation::get_tab_url(&cdp, &target_id).await;
-    let title = navigation::get_tab_title(&cdp, &target_id).await;
+    let url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
+    let title = navigation::get_tab_title(&ctx.cdp, &ctx.target_id).await;
 
     ActionResult::ok(json!({
         "target": { "selector": cmd.selector },
@@ -97,25 +87,20 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 }
 
 async fn get_attr(
-    cdp: &crate::daemon::cdp_session::CdpSession,
-    target_id: &str,
+    ctx: &TabContext,
     selector: &str,
     attr_name: &str,
-    registry: &SharedRegistry,
-    session_id: &str,
-    tab_id: &str,
 ) -> Result<Value, ActionResult> {
-    let (_, object_id) =
-        element::resolve_selector_object(cdp, target_id, selector, registry, session_id, tab_id)
-            .await?;
+    let (_, object_id) = ctx.resolve_object(selector).await?;
     let attr_json = serde_json::to_string(attr_name).map_err(|e| {
         ActionResult::fatal("INTERNAL_ERROR", format!("serialize attribute name: {e}"))
     })?;
     let function = format!(r#"function() {{ return this.getAttribute({attr_json}); }}"#);
 
-    let resp = cdp
+    let resp = ctx
+        .cdp
         .execute_on_tab(
-            target_id,
+            &ctx.target_id,
             "Runtime.callFunctionOn",
             json!({
                 "objectId": object_id,

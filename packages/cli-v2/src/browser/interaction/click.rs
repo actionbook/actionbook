@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::browser::{element, navigation};
-use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result, get_cdp_and_target};
+use crate::browser::element::TabContext;
+use crate::browser::navigation;
+use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result};
 use crate::daemon::registry::{SharedRegistry, TabEntry};
 use crate::output::ResponseContext;
 use crate::types::TabId;
@@ -160,7 +161,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     // Get CDP session and verify tab
-    let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
+    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -168,41 +169,20 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Resolve element to (x, y) coordinates
     let (x, y) = match &target {
         ClickTarget::Coordinates(cx, cy) => (*cx, *cy),
-        ClickTarget::Selector(sel) => {
-            match element::resolve_element_center(
-                &cdp,
-                &target_id,
-                sel,
-                registry,
-                &cmd.session,
-                &cmd.tab,
-            )
-            .await
-            {
-                Ok(coords) => coords,
-                Err(e) => return e,
-            }
-        }
+        ClickTarget::Selector(sel) => match ctx.resolve_center(sel).await {
+            Ok(coords) => coords,
+            Err(e) => return e,
+        },
     };
 
     // Handle --new-tab: if the target is a link, open href in a new tab
     if cmd.new_tab
-        && let Some(href) = get_element_href(
-            &cdp,
-            &target_id,
-            &target,
-            x,
-            y,
-            registry,
-            &cmd.session,
-            &cmd.tab,
-        )
-        .await
+        && let Some(href) = get_element_href(&ctx, &target, x, y).await
     {
-        return match open_in_new_tab(&cdp, &href, &cmd.session, registry).await {
+        return match open_in_new_tab(&ctx.cdp, &href, ctx.session_id(), ctx.registry()).await {
             Ok(()) => {
-                let url = navigation::get_tab_url(&cdp, &target_id).await;
-                let title = navigation::get_tab_title(&cdp, &target_id).await;
+                let url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
+                let title = navigation::get_tab_title(&ctx.cdp, &ctx.target_id).await;
                 ActionResult::ok(build_response(
                     &cmd.selector,
                     &target,
@@ -217,26 +197,26 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
 
     // Pre-click state
-    let pre_url = navigation::get_tab_url(&cdp, &target_id).await;
-    let pre_focus = get_active_element_id(&cdp, &target_id).await;
+    let pre_url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
+    let pre_focus = get_active_element_id(&ctx.cdp, &ctx.target_id).await;
 
     // Dispatch click events
-    if let Err(e) = dispatch_click(&cdp, &target_id, x, y, &cmd.button, cmd.count).await {
+    if let Err(e) = dispatch_click(&ctx.cdp, &ctx.target_id, x, y, &cmd.button, cmd.count).await {
         return e;
     }
 
     // Store cursor position in registry for cursor-position command
     {
-        let mut reg = registry.lock().await;
-        reg.set_cursor_position(&cmd.session, &cmd.tab, x, y);
+        let mut reg = ctx.registry().lock().await;
+        reg.set_cursor_position(ctx.session_id(), ctx.tab_id(), x, y);
     }
 
     // Wait for potential navigation: poll for URL change with early exit.
     // Check at short intervals so fast navigations aren't delayed, but
     // keep polling long enough for slow navigations (SPA routers, redirects).
-    let post_url = wait_for_navigation(&cdp, &target_id, &pre_url).await;
-    let post_title = navigation::get_tab_title(&cdp, &target_id).await;
-    let post_focus = get_active_element_id(&cdp, &target_id).await;
+    let post_url = wait_for_navigation(&ctx.cdp, &ctx.target_id, &pre_url).await;
+    let post_title = navigation::get_tab_title(&ctx.cdp, &ctx.target_id).await;
+    let post_focus = get_active_element_id(&ctx.cdp, &ctx.target_id).await;
 
     let url_changed = !pre_url.is_empty() && pre_url != post_url;
     let focus_changed = pre_focus != post_focus;
@@ -289,36 +269,23 @@ fn build_response(
 
 /// Check whether the element at the target position has an `href`.
 ///
-/// For selectors, resolves via `element::resolve_node` (supports CSS, XPath,
+/// For selectors, resolves via `ctx.resolve_node` (supports CSS, XPath,
 /// @eN refs) and then inspects the node. For coordinates, uses
 /// `document.elementFromPoint`.
-#[allow(clippy::too_many_arguments)]
 async fn get_element_href(
-    cdp: &CdpSession,
-    target_id: &str,
+    ctx: &TabContext,
     target: &ClickTarget,
     x: f64,
     y: f64,
-    registry: &SharedRegistry,
-    session_id: &str,
-    tab_id: &str,
 ) -> Option<String> {
     match target {
         ClickTarget::Selector(sel) => {
-            let node_id = element::resolve_node(cdp, target_id, sel, registry, session_id, tab_id)
-                .await
-                .ok()?;
-            // Resolve the DOM node to a JS object, then check for href.
-            let resp = cdp
-                .execute_on_tab(target_id, "DOM.resolveNode", json!({ "nodeId": node_id }))
-                .await
-                .ok()?;
-            let object_id = resp
-                .pointer("/result/object/objectId")
-                .and_then(|v| v.as_str())?;
-            let eval = cdp
+            let node_id = ctx.resolve_node(sel).await.ok()?;
+            let object_id = ctx.resolve_object_id(node_id).await.ok()?;
+            let eval = ctx
+                .cdp
                 .execute_on_tab(
-                    target_id,
+                    &ctx.target_id,
                     "Runtime.callFunctionOn",
                     json!({
                         "objectId": object_id,
@@ -342,18 +309,19 @@ async fn get_element_href(
                     return link ? link.href : null;
                 }})()"#
             );
-            cdp.execute_on_tab(
-                target_id,
-                "Runtime.evaluate",
-                json!({ "expression": js, "returnByValue": true }),
-            )
-            .await
-            .ok()
-            .and_then(|v| {
-                v.pointer("/result/result/value")
-                    .and_then(|v| v.as_str())
-                    .map(String::from)
-            })
+            ctx.cdp
+                .execute_on_tab(
+                    &ctx.target_id,
+                    "Runtime.evaluate",
+                    json!({ "expression": js, "returnByValue": true }),
+                )
+                .await
+                .ok()
+                .and_then(|v| {
+                    v.pointer("/result/result/value")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                })
         }
     }
 }

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::daemon::cdp_session::get_cdp_and_target;
+use crate::browser::element::TabContext;
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
@@ -100,13 +100,13 @@ fn mime_type(format: &str) -> &'static str {
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Resolve session + tab
-    let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
+    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
 
-    let url = crate::browser::navigation::get_tab_url(&cdp, &target_id).await;
-    let title = crate::browser::navigation::get_tab_title(&cdp, &target_id).await;
+    let url = crate::browser::navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
+    let title = crate::browser::navigation::get_tab_title(&ctx.cdp, &ctx.target_id).await;
 
     // Determine format
     let format = match cmd.screenshot_format.as_deref() {
@@ -135,28 +135,27 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     if cmd.annotate {
         let ref_cache = {
-            let mut reg = registry.lock().await;
+            let mut reg = ctx.registry().lock().await;
             reg.take_ref_cache(&cmd.session, &cmd.tab)
         };
 
-        annotation_items = collect_annotation_rects(&cdp, &target_id, &ref_cache).await;
+        annotation_items = collect_annotation_rects(&ctx.cdp, &ctx.target_id, &ref_cache).await;
 
         // Put ref_cache back immediately
         {
-            let mut reg = registry.lock().await;
+            let mut reg = ctx.registry().lock().await;
             reg.put_ref_cache(&cmd.session, &cmd.tab, ref_cache);
         }
 
         // Filter by selector region if applicable
         if let Some(ref sel) = cmd.selector
-            && let Ok((_, target_rect)) =
-                get_selector_rect(&cdp, &target_id, sel, registry, &cmd.session, &cmd.tab).await
+            && let Ok((_, target_rect)) = get_selector_rect(&ctx, sel).await
         {
             annotation_items = filter_annotations(annotation_items, Some(&target_rect));
         }
 
         if !annotation_items.is_empty()
-            && inject_overlay(&cdp, &target_id, &annotation_items)
+            && inject_overlay(&ctx.cdp, &ctx.target_id, &annotation_items)
                 .await
                 .is_ok()
         {
@@ -177,8 +176,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Full page: get layout metrics for clip
     if cmd.full {
-        if let Ok(metrics) = cdp
-            .execute_on_tab(&target_id, "Page.getLayoutMetrics", json!({}))
+        if let Ok(metrics) = ctx
+            .cdp
+            .execute_on_tab(&ctx.target_id, "Page.getLayoutMetrics", json!({}))
             .await
         {
             let content_size = metrics["result"]
@@ -199,13 +199,13 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }
     } else if let Some(ref sel) = cmd.selector {
         // Clip to selector region
-        match get_selector_rect(&cdp, &target_id, sel, registry, &cmd.session, &cmd.tab).await {
+        match get_selector_rect(&ctx, sel).await {
             Ok((clip, _)) => {
                 params["clip"] = clip;
             }
             Err(e) => {
                 if overlay_injected {
-                    let _ = remove_overlay(&cdp, &target_id).await;
+                    let _ = remove_overlay(&ctx.cdp, &ctx.target_id).await;
                 }
                 return e;
             }
@@ -213,13 +213,14 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
 
     // ── Capture screenshot ───────────────────────────────────────
-    let capture_result = cdp
-        .execute_on_tab(&target_id, "Page.captureScreenshot", params)
+    let capture_result = ctx
+        .cdp
+        .execute_on_tab(&ctx.target_id, "Page.captureScreenshot", params)
         .await;
 
     // Always clean up overlay
     if overlay_injected {
-        let _ = remove_overlay(&cdp, &target_id).await;
+        let _ = remove_overlay(&ctx.cdp, &ctx.target_id).await;
     }
 
     let resp = match capture_result {
@@ -275,16 +276,13 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     if cmd.annotate {
         // Project annotations to screenshot coordinates
         let scroll = if cmd.full {
-            get_scroll_offsets(&cdp, &target_id).await.ok()
+            get_scroll_offsets(&ctx.cdp, &ctx.target_id).await.ok()
         } else {
             None
         };
 
         let selector_rect = if let Some(ref sel) = cmd.selector {
-            get_selector_rect(&cdp, &target_id, sel, registry, &cmd.session, &cmd.tab)
-                .await
-                .ok()
-                .map(|(_, r)| r)
+            get_selector_rect(&ctx, sel).await.ok().map(|(_, r)| r)
         } else {
             None
         };
@@ -541,22 +539,20 @@ async fn get_scroll_offsets(
 
 /// Get clip JSON and Rect for a CSS selector.
 async fn get_selector_rect(
-    cdp: &crate::daemon::cdp_session::CdpSession,
-    target_id: &str,
+    ctx: &TabContext,
     selector: &str,
-    registry: &SharedRegistry,
-    session_id: &str,
-    tab_id: &str,
 ) -> Result<(serde_json::Value, Rect), ActionResult> {
-    let node_id = crate::browser::element::resolve_node(
-        cdp, target_id, selector, registry, session_id, tab_id,
-    )
-    .await?;
-    crate::browser::element::scroll_into_view(cdp, target_id, node_id).await?;
+    let node_id = ctx.resolve_node(selector).await?;
+    ctx.scroll_into_view(node_id).await?;
 
     // Resolve nodeId → objectId
-    let resolve_resp = cdp
-        .execute_on_tab(target_id, "DOM.resolveNode", json!({ "nodeId": node_id }))
+    let resolve_resp = ctx
+        .cdp
+        .execute_on_tab(
+            &ctx.target_id,
+            "DOM.resolveNode",
+            json!({ "nodeId": node_id }),
+        )
         .await
         .map_err(|e| crate::daemon::cdp_session::cdp_error_to_result(e, "CDP_ERROR"))?;
 
@@ -565,7 +561,7 @@ async fn get_selector_rect(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ActionResult::fatal("CDP_ERROR", "failed to resolve selector to object"))?;
 
-    let rect = get_rect_for_object(cdp, target_id, object_id)
+    let rect = get_rect_for_object(&ctx.cdp, &ctx.target_id, object_id)
         .await
         .ok_or_else(|| {
             ActionResult::fatal("CDP_ERROR", format!("failed to get rect for: {selector}"))

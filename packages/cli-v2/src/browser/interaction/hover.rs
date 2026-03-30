@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::browser::{element, navigation};
-use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target};
+use crate::browser::element::TabContext;
+use crate::browser::navigation;
+use crate::daemon::cdp_session::cdp_error_to_result;
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
@@ -61,56 +62,35 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
+    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
 
     // Resolve selector to a DOM node (handles CSS, XPath, snapshot refs)
-    let node_id = match element::resolve_node(
-        &cdp,
-        &target_id,
-        &cmd.selector,
-        registry,
-        &cmd.session,
-        &cmd.tab,
-    )
-    .await
-    {
+    let node_id = match ctx.resolve_node(&cmd.selector).await {
         Ok(id) => id,
         Err(e) => return e,
     };
 
     // Scroll element into view
-    if let Err(e) = element::scroll_into_view(&cdp, &target_id, node_id).await {
+    if let Err(e) = ctx.scroll_into_view(node_id).await {
         return e;
     }
 
     // Get a JS object reference for the resolved node
-    let resolve_resp = match cdp
-        .execute_on_tab(&target_id, "DOM.resolveNode", json!({ "nodeId": node_id }))
-        .await
-    {
-        Ok(v) => v,
-        Err(e) => return cdp_error_to_result(e, "CDP_ERROR"),
-    };
-
-    let object_id = match resolve_resp
-        .pointer("/result/object/objectId")
-        .and_then(|v| v.as_str())
-    {
-        Some(id) => id.to_string(),
-        None => {
-            return ActionResult::fatal("CDP_ERROR", "DOM.resolveNode did not return objectId");
-        }
+    let object_id = match ctx.resolve_object_id(node_id).await {
+        Ok(id) => id,
+        Err(e) => return e,
     };
 
     // Dispatch mouseenter, mouseover, and mousemove on the element via JS.
     // CDP Input.dispatchMouseEvent with mouseMoved does not reliably produce
     // the full set of DOM hover events in headless Chrome.
-    let hover_resp = match cdp
+    let hover_resp = match ctx
+        .cdp
         .execute_on_tab(
-            &target_id,
+            &ctx.target_id,
             "Runtime.callFunctionOn",
             json!({
                 "objectId": object_id,
@@ -148,12 +128,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             coords.get("y").and_then(|v| v.as_f64()),
         )
     {
-        let mut reg = registry.lock().await;
-        reg.set_cursor_position(&cmd.session, &cmd.tab, x, y);
+        let mut reg = ctx.registry().lock().await;
+        reg.set_cursor_position(ctx.session_id(), ctx.tab_id(), x, y);
     }
 
-    let url = navigation::get_tab_url(&cdp, &target_id).await;
-    let title = navigation::get_tab_title(&cdp, &target_id).await;
+    let url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
+    let title = navigation::get_tab_title(&ctx.cdp, &ctx.target_id).await;
 
     ActionResult::ok(json!({
         "action": "hover",

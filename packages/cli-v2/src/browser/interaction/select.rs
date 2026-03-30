@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::browser::{element, navigation};
-use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target};
+use crate::browser::element::TabContext;
+use crate::browser::navigation;
+use crate::daemon::cdp_session::cdp_error_to_result;
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
@@ -67,41 +68,15 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
+    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
 
-    // Resolve the target element via shared resolver (CSS, XPath, future @eN)
-    let node_id = match element::resolve_node(
-        &cdp,
-        &target_id,
-        &cmd.selector,
-        registry,
-        &cmd.session,
-        &cmd.tab,
-    )
-    .await
-    {
-        Ok(id) => id,
-        Err(e) => return e,
-    };
-
-    // Convert nodeId to a remote JS object for callFunctionOn
-    let resolve_resp = match cdp
-        .execute_on_tab(&target_id, "DOM.resolveNode", json!({ "nodeId": node_id }))
-        .await
-    {
+    // Resolve the target element via shared resolver (CSS, XPath, @eN)
+    let (_node_id, object_id) = match ctx.resolve_object(&cmd.selector).await {
         Ok(v) => v,
-        Err(e) => return cdp_error_to_result(e, "CDP_ERROR"),
-    };
-
-    let object_id = match resolve_resp
-        .pointer("/result/object/objectId")
-        .and_then(|v| v.as_str())
-    {
-        Some(id) => id.to_string(),
-        None => return ActionResult::fatal("CDP_ERROR", "could not resolve element to JS object"),
+        Err(e) => return e,
     };
 
     // Select the option by value or by visible text
@@ -123,9 +98,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }}"#
     );
 
-    let resp = match cdp
+    let resp = match ctx
+        .cdp
         .execute_on_tab(
-            &target_id,
+            &ctx.target_id,
             "Runtime.callFunctionOn",
             json!({
                 "objectId": object_id,
@@ -157,8 +133,8 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }
     }
 
-    let url = navigation::get_tab_url(&cdp, &target_id).await;
-    let title = navigation::get_tab_title(&cdp, &target_id).await;
+    let url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
+    let title = navigation::get_tab_title(&ctx.cdp, &ctx.target_id).await;
 
     ActionResult::ok(json!({
         "action": "select",

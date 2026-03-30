@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::action_result::ActionResult;
-use crate::browser::{element, element::element_not_found, navigation};
-use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target};
+use crate::browser::{element::TabContext, element::element_not_found, navigation};
+use crate::daemon::cdp_session::cdp_error_to_result;
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
@@ -63,27 +63,18 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
+    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
 
-    let (_, object_id) = match element::resolve_selector_object(
-        &cdp,
-        &target_id,
-        &cmd.selector,
-        registry,
-        &cmd.session,
-        &cmd.tab,
-    )
-    .await
-    {
+    let (_, object_id) = match ctx.resolve_object(&cmd.selector).await {
         Ok(v) => v,
         Err(e) => return e,
     };
 
-    let url = navigation::get_tab_url(&cdp, &target_id).await;
-    let title = navigation::get_tab_title(&cdp, &target_id).await;
+    let url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
+    let title = navigation::get_tab_title(&ctx.cdp, &ctx.target_id).await;
 
     let nearby_js = if cmd.nearby { "true" } else { "false" };
 
@@ -100,9 +91,10 @@ return res;
 }}"#
     );
 
-    let resp = cdp
+    let resp = ctx
+        .cdp
         .execute_on_tab(
-            &target_id,
+            &ctx.target_id,
             "Runtime.callFunctionOn",
             json!({
                 "objectId": object_id,
