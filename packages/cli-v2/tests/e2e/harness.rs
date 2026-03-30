@@ -343,9 +343,8 @@ fn handle_http_cross_origin(mut stream: std::net::TcpStream) {
 <button id="xo-btn" aria-label="XO Button">XO Click</button>
 </body></html>"#
             .to_string(),
-        _ => format!(
-            "<!DOCTYPE html><html><head><title>XO</title></head><body><h1>XO</h1></body></html>"
-        ),
+        _ => "<!DOCTYPE html><html><head><title>XO</title></head><body><h1>XO</h1></body></html>"
+            .to_string(),
     };
 
     let response = format!(
