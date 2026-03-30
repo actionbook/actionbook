@@ -354,10 +354,11 @@ async fn collect_annotation_rects(
         }
     }
 
-    // Batch get bounding rects
+    // Batch get bounding rects (frame-aware for iframe elements)
     let mut items = Vec::new();
     for (entry, object_id) in &resolved {
-        if let Some(rect) = get_rect_for_object(cdp, target_id, object_id).await
+        if let Some(rect) =
+            get_rect_for_object(cdp, target_id, object_id, entry.frame_id.as_deref()).await
             && rect.width > 0.0
             && rect.height > 0.0
         {
@@ -384,20 +385,22 @@ async fn get_rect_for_object(
     cdp: &crate::daemon::cdp_session::CdpSession,
     target_id: &str,
     object_id: &str,
+    frame_id: Option<&str>,
 ) -> Option<Rect> {
-    let resp = cdp
-        .execute_on_tab(
-            target_id,
-            "Runtime.callFunctionOn",
-            json!({
-                "functionDeclaration": "function() { const r = this.getBoundingClientRect(); return {x: r.x, y: r.y, width: r.width, height: r.height}; }",
-                "objectId": object_id,
-                "returnByValue": true,
-                "awaitPromise": false,
-            }),
-        )
-        .await
-        .ok()?;
+    let resp = crate::browser::element::execute_for_frame(
+        cdp,
+        target_id,
+        frame_id,
+        "Runtime.callFunctionOn",
+        json!({
+            "functionDeclaration": "function() { const r = this.getBoundingClientRect(); return {x: r.x, y: r.y, width: r.width, height: r.height}; }",
+            "objectId": object_id,
+            "returnByValue": true,
+            "awaitPromise": false,
+        }),
+    )
+    .await
+    .ok()?;
 
     let value = &resp["result"]["result"]["value"];
     Some(Rect {
@@ -563,7 +566,7 @@ async fn get_selector_rect(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ActionResult::fatal("CDP_ERROR", "failed to resolve selector to object"))?;
 
-    let rect = get_rect_for_object(&ctx.cdp, &ctx.target_id, object_id)
+    let rect = get_rect_for_object(&ctx.cdp, &ctx.target_id, object_id, None)
         .await
         .ok_or_else(|| {
             ActionResult::fatal("CDP_ERROR", format!("failed to get rect for: {selector}"))

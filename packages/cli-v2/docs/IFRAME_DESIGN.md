@@ -47,7 +47,11 @@ Output (iframe content indented under the Iframe node):
 - paragraph "Footer text"
 ```
 
-All existing flags work as before: `-i` (interactive), `-c` (compact), `--cursor`, `--selector`, `--depth`.
+Existing flags behavior with iframe content:
+- `-i` (interactive) and `-c` (compact): applied to both main frame and iframe content
+- `--depth N`: applied independently per frame — iframe content starts at depth 0 internally, then offset by the iframe's position in the main tree
+- `--selector`: scopes to the main frame DOM only (CSS selectors cannot cross iframe boundaries); iframe content is still expanded if Iframe nodes are within the scoped subtree
+- `--cursor`: detects cursor-interactive elements in the main frame only (JS injection cannot cross iframe boundaries)
 
 ### Interaction — Refs Auto-Route to iframe
 
