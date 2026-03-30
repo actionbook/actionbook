@@ -13,8 +13,9 @@ use crate::output::ResponseContext;
 #[command(after_help = "\
 Examples:
   actionbook browser attrs \"#logo\" --session s1 --tab t1
-  actionbook browser attrs \"input[name=email]\" --session s1 --tab t1
+  actionbook browser attrs @e5 --session s1 --tab t1
 
+Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
 Returns all HTML attributes as key-value pairs.
 Use attr to read a single attribute by name.")]
 pub struct Cmd {

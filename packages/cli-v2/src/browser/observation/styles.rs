@@ -13,8 +13,9 @@ use crate::output::ResponseContext;
 #[command(after_help = "\
 Examples:
   actionbook browser styles \"#target\" --session s1 --tab t1
-  actionbook browser styles \"#target\" color backgroundColor z-index --session s1 --tab t1
+  actionbook browser styles @e3 color backgroundColor z-index --session s1 --tab t1
 
+Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
 Without property names, returns the standard set of computed styles.
 With names, returns only the specified CSS properties.")]
 pub struct Cmd {

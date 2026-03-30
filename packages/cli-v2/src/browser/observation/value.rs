@@ -13,8 +13,9 @@ use crate::output::ResponseContext;
 #[command(after_help = "\
 Examples:
   actionbook browser value \"#email\" --session s1 --tab t1
-  actionbook browser value \"input[name=q]\" --session s1 --tab t1
+  actionbook browser value @e4 --session s1 --tab t1
 
+Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
 Returns the current value of an input, textarea, or select element.")]
 pub struct Cmd {
     /// Target element selector

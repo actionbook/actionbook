@@ -14,8 +14,9 @@ use crate::output::ResponseContext;
 #[command(after_help = "\
 Examples:
   actionbook browser select \"#country\" \"us\" --session s1 --tab t1
-  actionbook browser select \"#country\" \"United States\" --by-text --session s1 --tab t1
+  actionbook browser select @e7 \"United States\" --by-text --session s1 --tab t1
 
+Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
 Selects an option in a <select> element by its value attribute.
 Use --by-text to match the visible display text instead.")]
 pub struct Cmd {

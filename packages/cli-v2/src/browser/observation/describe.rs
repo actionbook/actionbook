@@ -13,8 +13,9 @@ use crate::output::ResponseContext;
 #[command(after_help = "\
 Examples:
   actionbook browser describe \"#submit\" --session s1 --tab t1
-  actionbook browser describe \"#submit\" --nearby --session s1 --tab t1
+  actionbook browser describe @e5 --nearby --session s1 --tab t1
 
+Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
 Returns element tag, role, name, bounding box, and attributes.
 Use --nearby to include parent, siblings, and children for context.")]
 pub struct Cmd {

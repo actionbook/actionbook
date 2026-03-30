@@ -13,8 +13,9 @@ use crate::output::ResponseContext;
 #[command(after_help = "\
 Examples:
   actionbook browser state \"#checkbox\" --session s1 --tab t1
-  actionbook browser state \"#submit-btn\" --session s1 --tab t1
+  actionbook browser state @e6 --session s1 --tab t1
 
+Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
 Returns boolean flags: visible, enabled, checked, focused, editable, selected.")]
 pub struct Cmd {
     /// Target element selector

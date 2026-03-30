@@ -14,10 +14,10 @@ use crate::output::ResponseContext;
 #[command(after_help = "\
 Examples:
   actionbook browser focus \"#email\" --session s1 --tab t1
-  actionbook browser focus \"input[name=search]\" --session s1 --tab t1
+  actionbook browser focus @e4 --session s1 --tab t1
 
 Sets keyboard focus on the element. Use before press to send keys to a specific field.
-Accepts a CSS selector, XPath, or snapshot ref (@eN).")]
+Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).")]
 pub struct Cmd {
     /// CSS selector, XPath, or snapshot ref
     pub selector: String,

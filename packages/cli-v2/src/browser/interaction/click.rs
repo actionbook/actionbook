@@ -24,11 +24,13 @@ fn default_count() -> u32 {
 #[command(after_help = "\
 Examples:
   actionbook browser click \"#submit\" --session s1 --tab t1
+  actionbook browser click @e5 --session s1 --tab t1
   actionbook browser click 420,310 --session s1 --tab t1
   actionbook browser click \"a.link\" --new-tab --session s1 --tab t1
   actionbook browser click \"#item\" --count 2 --session s1 --tab t1
 
 Accepts a CSS selector, XPath, snapshot ref (@eN), or x,y coordinates.
+Refs come from snapshot output (e.g. [ref=e5]).
 Use --count 2 for double-click. Use --new-tab to open links in a new tab.")]
 pub struct Cmd {
     /// CSS selector or x,y coordinates
