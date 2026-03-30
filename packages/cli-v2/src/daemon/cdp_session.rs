@@ -23,6 +23,12 @@ type PendingRequests = Arc<Mutex<HashMap<u64, PendingResponseTx>>>;
 type EventSubs = Arc<Mutex<HashMap<String, Vec<mpsc::Sender<Value>>>>>;
 /// Per-tab in-flight network request counter, keyed by CDP flat-session ID.
 type TabNetPending = Arc<Mutex<HashMap<String, i64>>>;
+/// Cross-origin iframe frame_id → dedicated CDP session_id.
+/// Populated by reader_loop from Target.attachedToTarget events.
+type IframeSessions = Arc<Mutex<HashMap<String, String>>>;
+/// Iframe session IDs that need DOM.enable + Accessibility.enable before use.
+/// Populated by reader_loop; drained by callers (e.g. snapshot handler).
+type PendingIframeEnables = Arc<Mutex<Vec<String>>>;
 
 /// Persistent CDP connection for a single browser session.
 ///
@@ -47,6 +53,12 @@ pub struct CdpSession {
     /// Maintained by reader_loop from Network domain events; Network.enable is
     /// called in attach() so tracking starts before any user commands run.
     tab_net_pending: TabNetPending,
+    /// Cross-origin iframe sessions discovered via Target.attachedToTarget events.
+    /// Key: frame_id (= targetId from the event), Value: CDP session_id.
+    iframe_sessions: IframeSessions,
+    /// Iframe session IDs queued for domain enabling (DOM + Accessibility).
+    /// reader_loop pushes here; callers drain before querying iframe AX trees.
+    pending_iframe_enables: PendingIframeEnables,
 }
 
 impl CdpSession {
@@ -84,16 +96,22 @@ impl CdpSession {
         let (writer_tx, writer_rx) = mpsc::channel::<String>(64);
         let event_subs: EventSubs = Arc::new(Mutex::new(HashMap::new()));
         let tab_net_pending: TabNetPending = Arc::new(Mutex::new(HashMap::new()));
+        let iframe_sessions: IframeSessions = Arc::new(Mutex::new(HashMap::new()));
+        let pending_iframe_enables: PendingIframeEnables = Arc::new(Mutex::new(Vec::new()));
 
         tokio::spawn(Self::writer_loop(ws_writer, writer_rx));
         let pending_clone = pending.clone();
         let event_subs_clone = event_subs.clone();
         let tab_net_pending_clone = tab_net_pending.clone();
+        let iframe_sessions_clone = iframe_sessions.clone();
+        let pending_iframe_enables_clone = pending_iframe_enables.clone();
         tokio::spawn(Self::reader_loop(
             ws_reader,
             pending_clone,
             event_subs_clone,
             tab_net_pending_clone,
+            iframe_sessions_clone,
+            pending_iframe_enables_clone,
         ));
 
         Ok(CdpSession {
@@ -103,6 +121,8 @@ impl CdpSession {
             tab_sessions: Arc::new(Mutex::new(HashMap::new())),
             event_subs,
             tab_net_pending,
+            iframe_sessions,
+            pending_iframe_enables,
         })
     }
 
@@ -146,6 +166,21 @@ impl CdpSession {
         // is invoked.  Idempotent if called again on an already-enabled session.
         let _ = self
             .execute("Network.enable", json!({}), Some(&session_id))
+            .await;
+
+        // Enable auto-attach for cross-origin iframe support.
+        // Chrome will emit Target.attachedToTarget events for each OOPIF,
+        // which reader_loop captures into iframe_sessions.
+        let _ = self
+            .execute(
+                "Target.setAutoAttach",
+                json!({
+                    "autoAttach": true,
+                    "waitForDebuggerOnStart": false,
+                    "flatten": true
+                }),
+                Some(&session_id),
+            )
             .await;
 
         Ok(session_id)
@@ -241,6 +276,24 @@ impl CdpSession {
         rx
     }
 
+    /// Return a snapshot of the current iframe sessions (frame_id → cdp_session_id).
+    pub async fn iframe_sessions(&self) -> HashMap<String, String> {
+        self.iframe_sessions.lock().await.clone()
+    }
+
+    /// Drain iframe session IDs that need DOM.enable + Accessibility.enable.
+    /// Called by snapshot handler before querying iframe AX trees.
+    pub async fn drain_pending_iframe_enables(&self) -> Vec<String> {
+        let mut pending = self.pending_iframe_enables.lock().await;
+        std::mem::take(&mut *pending)
+    }
+
+    /// Clear all iframe sessions (used by session close/restart).
+    pub async fn clear_iframe_sessions(&self) {
+        self.iframe_sessions.lock().await.clear();
+        self.pending_iframe_enables.lock().await.clear();
+    }
+
     /// Gracefully shut down background reader/writer tasks and close the
     /// WebSocket connection. Idempotent — safe to call multiple times.
     ///
@@ -320,6 +373,8 @@ impl CdpSession {
         pending: PendingRequests,
         event_subs: EventSubs,
         tab_net_pending: TabNetPending,
+        iframe_sessions: IframeSessions,
+        pending_iframe_enables: PendingIframeEnables,
     ) where
         S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
     {
@@ -344,6 +399,46 @@ impl CdpSession {
             } else if let Some(method) = resp.get("method").and_then(|v| v.as_str()) {
                 // Event: extract sessionId (empty string for browser-level events).
                 let session_id = resp.get("sessionId").and_then(|v| v.as_str()).unwrap_or("");
+
+                // Track cross-origin iframe sessions from Target.setAutoAttach.
+                match method {
+                    "Target.attachedToTarget" => {
+                        if let Some(params) = resp.get("params") {
+                            let target_type = params
+                                .pointer("/targetInfo/type")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            if target_type == "iframe" {
+                                if let (Some(target_id), Some(sid)) = (
+                                    params
+                                        .pointer("/targetInfo/targetId")
+                                        .and_then(|v| v.as_str()),
+                                    params.get("sessionId").and_then(|v| v.as_str()),
+                                ) {
+                                    iframe_sessions
+                                        .lock()
+                                        .await
+                                        .insert(target_id.to_string(), sid.to_string());
+                                    pending_iframe_enables
+                                        .lock()
+                                        .await
+                                        .push(sid.to_string());
+                                }
+                            }
+                        }
+                    }
+                    "Target.detachedFromTarget" => {
+                        if let Some(sid) =
+                            resp.pointer("/params/sessionId").and_then(|v| v.as_str())
+                        {
+                            iframe_sessions
+                                .lock()
+                                .await
+                                .retain(|_, v| v != sid);
+                        }
+                    }
+                    _ => {}
+                }
 
                 // Maintain per-tab Network pending counter.
                 if !session_id.is_empty() {
@@ -605,6 +700,18 @@ mod tests {
         assert_eq!(net_msg["method"], "Network.enable");
         assert_eq!(net_msg["sessionId"], "CDP_SESS_1");
         send_json(&mut writer, json!({"id": net_msg["id"], "result": {}})).await;
+
+        // attach() then calls Target.setAutoAttach for iframe support.
+        let auto_attach_msg = read_json(&mut reader).await;
+        assert_eq!(auto_attach_msg["method"], "Target.setAutoAttach");
+        assert_eq!(auto_attach_msg["sessionId"], "CDP_SESS_1");
+        assert_eq!(auto_attach_msg["params"]["autoAttach"], true);
+        assert_eq!(auto_attach_msg["params"]["flatten"], true);
+        send_json(
+            &mut writer,
+            json!({"id": auto_attach_msg["id"], "result": {}}),
+        )
+        .await;
 
         let session_id = attach_handle.await.unwrap().unwrap();
         assert_eq!(session_id, "CDP_SESS_1");

@@ -162,7 +162,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     // Get CDP session and verify tab
-    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
+    let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -178,7 +178,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Handle --new-tab: if the target is a link, open href in a new tab
     if cmd.new_tab
-        && let Some(href) = get_element_href(&ctx, &target, x, y).await
+        && let Some(href) = get_element_href(&mut ctx, &target, x, y).await
     {
         return match open_in_new_tab(&ctx.cdp, &href, ctx.session_id(), ctx.registry()).await {
             Ok(()) => {
@@ -274,7 +274,7 @@ fn build_response(
 /// @eN refs) and then inspects the node. For coordinates, uses
 /// `document.elementFromPoint`.
 async fn get_element_href(
-    ctx: &TabContext,
+    ctx: &mut TabContext,
     target: &ClickTarget,
     x: f64,
     y: f64,
@@ -284,9 +284,7 @@ async fn get_element_href(
             let node_id = ctx.resolve_node(sel).await.ok()?;
             let object_id = ctx.resolve_object_id(node_id).await.ok()?;
             let eval = ctx
-                .cdp
-                .execute_on_tab(
-                    &ctx.target_id,
+                .execute_in_frame(
                     "Runtime.callFunctionOn",
                     json!({
                         "objectId": object_id,

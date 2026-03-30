@@ -79,7 +79,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
 
     // Get CDP session and verify tab
-    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
+    let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -92,9 +92,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Set files on the input via DOM.setFileInputFiles
     if let Err(e) = ctx
-        .cdp
-        .execute_on_tab(
-            &ctx.target_id,
+        .execute_in_frame(
             "DOM.setFileInputFiles",
             json!({
                 "files": cmd.files,

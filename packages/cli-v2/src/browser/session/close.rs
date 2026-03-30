@@ -65,6 +65,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Close CDP session (shuts down background tasks, frees cloud connection slot).
     if let Some(cdp) = cdp {
+        cdp.clear_iframe_sessions().await;
         cdp.close().await;
     }
 

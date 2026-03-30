@@ -68,12 +68,12 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
+    let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
 
-    let value = match get_attr(&ctx, &cmd.selector, &cmd.name).await {
+    let value = match get_attr(&mut ctx, &cmd.selector, &cmd.name).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -89,7 +89,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 }
 
 async fn get_attr(
-    ctx: &TabContext,
+    ctx: &mut TabContext,
     selector: &str,
     attr_name: &str,
 ) -> Result<Value, ActionResult> {
@@ -100,9 +100,7 @@ async fn get_attr(
     let function = format!(r#"function() {{ return this.getAttribute({attr_json}); }}"#);
 
     let resp = ctx
-        .cdp
-        .execute_on_tab(
-            &ctx.target_id,
+        .execute_in_frame(
             "Runtime.callFunctionOn",
             json!({
                 "objectId": object_id,

@@ -141,7 +141,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     // Get CDP session and verify tab
-    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
+    let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -153,7 +153,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // stale-coordinate problem on responsive pages.
     let viewport_set = ensure_viewport(&ctx.cdp, &ctx.target_id, &destination).await;
 
-    let result = execute_inner(&ctx, cmd, &destination).await;
+    let result = execute_inner(&mut ctx, cmd, &destination).await;
 
     // Always clear the viewport override
     if viewport_set {
@@ -262,7 +262,7 @@ async fn ensure_viewport(cdp: &CdpSession, target_id: &str, destination: &DragDe
 }
 
 /// Inner execute logic run under the enlarged viewport.
-async fn execute_inner(ctx: &TabContext, cmd: &Cmd, destination: &DragDestination) -> ActionResult {
+async fn execute_inner(ctx: &mut TabContext, cmd: &Cmd, destination: &DragDestination) -> ActionResult {
     // Resolve source element to centre coordinates
     let (src_x, src_y) = match ctx.resolve_center(&cmd.source).await {
         Ok(coords) => coords,

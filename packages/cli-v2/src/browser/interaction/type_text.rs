@@ -66,7 +66,7 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
+    let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -78,8 +78,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     if let Err(e) = ctx
-        .cdp
-        .execute_on_tab(&ctx.target_id, "DOM.focus", json!({ "nodeId": node_id }))
+        .execute_in_frame("DOM.focus", json!({ "nodeId": node_id }))
         .await
     {
         return cdp_error_to_result(e, "CDP_ERROR");
@@ -87,9 +86,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Move cursor to end of existing value so typed text appends
     let _ = ctx
-        .cdp
-        .execute_on_tab(
-            &ctx.target_id,
+        .execute_in_frame(
             "Runtime.evaluate",
             json!({
                 "expression": "(() => { const el = document.activeElement; if (el && el.setSelectionRange) el.setSelectionRange(el.value.length, el.value.length); })()",

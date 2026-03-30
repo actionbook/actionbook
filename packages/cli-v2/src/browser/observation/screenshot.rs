@@ -100,7 +100,7 @@ fn mime_type(format: &str) -> &'static str {
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Resolve session + tab
-    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
+    let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -149,7 +149,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
         // Filter by selector region if applicable
         if let Some(ref sel) = cmd.selector
-            && let Ok((_, target_rect)) = get_selector_rect(&ctx, sel).await
+            && let Ok((_, target_rect)) = get_selector_rect(&mut ctx, sel).await
         {
             annotation_items = filter_annotations(annotation_items, Some(&target_rect));
         }
@@ -199,7 +199,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }
     } else if let Some(ref sel) = cmd.selector {
         // Clip to selector region
-        match get_selector_rect(&ctx, sel).await {
+        match get_selector_rect(&mut ctx, sel).await {
             Ok((clip, _)) => {
                 params["clip"] = clip;
             }
@@ -282,7 +282,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         };
 
         let selector_rect = if let Some(ref sel) = cmd.selector {
-            get_selector_rect(&ctx, sel).await.ok().map(|(_, r)| r)
+            get_selector_rect(&mut ctx, sel).await.ok().map(|(_, r)| r)
         } else {
             None
         };
@@ -316,6 +316,7 @@ struct AnnotationItem {
 const OVERLAY_ID: &str = "__ab_screenshot_annotations__";
 
 /// Resolve all RefCache entries to screen positions via CDP.
+/// Frame-aware: routes DOM.resolveNode to the correct CDP session for iframe elements.
 async fn collect_annotation_rects(
     cdp: &crate::daemon::cdp_session::CdpSession,
     target_id: &str,
@@ -330,19 +331,20 @@ async fn collect_annotation_rects(
         return Vec::new();
     }
 
-    // Batch resolve backendNodeId → objectId
+    // Batch resolve backendNodeId → objectId (frame-aware)
     let mut resolved: Vec<(super::snapshot_transform::RefEntry, String)> = Vec::new();
     for (backend_node_id, entry) in &entries {
-        let resp = cdp
-            .execute_on_tab(
-                target_id,
-                "DOM.resolveNode",
-                json!({
-                    "backendNodeId": backend_node_id,
-                    "objectGroup": "ab-annotate"
-                }),
-            )
-            .await;
+        let resp = crate::browser::element::execute_for_frame(
+            cdp,
+            target_id,
+            entry.frame_id.as_deref(),
+            "DOM.resolveNode",
+            json!({
+                "backendNodeId": backend_node_id,
+                "objectGroup": "ab-annotate"
+            }),
+        )
+        .await;
         if let Ok(val) = resp
             && let Some(oid) = val
                 .pointer("/result/object/objectId")
@@ -539,7 +541,7 @@ async fn get_scroll_offsets(
 
 /// Get clip JSON and Rect for a CSS selector.
 async fn get_selector_rect(
-    ctx: &TabContext,
+    ctx: &mut TabContext,
     selector: &str,
 ) -> Result<(serde_json::Value, Rect), ActionResult> {
     let node_id = ctx.resolve_node(selector).await?;

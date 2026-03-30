@@ -62,7 +62,7 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
+    let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -88,9 +88,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // CDP Input.dispatchMouseEvent with mouseMoved does not reliably produce
     // the full set of DOM hover events in headless Chrome.
     let hover_resp = match ctx
-        .cdp
-        .execute_on_tab(
-            &ctx.target_id,
+        .execute_in_frame(
             "Runtime.callFunctionOn",
             json!({
                 "objectId": object_id,

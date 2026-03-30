@@ -177,6 +177,7 @@ pub fn parse_ax_tree(
     ref_cache: &mut RefCache,
     scope_backend_ids: Option<&std::collections::HashSet<i64>>,
     cursor_elements: Option<&std::collections::HashMap<i64, CursorInfo>>,
+    frame_id: Option<&str>,
 ) -> Vec<AXNode> {
     let nodes_json = response["result"]["nodes"].as_array();
     let Some(nodes_json) = nodes_json else {
@@ -232,6 +233,7 @@ pub fn parse_ax_tree(
         ref_cache: &mut RefCache,
         scope: Option<&std::collections::HashSet<i64>>,
         cursor_elements: Option<&std::collections::HashMap<i64, CursorInfo>>,
+        frame_id: Option<&str>,
     ) {
         let node = &nodes_json[idx];
         let role = extract_ax_string(&node["role"]);
@@ -252,6 +254,7 @@ pub fn parse_ax_tree(
                         ref_cache,
                         scope,
                         cursor_elements,
+                        frame_id,
                     );
                 }
             }
@@ -317,14 +320,14 @@ pub fn parse_ax_tree(
         let should_ref = should_assign_ref(&role, &name) || is_cursor;
         let ref_id = if should_ref {
             if backend_node_id > 0 {
-                ref_cache.get_or_assign(backend_node_id, &role, &name)
+                ref_cache.get_or_assign(backend_node_id, &role, &name, frame_id)
             } else {
                 let node_id_str = node["nodeId"].as_str().unwrap_or("");
                 use std::hash::{Hash, Hasher};
                 let mut hasher = std::collections::hash_map::DefaultHasher::new();
                 node_id_str.hash(&mut hasher);
                 let hash_key = -(hasher.finish() as i64).abs() - 1;
-                ref_cache.get_or_assign(hash_key, &role, &name)
+                ref_cache.get_or_assign(hash_key, &role, &name, frame_id)
             }
         } else {
             String::new()
@@ -354,6 +357,7 @@ pub fn parse_ax_tree(
                     ref_cache,
                     scope,
                     cursor_elements,
+                    frame_id,
                 );
             }
         }
@@ -370,6 +374,7 @@ pub fn parse_ax_tree(
             ref_cache,
             scope_backend_ids,
             cursor_elements,
+            frame_id,
         );
     }
 
@@ -550,22 +555,28 @@ pub struct RefEntry {
     pub ref_id: String,
     pub role: String,
     pub name: String,
+    /// Which frame this element belongs to. None = main frame.
+    pub frame_id: Option<String>,
 }
 
-/// Tab-scoped cache mapping backendNodeId → RefEntry.
+/// Composite key for RefCache: (frame_id, backendNodeId).
+/// Different frames may reuse the same backendNodeId values, so we need
+/// frame isolation to avoid collisions.
+type RefKey = (Option<String>, i64);
+
+/// Tab-scoped cache mapping (frame_id, backendNodeId) → RefEntry.
 /// Ensures that the same DOM element keeps the same ref across repeated snapshots.
 /// Also stores role/name so that screenshot `--annotate` can build annotation metadata.
 ///
 /// Scope: one RefCache per tab (not per session — each tab has independent DOM).
-// TODO: iframe isolation — iframes within a tab may share backendNodeId values
-// with the main frame. Need either frame-prefixed keys (e.g., "frame_id:node_id")
-// or a separate RefCache per frame to avoid collisions.
+/// Frame isolation: main frame uses `None` as frame_id; iframe elements use
+/// `Some(frame_id)`. This prevents backendNodeId collisions across frames.
 #[derive(Debug, Clone)]
 pub struct RefCache {
-    /// backendNodeId → RefEntry (e.g., 42 → RefEntry { ref_id: "e1", role: "button", name: "Submit" })
-    id_to_ref: std::collections::HashMap<i64, RefEntry>,
-    /// ref_id → backendNodeId (reverse lookup for @eN resolution)
-    ref_to_id: std::collections::HashMap<String, i64>,
+    /// (frame_id, backendNodeId) → RefEntry
+    id_to_ref: std::collections::HashMap<RefKey, RefEntry>,
+    /// ref_id → (frame_id, backendNodeId) (reverse lookup for @eN resolution)
+    ref_to_id: std::collections::HashMap<String, RefKey>,
     /// Next available ref counter
     next_ref: usize,
 }
@@ -585,44 +596,61 @@ impl RefCache {
         }
     }
 
-    /// Get or assign a stable ref for the given backendNodeId.
+    /// Get or assign a stable ref for the given (frame_id, backendNodeId).
     /// If the node was seen before, updates role/name and returns the same ref.
     /// If new, assigns the next available eN.
-    pub fn get_or_assign(&mut self, backend_node_id: i64, role: &str, name: &str) -> String {
-        if let Some(existing) = self.id_to_ref.get_mut(&backend_node_id) {
+    pub fn get_or_assign(
+        &mut self,
+        backend_node_id: i64,
+        role: &str,
+        name: &str,
+        frame_id: Option<&str>,
+    ) -> String {
+        let key: RefKey = (frame_id.map(String::from), backend_node_id);
+        if let Some(existing) = self.id_to_ref.get_mut(&key) {
             existing.role = role.to_string();
             existing.name = name.to_string();
             return existing.ref_id.clone();
         }
         let ref_id = format!("e{}", self.next_ref);
         self.next_ref += 1;
-        self.ref_to_id.insert(ref_id.clone(), backend_node_id);
+        self.ref_to_id.insert(ref_id.clone(), key.clone());
         self.id_to_ref.insert(
-            backend_node_id,
+            key,
             RefEntry {
                 ref_id: ref_id.clone(),
                 role: role.to_string(),
                 name: name.to_string(),
+                frame_id: frame_id.map(String::from),
             },
         );
         ref_id
     }
 
-    /// Look up the ref for a backendNodeId without assigning.
+    /// Look up the ref for a (frame_id, backendNodeId) without assigning.
     pub fn get_ref(&self, backend_node_id: i64) -> Option<&str> {
+        // Search main frame first (most common), then any iframe
+        let key: RefKey = (None, backend_node_id);
+        if let Some(e) = self.id_to_ref.get(&key) {
+            return Some(e.ref_id.as_str());
+        }
+        // Fallback: search all entries for this backendNodeId
         self.id_to_ref
-            .get(&backend_node_id)
-            .map(|e| e.ref_id.as_str())
+            .iter()
+            .find(|((_, bid), _)| *bid == backend_node_id)
+            .map(|(_, e)| e.ref_id.as_str())
     }
 
-    /// Look up the full entry for a backendNodeId.
+    /// Look up the full entry for a backendNodeId (main frame).
     pub fn get(&self, backend_node_id: i64) -> Option<&RefEntry> {
-        self.id_to_ref.get(&backend_node_id)
+        let key: RefKey = (None, backend_node_id);
+        self.id_to_ref.get(&key)
     }
 
     /// Iterate over all entries: (backendNodeId, &RefEntry).
+    /// Note: backendNodeId alone may not be unique across frames.
     pub fn entries(&self) -> impl Iterator<Item = (i64, &RefEntry)> {
-        self.id_to_ref.iter().map(|(&k, v)| (k, v))
+        self.id_to_ref.iter().map(|((_, bid), v)| (*bid, v))
     }
 
     /// Number of refs assigned so far.
@@ -637,14 +665,21 @@ impl RefCache {
 
     /// Reverse lookup: ref_id (e.g. "e5") → backendNodeId.
     pub fn backend_node_id_for_ref(&self, ref_id: &str) -> Option<i64> {
-        self.ref_to_id.get(ref_id).copied()
+        self.ref_to_id.get(ref_id).map(|(_, bid)| *bid)
+    }
+
+    /// Reverse lookup: ref_id → frame_id (None = main frame).
+    pub fn frame_id_for_ref(&self, ref_id: &str) -> Option<&str> {
+        self.ref_to_id
+            .get(ref_id)
+            .and_then(|(fid, _)| fid.as_deref())
     }
 
     /// Reverse lookup: ref_id → full RefEntry (for role+name fallback).
     pub fn entry_for_ref(&self, ref_id: &str) -> Option<&RefEntry> {
         self.ref_to_id
             .get(ref_id)
-            .and_then(|bid| self.id_to_ref.get(bid))
+            .and_then(|key| self.id_to_ref.get(key))
     }
 }
 
@@ -952,6 +987,7 @@ mod tests {
             &mut RefCache::new(),
             None,
             None,
+            None,
         );
         assert_eq!(nodes.len(), 2);
         assert_eq!(nodes[0].ref_id, "e1");
@@ -971,6 +1007,7 @@ mod tests {
             &mut RefCache::new(),
             None,
             None,
+            None,
         );
         assert!(nodes.is_empty());
     }
@@ -982,6 +1019,7 @@ mod tests {
             &response,
             &SnapshotOptions::default(),
             &mut RefCache::new(),
+            None,
             None,
             None,
         );
@@ -1003,7 +1041,7 @@ mod tests {
             interactive: true,
             ..Default::default()
         };
-        let nodes = parse_ax_tree(&response, &opts, &mut RefCache::new(), None, None);
+        let nodes = parse_ax_tree(&response, &opts, &mut RefCache::new(), None, None, None);
         assert_eq!(nodes.len(), 2);
         assert!(nodes.iter().all(|n| n.interactive));
     }
@@ -1022,7 +1060,7 @@ mod tests {
             compact: true,
             ..Default::default()
         };
-        let nodes = parse_ax_tree(&response, &opts, &mut RefCache::new(), None, None);
+        let nodes = parse_ax_tree(&response, &opts, &mut RefCache::new(), None, None, None);
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].role, "button");
     }
@@ -1054,7 +1092,7 @@ mod tests {
             depth: Some(0),
             ..Default::default()
         };
-        let nodes = parse_ax_tree(&response, &opts, &mut RefCache::new(), None, None);
+        let nodes = parse_ax_tree(&response, &opts, &mut RefCache::new(), None, None, None);
         // After RootWebArea unwrap: navigation=depth 0, button=depth 1 (cut by depth=0)
         assert_eq!(
             nodes.len(),
@@ -1084,7 +1122,7 @@ mod tests {
             ..Default::default()
         };
         // Must not panic; actual subtree filtering handled in execute() via CDP node lookup
-        let nodes = parse_ax_tree(&response, &opts, &mut RefCache::new(), None, None);
+        let nodes = parse_ax_tree(&response, &opts, &mut RefCache::new(), None, None, None);
         assert!(
             nodes.len() <= 2,
             "selector option must not expand node list"
@@ -1106,6 +1144,7 @@ mod tests {
             &response,
             &SnapshotOptions::default(),
             &mut RefCache::new(),
+            None,
             None,
             None,
         );
@@ -1221,6 +1260,7 @@ mod tests {
             &mut RefCache::new(),
             None,
             None,
+            None,
         );
 
         // The button should appear (child of ignored node promoted).
@@ -1265,6 +1305,7 @@ mod tests {
             &response,
             &SnapshotOptions::default(),
             &mut RefCache::new(),
+            None,
             None,
             None,
         );
@@ -1325,6 +1366,7 @@ mod tests {
             &mut RefCache::new(),
             None,
             None,
+            None,
         );
 
         // InlineTextBox must be filtered out
@@ -1380,6 +1422,7 @@ mod tests {
             &response,
             &SnapshotOptions::default(),
             &mut RefCache::new(),
+            None,
             None,
             None,
         );
@@ -1453,6 +1496,7 @@ mod tests {
             &response,
             &SnapshotOptions::default(),
             &mut RefCache::new(),
+            None,
             None,
             None,
         );
@@ -1748,40 +1792,40 @@ mod tests {
     #[test]
     fn test_ref_cache_assigns_sequential() {
         let mut cache = RefCache::new();
-        assert_eq!(cache.get_or_assign(42, "button", "OK"), "e1");
-        assert_eq!(cache.get_or_assign(55, "link", "Home"), "e2");
-        assert_eq!(cache.get_or_assign(99, "textbox", "Search"), "e3");
+        assert_eq!(cache.get_or_assign(42, "button", "OK", None), "e1");
+        assert_eq!(cache.get_or_assign(55, "link", "Home", None), "e2");
+        assert_eq!(cache.get_or_assign(99, "textbox", "Search", None), "e3");
     }
 
     #[test]
     fn test_ref_cache_stable_on_repeat() {
         let mut cache = RefCache::new();
         // First snapshot
-        assert_eq!(cache.get_or_assign(42, "button", "OK"), "e1");
-        assert_eq!(cache.get_or_assign(55, "link", "Home"), "e2");
+        assert_eq!(cache.get_or_assign(42, "button", "OK", None), "e1");
+        assert_eq!(cache.get_or_assign(55, "link", "Home", None), "e2");
 
         // Second snapshot — same backendNodeIds must keep same refs
-        assert_eq!(cache.get_or_assign(42, "button", "OK"), "e1");
-        assert_eq!(cache.get_or_assign(55, "link", "Home"), "e2");
+        assert_eq!(cache.get_or_assign(42, "button", "OK", None), "e1");
+        assert_eq!(cache.get_or_assign(55, "link", "Home", None), "e2");
     }
 
     #[test]
     fn test_ref_cache_new_element_gets_next_ref() {
         let mut cache = RefCache::new();
-        assert_eq!(cache.get_or_assign(42, "button", "OK"), "e1");
-        assert_eq!(cache.get_or_assign(55, "link", "Home"), "e2");
+        assert_eq!(cache.get_or_assign(42, "button", "OK", None), "e1");
+        assert_eq!(cache.get_or_assign(55, "link", "Home", None), "e2");
 
         // New element appears in second snapshot
-        assert_eq!(cache.get_or_assign(99, "textbox", "Search"), "e3");
+        assert_eq!(cache.get_or_assign(99, "textbox", "Search", None), "e3");
         // Original elements unchanged
-        assert_eq!(cache.get_or_assign(42, "button", "OK"), "e1");
+        assert_eq!(cache.get_or_assign(42, "button", "OK", None), "e1");
     }
 
     #[test]
     fn test_ref_cache_lookup_without_assign() {
         let mut cache = RefCache::new();
         assert!(cache.get(42).is_none());
-        cache.get_or_assign(42, "button", "OK");
+        cache.get_or_assign(42, "button", "OK", None);
         assert_eq!(cache.get(42).map(|e| e.ref_id.as_str()), Some("e1"));
     }
 
@@ -1789,18 +1833,18 @@ mod tests {
     fn test_ref_cache_len() {
         let mut cache = RefCache::new();
         assert!(cache.is_empty());
-        cache.get_or_assign(42, "button", "OK");
-        cache.get_or_assign(55, "link", "Home");
+        cache.get_or_assign(42, "button", "OK", None);
+        cache.get_or_assign(55, "link", "Home", None);
         assert_eq!(cache.len(), 2);
         // Repeat doesn't increase len
-        cache.get_or_assign(42, "button", "OK");
+        cache.get_or_assign(42, "button", "OK", None);
         assert_eq!(cache.len(), 2);
     }
 
     #[test]
     fn test_ref_cache_stores_role_name() {
         let mut cache = RefCache::new();
-        cache.get_or_assign(42, "button", "Submit");
+        cache.get_or_assign(42, "button", "Submit", None);
         let entry = cache.get(42).unwrap();
         assert_eq!(entry.ref_id, "e1");
         assert_eq!(entry.role, "button");
@@ -1810,8 +1854,8 @@ mod tests {
     #[test]
     fn test_ref_cache_updates_role_name_on_reassign() {
         let mut cache = RefCache::new();
-        cache.get_or_assign(42, "button", "Old");
-        cache.get_or_assign(42, "button", "New");
+        cache.get_or_assign(42, "button", "Old", None);
+        cache.get_or_assign(42, "button", "New", None);
         let entry = cache.get(42).unwrap();
         assert_eq!(entry.ref_id, "e1");
         assert_eq!(entry.name, "New");
@@ -1820,8 +1864,8 @@ mod tests {
     #[test]
     fn test_ref_cache_entries() {
         let mut cache = RefCache::new();
-        cache.get_or_assign(42, "button", "OK");
-        cache.get_or_assign(55, "link", "Home");
+        cache.get_or_assign(42, "button", "OK", None);
+        cache.get_or_assign(55, "link", "Home", None);
         let entries: Vec<_> = cache.entries().collect();
         assert_eq!(entries.len(), 2);
     }
@@ -1896,6 +1940,7 @@ mod tests {
             &mut RefCache::new(),
             None,
             None,
+            None,
         );
         // Generic with empty name should have no ref in baseline
         for n in &baseline {
@@ -1915,6 +1960,7 @@ mod tests {
             &mut RefCache::new(),
             None,
             Some(&cursor_map),
+            None,
         );
 
         // Find the cursor-mapped node (backendNodeId=42)
@@ -1974,6 +2020,7 @@ mod tests {
             &mut RefCache::new(),
             None,
             None,
+            None,
         );
         let nodes_with_empty = parse_ax_tree(
             &response,
@@ -1981,6 +2028,7 @@ mod tests {
             &mut RefCache::new(),
             None,
             Some(&std::collections::HashMap::new()),
+            None,
         );
         // Must be structurally identical, not just same count
         assert_eq!(nodes_without, nodes_with_empty);
@@ -2019,6 +2067,7 @@ mod tests {
             &mut RefCache::new(),
             None,
             Some(&cursor_map),
+            None,
         );
         let btn = nodes.iter().find(|n| n.role == "button").unwrap();
         // Already interactive → has ref
