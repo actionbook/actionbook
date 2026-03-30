@@ -12,6 +12,23 @@ pub const COMMAND_NAME: &str = "browser.query";
 
 /// Query elements on the page with cardinality constraints.
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser query one '.login-btn' --session s1 --tab t1
+  actionbook browser query all 'li.item' --session s1 --tab t1
+  actionbook browser query nth 2 'li.item' --session s1 --tab t1
+  actionbook browser query count 'img' --session s1 --tab t1
+
+Modes:
+  one     Expect exactly one match (fails on 0 or 2+)
+  all     Return all matches (up to 500)
+  nth     Return the nth match (1-based index)
+  count   Return only the match count
+
+Supports CSS selectors with extended pseudo-classes:
+  :contains(\"text\")   Filter by inner text
+  :has(child-selector)  Filter by child presence
+  :visible :enabled :disabled :checked")]
 pub struct Cmd {
     #[command(subcommand)]
     #[serde(flatten)]

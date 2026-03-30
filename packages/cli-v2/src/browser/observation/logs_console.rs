@@ -66,6 +66,17 @@ pub const ENSURE_LOG_CAPTURE_JS: &str = r#"(function() {
 
 /// Get console logs.
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
+#[command(after_help = "\
+Examples:
+  actionbook browser logs console --session s1 --tab t1
+  actionbook browser logs console --level warn,error --session s1 --tab t1
+  actionbook browser logs console --tail 10 --session s1 --tab t1
+  actionbook browser logs console --since log-5 --session s1 --tab t1
+  actionbook browser logs console --clear --session s1 --tab t1
+
+Captures console.log/info/warn/error/debug calls via an injected hook.
+Use --level to filter by severity. Use --since to poll for new entries.
+Use --clear to reset the log buffer after retrieval.")]
 pub struct Cmd {
     /// Session ID
     #[arg(long)]
