@@ -109,7 +109,6 @@ impl SessionEntry {
 /// Thread-safe session registry.
 pub struct SessionRegistry {
     sessions: HashMap<String, SessionEntry>,
-    next_auto_id: u32,
     /// Tab-scoped RefCache for stable snapshot refs. Key: "session_id\0tab_id"
     ref_caches: HashMap<String, RefCache>,
     /// Last known cursor position per tab. Key: "session_id\0tab_id"
@@ -126,7 +125,6 @@ impl SessionRegistry {
     pub fn new() -> Self {
         SessionRegistry {
             sessions: HashMap::new(),
-            next_auto_id: 0,
             ref_caches: HashMap::new(),
             cursor_positions: HashMap::new(),
         }
@@ -156,10 +154,24 @@ impl SessionRegistry {
         })
     }
 
+    /// Return the maximum N among active sessions with the given `PREFIX-` pattern.
+    fn max_active_prefix_n(&self, prefix: &str) -> u32 {
+        self.sessions
+            .values()
+            .filter(|e| e.status.is_active())
+            .filter_map(|e| {
+                e.id.as_str()
+                    .strip_prefix(prefix)
+                    .and_then(|n| n.parse::<u32>().ok())
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
     pub fn generate_session_id(
         &mut self,
         set_id: Option<&str>,
-        profile: Option<&str>,
+        mode: Mode,
     ) -> Result<SessionId, crate::error::CliError> {
         if let Some(id) = set_id {
             let sid = SessionId::new(id)
@@ -171,26 +183,32 @@ impl SessionRegistry {
             }
             return Ok(sid);
         }
-        let sid = if let Some(p) = profile {
-            SessionId::from_profile(p, self.next_auto_id)
-        } else {
-            SessionId::auto_generate(self.next_auto_id)
+        let prefix = match mode {
+            Mode::Local => "SLOCAL-",
+            Mode::Cloud => "SCLOUD-",
+            Mode::Extension => "SEXT-",
         };
-        self.next_auto_id += 1;
-        // Handle collision
-        if self.has_active_session_id(sid.as_str()) {
-            let sid = SessionId::auto_generate(self.next_auto_id);
-            self.next_auto_id += 1;
-            Ok(sid)
-        } else {
-            Ok(sid)
+        let max_n = self.max_active_prefix_n(prefix);
+        let start = if max_n >= 10000 { 1 } else { max_n + 1 };
+        let mut n = start;
+        loop {
+            let candidate = SessionId::auto_generate(mode, n);
+            if !self.has_active_session_id(candidate.as_str()) {
+                return Ok(candidate);
+            }
+            n = if n >= 10000 { 1 } else { n + 1 };
+            if n == start {
+                return Err(crate::error::CliError::Internal(
+                    "all session ID slots exhausted".to_string(),
+                ));
+            }
         }
     }
 
     pub fn reserve_session_start(
         &mut self,
         set_id: Option<&str>,
-        requested_profile: Option<&str>,
+        _requested_profile: Option<&str>,
         resolved_profile: &str,
         mode: Mode,
         headless: bool,
@@ -203,7 +221,7 @@ impl SessionRegistry {
             return Err(CliError::SessionAlreadyExists(existing_id));
         }
 
-        let session_id = self.generate_session_id(set_id, requested_profile)?;
+        let session_id = self.generate_session_id(set_id, mode)?;
         self.insert(SessionEntry::starting(
             session_id.clone(),
             mode,
