@@ -341,6 +341,41 @@ fn cookies_get_json_happy_path() {
 }
 
 #[test]
+fn cookies_get_missing_json() {
+    if skip() {
+        return;
+    }
+
+    let base_url = url_a();
+    let (sid, _tid) = start_session(&base_url);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "cookies",
+            "get",
+            "missing-cookie",
+            "--session",
+            &sid,
+        ],
+        10,
+    );
+    assert_success(&out, "cookies get missing json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.cookies.get");
+    assert_eq!(v["ok"], true);
+    assert!(v["error"].is_null());
+    assert_meta(&v);
+    assert_session_context(&v, &sid);
+    assert!(
+        v["data"]["item"].is_null(),
+        "missing cookie should return null item"
+    );
+}
+
+#[test]
 fn cookies_set_json_happy_path() {
     if skip() {
         return;
