@@ -19,7 +19,7 @@ Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
 Returns element tag, role, name, bounding box, and attributes.
 Use --nearby to include parent, siblings, and children for context.")]
 pub struct Cmd {
-    /// Target element selector
+    /// Selector (CSS, XPath, or @ref)
     pub selector: String,
     /// Include nearby context (parent, siblings, children)
     #[arg(long)]

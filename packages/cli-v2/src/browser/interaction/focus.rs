@@ -19,7 +19,7 @@ Examples:
 Sets keyboard focus on the element. Use before press to send keys to a specific field.
 Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).")]
 pub struct Cmd {
-    /// CSS selector, XPath, or snapshot ref
+    /// Selector (CSS, XPath, or @ref)
     pub selector: String,
     /// Session ID
     #[arg(long)]

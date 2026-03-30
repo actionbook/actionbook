@@ -21,7 +21,7 @@ Types each character individually, firing keydown/keypress/keyup events.
 Use for fields with autocomplete, live validation, or input listeners.
 For simple value setting without events, use fill instead.")]
 pub struct Cmd {
-    /// Target element selector
+    /// Selector (CSS, XPath, or @ref)
     pub selector: String,
     /// Text to type
     pub text: String,

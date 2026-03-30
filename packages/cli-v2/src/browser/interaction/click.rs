@@ -33,7 +33,7 @@ Accepts a CSS selector, XPath, snapshot ref (@eN), or x,y coordinates.
 Refs come from snapshot output (e.g. [ref=e5]).
 Use --count 2 for double-click. Use --new-tab to open links in a new tab.")]
 pub struct Cmd {
-    /// CSS selector or x,y coordinates
+    /// CSS selector, XPath, @ref, or x,y coordinates
     pub selector: String,
     /// Session ID
     #[arg(long)]

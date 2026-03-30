@@ -28,7 +28,7 @@ Use --align with into-view to control alignment (start, center, end, nearest).")
 pub struct Cmd {
     /// Direction or action: up, down, left, right, top, bottom, into-view
     pub direction: String,
-    /// Pixels (for directional) or selector (for into-view)
+    /// Pixels (for directional) or selector/ref (for into-view)
     pub value: Option<String>,
     /// Session ID
     #[arg(long)]

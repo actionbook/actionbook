@@ -20,7 +20,7 @@ Examples:
   actionbook browser wait element '#loaded' --session s1 --tab t1 --timeout 5000
   actionbook browser wait element '.spinner[hidden]' --session s1 --tab t1")]
 pub struct Cmd {
-    /// CSS selector to wait for
+    /// Selector to wait for (CSS, XPath, or @ref)
     pub selector: String,
     /// Session ID
     #[arg(long)]

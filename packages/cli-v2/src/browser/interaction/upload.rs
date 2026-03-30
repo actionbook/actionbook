@@ -22,7 +22,7 @@ Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
 Sets files on a <input type=\"file\"> element. Paths must be absolute.
 Pass multiple paths for multi-file inputs.")]
 pub struct Cmd {
-    /// File input element selector
+    /// Selector for file input (CSS, XPath, or @ref)
     pub selector: String,
     /// Absolute file paths to upload
     #[arg(required = true, num_args = 1..)]

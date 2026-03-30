@@ -18,7 +18,7 @@ Examples:
 Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
 Returns the current value of an input, textarea, or select element.")]
 pub struct Cmd {
-    /// Target element selector
+    /// Selector (CSS, XPath, or @ref)
     pub selector: String,
     /// Session ID
     #[arg(long)]

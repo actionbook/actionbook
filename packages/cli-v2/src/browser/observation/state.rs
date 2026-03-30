@@ -18,7 +18,7 @@ Examples:
 Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
 Returns boolean flags: visible, enabled, checked, focused, editable, selected.")]
 pub struct Cmd {
-    /// Target element selector
+    /// Selector (CSS, XPath, or @ref)
     pub selector: String,
     /// Session ID
     #[arg(long)]

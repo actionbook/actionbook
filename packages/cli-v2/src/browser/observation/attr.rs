@@ -18,7 +18,7 @@ Examples:
 
 Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).")]
 pub struct Cmd {
-    /// Target element selector
+    /// Selector (CSS, XPath, or @ref)
     pub selector: String,
     /// Attribute name to read
     pub name: String,

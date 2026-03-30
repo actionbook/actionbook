@@ -19,7 +19,7 @@ Examples:
 Moves the mouse over the element to trigger hover states (tooltips, dropdowns, etc.).
 Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).")]
 pub struct Cmd {
-    /// CSS selector, XPath, or snapshot ref
+    /// Selector (CSS, XPath, or @ref)
     pub selector: String,
     /// Session ID
     #[arg(long)]

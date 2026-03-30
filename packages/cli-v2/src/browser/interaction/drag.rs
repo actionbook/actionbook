@@ -25,9 +25,9 @@ Accepts CSS selectors, XPath, snapshot refs (@eN), or x,y coordinates.
 Drags from the source element to a destination.
 Fires mousedown, mousemove, and mouseup events to simulate a full drag gesture.")]
 pub struct Cmd {
-    /// Source element selector
+    /// Source selector (CSS, XPath, or @ref)
     pub source: String,
-    /// Destination element selector or x,y coordinates
+    /// Destination selector (CSS, XPath, @ref) or x,y coordinates
     pub destination: String,
     /// Session ID
     #[arg(long)]

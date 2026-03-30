@@ -19,7 +19,7 @@ Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
 Returns all HTML attributes as key-value pairs.
 Use attr to read a single attribute by name.")]
 pub struct Cmd {
-    /// Target element selector
+    /// Selector (CSS, XPath, or @ref)
     pub selector: String,
     /// Session ID
     #[arg(long)]

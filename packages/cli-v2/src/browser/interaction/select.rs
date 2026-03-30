@@ -20,7 +20,7 @@ Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
 Selects an option in a <select> element by its value attribute.
 Use --by-text to match the visible display text instead.")]
 pub struct Cmd {
-    /// Target `<select>` element selector
+    /// Selector for <select> element (CSS, XPath, or @ref)
     pub selector: String,
     /// Value to select
     pub value: String,

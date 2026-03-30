@@ -19,7 +19,7 @@ Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
 Without property names, returns the standard set of computed styles.
 With names, returns only the specified CSS properties.")]
 pub struct Cmd {
-    /// Target element selector
+    /// Selector (CSS, XPath, or @ref)
     pub selector: String,
     /// Session ID
     #[arg(long)]
