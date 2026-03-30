@@ -1434,7 +1434,6 @@ fn cloud_crash_recovery_endpoint_gone() {
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
-#[ignore = "known flaky: cloud CDP multiplexing may mis-route concurrent responses"]
 fn cloud_concurrent_eval_multi_tab() {
     if skip() {
         return;
@@ -1485,8 +1484,9 @@ fn cloud_concurrent_eval_multi_tab() {
 
     let va = parse_json(&out_a);
     let vb = parse_json(&out_b);
-    assert!(va["data"]["value"].as_str().unwrap_or("").contains('2'));
-    assert!(vb["data"]["value"].as_str().unwrap_or("").contains('4'));
+    // 1+1=2 and 2+2=4 return as numbers, not strings
+    assert_eq!(va["data"]["value"], 2, "tab1 eval 1+1");
+    assert_eq!(vb["data"]["value"], 4, "tab2 eval 2+2");
 }
 
 #[test]
