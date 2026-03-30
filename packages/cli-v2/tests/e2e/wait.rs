@@ -2,13 +2,14 @@
 
 use crate::harness::{
     SessionGuard, assert_error_envelope, assert_failure, assert_meta, assert_success, headless,
-    headless_json, parse_json, skip, stdout_str, url_a, url_b,
+    headless_json, parse_json, skip, stdout_str, unique_session, url_a, url_b,
 };
 
 const ELEMENT_SELECTOR: &str = "#loaded";
 const CONDITION_EXPR: &str = "window.__waitReady === true";
 
 fn start_session(url: &str) -> (String, String) {
+    let (sid, profile) = unique_session("s");
     let out = headless_json(
         &[
             "browser",
@@ -16,6 +17,10 @@ fn start_session(url: &str) -> (String, String) {
             "--mode",
             "local",
             "--headless",
+            "--set-session-id",
+            &sid,
+            "--profile",
+            &profile,
             "--open-url",
             url,
         ],

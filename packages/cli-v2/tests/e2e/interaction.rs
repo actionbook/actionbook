@@ -7,7 +7,7 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str,
+    stdout_str, unique_session,
 };
 
 const TEST_URL: &str = "https://example.com";
@@ -345,6 +345,7 @@ fn assert_upload_success(
 }
 
 fn start_session(url: &str) -> (String, String) {
+    let (sid, profile) = unique_session("s");
     let out = headless_json(
         &[
             "browser",
@@ -352,6 +353,10 @@ fn start_session(url: &str) -> (String, String) {
             "--mode",
             "local",
             "--headless",
+            "--set-session-id",
+            &sid,
+            "--profile",
+            &profile,
             "--open-url",
             url,
         ],

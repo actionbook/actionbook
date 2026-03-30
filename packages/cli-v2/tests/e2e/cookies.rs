@@ -2,7 +2,7 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str, url_a,
+    stdout_str, unique_session, url_a,
 };
 
 const PRIMARY_COOKIE: &str = "primary_cookie";
@@ -12,6 +12,7 @@ const CLEAR_COOKIE: &str = "clear_cookie";
 const EXPIRES_TS: &str = "2000000000";
 
 fn start_session(url: &str) -> (String, String) {
+    let (sid, profile) = unique_session("s");
     let out = headless_json(
         &[
             "browser",
@@ -19,6 +20,10 @@ fn start_session(url: &str) -> (String, String) {
             "--mode",
             "local",
             "--headless",
+            "--set-session-id",
+            &sid,
+            "--profile",
+            &profile,
             "--open-url",
             url,
         ],
