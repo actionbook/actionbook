@@ -207,3 +207,24 @@ impl fmt::Display for ParseIdError {
 }
 
 impl std::error::Error for ParseIdError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_id_accepts_uppercase_auto_prefixes() {
+        assert_eq!(
+            SessionId::new("SLOCAL-1").expect("uppercase local id should be valid"),
+            SessionId::new_unchecked("SLOCAL-1")
+        );
+        assert_eq!(
+            SessionId::new("SCLOUD-42").expect("uppercase cloud id should be valid"),
+            SessionId::new_unchecked("SCLOUD-42")
+        );
+        assert_eq!(
+            SessionId::new("SEXT-9999").expect("uppercase extension id should be valid"),
+            SessionId::new_unchecked("SEXT-9999")
+        );
+    }
+}
