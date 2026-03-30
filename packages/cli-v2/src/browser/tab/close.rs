@@ -108,7 +108,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true);
             if !success {
-                tracing::warn!("Target.closeTarget returned success=false for {}", native_id);
+                tracing::warn!(
+                    "Target.closeTarget returned success=false for {}",
+                    native_id
+                );
             }
         }
         Err(e) => {
