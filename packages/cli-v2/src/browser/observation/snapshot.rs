@@ -22,7 +22,10 @@ Examples:
   actionbook browser snapshot --selector \"#main\" --session s1 --tab t1
 
 Flags: -i (interactive only), -c (compact), --cursor (include cursor-interactive).
-Elements are labeled with refs (e.g. [ref=e1]) for use in click, fill, etc.")]
+Elements are labeled with refs (e.g. [ref=e1]) for use in click, fill, etc.
+Refs are stable across snapshots — if the DOM node stays the same, the ref
+stays the same. This lets agents chain commands (click @e5, fill @e7, press
+Enter) without re-snapshotting after every step.")]
 pub struct Cmd {
     /// Session ID
     #[arg(long)]
