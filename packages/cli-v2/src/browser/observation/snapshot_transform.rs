@@ -564,6 +564,8 @@ pub struct RefEntry {
 pub struct RefCache {
     /// backendNodeId → RefEntry (e.g., 42 → RefEntry { ref_id: "e1", role: "button", name: "Submit" })
     id_to_ref: std::collections::HashMap<i64, RefEntry>,
+    /// ref_id → backendNodeId (reverse lookup for @eN resolution)
+    ref_to_id: std::collections::HashMap<String, i64>,
     /// Next available ref counter
     next_ref: usize,
 }
@@ -578,6 +580,7 @@ impl RefCache {
     pub fn new() -> Self {
         Self {
             id_to_ref: std::collections::HashMap::new(),
+            ref_to_id: std::collections::HashMap::new(),
             next_ref: 1, // refs start from e1
         }
     }
@@ -593,6 +596,7 @@ impl RefCache {
         }
         let ref_id = format!("e{}", self.next_ref);
         self.next_ref += 1;
+        self.ref_to_id.insert(ref_id.clone(), backend_node_id);
         self.id_to_ref.insert(
             backend_node_id,
             RefEntry {
@@ -629,6 +633,11 @@ impl RefCache {
     /// Whether the cache is empty.
     pub fn is_empty(&self) -> bool {
         self.id_to_ref.is_empty()
+    }
+
+    /// Reverse lookup: ref_id (e.g. "e5") → backendNodeId.
+    pub fn backend_node_id_for_ref(&self, ref_id: &str) -> Option<i64> {
+        self.ref_to_id.get(ref_id).copied()
     }
 }
 

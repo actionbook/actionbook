@@ -233,6 +233,12 @@ impl SessionRegistry {
         self.ref_caches.insert(key, cache);
     }
 
+    /// Read-only access to a tab-scoped RefCache (no take/put needed).
+    pub fn peek_ref_cache(&self, session_id: &str, tab_id: &str) -> Option<&RefCache> {
+        let key = format!("{}\0{}", session_id, tab_id);
+        self.ref_caches.get(&key)
+    }
+
     /// Clear the RefCache for a tab (call on navigation/reload/back/forward).
     /// When the page changes, old backendNodeIds are no longer valid.
     pub fn clear_ref_cache(&mut self, session_id: &str, tab_id: &str) {
@@ -306,6 +312,35 @@ mod tests {
             registry.get(second.as_str()).map(|entry| entry.status),
             Some(SessionState::Starting)
         );
+    }
+
+    #[test]
+    fn reserve_session_start_rejects_set_id_when_profile_occupied() {
+        let mut registry = SessionRegistry::new();
+
+        // Create first session with profile "myprofile"
+        registry
+            .reserve_session_start(
+                Some("first-id"),
+                Some("myprofile"),
+                "myprofile",
+                Mode::Local,
+                true,
+            )
+            .expect("reserve first session");
+
+        // Try to create second session with SAME profile but DIFFERENT set-session-id
+        let err = registry
+            .reserve_session_start(
+                Some("second-id"),
+                Some("myprofile"),
+                "myprofile",
+                Mode::Local,
+                true,
+            )
+            .expect_err("should reject: profile already occupied");
+
+        assert_eq!(err.error_code(), "SESSION_ALREADY_EXISTS");
     }
 
     #[test]

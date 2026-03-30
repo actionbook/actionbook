@@ -69,7 +69,16 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     // Resolve the target element
-    let node_id = match element::resolve_node(&cdp, &target_id, &cmd.selector).await {
+    let node_id = match element::resolve_node(
+        &cdp,
+        &target_id,
+        &cmd.selector,
+        registry,
+        &cmd.session,
+        &cmd.tab,
+    )
+    .await
+    {
         Ok(id) => id,
         Err(e) => return e,
     };

@@ -6,19 +6,19 @@
 //! 1. **CSS selector** — default path, uses `DOM.querySelector`.
 //! 2. **XPath** — prefix `//` or `/`, uses `Runtime.evaluate` with
 //!    `document.evaluate()`.
-//! 3. **Snapshot ref** — prefix `@e`, e.g. `@e5`. Not yet implemented;
-//!    returns `UNSUPPORTED_OPERATION` until the snapshot annotation store
-//!    is wired up.
+//! 3. **Snapshot ref** — prefix `@e`, e.g. `@e5`. Resolves via the
+//!    per-tab `RefCache` stored in the daemon registry.
 
 use serde_json::json;
 
 use crate::action_result::ActionResult;
 use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result};
+use crate::daemon::registry::SharedRegistry;
 
 /// Resolve a `<selector>` string to a CDP `nodeId`.
 ///
 /// Dispatches by selector form:
-///   - `@eN`  → snapshot ref (placeholder)
+///   - `@eN`  → snapshot ref (via RefCache)
 ///   - `//…`  → XPath
 ///   - `/…`   → XPath (absolute)
 ///   - else   → CSS selector
@@ -26,9 +26,12 @@ pub async fn resolve_node(
     cdp: &CdpSession,
     target_id: &str,
     selector: &str,
+    registry: &SharedRegistry,
+    session_id: &str,
+    tab_id: &str,
 ) -> Result<i64, ActionResult> {
     if selector.starts_with("@e") {
-        resolve_ref(selector)
+        resolve_ref(cdp, target_id, selector, registry, session_id, tab_id).await
     } else if selector.starts_with("//") || selector.starts_with('/') {
         resolve_xpath(cdp, target_id, selector).await
     } else {
@@ -91,8 +94,11 @@ pub async fn resolve_element_center(
     cdp: &CdpSession,
     target_id: &str,
     selector: &str,
+    registry: &SharedRegistry,
+    session_id: &str,
+    tab_id: &str,
 ) -> Result<(f64, f64), ActionResult> {
-    let node_id = resolve_node(cdp, target_id, selector).await?;
+    let node_id = resolve_node(cdp, target_id, selector, registry, session_id, tab_id).await?;
     get_element_center(cdp, target_id, node_id, selector).await
 }
 
@@ -120,8 +126,11 @@ pub async fn resolve_selector_object(
     cdp: &CdpSession,
     target_id: &str,
     selector: &str,
+    registry: &SharedRegistry,
+    session_id: &str,
+    tab_id: &str,
 ) -> Result<(i64, String), ActionResult> {
-    let node_id = resolve_node(cdp, target_id, selector).await?;
+    let node_id = resolve_node(cdp, target_id, selector, registry, session_id, tab_id).await?;
     let object_id = resolve_object_id(cdp, target_id, node_id).await?;
     Ok((node_id, object_id))
 }
@@ -223,12 +232,96 @@ async fn resolve_xpath(
     Ok(node_id)
 }
 
-/// Snapshot ref (`@eN`) — placeholder until annotation store exists.
-fn resolve_ref(selector: &str) -> Result<i64, ActionResult> {
-    Err(ActionResult::fatal(
-        "UNSUPPORTED_OPERATION",
-        format!("snapshot refs are not yet supported: '{selector}'"),
-    ))
+/// Snapshot ref (`@eN`) → nodeId via RefCache + CDP.
+async fn resolve_ref(
+    cdp: &CdpSession,
+    target_id: &str,
+    selector: &str,
+    registry: &SharedRegistry,
+    session_id: &str,
+    tab_id: &str,
+) -> Result<i64, ActionResult> {
+    let ref_id = selector.strip_prefix('@').unwrap_or(selector);
+
+    // Validate format: must be "eN" where N is a positive integer
+    if !ref_id.starts_with('e') || ref_id.len() < 2 || ref_id[1..].parse::<u64>().is_err() {
+        return Err(ActionResult::fatal(
+            "INVALID_ARGUMENT",
+            format!("invalid snapshot ref format: '{selector}' (expected @eN)"),
+        ));
+    }
+
+    // Look up backendNodeId from the tab's RefCache
+    let backend_node_id = {
+        let reg = registry.lock().await;
+        reg.peek_ref_cache(session_id, tab_id)
+            .and_then(|cache| cache.backend_node_id_for_ref(ref_id))
+    };
+
+    let backend_node_id = backend_node_id.ok_or_else(|| {
+        ActionResult::fatal_with_hint(
+            "REF_NOT_FOUND",
+            format!("snapshot ref '{selector}' not found"),
+            "run 'browser snapshot' first to generate element refs",
+        )
+    })?;
+
+    // Materialize DOM tree
+    cdp.execute_on_tab(target_id, "DOM.getDocument", json!({}))
+        .await
+        .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+
+    // backendNodeId → objectId
+    let resolve_resp = cdp
+        .execute_on_tab(
+            target_id,
+            "DOM.resolveNode",
+            json!({ "backendNodeId": backend_node_id }),
+        )
+        .await
+        .map_err(|_| {
+            ActionResult::fatal_with_hint(
+                "REF_STALE",
+                format!("snapshot ref '{selector}' is stale — element no longer exists in the DOM"),
+                "run 'browser snapshot' again",
+            )
+        })?;
+
+    let object_id = resolve_resp
+        .pointer("/result/object/objectId")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            ActionResult::fatal_with_hint(
+                "REF_STALE",
+                format!("snapshot ref '{selector}' could not be resolved"),
+                "run 'browser snapshot' again",
+            )
+        })?;
+
+    // objectId → nodeId
+    let node_resp = cdp
+        .execute_on_tab(
+            target_id,
+            "DOM.requestNode",
+            json!({ "objectId": object_id }),
+        )
+        .await
+        .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+
+    let node_id = node_resp
+        .pointer("/result/nodeId")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    if node_id == 0 {
+        return Err(ActionResult::fatal_with_hint(
+            "REF_STALE",
+            format!("snapshot ref '{selector}' resolved but DOM node is inaccessible"),
+            "run 'browser snapshot' again",
+        ));
+    }
+
+    Ok(node_id)
 }
 
 // ── Error helper ───────────────────────────────────────────────────

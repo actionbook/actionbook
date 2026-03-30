@@ -146,10 +146,14 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Resolve container to a JS object reference if specified
     let container_object_id = match &cmd.container {
-        Some(sel) => match resolve_to_object_id(&cdp, &target_id, sel).await {
-            Ok(id) => Some(id),
-            Err(e) => return e,
-        },
+        Some(sel) => {
+            match resolve_to_object_id(&cdp, &target_id, sel, registry, &cmd.session, &cmd.tab)
+                .await
+            {
+                Ok(id) => Some(id),
+                Err(e) => return e,
+            }
+        }
         None => None,
     };
 
@@ -181,7 +185,17 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             }
         }
         ScrollMode::IntoView { selector, align } => {
-            if let Err(e) = scroll_into_view(&cdp, &target_id, selector, align).await {
+            if let Err(e) = scroll_into_view(
+                &cdp,
+                &target_id,
+                selector,
+                align,
+                registry,
+                &cmd.session,
+                &cmd.tab,
+            )
+            .await
+            {
                 return e;
             }
         }
@@ -234,8 +248,12 @@ async fn resolve_to_object_id(
     cdp: &CdpSession,
     target_id: &str,
     selector: &str,
+    registry: &SharedRegistry,
+    session_id: &str,
+    tab_id: &str,
 ) -> Result<String, ActionResult> {
-    let node_id = element::resolve_node(cdp, target_id, selector).await?;
+    let node_id =
+        element::resolve_node(cdp, target_id, selector, registry, session_id, tab_id).await?;
     let resp = cdp
         .execute_on_tab(target_id, "DOM.resolveNode", json!({ "nodeId": node_id }))
         .await
@@ -312,8 +330,12 @@ async fn scroll_into_view(
     target_id: &str,
     selector: &str,
     align: &str,
+    registry: &SharedRegistry,
+    session_id: &str,
+    tab_id: &str,
 ) -> Result<(), ActionResult> {
-    let object_id = resolve_to_object_id(cdp, target_id, selector).await?;
+    let object_id =
+        resolve_to_object_id(cdp, target_id, selector, registry, session_id, tab_id).await?;
 
     let block = match align {
         "start" => "start",

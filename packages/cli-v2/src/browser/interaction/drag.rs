@@ -266,7 +266,16 @@ async fn execute_inner(
     registry: &SharedRegistry,
 ) -> ActionResult {
     // Resolve source element to centre coordinates
-    let (src_x, src_y) = match element::resolve_element_center(cdp, target_id, &cmd.source).await {
+    let (src_x, src_y) = match element::resolve_element_center(
+        cdp,
+        target_id,
+        &cmd.source,
+        registry,
+        &cmd.session,
+        &cmd.tab,
+    )
+    .await
+    {
         Ok(coords) => coords,
         Err(e) => return e,
     };
@@ -275,7 +284,16 @@ async fn execute_inner(
     let (dst_x, dst_y) = match destination {
         DragDestination::Coordinates(x, y) => (*x, *y),
         DragDestination::Selector(sel) => {
-            match element::resolve_element_center(cdp, target_id, sel).await {
+            match element::resolve_element_center(
+                cdp,
+                target_id,
+                sel,
+                registry,
+                &cmd.session,
+                &cmd.tab,
+            )
+            .await
+            {
                 Ok(coords) => coords,
                 Err(e) => return e,
             }

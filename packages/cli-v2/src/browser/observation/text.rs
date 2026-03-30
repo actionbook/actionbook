@@ -71,7 +71,16 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return e,
     };
 
-    let value = match get_text(&cdp, &target_id, cmd.selector.as_deref()).await {
+    let value = match get_text(
+        &cdp,
+        &target_id,
+        cmd.selector.as_deref(),
+        registry,
+        &cmd.session,
+        &cmd.tab,
+    )
+    .await
+    {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -90,10 +99,16 @@ async fn get_text(
     cdp: &crate::daemon::cdp_session::CdpSession,
     target_id: &str,
     selector: Option<&str>,
+    registry: &SharedRegistry,
+    session_id: &str,
+    tab_id: &str,
 ) -> Result<Value, ActionResult> {
     match selector {
         Some(selector) => {
-            let (_, object_id) = element::resolve_selector_object(cdp, target_id, selector).await?;
+            let (_, object_id) = element::resolve_selector_object(
+                cdp, target_id, selector, registry, session_id, tab_id,
+            )
+            .await?;
             let resp = cdp
                 .execute_on_tab(
                     target_id,

@@ -82,11 +82,19 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return e,
     };
 
-    let (_, object_id) =
-        match element::resolve_selector_object(&cdp, &target_id, &cmd.selector).await {
-            Ok(v) => v,
-            Err(e) => return e,
-        };
+    let (_, object_id) = match element::resolve_selector_object(
+        &cdp,
+        &target_id,
+        &cmd.selector,
+        registry,
+        &cmd.session,
+        &cmd.tab,
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
 
     let names = requested_style_names(&cmd.names);
     let url = navigation::get_tab_url(&cdp, &target_id).await;

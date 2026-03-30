@@ -149,7 +149,8 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
         // Filter by selector region if applicable
         if let Some(ref sel) = cmd.selector
-            && let Ok((_, target_rect)) = get_selector_rect(&cdp, &target_id, sel).await
+            && let Ok((_, target_rect)) =
+                get_selector_rect(&cdp, &target_id, sel, registry, &cmd.session, &cmd.tab).await
         {
             annotation_items = filter_annotations(annotation_items, Some(&target_rect));
         }
@@ -198,7 +199,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }
     } else if let Some(ref sel) = cmd.selector {
         // Clip to selector region
-        match get_selector_rect(&cdp, &target_id, sel).await {
+        match get_selector_rect(&cdp, &target_id, sel, registry, &cmd.session, &cmd.tab).await {
             Ok((clip, _)) => {
                 params["clip"] = clip;
             }
@@ -280,7 +281,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         };
 
         let selector_rect = if let Some(ref sel) = cmd.selector {
-            get_selector_rect(&cdp, &target_id, sel)
+            get_selector_rect(&cdp, &target_id, sel, registry, &cmd.session, &cmd.tab)
                 .await
                 .ok()
                 .map(|(_, r)| r)
@@ -543,8 +544,14 @@ async fn get_selector_rect(
     cdp: &crate::daemon::cdp_session::CdpSession,
     target_id: &str,
     selector: &str,
+    registry: &SharedRegistry,
+    session_id: &str,
+    tab_id: &str,
 ) -> Result<(serde_json::Value, Rect), ActionResult> {
-    let node_id = crate::browser::element::resolve_node(cdp, target_id, selector).await?;
+    let node_id = crate::browser::element::resolve_node(
+        cdp, target_id, selector, registry, session_id, tab_id,
+    )
+    .await?;
     crate::browser::element::scroll_into_view(cdp, target_id, node_id).await?;
 
     // Resolve nodeId → objectId

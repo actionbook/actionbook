@@ -70,7 +70,16 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return e,
     };
 
-    let value = match get_value(&cdp, &target_id, &cmd.selector).await {
+    let value = match get_value(
+        &cdp,
+        &target_id,
+        &cmd.selector,
+        registry,
+        &cmd.session,
+        &cmd.tab,
+    )
+    .await
+    {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -89,8 +98,13 @@ async fn get_value(
     cdp: &crate::daemon::cdp_session::CdpSession,
     target_id: &str,
     selector: &str,
+    registry: &SharedRegistry,
+    session_id: &str,
+    tab_id: &str,
 ) -> Result<Value, ActionResult> {
-    let (_, object_id) = element::resolve_selector_object(cdp, target_id, selector).await?;
+    let (_, object_id) =
+        element::resolve_selector_object(cdp, target_id, selector, registry, session_id, tab_id)
+            .await?;
     let resp = cdp
         .execute_on_tab(
             target_id,

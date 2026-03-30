@@ -71,7 +71,17 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return e,
     };
 
-    let value = match get_attr(&cdp, &target_id, &cmd.selector, &cmd.name).await {
+    let value = match get_attr(
+        &cdp,
+        &target_id,
+        &cmd.selector,
+        &cmd.name,
+        registry,
+        &cmd.session,
+        &cmd.tab,
+    )
+    .await
+    {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -91,8 +101,13 @@ async fn get_attr(
     target_id: &str,
     selector: &str,
     attr_name: &str,
+    registry: &SharedRegistry,
+    session_id: &str,
+    tab_id: &str,
 ) -> Result<Value, ActionResult> {
-    let (_, object_id) = element::resolve_selector_object(cdp, target_id, selector).await?;
+    let (_, object_id) =
+        element::resolve_selector_object(cdp, target_id, selector, registry, session_id, tab_id)
+            .await?;
     let attr_json = serde_json::to_string(attr_name).map_err(|e| {
         ActionResult::fatal("INTERNAL_ERROR", format!("serialize attribute name: {e}"))
     })?;

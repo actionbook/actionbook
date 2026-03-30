@@ -169,7 +169,16 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let (x, y) = match &target {
         ClickTarget::Coordinates(cx, cy) => (*cx, *cy),
         ClickTarget::Selector(sel) => {
-            match element::resolve_element_center(&cdp, &target_id, sel).await {
+            match element::resolve_element_center(
+                &cdp,
+                &target_id,
+                sel,
+                registry,
+                &cmd.session,
+                &cmd.tab,
+            )
+            .await
+            {
                 Ok(coords) => coords,
                 Err(e) => return e,
             }
@@ -178,7 +187,17 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Handle --new-tab: if the target is a link, open href in a new tab
     if cmd.new_tab
-        && let Some(href) = get_element_href(&cdp, &target_id, &target, x, y).await
+        && let Some(href) = get_element_href(
+            &cdp,
+            &target_id,
+            &target,
+            x,
+            y,
+            registry,
+            &cmd.session,
+            &cmd.tab,
+        )
+        .await
     {
         return match open_in_new_tab(&cdp, &href, &cmd.session, registry).await {
             Ok(()) => {
@@ -271,18 +290,24 @@ fn build_response(
 /// Check whether the element at the target position has an `href`.
 ///
 /// For selectors, resolves via `element::resolve_node` (supports CSS, XPath,
-/// future @eN refs) and then inspects the node. For coordinates, uses
+/// @eN refs) and then inspects the node. For coordinates, uses
 /// `document.elementFromPoint`.
+#[allow(clippy::too_many_arguments)]
 async fn get_element_href(
     cdp: &CdpSession,
     target_id: &str,
     target: &ClickTarget,
     x: f64,
     y: f64,
+    registry: &SharedRegistry,
+    session_id: &str,
+    tab_id: &str,
 ) -> Option<String> {
     match target {
         ClickTarget::Selector(sel) => {
-            let node_id = element::resolve_node(cdp, target_id, sel).await.ok()?;
+            let node_id = element::resolve_node(cdp, target_id, sel, registry, session_id, tab_id)
+                .await
+                .ok()?;
             // Resolve the DOM node to a JS object, then check for href.
             let resp = cdp
                 .execute_on_tab(target_id, "DOM.resolveNode", json!({ "nodeId": node_id }))
