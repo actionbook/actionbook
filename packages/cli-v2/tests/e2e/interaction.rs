@@ -138,6 +138,26 @@ fn assert_select_success(
     expected_value: &str,
     expected_by_text: bool,
 ) {
+    assert_select_success_full(
+        v,
+        session_id,
+        tab_id,
+        expected_selector,
+        expected_value,
+        expected_by_text,
+        false,
+    );
+}
+
+fn assert_select_success_full(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_selector: &str,
+    expected_value: &str,
+    expected_by_text: bool,
+    expected_by_ref: bool,
+) {
     assert_eq!(v["ok"], true);
     assert_eq!(v["command"], "browser.select");
     assert!(v["error"].is_null(), "error must be null on success");
@@ -151,6 +171,7 @@ fn assert_select_success(
     assert_eq!(data["target"]["selector"], expected_selector);
     assert_eq!(data["value_summary"]["value"], expected_value);
     assert_eq!(data["value_summary"]["by_text"], expected_by_text);
+    assert_eq!(data["value_summary"]["by_ref"], expected_by_ref);
 
     assert_meta(v);
 }
@@ -2534,6 +2555,171 @@ fn select_by_text_json() {
         ),
         "Citrus Fruit"
     );
+
+    close_session(&sid);
+}
+
+/// Run snapshot and find the ref for an option with the given name.
+fn snapshot_option_ref(session_id: &str, tab_id: &str, option_name: &str) -> String {
+    let out = headless_json(
+        &[
+            "browser",
+            "snapshot",
+            "--session",
+            session_id,
+            "--tab",
+            tab_id,
+        ],
+        15,
+    );
+    assert_success(&out, "snapshot for option ref");
+    let v = parse_json(&out);
+    let nodes = v["data"]["nodes"]
+        .as_array()
+        .expect("snapshot nodes must be an array");
+    for node in nodes {
+        let name = node["name"].as_str().unwrap_or("");
+        let role = node["role"].as_str().unwrap_or("");
+        if role == "option" && name == option_name {
+            let r = node["ref"].as_str().unwrap();
+            return format!("@{r}");
+        }
+    }
+    panic!("option ref not found for name='{option_name}' in snapshot nodes");
+}
+
+#[test]
+fn select_by_ref_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_select_fixture(&sid, &tid);
+
+    // Run snapshot to populate RefCache, then find the ref for "Banana" option
+    let banana_ref = snapshot_option_ref(&sid, &tid, "Banana");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "select",
+            "#ab-select",
+            &banana_ref,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--by-ref",
+        ],
+        15,
+    );
+    assert_success(&out, "select by-ref json");
+    let v = parse_json(&out);
+
+    assert_select_success_full(&v, &sid, &tid, "#ab-select", &banana_ref, false, true);
+    assert_eq!(
+        eval_value(&sid, &tid, "document.querySelector('#ab-select').value"),
+        "banana"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "document.querySelector('#ab-select').selectedOptions[0].textContent.trim()"
+        ),
+        "Banana"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn select_by_ref_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_select_fixture(&sid, &tid);
+
+    let citrus_ref = snapshot_option_ref(&sid, &tid, "Citrus Fruit");
+
+    let out = headless(
+        &[
+            "browser",
+            "select",
+            "#ab-select",
+            &citrus_ref,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--by-ref",
+        ],
+        15,
+    );
+    assert_success(&out, "select by-ref text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser.select"),
+        "must contain ok browser.select"
+    );
+    assert!(
+        text.contains("target: #ab-select"),
+        "must contain target line with selector"
+    );
+    assert!(
+        text.contains(&format!("value: {citrus_ref}")),
+        "must contain ref value"
+    );
+    assert!(
+        text.contains("by_ref: true"),
+        "must contain by_ref: true"
+    );
+
+    // Verify the option was actually selected
+    assert_eq!(
+        eval_value(&sid, &tid, "document.querySelector('#ab-select').value"),
+        "citrus"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn select_by_ref_and_by_text_mutually_exclusive() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "select",
+            "#ab-select",
+            "@e1",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--by-ref",
+            "--by-text",
+        ],
+        15,
+    );
+    assert_failure(&out, "select by-ref + by-text json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser.select");
+    assert_error_envelope(&v, "INVALID_ARGUMENT");
 
     close_session(&sid);
 }
