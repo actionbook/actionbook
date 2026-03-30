@@ -132,15 +132,34 @@ gh pr create --base release/1.0.0 --title "..." --body "..."
 
 ### PR Review Comments
 
-提交 PR 后检查 CI 和 review comments，直到全部解决：
+提交 PR 后启动定时轮询，直到 CI 全绿 + review comments 全部处理：
 
-1. **检查 CI 状态** — `gh pr checks <PR>` 确认 Lint + Unit Tests 全绿
-2. **检查 review comments** — `gh api repos/{owner}/{repo}/pulls/{PR}/comments` 读取所有 comments
-3. **逐条处理**：
-   - **修复的**: 修改代码 → commit → push → 在 comment 下回复说明修复内容和 commit hash
-   - **不修复的**: 在 comment 下回复说明原因（如"有意为之"、"不在本 PR 范围"等）
-4. **CI 重新检查** — 修复后确认 CI 仍然全绿
-5. CI 全绿 + review comments 全部回复后合并
+```bash
+# 定时检查 CI 状态 + review comments（每 2 分钟一次，直到全部解决）
+while true; do
+  echo "=== CI Status ==="
+  gh pr checks <PR_NUMBER>
+
+  echo "=== Review Comments ==="
+  gh api repos/{owner}/{repo}/pulls/<PR_NUMBER>/comments \
+    --jq '.[] | "\(.id) [\(.user.login)] \(.path):\(.line // "N/A") — \(.body[:80])"'
+
+  echo "=== Pending Reviews ==="
+  gh pr view <PR_NUMBER> --json reviews \
+    --jq '.reviews[] | select(.state != "COMMENTED" and .state != "APPROVED") | "\(.author.login): \(.state)"'
+
+  sleep 120
+done
+```
+
+处理流程：
+
+1. **CI 失败** — 读日志定位原因 → 修复 → commit → push
+2. **有新 review comment**：
+   - **修复的**: 修改代码 → commit → push → 在 comment 下回复修复内容和 commit hash
+   - **不修复的**: 在 comment 下回复原因（如"有意为之"、"不在本 PR 范围"等）
+3. **每次 push 后重新等 CI** — 确认修复没有引入回归
+4. **全部条件满足后合并**: CI 全绿 + review comments 全部回复 + 无 blocking review
 
 ---
 
