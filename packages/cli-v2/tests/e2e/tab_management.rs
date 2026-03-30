@@ -7,8 +7,9 @@
 
 use crate::harness::{
     SessionGuard, assert_context_object, assert_error_envelope, assert_failure, assert_meta,
-    assert_success, assert_tab_id, headless, headless_json, new_tab_json, parse_json, skip,
-    start_named_session, start_session, stdout_str, unique_session, url_a, url_b, url_c,
+    assert_native_tab_id, assert_success, assert_tab_id, headless, headless_json, new_tab_json,
+    parse_json, skip, start_named_session, start_session, stdout_str, unique_session, url_a, url_b,
+    url_c,
 };
 
 // ===========================================================================
@@ -37,12 +38,10 @@ fn tab_list_tabs_json() {
     let tabs = v["data"]["tabs"].as_array().expect("tabs array");
     let tab = &tabs[0];
     assert_tab_id(&tab["tab_id"]);
+    assert_native_tab_id(&tab["native_tab_id"]);
+    assert_ne!(tab["tab_id"], tab["native_tab_id"]);
     assert!(tab["url"].is_string());
     assert!(tab["title"].is_string());
-    assert!(
-        !tab.as_object().unwrap().contains_key("native_tab_id"),
-        "native_tab_id should not be present"
-    );
     assert_meta(&v);
 }
 
@@ -81,6 +80,8 @@ fn tab_list_tabs_after_new_tab_json() {
 
     for tab in tabs {
         assert_tab_id(&tab["tab_id"]);
+        assert_native_tab_id(&tab["native_tab_id"]);
+        assert_ne!(tab["tab_id"], tab["native_tab_id"]);
         assert!(tab["url"].is_string());
         assert!(tab["title"].is_string());
     }
@@ -124,16 +125,14 @@ fn tab_new_tab_json() {
     assert!(v["error"].is_null());
     assert_context_object(&v);
     assert_eq!(v["context"]["session_id"], sid);
-    assert!(
-        v["context"]["tab_id"].is_string(),
-        "context.tab_id should be present"
-    );
+    assert_tab_id(&v["context"]["tab_id"]);
 
     let tab = &v["data"]["tab"];
     assert_tab_id(&tab["tab_id"]);
+    assert_native_tab_id(&tab["native_tab_id"]);
+    assert_ne!(tab["tab_id"], tab["native_tab_id"]);
     assert!(tab["url"].is_string());
     assert!(tab["title"].is_string());
-    assert!(!tab.as_object().unwrap().contains_key("native_tab_id"));
     assert_eq!(v["data"]["created"], true);
     assert_eq!(v["data"]["new_window"], false);
     assert_meta(&v);
@@ -170,11 +169,9 @@ fn tab_new_tab_sequential_ids_json() {
     let t2 = new_tab_json(&sid, &url_b());
     let t3 = new_tab_json(&sid, &url_c());
 
-    assert!(!t1.is_empty() && !t2.is_empty() && !t3.is_empty());
-    assert!(
-        t1 != t2 && t2 != t3 && t1 != t3,
-        "all tab_ids must be unique"
-    );
+    assert_eq!(t1, "t1");
+    assert_eq!(t2, "t2");
+    assert_eq!(t3, "t3");
 
     let out = headless_json(&["browser", "list-tabs", "--session", &sid], 10);
     assert_success(&out, "list-tabs 3 tabs");
@@ -203,6 +200,8 @@ fn tab_new_tab_alias_open_json() {
 
     let tab = &v["data"]["tab"];
     assert_tab_id(&tab["tab_id"]);
+    assert_native_tab_id(&tab["native_tab_id"]);
+    assert_ne!(tab["tab_id"], tab["native_tab_id"]);
     assert_eq!(v["data"]["created"], true);
     assert_eq!(v["data"]["new_window"], false);
     assert_meta(&v);
@@ -220,9 +219,10 @@ fn tab_close_tab_json() {
     let (sid, _t1) = start_session(&url_a());
     let _guard = SessionGuard::new(&sid);
     let t2 = new_tab_json(&sid, &url_b());
+    assert_eq!(t2, "t2");
 
     let out = headless_json(
-        &["browser", "close-tab", "--session", &sid, "--tab", &t2],
+        &["browser", "close-tab", "--session", &sid, "--tab", "t2"],
         30,
     );
     assert_success(&out, "close-tab json");

@@ -397,13 +397,24 @@ pub fn assert_error_envelope(v: &serde_json::Value, expected_code: &str) {
     assert_meta(v);
 }
 
-/// Assert a tab_id is a non-empty string.
+/// Assert a tab_id uses the short `tN` format.
 pub fn assert_tab_id(tab_id: &serde_json::Value) {
-    assert!(tab_id.is_string(), "tab_id must be a string");
+    let tab_id = tab_id.as_str().expect("tab_id must be a string");
+    let suffix = tab_id
+        .strip_prefix('t')
+        .expect("tab_id must start with 't'");
     assert!(
-        !tab_id.as_str().unwrap().is_empty(),
-        "tab_id must not be empty"
+        !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()),
+        "tab_id must match short format tN, got {tab_id}"
     );
+}
+
+/// Assert a native_tab_id is exposed as a non-empty string.
+pub fn assert_native_tab_id(native_tab_id: &serde_json::Value) {
+    let native_tab_id = native_tab_id
+        .as_str()
+        .expect("native_tab_id must be a string");
+    assert!(!native_tab_id.is_empty(), "native_tab_id must not be empty");
 }
 
 /// Assert context is a non-null object.
@@ -424,6 +435,7 @@ pub fn assert_context_with_session(v: &serde_json::Value, expected_sid: &str) {
 /// Assert context includes both session_id and tab_id.
 pub fn assert_context_with_tab(v: &serde_json::Value, expected_sid: &str, expected_tid: &str) {
     assert_context_with_session(v, expected_sid);
+    assert_tab_id(&v["context"]["tab_id"]);
     assert_eq!(
         v["context"]["tab_id"].as_str().unwrap_or(""),
         expected_tid,
@@ -458,6 +470,8 @@ pub fn start_session(url: &str) -> (String, String) {
         .as_str()
         .unwrap()
         .to_string();
+    assert_tab_id(&v["data"]["tab"]["tab_id"]);
+    assert_native_tab_id(&v["data"]["tab"]["native_tab_id"]);
     let tid = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
     (actual_sid, tid)
 }
@@ -482,6 +496,8 @@ pub fn start_named_session(session_id: &str, profile: &str, url: &str) -> String
     );
     assert_success(&out, &format!("start {session_id}"));
     let v = parse_json(&out);
+    assert_tab_id(&v["data"]["tab"]["tab_id"]);
+    assert_native_tab_id(&v["data"]["tab"]["native_tab_id"]);
     v["data"]["tab"]["tab_id"].as_str().unwrap().to_string()
 }
 
@@ -497,5 +513,7 @@ pub fn new_tab_json(session_id: &str, url: &str) -> String {
     let out = headless_json(&["browser", "new-tab", url, "--session", session_id], 30);
     assert_success(&out, "new-tab");
     let v = parse_json(&out);
+    assert_tab_id(&v["data"]["tab"]["tab_id"]);
+    assert_native_tab_id(&v["data"]["tab"]["native_tab_id"]);
     v["data"]["tab"]["tab_id"].as_str().unwrap().to_string()
 }

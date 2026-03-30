@@ -14,8 +14,9 @@ use std::sync::{Arc, Barrier};
 use std::time::Duration;
 
 use crate::harness::{
-    SessionGuard, SoloEnv, assert_failure, assert_success, headless, headless_json, new_tab_json,
-    parse_json, skip, start_session, stdout_str, unique_session, url_a, url_b,
+    SessionGuard, SoloEnv, assert_failure, assert_native_tab_id, assert_success, assert_tab_id,
+    headless, headless_json, new_tab_json, parse_json, skip, start_session, stdout_str,
+    unique_session, url_a, url_b,
 };
 
 // ===========================================================================
@@ -40,13 +41,13 @@ fn lifecycle_open_and_close_json() {
     assert_eq!(v["data"]["session"]["status"], "running");
     assert!(v["data"]["session"]["headless"].is_boolean());
     assert!(v["data"]["session"]["cdp_endpoint"].is_string());
-    assert!(v["data"]["tab"]["tab_id"].is_string());
-    assert!(!v["data"]["tab"]["tab_id"].as_str().unwrap().is_empty());
+    assert_tab_id(&v["data"]["tab"]["tab_id"]);
+    assert_native_tab_id(&v["data"]["tab"]["native_tab_id"]);
     assert!(v["data"]["tab"]["url"].is_string());
     assert!(v["data"]["tab"]["title"].is_string());
     assert_eq!(v["data"]["reused"], false);
     assert_eq!(v["context"]["session_id"], "local-1");
-    assert!(v["context"]["tab_id"].is_string());
+    assert_tab_id(&v["context"]["tab_id"]);
     assert!(v["meta"]["duration_ms"].is_number());
 
     // status
@@ -209,7 +210,7 @@ fn lifecycle_status_json() {
     assert!(v["data"]["session"]["tabs_count"].is_number());
     let tabs = v["data"]["tabs"].as_array().expect("tabs should be array");
     assert!(!tabs.is_empty());
-    assert!(tabs[0]["tab_id"].is_string());
+    assert_tab_id(&tabs[0]["tab_id"]);
     assert!(tabs[0]["url"].is_string());
     assert!(tabs[0]["title"].is_string());
     let caps = &v["data"]["capabilities"];
@@ -587,7 +588,9 @@ fn lifecycle_concurrent_parallel_operations() {
     );
     assert_success(&out, "start alpha");
     let _guard_a = SessionGuard::new(&sid_a);
-    let alpha_tab = parse_json(&out)["data"]["tab"]["tab_id"]
+    let alpha_json = parse_json(&out);
+    assert_tab_id(&alpha_json["data"]["tab"]["tab_id"]);
+    let alpha_tab = alpha_json["data"]["tab"]["tab_id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -610,7 +613,9 @@ fn lifecycle_concurrent_parallel_operations() {
     );
     assert_success(&out, "start beta");
     let _guard_b = SessionGuard::new(&sid_b);
-    let beta_tab = parse_json(&out)["data"]["tab"]["tab_id"]
+    let beta_json = parse_json(&out);
+    assert_tab_id(&beta_json["data"]["tab"]["tab_id"]);
+    let beta_tab = beta_json["data"]["tab"]["tab_id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -775,6 +780,8 @@ fn lifecycle_start_reuse_with_open_url_json() {
     assert_success(&out, "first start");
     let v = parse_json(&out);
     assert_eq!(v["data"]["reused"], false);
+    assert_tab_id(&v["data"]["tab"]["tab_id"]);
+    assert_native_tab_id(&v["data"]["tab"]["native_tab_id"]);
     let tab_id = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
 
     let out = env.headless_json(
