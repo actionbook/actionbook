@@ -444,19 +444,19 @@ impl CdpSession {
                                 .pointer("/targetInfo/type")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("");
-                            if target_type == "iframe" {
-                                if let (Some(target_id), Some(sid)) = (
+                            if target_type == "iframe"
+                                && let (Some(target_id), Some(sid)) = (
                                     params
                                         .pointer("/targetInfo/targetId")
                                         .and_then(|v| v.as_str()),
                                     params.get("sessionId").and_then(|v| v.as_str()),
-                                ) {
-                                    iframe_sessions
-                                        .lock()
-                                        .await
-                                        .insert(target_id.to_string(), sid.to_string());
-                                    pending_iframe_enables.lock().await.push(sid.to_string());
-                                }
+                                )
+                            {
+                                iframe_sessions
+                                    .lock()
+                                    .await
+                                    .insert(target_id.to_string(), sid.to_string());
+                                pending_iframe_enables.lock().await.push(sid.to_string());
                             }
                         }
                     }
