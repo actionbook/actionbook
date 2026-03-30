@@ -2678,10 +2678,7 @@ fn select_by_ref_text() {
         text.contains(&format!("value: {citrus_ref}")),
         "must contain ref value"
     );
-    assert!(
-        text.contains("by_ref: true"),
-        "must contain by_ref: true"
-    );
+    assert!(text.contains("by_ref: true"), "must contain by_ref: true");
 
     // Verify the option was actually selected
     assert_eq!(
