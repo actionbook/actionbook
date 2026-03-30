@@ -98,9 +98,16 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let js_type = resp
         .pointer("/result/result/type")
         .and_then(|v| v.as_str())
-        .unwrap_or("null");
+        .unwrap_or("undefined");
 
-    let item: Value = if js_type == "null" || js_type == "undefined" {
+    let is_null = js_type == "undefined"
+        || (js_type == "object"
+            && resp
+                .pointer("/result/result/subtype")
+                .and_then(|v| v.as_str())
+                == Some("null"));
+
+    let item: Value = if is_null {
         Value::Null
     } else {
         let val = resp
