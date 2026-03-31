@@ -246,6 +246,16 @@ fn key_definition(key: &str) -> Option<KeyDef> {
                         text: Some(ch.to_string()),
                     });
                 }
+                // Symbol/punctuation keys (/, ., -, ;, =, etc.)
+                // Use the ASCII code as keyCode and the character as text
+                // so they're dispatched as keyDown with text, not rawKeyDown.
+                if ch.is_ascii_graphic() {
+                    return Some(KeyDef {
+                        code: String::new(),
+                        key_code: ch as u32,
+                        text: Some(ch.to_string()),
+                    });
+                }
             }
             None
         }
@@ -277,10 +287,16 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // use "keyDown" + text so Chrome fires native actions.
     // For pure-functional keys (Tab, Escape, arrows), use "rawKeyDown".
 
-    let text_for_key = if modifiers == 0 {
-        def.as_ref().and_then(|d| d.text.clone())
-    } else {
+    // Suppress text only for shortcut modifiers (Ctrl/Alt/Meta).
+    // Shift alone is a text modifier (Shift+A → "A", Shift+1 → "!"),
+    // so it must still carry text to trigger native key behaviour.
+    const SHORTCUT_MODIFIERS: u32 = 2 | 1 | 4; // Control | Alt | Meta
+    let has_shortcut_modifier = (modifiers & SHORTCUT_MODIFIERS) != 0;
+
+    let text_for_key = if has_shortcut_modifier {
         None
+    } else {
+        def.as_ref().and_then(|d| d.text.clone())
     };
 
     // keyDown or rawKeyDown depending on whether the key generates text
