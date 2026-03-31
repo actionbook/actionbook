@@ -78,6 +78,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Registry lock released — slow cleanup below won't block other sessions.
 
     if let Some(cdp) = cdp {
+        cdp.clear_iframe_sessions().await;
         cdp.close().await;
     }
     if let Some(child) = chrome_process {

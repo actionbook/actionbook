@@ -203,6 +203,67 @@ fn handle_http(mut stream: std::net::TcpStream) {
         other => other.trim_start_matches('/'),
     };
 
+    // Cross-origin iframe parent: embeds child from a different port
+    if path.starts_with("/iframe-xo-parent") {
+        let xo_port = path
+            .split("xo_port=")
+            .nth(1)
+            .and_then(|s| s.parse::<u16>().ok())
+            .unwrap_or(0);
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>XO Iframe Parent</title></head>
+<body>
+<h1>Main XO Page</h1>
+<input id="main-xo-input" value="main-xo-value" aria-label="Main XO Input">
+<iframe src="http://127.0.0.1:{xo_port}/iframe-child" title="XO Child Frame" width="400" height="300"></iframe>
+<p>XO Footer</p>
+</body></html>"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    // iframe test pages: parent embeds child via same-origin iframe
+    if path == "/iframe-parent" {
+        let port = local_server().port;
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Iframe Parent</title></head>
+<body>
+<h1>Main Page</h1>
+<input id="main-input" value="main-value" aria-label="Main Input">
+<iframe src="http://127.0.0.1:{port}/iframe-child" title="Child Frame" width="400" height="300"></iframe>
+<p>Footer</p>
+</body></html>"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+    if path == "/iframe-child" {
+        let body = r#"<!DOCTYPE html><html><head><title>Iframe Child</title></head>
+<body>
+<h2>Child Content</h2>
+<input id="child-input" value="child-value" aria-label="Child Input">
+<button id="child-btn" aria-label="Child Button">Click Me</button>
+</body></html>"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
     let body = format!(
         "<!DOCTYPE html><html><head><title>{title}</title></head>\
          <body><h1>{title}</h1></body></html>"
@@ -233,6 +294,77 @@ pub fn url_c() -> String {
 /// URL for a slow page used to verify CLI-level timeouts.
 pub fn url_slow() -> String {
     format!("http://127.0.0.1:{}/slow", local_server().port)
+}
+
+/// URL for an iframe test page (parent with embedded same-origin child iframe).
+pub fn url_iframe_parent() -> String {
+    format!("http://127.0.0.1:{}/iframe-parent", local_server().port)
+}
+
+// ── Cross-origin server (second port for OOPIF tests) ─────────────
+
+static CROSS_ORIGIN_SERVER: OnceLock<LocalServer> = OnceLock::new();
+
+fn cross_origin_server() -> &'static LocalServer {
+    CROSS_ORIGIN_SERVER.get_or_init(|| {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind cross-origin server");
+        let port = listener.local_addr().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                std::thread::spawn(move || handle_http_cross_origin(stream));
+            }
+        });
+        LocalServer {
+            port,
+            _handle: handle,
+        }
+    })
+}
+
+fn handle_http_cross_origin(mut stream: std::net::TcpStream) {
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    let mut buf = [0u8; 2048];
+    let n = match stream.read(&mut buf) {
+        Ok(n) => n,
+        Err(_) => return,
+    };
+    let request = String::from_utf8_lossy(&buf[..n]);
+    let path = request
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .unwrap_or("/");
+
+    let body = match path {
+        "/iframe-child" => r#"<!DOCTYPE html><html><head><title>Cross-Origin Child</title></head>
+<body>
+<h2>Cross-Origin Content</h2>
+<input id="xo-input" value="xo-value" aria-label="XO Input">
+<button id="xo-btn" aria-label="XO Button">XO Click</button>
+</body></html>"#
+            .to_string(),
+        _ => "<!DOCTYPE html><html><head><title>XO</title></head><body><h1>XO</h1></body></html>"
+            .to_string(),
+    };
+
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let _ = stream.write_all(response.as_bytes());
+}
+
+/// URL for an iframe test page with cross-origin child iframe.
+/// Parent is on local_server port, child iframe is on cross_origin_server port.
+pub fn url_iframe_cross_origin_parent() -> String {
+    // Ensure cross-origin server is initialized
+    let xo_port = cross_origin_server().port;
+    format!(
+        "http://127.0.0.1:{}/iframe-xo-parent?xo_port={}",
+        local_server().port,
+        xo_port
+    )
 }
 
 // ── Per-test session isolation ─────────────────────────────────────

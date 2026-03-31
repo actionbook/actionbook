@@ -136,7 +136,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return e,
     };
 
-    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
+    let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -149,18 +149,25 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Resolve container to a JS object reference if specified
     let container_object_id = match &cmd.container {
-        Some(sel) => match resolve_to_object_id(&ctx, sel).await {
+        Some(sel) => match resolve_to_object_id(&mut ctx, sel).await {
             Ok(id) => Some(id),
             Err(e) => return e,
         },
         None => None,
     };
+    // Capture frame context from container resolution (for iframe-aware scroll)
+    let container_frame_id = ctx.resolved_frame_id().map(String::from);
 
     // Pre-scroll state
     let pre_url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
     let pre_focus = get_active_element_id(&ctx.cdp, &ctx.target_id).await;
-    let pre_scroll =
-        get_scroll_position(&ctx.cdp, &ctx.target_id, container_object_id.as_deref()).await;
+    let pre_scroll = get_scroll_position(
+        &ctx.cdp,
+        &ctx.target_id,
+        container_object_id.as_deref(),
+        container_frame_id.as_deref(),
+    )
+    .await;
 
     // Execute scroll
     match &mode {
@@ -171,6 +178,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 direction,
                 *pixels,
                 container_object_id.as_deref(),
+                container_frame_id.as_deref(),
             )
             .await
             {
@@ -183,6 +191,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 &ctx.target_id,
                 direction,
                 container_object_id.as_deref(),
+                container_frame_id.as_deref(),
             )
             .await
             {
@@ -190,7 +199,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             }
         }
         ScrollMode::IntoView { selector, align } => {
-            if let Err(e) = scroll_into_view(&ctx, selector, align).await {
+            if let Err(e) = scroll_into_view(&mut ctx, selector, align).await {
                 return e;
             }
         }
@@ -200,8 +209,13 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let post_url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
     let post_title = navigation::get_tab_title(&ctx.cdp, &ctx.target_id).await;
     let post_focus = get_active_element_id(&ctx.cdp, &ctx.target_id).await;
-    let post_scroll =
-        get_scroll_position(&ctx.cdp, &ctx.target_id, container_object_id.as_deref()).await;
+    let post_scroll = get_scroll_position(
+        &ctx.cdp,
+        &ctx.target_id,
+        container_object_id.as_deref(),
+        container_frame_id.as_deref(),
+    )
+    .await;
 
     let url_changed = !pre_url.is_empty() && pre_url != post_url;
     let focus_changed = pre_focus != post_focus;
@@ -240,7 +254,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 }
 
 /// Resolve a selector to a CDP JS object ID via TabContext.
-async fn resolve_to_object_id(ctx: &TabContext, selector: &str) -> Result<String, ActionResult> {
+async fn resolve_to_object_id(
+    ctx: &mut TabContext,
+    selector: &str,
+) -> Result<String, ActionResult> {
     let (_node_id, object_id) = ctx.resolve_object(selector).await?;
     Ok(object_id)
 }
@@ -252,6 +269,7 @@ async fn scroll_directional(
     direction: &str,
     pixels: i64,
     container_object_id: Option<&str>,
+    frame_id: Option<&str>,
 ) -> Result<(), ActionResult> {
     let (dx, dy) = match direction {
         "up" => (0, -pixels),
@@ -267,6 +285,7 @@ async fn scroll_directional(
             target_id,
             object_id,
             &format!("function() {{ this.scrollBy({dx}, {dy}); return 'ok'; }}"),
+            frame_id,
         )
         .await
     } else {
@@ -285,6 +304,7 @@ async fn scroll_edge(
     target_id: &str,
     direction: &str,
     container_object_id: Option<&str>,
+    frame_id: Option<&str>,
 ) -> Result<(), ActionResult> {
     if let Some(object_id) = container_object_id {
         let fn_body = match direction {
@@ -292,7 +312,7 @@ async fn scroll_edge(
             "bottom" => "function() { this.scrollTop = this.scrollHeight; return 'ok'; }",
             _ => unreachable!(),
         };
-        call_fn_on(cdp, target_id, object_id, fn_body).await
+        call_fn_on(cdp, target_id, object_id, fn_body, frame_id).await
     } else {
         let js = match direction {
             "top" => "(() => { window.scrollTo(0, 0); return 'ok'; })()",
@@ -307,7 +327,7 @@ async fn scroll_edge(
 
 /// Scroll an element into view with alignment.
 async fn scroll_into_view(
-    ctx: &TabContext,
+    ctx: &mut TabContext,
     selector: &str,
     align: &str,
 ) -> Result<(), ActionResult> {
@@ -327,19 +347,23 @@ async fn scroll_into_view(
         &format!(
             "function() {{ this.scrollIntoView({{ block: '{block}', inline: 'nearest', behavior: 'instant' }}); return 'ok'; }}"
         ),
+        ctx.resolved_frame_id(),
     )
     .await
 }
 
-/// Execute a function on a resolved JS object.
+/// Execute a function on a resolved JS object, routing to correct frame session.
 async fn call_fn_on(
     cdp: &CdpSession,
     target_id: &str,
     object_id: &str,
     function_declaration: &str,
+    frame_id: Option<&str>,
 ) -> Result<(), ActionResult> {
-    cdp.execute_on_tab(
+    crate::browser::element::execute_for_frame(
+        cdp,
         target_id,
+        frame_id,
         "Runtime.callFunctionOn",
         json!({
             "objectId": object_id,
@@ -372,20 +396,22 @@ async fn get_scroll_position(
     cdp: &CdpSession,
     target_id: &str,
     container_object_id: Option<&str>,
+    frame_id: Option<&str>,
 ) -> (f64, f64) {
     if let Some(object_id) = container_object_id {
-        let resp = cdp
-            .execute_on_tab(
-                target_id,
-                "Runtime.callFunctionOn",
-                json!({
-                    "objectId": object_id,
-                    "functionDeclaration": "function() { return JSON.stringify({x:this.scrollLeft,y:this.scrollTop}); }",
-                    "returnByValue": true,
-                }),
-            )
-            .await
-            .ok();
+        let resp = crate::browser::element::execute_for_frame(
+            cdp,
+            target_id,
+            frame_id,
+            "Runtime.callFunctionOn",
+            json!({
+                "objectId": object_id,
+                "functionDeclaration": "function() { return JSON.stringify({x:this.scrollLeft,y:this.scrollTop}); }",
+                "returnByValue": true,
+            }),
+        )
+        .await
+        .ok();
         parse_scroll_json(resp)
     } else {
         let resp = cdp

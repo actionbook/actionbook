@@ -16,6 +16,7 @@ mod describe_state;
 mod element_details;
 mod element_read;
 mod harness;
+mod iframe;
 mod inspect_point;
 mod interaction;
 mod logs;

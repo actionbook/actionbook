@@ -82,7 +82,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         );
     }
 
-    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
+    let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -136,9 +136,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     let resp = match ctx
-        .cdp
-        .execute_on_tab(
-            &ctx.target_id,
+        .execute_on_element(
             "Runtime.callFunctionOn",
             json!({
                 "objectId": object_id,

@@ -62,7 +62,7 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
+    let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -73,7 +73,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     let url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
-    let value = match get_box(&ctx.cdp, &ctx.target_id, &object_id).await {
+    let value = match get_box(&ctx, &object_id).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -85,14 +85,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }))
 }
 
-async fn get_box(
-    cdp: &crate::daemon::cdp_session::CdpSession,
-    target_id: &str,
-    object_id: &str,
-) -> Result<Value, ActionResult> {
-    let resp = cdp
-        .execute_on_tab(
-            target_id,
+async fn get_box(ctx: &TabContext, object_id: &str) -> Result<Value, ActionResult> {
+    let resp = ctx
+        .execute_on_element(
             "Runtime.callFunctionOn",
             json!({
                 "objectId": object_id,
