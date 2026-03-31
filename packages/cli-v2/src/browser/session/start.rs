@@ -186,26 +186,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 cmd.stealth,
             ) {
                 Ok(session_id) => StartDisposition::Reserved(session_id),
-                Err(crate::error::CliError::SessionAlreadyExists(existing_id)) => {
-                    if mode == Mode::Local
-                        && reg
-                            .find_local_session_by_profile(profile_name, mode)
-                            .is_some_and(|entry| entry.id.as_str() == existing_id)
-                    {
-                        let msg = format!(
-                            "profile '{profile_name}' is already in use by active session '{existing_id}'; one session can own a profile at a time"
-                        );
-                        let hint = format!(
-                            "reuse it with --session {existing_id}, close it with browser close --session {existing_id}, or start with a different --profile"
-                        );
-                        return ActionResult::fatal_with_hint("SESSION_ALREADY_EXISTS", msg, &hint);
-                    }
-
-                    let msg = format!("session id '{existing_id}' is already in use");
-                    let hint = format!(
-                        "choose a different --set-session-id, or close the existing session with browser close --session {existing_id}"
-                    );
-                    return ActionResult::fatal_with_hint("SESSION_ALREADY_EXISTS", msg, &hint);
+                Err(e @ crate::error::CliError::SessionAlreadyExists { .. })
+                | Err(e @ crate::error::CliError::SessionIdAlreadyExists(_)) => {
+                    let hint = e.hint();
+                    return ActionResult::fatal_with_hint(e.error_code(), e.to_string(), &hint);
                 }
                 Err(e) => return ActionResult::fatal(e.error_code(), e.to_string()),
             }

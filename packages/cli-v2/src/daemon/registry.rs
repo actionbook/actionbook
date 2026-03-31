@@ -188,7 +188,7 @@ impl SessionRegistry {
             let sid = SessionId::new(id)
                 .map_err(|e| crate::error::CliError::InvalidSessionId(e.to_string()))?;
             if self.has_active_session_id(sid.as_str()) {
-                return Err(crate::error::CliError::SessionAlreadyExists(
+                return Err(crate::error::CliError::SessionIdAlreadyExists(
                     sid.to_string(),
                 ));
             }
@@ -230,7 +230,10 @@ impl SessionRegistry {
                 .find_local_session_by_profile(resolved_profile, mode)
                 .map(|entry| entry.id.to_string())
         {
-            return Err(CliError::SessionAlreadyExists(existing_id));
+            return Err(CliError::SessionAlreadyExists {
+                profile: resolved_profile.to_string(),
+                existing_session: existing_id,
+            });
         }
 
         let session_id = self.generate_session_id(set_id, mode)?;
