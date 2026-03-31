@@ -15,9 +15,9 @@ pub enum WaitUntil {
     /// Return immediately after Page.navigate (old behavior).
     None,
     /// Wait for DOMContentLoaded event (DOM ready, third-party resources may still load).
+    #[default]
     Domcontentloaded,
     /// Wait for load event (all resources including images/stylesheets loaded).
-    #[default]
     Load,
 }
 
@@ -33,9 +33,9 @@ A scheme (https://) is added automatically if omitted.
 After navigation, context.url and context.title are updated.
 
 --wait-until controls when the command returns:
-  load (default)       — wait for the page load event (all resources)
-  domcontentloaded     — wait for DOMContentLoaded (DOM ready, faster)
-  none                 — return immediately after navigation starts")]
+  domcontentloaded (default) — wait for DOMContentLoaded (DOM ready, faster)
+  load                       — wait for the page load event (all resources)
+  none                       — return immediately after navigation starts")]
 pub struct Cmd {
     /// Target URL
     pub url: String,
@@ -48,7 +48,7 @@ pub struct Cmd {
     #[serde(rename = "tab_id")]
     pub tab: String,
     /// When to consider navigation complete
-    #[arg(long, value_enum, default_value = "load")]
+    #[arg(long, value_enum, default_value = "domcontentloaded")]
     #[serde(default)]
     pub wait_until: WaitUntil,
 }
