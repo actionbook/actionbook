@@ -102,8 +102,18 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             WaitUntil::Load => Some("Page.loadEventFired"),
         };
 
+        // Get the CDP flat-session ID for event subscription.
+        let cdp_session_id = match cdp.get_cdp_session_id(&target_id).await {
+            Some(sid) => sid,
+            None => {
+                return ActionResult::fatal(
+                    "INTERNAL_ERROR",
+                    format!("no CDP session for target '{target_id}'"),
+                );
+            }
+        };
+
         // Subscribe to the CDP event BEFORE navigation to avoid missing it.
-        let cdp_session_id = cdp.get_cdp_session_id(&target_id).await.unwrap_or_default();
         let mut event_rx = if let Some(event_name) = wait_event {
             Some(cdp.subscribe_events(&cdp_session_id, event_name).await)
         } else {
@@ -112,9 +122,25 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
         // Page.enable is idempotent — safe to call on every goto.
         // Required for Page.domContentEventFired / Page.loadEventFired events.
-        let _ = cdp
-            .execute_on_tab(&target_id, "Page.enable", json!({}))
-            .await;
+        if wait_event.is_some() {
+            if let Err(e) = cdp
+                .execute_on_tab(&target_id, "Page.enable", json!({}))
+                .await
+            {
+                return cdp_error_to_result(e, "NAVIGATION_FAILED");
+            }
+        } else {
+            let _ = cdp
+                .execute_on_tab(&target_id, "Page.enable", json!({}))
+                .await;
+        }
+
+        // Drain any stale lifecycle events that Page.enable may have replayed
+        // for the currently-loaded page. Without this, a residual loadEventFired
+        // from the old page could satisfy the wait immediately.
+        if let Some(ref mut rx) = event_rx {
+            while rx.try_recv().is_ok() {}
+        }
 
         match cdp
             .execute_on_tab(&target_id, "Page.navigate", json!({ "url": final_url }))
