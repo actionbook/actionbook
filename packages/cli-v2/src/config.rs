@@ -85,6 +85,19 @@ pub fn profiles_dir() -> PathBuf {
     actionbook_home().join("profiles")
 }
 
+/// Per-session data directory root: `~/.actionbook/sessions/`
+pub fn sessions_dir() -> PathBuf {
+    actionbook_home().join("sessions")
+}
+
+/// Data directory for a specific session: `~/.actionbook/sessions/{session_id}/`
+///
+/// Used to store session artifacts (snapshots, etc.).
+/// Created on `browser start`, removed on `browser close`.
+pub fn session_data_dir(session_id: &str) -> PathBuf {
+    sessions_dir().join(session_id)
+}
+
 fn ensure_actionbook_home() -> Result<PathBuf, CliError> {
     let dir = actionbook_home();
     fs::create_dir_all(&dir)?;
