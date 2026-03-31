@@ -22,6 +22,8 @@ pub struct AXNode {
     pub name: String,
     /// Current value (inputs, text areas); empty string if not applicable
     pub value: String,
+    /// URL for link nodes (extracted from CDP properties); empty string otherwise
+    pub url: String,
     /// Whether this node is considered interactive
     pub interactive: bool,
     /// Tree depth (0 = root)
@@ -125,9 +127,16 @@ pub fn render_content(nodes: &[AXNode]) -> String {
                 c => vec![c],
             })
             .collect();
-        let mut line = format!("{indent}- {} \"{}\"", node.role, escaped_name);
+        let mut line = if escaped_name.is_empty() {
+            format!("{indent}- {}", node.role)
+        } else {
+            format!("{indent}- {} \"{}\"", node.role, escaped_name)
+        };
         if !node.ref_id.is_empty() {
             line.push_str(&format!(" [ref={}]", node.ref_id));
+        }
+        if !node.url.is_empty() {
+            line.push_str(&format!(" url={}", node.url));
         }
         // Append cursor-interactive info: " clickable [cursor:pointer, onclick]"
         if let Some(ref ci) = node.cursor_info {
@@ -316,6 +325,21 @@ pub fn parse_ax_tree(
         // Extract value (handles string, number, bool)
         let value = extract_ax_string(&node["value"]);
 
+        // Extract URL from properties array for link nodes
+        let url = if role == "link" {
+            node["properties"]
+                .as_array()
+                .and_then(|props| {
+                    props
+                        .iter()
+                        .find(|p| p["name"].as_str() == Some("url"))
+                        .map(|p| extract_ax_string(&p["value"]))
+                })
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+
         // Assign ref for: interactive roles, named content roles, OR cursor-interactive
         let should_ref = should_assign_ref(&role, &name) || is_cursor;
         let ref_id = if should_ref {
@@ -338,6 +362,7 @@ pub fn parse_ax_tree(
             role,
             name,
             value,
+            url,
             interactive: is_interactive || is_cursor,
             depth,
             children: vec![],
@@ -774,13 +799,12 @@ pub fn truncate_to_tokens(nodes: &[AXNode], max_tokens: usize) -> (Vec<AXNode>, 
         } else {
             " [ref=]".len() + node.ref_id.len()
         };
-        let line_chars = indent
-            + "- ".len()
-            + node.role.len()
-            + " \"\"".len()
-            + node.name.len()
-            + ref_bracket
-            + 1; // +1 for \n
+        let name_cost = if node.name.is_empty() {
+            0
+        } else {
+            " \"\"".len() + node.name.len()
+        };
+        let line_chars = indent + "- ".len() + node.role.len() + name_cost + ref_bracket + 1; // +1 for \n
         // Add value cost (appears in JSON nodes[], ~20 chars JSON overhead per node)
         let value_cost = if node.value.is_empty() {
             0
@@ -811,6 +835,7 @@ mod tests {
             role: role.to_string(),
             name: name.to_string(),
             value: String::new(),
+            url: String::new(),
             interactive,
             depth,
             children: vec![],
@@ -831,6 +856,7 @@ mod tests {
             role: role.to_string(),
             name: name.to_string(),
             value: value.to_string(),
+            url: String::new(),
             interactive,
             depth,
             children: vec![],
