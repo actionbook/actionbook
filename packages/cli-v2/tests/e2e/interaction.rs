@@ -1261,8 +1261,8 @@ fn click_text() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.click"),
-        "must contain ok browser.click"
+        text.contains("ok browser click"),
+        "must contain ok browser click"
     );
     assert!(
         text.contains("target: #ab-click-btn"),
@@ -1331,8 +1331,8 @@ fn click_coordinates_text() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.click"),
-        "must contain ok browser.click"
+        text.contains("ok browser click"),
+        "must contain ok browser click"
     );
     assert!(
         text.contains("target: 60,60"),
@@ -1886,8 +1886,8 @@ fn type_text() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.type"),
-        "must contain ok browser.type"
+        text.contains("ok browser type"),
+        "must contain ok browser type"
     );
     assert!(
         text.contains("target: #ab-type-input"),
@@ -2314,8 +2314,8 @@ fn fill_text() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.fill"),
-        "must contain ok browser.fill"
+        text.contains("ok browser fill"),
+        "must contain ok browser fill"
     );
     assert!(
         text.contains("target: #ab-fill-input"),
@@ -2793,8 +2793,8 @@ fn select_text() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.select"),
-        "must contain ok browser.select"
+        text.contains("ok browser select"),
+        "must contain ok browser select"
     );
     assert!(
         text.contains("target: #ab-select"),
@@ -2963,8 +2963,8 @@ fn select_by_ref_text() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.select"),
-        "must contain ok browser.select"
+        text.contains("ok browser select"),
+        "must contain ok browser select"
     );
     assert!(
         text.contains("target: #ab-select"),
@@ -3297,8 +3297,8 @@ fn hover_text() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.hover"),
-        "must contain ok browser.hover"
+        text.contains("ok browser hover"),
+        "must contain ok browser hover"
     );
     assert!(
         text.contains("target: #ab-hover-target"),
@@ -3584,8 +3584,8 @@ fn focus_text() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.focus"),
-        "must contain ok browser.focus"
+        text.contains("ok browser focus"),
+        "must contain ok browser focus"
     );
     assert!(
         text.contains("target: #ab-focus-target"),
@@ -3871,8 +3871,8 @@ fn press_text_chord() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.press"),
-        "must contain ok browser.press"
+        text.contains("ok browser press"),
+        "must contain ok browser press"
     );
     assert!(
         text.contains("keys: Control+A"),
@@ -4319,8 +4319,8 @@ fn drag_text_to_coordinates() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.drag"),
-        "must contain ok browser.drag"
+        text.contains("ok browser drag"),
+        "must contain ok browser drag"
     );
     assert!(
         text.contains("target: #ab-drag-source"),
@@ -4686,8 +4686,8 @@ fn upload_text_multiple_files() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.upload"),
-        "must contain ok browser.upload"
+        text.contains("ok browser upload"),
+        "must contain ok browser upload"
     );
     assert!(
         text.contains("target: #ab-upload-input"),
@@ -5315,8 +5315,8 @@ fn mouse_move_text() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.mouse-move"),
-        "must contain ok browser.mouse-move"
+        text.contains("ok browser mouse-move"),
+        "must contain ok browser mouse-move"
     );
     assert!(
         text.contains("target: 120,140"),
@@ -5608,8 +5608,8 @@ fn cursor_position_text() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.cursor-position"),
-        "must contain ok browser.cursor-position"
+        text.contains("ok browser cursor-position"),
+        "must contain ok browser cursor-position"
     );
     assert!(text.contains("x: 120"), "must contain x line: {text}");
     assert!(text.contains("y: 140"), "must contain y line: {text}");
@@ -5857,8 +5857,8 @@ fn scroll_text_bottom_container() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.scroll"),
-        "must contain ok browser.scroll"
+        text.contains("ok browser scroll"),
+        "must contain ok browser scroll"
     );
     assert!(
         text.contains("direction: bottom"),

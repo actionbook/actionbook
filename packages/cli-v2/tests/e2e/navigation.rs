@@ -111,8 +111,8 @@ fn nav_goto_text() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.goto"),
-        "must contain ok browser.goto"
+        text.contains("ok browser goto"),
+        "must contain ok browser goto"
     );
     assert!(text.contains("title:"), "must contain title:");
 }
@@ -374,8 +374,8 @@ fn nav_back_text() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.back"),
-        "must contain ok browser.back"
+        text.contains("ok browser back"),
+        "must contain ok browser back"
     );
     assert!(text.contains("title:"), "must contain title:");
 }
@@ -529,8 +529,8 @@ fn nav_forward_text() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.forward"),
-        "must contain ok browser.forward"
+        text.contains("ok browser forward"),
+        "must contain ok browser forward"
     );
     assert!(text.contains("title:"), "must contain title:");
 }
@@ -657,8 +657,8 @@ fn nav_reload_text() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("ok browser.reload"),
-        "must contain ok browser.reload"
+        text.contains("ok browser reload"),
+        "must contain ok browser reload"
     );
     assert!(text.contains("title:"), "must contain title:");
 }

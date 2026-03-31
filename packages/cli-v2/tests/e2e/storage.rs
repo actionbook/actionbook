@@ -91,7 +91,7 @@ fn assert_storage_item(item: &serde_json::Value, expected_key: &str, expected_va
 }
 
 fn command_name(kind: StorageKind, op: &str) -> String {
-    format!("browser {}.{}", kind.cli_name, op)
+    format!("browser {} {}", kind.cli_name, op)
 }
 
 fn set_storage(

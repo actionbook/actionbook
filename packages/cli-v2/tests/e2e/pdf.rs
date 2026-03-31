@@ -167,7 +167,7 @@ fn pdf_text_output() {
         lines.first().unwrap_or(&"").contains("about:blank"),
         "header must contain current URL: {text}"
     );
-    assert_eq!(lines.get(1), Some(&"ok browser.pdf"));
+    assert_eq!(lines.get(1), Some(&"ok browser pdf"));
     assert_eq!(lines.get(2), Some(&format!("path: {path_str}").as_str()));
 }
 

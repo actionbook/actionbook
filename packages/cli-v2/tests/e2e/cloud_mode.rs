@@ -286,7 +286,7 @@ fn cloud_start_and_close_text() {
     );
     assert_success(&out, "cloud start text");
     let text = stdout_str(&out);
-    assert!(text.contains("ok browser.start"));
+    assert!(text.contains("ok browser start"));
     assert!(text.contains("mode: cloud"));
 
     let first_line = text.lines().next().unwrap_or("");
@@ -302,7 +302,7 @@ fn cloud_start_and_close_text() {
     let out = headless(&["browser", "close", "--session", &sid], 10);
     assert_success(&out, "cloud close text");
     let text = stdout_str(&out);
-    assert!(text.contains("ok browser.close"));
+    assert!(text.contains("ok browser close"));
 }
 
 // ═══════════════════════════════════════════════════════════════════

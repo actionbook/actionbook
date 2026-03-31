@@ -154,7 +154,7 @@ fn tab_new_tab_text() {
         text.contains(&format!("[{sid}")),
         "header should contain session_id"
     );
-    assert!(text.contains("ok browser.new-tab"));
+    assert!(text.contains("ok browser new-tab"));
     assert!(text.contains("title:"));
 }
 
@@ -254,7 +254,7 @@ fn tab_close_tab_text() {
     assert_success(&out, "close-tab text");
     let text = stdout_str(&out);
     assert!(text.contains(&format!("[{sid}")));
-    assert!(text.contains("ok browser.close-tab"));
+    assert!(text.contains("ok browser close-tab"));
 }
 
 #[test]

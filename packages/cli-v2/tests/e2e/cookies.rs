@@ -459,7 +459,7 @@ fn cookies_actions_text_output() {
         "set text must contain session header: {set_text}"
     );
     assert!(
-        set_text.contains("ok browser.cookies.set"),
+        set_text.contains("ok browser cookies set"),
         "set text must contain ok line: {set_text}"
     );
 
@@ -477,7 +477,7 @@ fn cookies_actions_text_output() {
     assert_success(&delete_out, "cookies delete text");
     let delete_text = stdout_str(&delete_out);
     assert!(delete_text.contains(&format!("[{sid}]")));
-    assert!(delete_text.contains("ok browser.cookies.delete"));
+    assert!(delete_text.contains("ok browser cookies delete"));
 
     set_cookie(
         &sid,
@@ -502,7 +502,7 @@ fn cookies_actions_text_output() {
     assert_success(&clear_out, "cookies clear text");
     let clear_text = stdout_str(&clear_out);
     assert!(clear_text.contains(&format!("[{sid}]")));
-    assert!(clear_text.contains("ok browser.cookies.clear"));
+    assert!(clear_text.contains("ok browser cookies clear"));
 }
 
 #[test]

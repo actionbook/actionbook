@@ -24,10 +24,9 @@ Types each character individually, firing keydown/keypress/keyup events.
 Use for fields with autocomplete, live validation, or input listeners.
 For simple value setting without events, use fill instead.")]
 pub struct Cmd {
-    /// Selector (CSS, XPath, @ref, or x,y coordinates). Omit to target activeElement.
-    pub selector: Option<String>,
-    /// Text to type
-    pub text: String,
+    /// Positional args: [selector] text — if one arg, it's the text; if two, first is selector.
+    #[arg(num_args = 1..=2)]
+    pub args: Vec<String>,
     /// Session ID
     #[arg(long)]
     #[serde(rename = "session_id")]
@@ -69,6 +68,18 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
+    // Parse positional args: [selector] text
+    let (selector, text) = match cmd.args.as_slice() {
+        [v] => (None, v.as_str()),
+        [sel, v] => (Some(sel.as_str()), v.as_str()),
+        _ => {
+            return ActionResult::fatal(
+                "INVALID_ARGUMENT",
+                "type requires 1 or 2 positional arguments: [selector] text",
+            );
+        }
+    };
+
     let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
@@ -76,19 +87,18 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     let target_json: serde_json::Value;
 
-    match &cmd.selector {
+    match selector {
         Some(sel) => {
             match parse_target(sel) {
                 Ok(ClickTarget::Coordinates(x, y)) => {
-                    let raw = sel.as_str();
                     // Click the coordinates to focus
                     if let Err(e) = dispatch_mouse_click(&ctx, x, y).await {
                         return e;
                     }
-                    target_json = json!({ "coordinates": raw });
+                    target_json = json!({ "coordinates": sel });
                 }
                 Ok(ClickTarget::Selector(s)) => {
-                    target_json = json!({ "selector": s });
+                    target_json = json!({ "selector": s.clone() });
                     // Resolve and focus the element
                     let node_id = match ctx.resolve_node(&s).await {
                         Ok(id) => id,
@@ -143,7 +153,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         .await;
 
     // Type each character: keyDown (with text insertion) + keyUp
-    for ch in cmd.text.chars() {
+    for ch in text.chars() {
         let key = ch.to_string();
 
         if let Err(e) = ctx
@@ -184,7 +194,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     ActionResult::ok(json!({
         "action": "type",
         "target": target_json,
-        "value_summary": { "text_length": cmd.text.chars().count() },
+        "value_summary": { "text_length": text.chars().count() },
         "post_url": url,
         "post_title": title,
     }))

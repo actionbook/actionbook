@@ -174,10 +174,10 @@ fn screenshot_text_happy_path() {
         lines[0]
     );
 
-    // "ok browser.screenshot" line
+    // "ok browser screenshot" line
     assert!(
-        text.contains("ok browser.screenshot"),
-        "text must contain 'ok browser.screenshot': got {text:.400}"
+        text.contains("ok browser screenshot"),
+        "text must contain 'ok browser screenshot': got {text:.400}"
     );
 
     // "path: ..." line

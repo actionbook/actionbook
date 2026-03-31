@@ -165,7 +165,7 @@ fn wait_element_text_output() {
         lines.first().copied(),
         Some(format!("[{sid} {tid}] about:blank").as_str())
     );
-    assert_eq!(lines.get(1), Some(&"ok browser.wait.element"));
+    assert_eq!(lines.get(1), Some(&"ok browser wait element"));
     assert!(
         lines
             .get(2)
@@ -422,7 +422,7 @@ fn wait_condition_text_output() {
         lines.first().copied(),
         Some(format!("[{sid} {tid}] about:blank").as_str())
     );
-    assert_eq!(lines.get(1), Some(&"ok browser.wait.condition"));
+    assert_eq!(lines.get(1), Some(&"ok browser wait condition"));
     assert!(
         lines
             .get(2)

@@ -97,7 +97,7 @@ fn lifecycle_open_and_close_text() {
         text.contains("[SLOCAL-1"),
         "start text: should contain [SLOCAL-1"
     );
-    assert!(text.contains("ok browser.start"));
+    assert!(text.contains("ok browser start"));
     assert!(text.contains("mode: local"));
     assert!(text.contains("status: running"));
     assert!(text.contains("title:"));
@@ -119,7 +119,7 @@ fn lifecycle_open_and_close_text() {
     assert_success(&out, "close text");
     let text = stdout_str(&out);
     assert!(text.contains("[SLOCAL-1]"));
-    assert!(text.contains("ok browser.close"));
+    assert!(text.contains("ok browser close"));
     assert!(text.contains("closed_tabs:"));
 }
 
@@ -347,7 +347,7 @@ fn lifecycle_restart_text() {
     assert_success(&out, "restart text");
     let text = stdout_str(&out);
     assert!(text.contains(&format!("[{sid}")));
-    assert!(text.contains("ok browser.restart"));
+    assert!(text.contains("ok browser restart"));
     assert!(text.contains("status: running"));
 }
 
@@ -421,7 +421,7 @@ fn lifecycle_close_s1t2_closes_all_text() {
     let out = headless(&["browser", "close", "--session", &sid], 30);
     assert_success(&out, "close 2 tabs text");
     let text = stdout_str(&out);
-    assert!(text.contains("ok browser.close"));
+    assert!(text.contains("ok browser close"));
     assert!(
         text.contains("closed_tabs: 2"),
         "should show closed_tabs: 2, got: {text}"
@@ -766,7 +766,7 @@ fn lifecycle_start_reuse_existing_text() {
     assert_success(&out, "second start (reuse) text");
     let text = stdout_str(&out);
     assert!(text.contains("[SLOCAL-1"));
-    assert!(text.contains("ok browser.start"));
+    assert!(text.contains("ok browser start"));
     assert!(text.contains("status: running"));
 
     env.headless(

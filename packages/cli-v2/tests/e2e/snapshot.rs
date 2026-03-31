@@ -317,10 +317,10 @@ fn snap_text_output() {
         "text output must contain [ref=eN] labels: got {text:.200}"
     );
 
-    // Must NOT contain "ok browser.snapshot" (observation commands don't use action format)
+    // Must NOT contain "ok browser snapshot" (observation commands don't use action format)
     assert!(
-        !text.contains("ok browser.snapshot"),
-        "text output must not contain 'ok browser.snapshot' — content is output directly"
+        !text.contains("ok browser snapshot"),
+        "text output must not contain 'ok browser snapshot' — content is output directly"
     );
 
     close_session(&sid);

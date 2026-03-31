@@ -638,8 +638,8 @@ fn viewport_text_happy_path() {
     );
 
     assert!(
-        !text.contains("ok browser.viewport"),
-        "text must not contain 'ok browser.viewport'"
+        !text.contains("ok browser viewport"),
+        "text must not contain 'ok browser viewport'"
     );
 
     close_session(&sid);
