@@ -663,6 +663,27 @@ pub fn wait_page_ready(session_id: &str, tab_id: &str) {
     }
 }
 
+/// Poll `browser url` until it contains the expected substring, up to 3s.
+/// Prevents flaky failures when `--open-url` navigation hasn't reflected yet.
+#[allow(dead_code)]
+pub fn wait_url_contains(session_id: &str, tab_id: &str, expected: &str) {
+    for _ in 0..15 {
+        let out = headless_json(
+            &["browser", "url", "--session", session_id, "--tab", tab_id],
+            5,
+        );
+        if out.status.success() {
+            let v = parse_json(&out);
+            if let Some(url) = v["data"]["url"].as_str()
+                && url.contains(expected)
+            {
+                return;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
 /// Close a session (asserts success).
 #[allow(dead_code)]
 pub fn close_session(session_id: &str) {
