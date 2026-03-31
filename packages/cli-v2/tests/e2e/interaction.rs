@@ -799,6 +799,7 @@ fn install_press_fixture(session_id: &str, tab_id: &str) {
   window.__ab_press_keydown_count = 0;
   window.__ab_press_keyup_count = 0;
   window.__ab_press_events = [];
+  window.__ab_press_key_defs = [];
 
   const root = document.createElement('div');
   root.id = 'ab-press-fixture';
@@ -823,6 +824,9 @@ fn install_press_fixture(session_id: &str, tab_id: &str) {
     window.__ab_press_events.push(
       'keydown:' + event.key + ':' + event.ctrlKey + ':' + event.shiftKey
     );
+    window.__ab_press_key_defs.push({
+      type: 'keydown', key: event.key, code: event.code, keyCode: event.keyCode
+    });
   });
   input.addEventListener('keyup', (event) => {
     window.__ab_press_keyup_count += 1;
@@ -3598,6 +3602,158 @@ fn press_text_chord() {
         ),
         "yes"
     );
+
+    close_session(&sid);
+}
+
+/// Verify that press Enter sends correct CDP key definitions (code, keyCode)
+/// so that native browser actions (form submit) are triggered.
+#[test]
+fn press_enter_sends_cdp_key_definitions() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_press_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "press",
+            "Enter",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "press enter key defs");
+    let v = parse_json(&out);
+    assert_press_success(&v, &sid, &tid, "Enter");
+
+    // Verify the keydown event carries correct code and keyCode
+    let def_json = eval_value(&sid, &tid, "JSON.stringify(window.__ab_press_key_defs[0])");
+    let def: serde_json::Value = serde_json::from_str(&def_json).expect("valid JSON");
+    assert_eq!(def["type"], "keydown");
+    assert_eq!(def["key"], "Enter");
+    assert_eq!(def["code"], "Enter", "code must be 'Enter', not empty");
+    assert_eq!(def["keyCode"], 13, "keyCode must be 13, not 0");
+
+    close_session(&sid);
+}
+
+/// Verify that press Enter triggers form submission (native browser action).
+#[test]
+fn press_enter_submits_form() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    // Install a minimal form with a text input and a submit handler
+    let fixture = r#"
+(() => {
+  const f = document.createElement('form');
+  f.id = 'ab-form';
+  f.addEventListener('submit', (e) => {
+    e.preventDefault();
+    window.__ab_form_submitted = true;
+  });
+  const inp = document.createElement('input');
+  inp.id = 'ab-form-input';
+  inp.type = 'text';
+  inp.value = 'test';
+  f.appendChild(inp);
+  document.body.appendChild(f);
+  inp.focus();
+  window.__ab_form_submitted = false;
+  return document.activeElement && document.activeElement.id;
+})()
+"#;
+    let value = eval_value(&sid, &tid, fixture);
+    assert_eq!(value, "ab-form-input", "form fixture should install");
+
+    // Press Enter — should trigger form submit
+    let out = headless_json(
+        &[
+            "browser",
+            "press",
+            "Enter",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "press enter submits form");
+
+    assert_eq!(
+        eval_value(&sid, &tid, "String(window.__ab_form_submitted)"),
+        "true",
+        "Enter must trigger form submission"
+    );
+
+    close_session(&sid);
+}
+
+/// Verify that Escape sends correct code and keyCode.
+#[test]
+fn press_escape_sends_cdp_key_definitions() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_press_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "press",
+            "Escape",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "press escape key defs");
+
+    let def_json = eval_value(&sid, &tid, "JSON.stringify(window.__ab_press_key_defs[0])");
+    let def: serde_json::Value = serde_json::from_str(&def_json).expect("valid JSON");
+    assert_eq!(def["key"], "Escape");
+    assert_eq!(def["code"], "Escape", "code must be 'Escape'");
+    assert_eq!(def["keyCode"], 27, "keyCode must be 27");
+
+    close_session(&sid);
+}
+
+/// Verify that Tab sends correct code and keyCode.
+#[test]
+fn press_tab_sends_cdp_key_definitions() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_press_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &["browser", "press", "Tab", "--session", &sid, "--tab", &tid],
+        15,
+    );
+    assert_success(&out, "press tab key defs");
+
+    let def_json = eval_value(&sid, &tid, "JSON.stringify(window.__ab_press_key_defs[0])");
+    let def: serde_json::Value = serde_json::from_str(&def_json).expect("valid JSON");
+    assert_eq!(def["key"], "Tab");
+    assert_eq!(def["code"], "Tab", "code must be 'Tab'");
+    assert_eq!(def["keyCode"], 9, "keyCode must be 9");
 
     close_session(&sid);
 }
