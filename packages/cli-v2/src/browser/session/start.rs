@@ -186,6 +186,15 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 cmd.stealth,
             ) {
                 Ok(session_id) => StartDisposition::Reserved(session_id),
+                Err(crate::error::CliError::SessionAlreadyExists(existing_id)) => {
+                    let msg = format!(
+                        "profile '{profile_name}' already has an active session: {existing_id}"
+                    );
+                    let hint = format!(
+                        "use --session {existing_id} to address it, or run browser close --session {existing_id} first"
+                    );
+                    return ActionResult::fatal_with_hint("SESSION_ALREADY_EXISTS", msg, &hint);
+                }
                 Err(e) => return ActionResult::fatal(e.error_code(), e.to_string()),
             }
         }
