@@ -89,7 +89,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // - Matching native_id → keep short tab ID, update url/title
     // - Stale registry tabs (not in CDP) → remove
     // - New CDP tabs (not in registry) → assign new short ID
-    let tabs: Vec<serde_json::Value> = {
+    let (tabs, to_attach): (Vec<serde_json::Value>, Vec<String>) = {
         let mut reg = registry.lock().await;
         let entry = match reg.get_mut(&cmd.session) {
             Some(e) => e,
@@ -108,6 +108,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             .retain(|t| live_pages.iter().any(|(nid, _, _)| *nid == t.native_id));
 
         let mut result = Vec::new();
+        let mut to_attach = Vec::new();
         for (native_id, url, title) in &live_pages {
             // Find existing short ID or assign a new one
             if let Some(existing) = entry.tabs.iter_mut().find(|t| t.native_id == *native_id) {
@@ -121,9 +122,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                     "title": title,
                 }));
             } else {
-                // New tab — assign next short ID
+                // New tab — assign next short ID and mark for CDP attach
                 entry.push_tab(native_id.to_string(), url.to_string(), title.to_string());
                 let new_tab = entry.tabs.last().unwrap();
+                to_attach.push(native_id.to_string());
                 result.push(json!({
                     "tab_id": new_tab.id.0,
                     "native_tab_id": native_id,
@@ -132,8 +134,15 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 }));
             }
         }
-        result
+        (result, to_attach)
     };
+
+    // Attach newly discovered tabs outside the registry lock
+    for native_id in &to_attach {
+        if let Err(e) = cdp.attach(native_id, None).await {
+            tracing::warn!("failed to attach discovered tab {native_id}: {e}");
+        }
+    }
 
     ActionResult::ok(json!({
         "total_tabs": tabs.len(),
