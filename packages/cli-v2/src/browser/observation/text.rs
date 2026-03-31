@@ -97,7 +97,16 @@ async fn get_text(ctx: &mut TabContext, selector: Option<&str>) -> Result<Value,
                     "Runtime.callFunctionOn",
                     json!({
                         "objectId": object_id,
-                        "functionDeclaration": r#"function() { return this.innerText; }"#,
+                        "functionDeclaration": r#"function() {
+                    if (this.tagName === 'IFRAME' || this.tagName === 'FRAME') {
+                        try {
+                            return this.contentDocument ? this.contentDocument.body.innerText : '';
+                        } catch(e) {
+                            return '';
+                        }
+                    }
+                    return this.innerText;
+                }"#,
                         "returnByValue": true,
                     }),
                 )
