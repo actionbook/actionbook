@@ -91,7 +91,7 @@ fn assert_storage_item(item: &serde_json::Value, expected_key: &str, expected_va
 }
 
 fn command_name(kind: StorageKind, op: &str) -> String {
-    format!("browser.{}.{}", kind.cli_name, op)
+    format!("browser {}.{}", kind.cli_name, op)
 }
 
 fn set_storage(
@@ -493,7 +493,7 @@ fn local_storage_session_not_found_json() {
     assert_failure(&out, "local-storage missing session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.local-storage.list");
+    assert_eq!(v["command"], "browser local-storage list");
     assert!(v["context"].is_null());
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
 }
@@ -522,7 +522,7 @@ fn session_storage_tab_not_found_json() {
     assert_failure(&out, "session-storage missing tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.session-storage.list");
+    assert_eq!(v["command"], "browser session-storage list");
     assert!(v["context"].is_object());
     assert_eq!(v["context"]["session_id"], sid);
     assert!(v["context"]["tab_id"].is_null());

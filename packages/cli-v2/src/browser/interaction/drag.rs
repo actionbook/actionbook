@@ -43,7 +43,7 @@ pub struct Cmd {
     pub button: String,
 }
 
-pub const COMMAND_NAME: &str = "browser.drag";
+pub const COMMAND_NAME: &str = "browser drag";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result

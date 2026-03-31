@@ -17,7 +17,7 @@ pub struct Cmd {
     pub tab: String,
 }
 
-pub const COMMAND_NAME: &str = "browser.reload";
+pub const COMMAND_NAME: &str = "browser reload";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     // SESSION_NOT_FOUND: context must be null per §3.1

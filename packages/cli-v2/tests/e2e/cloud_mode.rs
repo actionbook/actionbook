@@ -128,7 +128,7 @@ fn skip_cloud_real() -> bool {
 fn assert_cloud_session(v: &serde_json::Value) {
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null(), "error must be null on success");
-    assert_eq!(v["command"], "browser.start");
+    assert_eq!(v["command"], "browser start");
     assert_tab_id(&v["data"]["tab"]["tab_id"]);
     assert_native_tab_id(&v["data"]["tab"]["native_tab_id"]);
     let session = &v["data"]["session"];
@@ -548,7 +548,7 @@ fn cloud_list_tabs_json() {
 
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
-    assert_eq!(v["command"], "browser.list-tabs");
+    assert_eq!(v["command"], "browser list-tabs");
     assert_context_with_session(&v, &sid);
     assert!(
         v["data"]["total_tabs"].as_u64().unwrap_or(0) >= 1,
@@ -594,7 +594,7 @@ fn cloud_new_tab_json() {
 
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
-    assert_eq!(v["command"], "browser.new-tab");
+    assert_eq!(v["command"], "browser new-tab");
     assert_eq!(v["data"]["created"], true);
     assert_tab_id(&v["data"]["tab"]["tab_id"]);
     assert_native_tab_id(&v["data"]["tab"]["native_tab_id"]);
@@ -667,7 +667,7 @@ fn cloud_close_tab_json() {
 
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
-    assert_eq!(v["command"], "browser.close-tab");
+    assert_eq!(v["command"], "browser close-tab");
     assert_eq!(v["data"]["closed_tab_id"], t2);
     assert_context_with_tab(&v, &sid, &t2);
     assert_meta(&v);
@@ -722,7 +722,7 @@ fn cloud_list_tabs_nonexistent_session_json() {
     let out = headless_json(&["browser", "list-tabs", "--session", "ghost-cloud"], 10);
     assert_failure(&out, "list-tabs nonexistent session");
     let v = parse_json(&out);
-    assert_eq!(v["command"], "browser.list-tabs");
+    assert_eq!(v["command"], "browser list-tabs");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -755,7 +755,7 @@ fn cloud_new_tab_nonexistent_session_json() {
     );
     assert_failure(&out, "new-tab nonexistent session");
     let v = parse_json(&out);
-    assert_eq!(v["command"], "browser.new-tab");
+    assert_eq!(v["command"], "browser new-tab");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
 }
 
@@ -798,7 +798,7 @@ fn cloud_close_tab_nonexistent_session_json() {
     );
     assert_failure(&out, "close-tab nonexistent session");
     let v = parse_json(&out);
-    assert_eq!(v["command"], "browser.close-tab");
+    assert_eq!(v["command"], "browser close-tab");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
 }
 
@@ -846,7 +846,7 @@ fn cloud_close_tab_nonexistent_tab_json() {
     );
     assert_failure(&out, "close-tab nonexistent tab");
     let v = parse_json(&out);
-    assert_eq!(v["command"], "browser.close-tab");
+    assert_eq!(v["command"], "browser close-tab");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert_context_with_session(&v, &sid);
 }
@@ -924,7 +924,7 @@ fn cloud_goto_json() {
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
-    assert_eq!(v["command"], "browser.goto");
+    assert_eq!(v["command"], "browser goto");
     assert_context_with_tab(&v, &sid, &tid);
     assert_meta(&v);
 }
@@ -972,7 +972,7 @@ fn cloud_snapshot_json() {
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
-    assert_eq!(v["command"], "browser.snapshot");
+    assert_eq!(v["command"], "browser snapshot");
     assert!(v["data"].is_object(), "snapshot data should be an object");
     assert_context_with_tab(&v, &sid, &tid);
     assert_meta(&v);
@@ -1023,7 +1023,7 @@ fn cloud_eval_json() {
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
-    assert_eq!(v["command"], "browser.eval");
+    assert_eq!(v["command"], "browser eval");
     assert_eq!(
         v["data"]["value"],
         serde_json::json!(4),
@@ -1100,7 +1100,7 @@ fn cloud_status_json() {
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
-    assert_eq!(v["command"], "browser.status");
+    assert_eq!(v["command"], "browser status");
     assert_eq!(v["data"]["session"]["mode"], "cloud");
     assert_eq!(v["data"]["session"]["status"], "running");
     assert!(v["data"]["session"]["cdp_endpoint"].is_string());

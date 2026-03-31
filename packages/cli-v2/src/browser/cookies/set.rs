@@ -42,7 +42,7 @@ pub struct Cmd {
     pub expires: Option<f64>,
 }
 
-pub const COMMAND_NAME: &str = "browser.cookies.set";
+pub const COMMAND_NAME: &str = "browser cookies set";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result

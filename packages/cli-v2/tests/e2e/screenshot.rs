@@ -104,7 +104,7 @@ fn screenshot_json_happy_path() {
 
     // §2.4 envelope
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.screenshot");
+    assert_eq!(v["command"], "browser screenshot");
     assert!(v["error"].is_null());
     assert_meta(&v);
 

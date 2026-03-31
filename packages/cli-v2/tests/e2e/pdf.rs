@@ -109,7 +109,7 @@ fn pdf_json_happy_path() {
     let v = parse_json(&out);
     let metadata = std::fs::metadata(&path).expect("pdf file should exist");
 
-    assert_eq!(v["command"], "browser.pdf");
+    assert_eq!(v["command"], "browser pdf");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_meta(&v);
@@ -199,7 +199,7 @@ fn pdf_artifact_write_failed_json() {
     assert_failure(&out, "pdf bad path");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.pdf");
+    assert_eq!(v["command"], "browser pdf");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
     assert_error_envelope(&v, "ARTIFACT_WRITE_FAILED");
@@ -230,7 +230,7 @@ fn pdf_session_not_found_json() {
     assert_failure(&out, "pdf missing session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.pdf");
+    assert_eq!(v["command"], "browser pdf");
     assert!(v["context"].is_null());
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
 }
@@ -263,7 +263,7 @@ fn pdf_tab_not_found_json() {
     assert_failure(&out, "pdf missing tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.pdf");
+    assert_eq!(v["command"], "browser pdf");
     assert!(v["context"].is_object());
     assert_eq!(v["context"]["session_id"], sid);
     assert!(v["context"]["tab_id"].is_null());

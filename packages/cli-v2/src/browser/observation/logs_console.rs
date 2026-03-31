@@ -100,7 +100,7 @@ pub struct Cmd {
     pub clear: bool,
 }
 
-pub const COMMAND_NAME: &str = "browser.logs.console";
+pub const COMMAND_NAME: &str = "browser logs console";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result

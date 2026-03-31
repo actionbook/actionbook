@@ -32,7 +32,7 @@ pub struct Cmd {
     pub timeout: Option<u64>,
 }
 
-pub const COMMAND_NAME: &str = "browser.wait.network-idle";
+pub const COMMAND_NAME: &str = "browser wait network-idle";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result

@@ -61,7 +61,7 @@ fn default_stealth() -> bool {
     true
 }
 
-pub const COMMAND_NAME: &str = "browser.start";
+pub const COMMAND_NAME: &str = "browser start";
 
 struct ReuseTarget {
     session_id: String,

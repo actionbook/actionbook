@@ -21,7 +21,7 @@ pub struct Cmd {
     pub session: String,
 }
 
-pub const COMMAND_NAME: &str = "browser.status";
+pub const COMMAND_NAME: &str = "browser status";
 
 pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
     Some(ResponseContext {

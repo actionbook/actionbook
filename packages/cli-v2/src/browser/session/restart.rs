@@ -21,7 +21,7 @@ pub struct Cmd {
     pub session: String,
 }
 
-pub const COMMAND_NAME: &str = "browser.restart";
+pub const COMMAND_NAME: &str = "browser restart";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     let mut ctx = ResponseContext {

@@ -20,7 +20,7 @@ pub struct Cmd {
     pub session: String,
 }
 
-pub const COMMAND_NAME: &str = "browser.close";
+pub const COMMAND_NAME: &str = "browser close";
 
 pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
     Some(ResponseContext {

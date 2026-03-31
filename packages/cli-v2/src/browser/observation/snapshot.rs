@@ -57,7 +57,7 @@ pub struct Cmd {
     pub selector: Option<String>,
 }
 
-pub const COMMAND_NAME: &str = "browser.snapshot";
+pub const COMMAND_NAME: &str = "browser snapshot";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     // SESSION_NOT_FOUND: context must be null per §3.1

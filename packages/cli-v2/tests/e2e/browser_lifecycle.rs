@@ -36,7 +36,7 @@ fn lifecycle_open_and_close_json() {
     assert_success(&out, "start");
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.start");
+    assert_eq!(v["command"], "browser start");
     assert!(v["error"].is_null(), "start: error should be null");
     assert_eq!(v["data"]["session"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
     assert_eq!(v["data"]["session"]["mode"], "local");
@@ -60,7 +60,7 @@ fn lifecycle_open_and_close_json() {
     assert_success(&out, "status");
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.status");
+    assert_eq!(v["command"], "browser status");
     assert_eq!(v["context"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
 
     // close
@@ -71,7 +71,7 @@ fn lifecycle_open_and_close_json() {
     assert_success(&out, "close");
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.close");
+    assert_eq!(v["command"], "browser close");
     assert_eq!(v["data"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
     assert_eq!(v["data"]["status"], "closed");
     assert!(v["data"]["closed_tabs"].is_number());
@@ -219,7 +219,7 @@ fn lifecycle_status_json() {
     assert_success(&out, "status");
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.status");
+    assert_eq!(v["command"], "browser status");
     assert_eq!(v["data"]["session"]["session_id"], sid);
     assert_eq!(v["data"]["session"]["status"], "running");
     assert_eq!(v["data"]["session"]["mode"], "local");
@@ -271,7 +271,7 @@ fn lifecycle_list_sessions_json() {
     assert_success(&out, "list-sessions");
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.list-sessions");
+    assert_eq!(v["command"], "browser list-sessions");
     assert!(v["context"].is_null());
     assert!(v["data"]["total_sessions"].as_u64().unwrap_or(0) >= 1);
     let sessions = v["data"]["sessions"].as_array().expect("sessions array");
@@ -319,7 +319,7 @@ fn lifecycle_restart_json() {
     assert_success(&out, "restart");
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.restart");
+    assert_eq!(v["command"], "browser restart");
     assert_eq!(v["data"]["session"]["session_id"], sid);
     assert_eq!(v["data"]["session"]["mode"], "local");
     assert_eq!(v["data"]["session"]["status"], "running");
@@ -447,7 +447,7 @@ fn lifecycle_double_close_json() {
     assert_failure(&out, "second close should fail");
     let v = parse_json(&out);
     assert_eq!(v["ok"], false);
-    assert_eq!(v["command"], "browser.close");
+    assert_eq!(v["command"], "browser close");
     assert!(v["data"].is_null());
     assert_eq!(v["error"]["code"], "SESSION_NOT_FOUND");
     assert!(v["error"]["message"].is_string());
@@ -487,7 +487,7 @@ fn lifecycle_status_nonexistent_json() {
     assert_failure(&out, "status nonexistent");
     let v = parse_json(&out);
     assert_eq!(v["ok"], false);
-    assert_eq!(v["command"], "browser.status");
+    assert_eq!(v["command"], "browser status");
     assert!(v["data"].is_null());
     assert_eq!(v["error"]["code"], "SESSION_NOT_FOUND");
     assert!(v["error"]["message"].is_string());
@@ -1004,7 +1004,7 @@ fn lifecycle_start_concurrent_same_profile_rejects_second_json() {
 
     let failure = parse_json(failures[0]);
     assert_eq!(failure["ok"], false);
-    assert_eq!(failure["command"], "browser.start");
+    assert_eq!(failure["command"], "browser start");
     assert_eq!(failure["error"]["code"], "SESSION_STARTING");
     assert_eq!(
         failure["error"]["hint"],

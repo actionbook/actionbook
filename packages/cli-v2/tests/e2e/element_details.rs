@@ -109,7 +109,7 @@ fn attrs_json_happy_path() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.attrs");
+    assert_eq!(v["command"], "browser attrs");
     assert!(v["error"].is_null());
     assert_meta(&v);
     assert_eq!(v["context"]["session_id"], sid);
@@ -188,7 +188,7 @@ fn box_json_happy_path() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.box");
+    assert_eq!(v["command"], "browser box");
     assert!(v["error"].is_null());
     assert_meta(&v);
     assert_eq!(v["data"]["target"]["selector"], TARGET_SELECTOR);
@@ -268,7 +268,7 @@ fn styles_json_default_props_happy_path() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.styles");
+    assert_eq!(v["command"], "browser styles");
     assert!(v["error"].is_null());
     assert_meta(&v);
     assert_eq!(v["data"]["target"]["selector"], TARGET_SELECTOR);
@@ -364,7 +364,7 @@ fn attrs_session_not_found_json() {
     assert_failure(&out, "attrs nonexistent session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.attrs");
+    assert_eq!(v["command"], "browser attrs");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(v["context"].is_null());
 }
@@ -394,7 +394,7 @@ fn box_tab_not_found_json() {
     assert_failure(&out, "box nonexistent tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.box");
+    assert_eq!(v["command"], "browser box");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(v["context"].is_object());
     assert_eq!(v["context"]["session_id"], sid);
@@ -426,7 +426,7 @@ fn styles_selector_not_found_json() {
     assert_failure(&out, "styles missing selector");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.styles");
+    assert_eq!(v["command"], "browser styles");
     assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
     assert!(v["context"].is_object());
     assert_eq!(v["context"]["session_id"], sid);
@@ -474,7 +474,7 @@ fn styles_js_exception_returns_error() {
     assert_failure(&out, "styles with throwing getComputedStyle");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.styles");
+    assert_eq!(v["command"], "browser styles");
     assert_error_envelope(&v, "JS_EXCEPTION");
 }
 
@@ -596,7 +596,7 @@ void(0)"#;
     assert_failure(&out, "box js exception");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.box");
+    assert_eq!(v["command"], "browser box");
     assert_error_envelope(&v, "JS_EXCEPTION");
 }
 
@@ -638,6 +638,6 @@ void(0)"#;
     assert_failure(&out, "attrs js exception");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.attrs");
+    assert_eq!(v["command"], "browser attrs");
     assert_error_envelope(&v, "JS_EXCEPTION");
 }

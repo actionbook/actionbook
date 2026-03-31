@@ -29,7 +29,7 @@ fn tab_list_tabs_json() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.list-tabs");
+    assert_eq!(v["command"], "browser list-tabs");
     assert!(v["error"].is_null());
     assert_context_object(&v);
     assert_eq!(v["context"]["session_id"], sid);
@@ -121,7 +121,7 @@ fn tab_new_tab_json() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.new-tab");
+    assert_eq!(v["command"], "browser new-tab");
     assert!(v["error"].is_null());
     assert_context_object(&v);
     assert_eq!(v["context"]["session_id"], sid);
@@ -193,7 +193,7 @@ fn tab_new_tab_alias_open_json() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.new-tab");
+    assert_eq!(v["command"], "browser new-tab");
     assert!(v["error"].is_null());
     assert_context_object(&v);
     assert_eq!(v["context"]["session_id"], sid);
@@ -229,7 +229,7 @@ fn tab_close_tab_json() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.close-tab");
+    assert_eq!(v["command"], "browser close-tab");
     assert!(v["error"].is_null());
     assert_context_object(&v);
     assert_eq!(v["context"]["session_id"], sid);
@@ -297,7 +297,7 @@ fn tab_list_tabs_nonexistent_session_json() {
     assert_failure(&out, "list-tabs nonexistent session");
     let v = parse_json(&out);
     assert_eq!(v["ok"], false);
-    assert_eq!(v["command"], "browser.list-tabs");
+    assert_eq!(v["command"], "browser list-tabs");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(v["context"].is_null());
 }
@@ -326,7 +326,7 @@ fn tab_new_tab_nonexistent_session_json() {
     assert_failure(&out, "new-tab nonexistent session");
     let v = parse_json(&out);
     assert_eq!(v["ok"], false);
-    assert_eq!(v["command"], "browser.new-tab");
+    assert_eq!(v["command"], "browser new-tab");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(v["context"].is_null());
 }
@@ -365,7 +365,7 @@ fn tab_close_tab_nonexistent_session_json() {
     assert_failure(&out, "close-tab nonexistent session");
     let v = parse_json(&out);
     assert_eq!(v["ok"], false);
-    assert_eq!(v["command"], "browser.close-tab");
+    assert_eq!(v["command"], "browser close-tab");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(v["context"].is_null());
 }
@@ -412,7 +412,7 @@ fn tab_close_tab_nonexistent_tab_json() {
     assert_failure(&out, "close-tab nonexistent tab");
     let v = parse_json(&out);
     assert_eq!(v["ok"], false);
-    assert_eq!(v["command"], "browser.close-tab");
+    assert_eq!(v["command"], "browser close-tab");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),

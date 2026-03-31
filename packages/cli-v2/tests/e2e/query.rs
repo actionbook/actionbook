@@ -129,7 +129,7 @@ fn query_one_json_happy_path() {
     assert_success(&out, "query one json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_meta(&v);
@@ -211,7 +211,7 @@ fn query_one_element_not_found_json() {
     assert_failure(&out, "query one missing");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
     assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
@@ -245,7 +245,7 @@ fn query_one_multiple_matches_json() {
     assert_failure(&out, "query one multiple");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
     assert_error_envelope(&v, "MULTIPLE_MATCHES");
@@ -287,7 +287,7 @@ fn query_all_json_happy_path() {
     assert_success(&out, "query all json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_meta(&v);
@@ -385,7 +385,7 @@ fn query_all_empty_json() {
     assert_success(&out, "query all empty json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["mode"], "all");
     assert_eq!(v["data"]["query"], MISSING_QUERY);
@@ -419,7 +419,7 @@ fn query_one_disabled_json_happy_path() {
     assert_success(&out, "query disabled json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["mode"], "one");
     assert_eq!(v["data"]["query"], DISABLED_QUERY);
@@ -461,7 +461,7 @@ fn query_nth_json_happy_path() {
     assert_success(&out, "query nth json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["mode"], "nth");
     assert_eq!(v["data"]["query"], ITEMS_QUERY);
@@ -541,7 +541,7 @@ fn query_nth_index_out_of_range_json() {
     assert_failure(&out, "query nth out of range");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
     assert_error_envelope(&v, "INDEX_OUT_OF_RANGE");
@@ -576,7 +576,7 @@ fn query_count_json_happy_path() {
     assert_success(&out, "query count json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["mode"], "count");
     assert_eq!(v["data"]["query"], ITEMS_QUERY);
@@ -645,7 +645,7 @@ fn query_count_zero_json() {
     assert_success(&out, "query count zero json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["mode"], "count");
     assert_eq!(v["data"]["query"], MISSING_QUERY);
@@ -674,7 +674,7 @@ fn query_session_not_found_json() {
     assert_failure(&out, "query nonexistent session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert!(v["context"].is_null());
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
 }
@@ -704,7 +704,7 @@ fn query_tab_not_found_json() {
     assert_failure(&out, "query nonexistent tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert!(v["context"].is_object());
     assert_eq!(v["context"]["session_id"], sid);
     assert!(v["context"]["tab_id"].is_null());
@@ -751,7 +751,7 @@ fn query_js_exception_returns_error() {
     assert_failure(&out, "query js exception");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_error_envelope(&v, "JS_EXCEPTION");
 }
 

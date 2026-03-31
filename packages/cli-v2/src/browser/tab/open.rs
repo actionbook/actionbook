@@ -32,7 +32,7 @@ pub struct Cmd {
     pub window: Option<String>,
 }
 
-pub const COMMAND_NAME: &str = "browser.new-tab";
+pub const COMMAND_NAME: &str = "browser new-tab";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Ok { data } = result {

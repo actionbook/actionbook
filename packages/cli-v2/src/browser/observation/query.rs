@@ -8,7 +8,7 @@ use crate::daemon::cdp_session::{cdp_error_to_result, get_cdp_and_target};
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
-pub const COMMAND_NAME: &str = "browser.query";
+pub const COMMAND_NAME: &str = "browser query";
 
 /// Query elements on the page with cardinality constraints.
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]

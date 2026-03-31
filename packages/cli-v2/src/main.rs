@@ -180,10 +180,10 @@ async fn handle_browser(
                 let context = failed_command.context(&result);
                 if json_mode {
                     let envelope =
-                        JsonEnvelope::from_result("browser.start", context, &result, duration);
+                        JsonEnvelope::from_result("browser start", context, &result, duration);
                     println!("{}", serde_json::to_string(&envelope)?);
                 } else {
-                    let text = output::format_text("browser.start", &context, &result);
+                    let text = output::format_text("browser start", &context, &result);
                     println!("{text}");
                 }
                 std::process::exit(1);
@@ -324,7 +324,7 @@ Session:
   start                              Start or attach a browser session
   list-sessions                      List all active sessions
   status              --session      Show session status
-  close               --session      Close a session
+  close               --session      Close a session (alias: stop)
   restart             --session      Restart a session
 
 Tab:
@@ -412,7 +412,7 @@ Run actionbook browser <subcommand> --help for full usage and examples.";
 
     if json_mode {
         let envelope = JsonEnvelope::success(
-            "browser.help",
+            "browser help",
             None,
             json!(help_text),
             std::time::Duration::ZERO,

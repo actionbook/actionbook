@@ -45,7 +45,7 @@ pub struct Cmd {
     pub clear: bool,
 }
 
-pub const COMMAND_NAME: &str = "browser.logs.errors";
+pub const COMMAND_NAME: &str = "browser logs errors";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result

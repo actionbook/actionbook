@@ -181,7 +181,7 @@ fn snap_json_envelope() {
 
     // §2.4 envelope
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.snapshot");
+    assert_eq!(v["command"], "browser snapshot");
     assert!(v["error"].is_null());
 
     // context — tab-level
@@ -848,7 +848,7 @@ fn snap_session_not_found_json() {
     assert_failure(&out, "snapshot nonexistent session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.snapshot");
+    assert_eq!(v["command"], "browser snapshot");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     // §3.1: context must be null when session not found
     assert!(
@@ -904,7 +904,7 @@ fn snap_tab_not_found_json() {
     assert_failure(&out, "snapshot nonexistent tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.snapshot");
+    assert_eq!(v["command"], "browser snapshot");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     // §3.1: TAB_NOT_FOUND — context has session_id but tab_id must be absent/null
     assert!(

@@ -103,7 +103,7 @@ fn html_json_selector_happy_path() {
     assert_success(&out, "html selector json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.html");
+    assert_eq!(v["command"], "browser html");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_meta(&v);
@@ -142,7 +142,7 @@ fn html_json_xpath_selector_happy_path() {
     assert_success(&out, "html xpath json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.html");
+    assert_eq!(v["command"], "browser html");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_meta(&v);
@@ -169,7 +169,7 @@ fn html_json_full_page_happy_path() {
     assert_success(&out, "html page json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.html");
+    assert_eq!(v["command"], "browser html");
     assert!(v["data"]["target"]["selector"].is_null());
     let html = v["data"]["value"].as_str().unwrap_or("");
     assert!(html.contains("<html"));
@@ -236,7 +236,7 @@ fn text_json_selector_happy_path() {
     assert_success(&out, "text selector json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.text");
+    assert_eq!(v["command"], "browser text");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_meta(&v);
@@ -260,7 +260,7 @@ fn text_json_full_page_happy_path() {
     assert_success(&out, "text page json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.text");
+    assert_eq!(v["command"], "browser text");
     assert!(v["data"]["target"]["selector"].is_null());
     let text = v["data"]["value"].as_str().unwrap_or("");
     assert!(text.contains("Story Title"));
@@ -291,7 +291,7 @@ fn value_and_attr_json_and_text_happy_path() {
     );
     assert_success(&value_out, "value json");
     let value_json = parse_json(&value_out);
-    assert_eq!(value_json["command"], "browser.value");
+    assert_eq!(value_json["command"], "browser value");
     assert_eq!(value_json["data"]["target"]["selector"], EMAIL_SELECTOR);
     assert_eq!(value_json["data"]["value"], "user@example.com");
     assert_eq!(value_json["context"]["title"], "Read Contract Fixture");
@@ -334,7 +334,7 @@ fn value_and_attr_json_and_text_happy_path() {
     );
     assert_success(&attr_out, "attr json");
     let attr_json = parse_json(&attr_out);
-    assert_eq!(attr_json["command"], "browser.attr");
+    assert_eq!(attr_json["command"], "browser attr");
     assert_eq!(attr_json["data"]["target"]["selector"], EMAIL_SELECTOR);
     assert_eq!(attr_json["data"]["value"], "Email field");
     assert!(attr_json["data"].get("attribute").is_none());
@@ -388,7 +388,7 @@ fn value_and_attr_return_null_when_property_or_attribute_absent() {
     );
     assert_success(&value_out, "value null json");
     let value_json = parse_json(&value_out);
-    assert_eq!(value_json["command"], "browser.value");
+    assert_eq!(value_json["command"], "browser value");
     assert_eq!(value_json["data"]["target"]["selector"], "#plain");
     assert!(value_json["data"]["value"].is_null());
 
@@ -423,7 +423,7 @@ fn value_and_attr_return_null_when_property_or_attribute_absent() {
     );
     assert_success(&attr_out, "attr null json");
     let attr_json = parse_json(&attr_out);
-    assert_eq!(attr_json["command"], "browser.attr");
+    assert_eq!(attr_json["command"], "browser attr");
     assert_eq!(attr_json["data"]["target"]["selector"], EMAIL_SELECTOR);
     assert!(attr_json["data"]["value"].is_null());
 
@@ -466,7 +466,7 @@ fn value_session_not_found_json() {
     assert_failure(&out, "value missing session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.value");
+    assert_eq!(v["command"], "browser value");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(v["context"].is_null());
 }
@@ -497,7 +497,7 @@ fn attr_tab_not_found_json() {
     assert_failure(&out, "attr missing tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.attr");
+    assert_eq!(v["command"], "browser attr");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(v["context"].is_object());
     assert_eq!(v["context"]["session_id"], sid);
@@ -529,7 +529,7 @@ fn text_selector_not_found_json() {
     assert_failure(&out, "text missing selector");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.text");
+    assert_eq!(v["command"], "browser text");
     assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
     assert!(v["context"].is_object());
     assert_eq!(v["context"]["session_id"], sid);

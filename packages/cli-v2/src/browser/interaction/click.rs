@@ -57,7 +57,7 @@ pub struct Cmd {
     pub count: u32,
 }
 
-pub const COMMAND_NAME: &str = "browser.click";
+pub const COMMAND_NAME: &str = "browser click";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     // SESSION_NOT_FOUND: context must be null per §3.1

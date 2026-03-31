@@ -35,7 +35,7 @@ pub struct Cmd {
     pub parent_depth: Option<u32>,
 }
 
-pub const COMMAND_NAME: &str = "browser.inspect-point";
+pub const COMMAND_NAME: &str = "browser inspect-point";
 
 /// Parse coordinate string "x,y" into (f64, f64).
 pub fn parse_coordinates(coords: &str) -> Result<(f64, f64), String> {

@@ -46,7 +46,7 @@ pub struct Cmd {
     pub align: Option<String>,
 }
 
-pub const COMMAND_NAME: &str = "browser.scroll";
+pub const COMMAND_NAME: &str = "browser scroll";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result

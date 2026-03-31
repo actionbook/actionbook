@@ -123,7 +123,7 @@ All `browser` subcommands support:
 ```json
 {
   "ok": true,
-  "command": "browser.snapshot",
+  "command": "browser snapshot",
   "context": {
     "session_id": "research-google",
     "tab_id": "t1",
@@ -147,7 +147,7 @@ All `browser` subcommands support:
 | Field | Type | Required | Description |
 |------|------|------|------|
 | `ok` | boolean | Yes | Whether the command succeeded |
-| `command` | string | Yes | Normalized command name (e.g., `browser.snapshot`) |
+| `command` | string | Yes | Normalized command name (e.g., `browser snapshot`) |
 | `context` | object/null | No | Returned only for session commands |
 | `data` | any/null | Yes | Business return value (typically an object; string for help/version; `null` on failure) |
 | `error` | object/null | Yes | Error information (`null` on success) |
@@ -213,7 +213,7 @@ All `browser` subcommands support:
 ```json
 {
   "ok": false,
-  "command": "browser.click",
+  "command": "browser click",
   "context": { "session_id": "research-google", "tab_id": "t1", "url": "https://google.com" },
   "data": null,
   "error": {
@@ -446,7 +446,7 @@ snapshot   Capture accessibility snapshot
 ### 7.1 `actionbook browser start`
 
 > Addressing level: **Global**
-> command: `browser.start`
+> command: `browser start`
 
 Create or attach to a session. The session_id can be specified via `--set-session-id`; optionally auto-opens an initial tab.
 
@@ -486,7 +486,7 @@ Create or attach to a session. The session_id can be specified via `--set-sessio
 **Text output:**
 ```
 [research-google t1] https://google.com
-ok browser.start
+ok browser start
 mode: local
 status: running
 title: Google
@@ -497,7 +497,7 @@ title: Google
 ### 7.2 `actionbook browser list-sessions`
 
 > Addressing level: **Global**
-> command: `browser.list-sessions`
+> command: `browser list-sessions`
 
 List all active sessions.
 
@@ -533,7 +533,7 @@ tabs: 2
 ### 7.3 `actionbook browser status --session <SID>`
 
 > Addressing level: **Session**
-> command: `browser.status`
+> command: `browser status`
 
 View detailed status of a specified session.
 
@@ -582,7 +582,7 @@ tabs: 2
 ### 7.4 `actionbook browser close --session <SID>`
 
 > Addressing level: **Session**
-> command: `browser.close`
+> command: `browser close`
 
 Close the specified session and its browser.
 
@@ -605,7 +605,7 @@ Close the specified session and its browser.
 **Text output:**
 ```
 [research-google]
-ok browser.close
+ok browser close
 closed_tabs: 2
 ```
 
@@ -614,7 +614,7 @@ closed_tabs: 2
 ### 7.5 `actionbook browser restart --session <SID>`
 
 > Addressing level: **Session**
-> command: `browser.restart`
+> command: `browser restart`
 
 Close and restart the session with the same profile/mode.
 
@@ -642,7 +642,7 @@ Close and restart the session with the same profile/mode.
 **Text output:**
 ```
 [research-google t1]
-ok browser.restart
+ok browser restart
 status: running
 ```
 
@@ -653,7 +653,7 @@ status: running
 ### 8.1 `actionbook browser list-tabs --session <SID>`
 
 > Addressing level: **Session**
-> command: `browser.list-tabs`
+> command: `browser list-tabs`
 
 List all tabs in a specified session.
 
@@ -692,7 +692,7 @@ https://google.com
 ### 8.2 `actionbook browser new-tab <url> --session <SID>`
 
 > Addressing level: **Session**
-> command: `browser.new-tab`
+> command: `browser new-tab`
 > alias: `browser open`
 
 Open a new tab in the specified session.
@@ -724,7 +724,7 @@ Open a new tab in the specified session.
 **Text output:**
 ```
 [research-google t2] https://example.com
-ok browser.new-tab
+ok browser new-tab
 title: Example Domain
 ```
 
@@ -733,7 +733,7 @@ title: Example Domain
 ### 8.3 `actionbook browser close-tab --session <SID> --tab <TID>`
 
 > Addressing level: **Tab**
-> command: `browser.close-tab`
+> command: `browser close-tab`
 
 Close the specified tab.
 
@@ -755,7 +755,7 @@ Close the specified tab.
 **Text output:**
 ```
 [research-google t2]
-ok browser.close-tab
+ok browser close-tab
 ```
 
 ---
@@ -766,7 +766,7 @@ All Navigation commands have addressing level: **Tab**, requiring `--session <SI
 
 ### 9.1 `actionbook browser goto <url>`
 
-> command: `browser.goto`
+> command: `browser goto`
 
 Navigate to the specified URL.
 
@@ -793,7 +793,7 @@ Navigate to the specified URL.
 **Text output:**
 ```
 [research-google t1] https://google.com/search?q=actionbook
-ok browser.goto
+ok browser goto
 title: actionbook - Google Search
 ```
 
@@ -801,7 +801,7 @@ title: actionbook - Google Search
 
 ### 9.2 `actionbook browser back`
 
-> command: `browser.back`
+> command: `browser back`
 
 Navigate back.
 
@@ -815,7 +815,7 @@ Navigate back.
 
 ### 9.3 `actionbook browser forward`
 
-> command: `browser.forward`
+> command: `browser forward`
 
 Navigate forward.
 
@@ -827,7 +827,7 @@ Navigate forward.
 
 ### 9.4 `actionbook browser reload`
 
-> command: `browser.reload`
+> command: `browser reload`
 
 Reload the page.
 
@@ -843,7 +843,7 @@ All Observation commands have addressing level: **Tab** (unless otherwise noted)
 
 ### 10.1 `actionbook browser snapshot`
 
-> command: `browser.snapshot`
+> command: `browser snapshot`
 
 Capture an accessibility tree snapshot of the page.
 
@@ -893,7 +893,7 @@ Capture an accessibility tree snapshot of the page.
 
 ### 10.2 `actionbook browser screenshot <path>`
 
-> command: `browser.screenshot`
+> command: `browser screenshot`
 
 Capture a page screenshot.
 
@@ -925,7 +925,7 @@ Capture a page screenshot.
 **Text output:**
 ```
 [research-google t1] https://google.com
-ok browser.screenshot
+ok browser screenshot
 path: /tmp/google.png
 ```
 
@@ -933,7 +933,7 @@ path: /tmp/google.png
 
 ### 10.3 `actionbook browser pdf <path>`
 
-> command: `browser.pdf`
+> command: `browser pdf`
 
 Save the current page as a PDF (similar to print export).
 
@@ -950,7 +950,7 @@ Save the current page as a PDF (similar to print export).
 **Text output:**
 ```
 [research-google t1] https://google.com
-ok browser.pdf
+ok browser pdf
 path: /tmp/google.pdf
 ```
 
@@ -958,7 +958,7 @@ path: /tmp/google.pdf
 
 ### 10.4 `actionbook browser title`
 
-> command: `browser.title`
+> command: `browser title`
 
 Get the page title.
 
@@ -976,7 +976,7 @@ Google
 
 ### 10.5 `actionbook browser url`
 
-> command: `browser.url`
+> command: `browser url`
 
 Get the current page URL.
 
@@ -994,7 +994,7 @@ https://google.com
 
 ### 10.6 `actionbook browser viewport`
 
-> command: `browser.viewport`
+> command: `browser viewport`
 
 Get the viewport dimensions.
 
@@ -1012,7 +1012,7 @@ Get the viewport dimensions.
 
 ### 10.7 `actionbook browser query <mode> <query_str>`
 
-> command: `browser.query`
+> command: `browser query`
 
 Element query command with cardinality constraints.
 
@@ -1173,7 +1173,7 @@ Unified addressing: **Tab**. Unified JSON structure.
 
 #### `actionbook browser html <selector>`
 
-> command: `browser.html`
+> command: `browser html`
 
 Get the outer HTML of an element.
 
@@ -1196,7 +1196,7 @@ Get the outer HTML of an element.
 
 #### `actionbook browser text <selector>`
 
-> command: `browser.text`
+> command: `browser text`
 
 Get the inner text of an element.
 
@@ -1219,7 +1219,7 @@ Example Domain
 
 #### `actionbook browser value <selector>`
 
-> command: `browser.value`
+> command: `browser value`
 
 Get the value of an input element.
 
@@ -1229,7 +1229,7 @@ Get the value of an input element.
 
 #### `actionbook browser attr <selector> <name>`
 
-> command: `browser.attr`
+> command: `browser attr`
 
 Get a specific attribute of an element.
 
@@ -1245,7 +1245,7 @@ https://google.com
 
 #### `actionbook browser attrs <selector>`
 
-> command: `browser.attrs`
+> command: `browser attrs`
 
 Get all attributes of an element.
 
@@ -1257,7 +1257,7 @@ Get all attributes of an element.
 
 #### `actionbook browser box <selector>`
 
-> command: `browser.box`
+> command: `browser box`
 
 Get the bounding box of an element.
 
@@ -1276,7 +1276,7 @@ height: 32
 
 #### `actionbook browser styles <selector> [names...]`
 
-> command: `browser.styles`
+> command: `browser styles`
 
 Get the computed styles of an element.
 
@@ -1290,7 +1290,7 @@ Get the computed styles of an element.
 
 ### 10.9 `actionbook browser describe <selector>`
 
-> command: `browser.describe`
+> command: `browser describe`
 
 Return a rule-based summary of an element (deterministically generated, no LLM invocation).
 
@@ -1368,7 +1368,7 @@ previous_sibling: text "John Smith"
 
 ### 10.10 `actionbook browser state <selector>`
 
-> command: `browser.state`
+> command: `browser state`
 
 Return the interactive state of an element.
 
@@ -1405,7 +1405,7 @@ selected: false
 
 ### 10.11 `actionbook browser inspect-point <coordinates>`
 
-> command: `browser.inspect-point`
+> command: `browser inspect-point`
 
 Inspect the element at specified coordinates (recommended for use with screenshot).
 
@@ -1445,7 +1445,7 @@ point: 420,310
 
 ### 10.12 `actionbook browser logs console`
 
-> command: `browser.logs.console`
+> command: `browser logs console`
 
 Get console logs.
 
@@ -1488,7 +1488,7 @@ info 1710000000000 app.js App mounted
 
 ### 10.13 `actionbook browser logs errors`
 
-> command: `browser.logs.errors`
+> command: `browser logs errors`
 
 Get error logs.
 
@@ -1529,13 +1529,13 @@ Unified JSON `data` structure:
 **Text output:**
 ```
 [research-google t1] https://google.com
-ok browser.click
+ok browser click
 target: button[type=submit]
 ```
 
 #### `actionbook browser click <selector|coordinates>`
 
-> command: `browser.click`
+> command: `browser click`
 
 **Parameters:**
 
@@ -1552,19 +1552,19 @@ target: button[type=submit]
 
 #### `actionbook browser hover <selector>`
 
-> command: `browser.hover`
+> command: `browser hover`
 
 **Parameters:** `<selector>` (required), `--session <SID> --tab <TID>`
 
 #### `actionbook browser focus <selector>`
 
-> command: `browser.focus`
+> command: `browser focus`
 
 **Parameters:** `<selector>` (required), `--session <SID> --tab <TID>`
 
 #### `actionbook browser press <key-or-chord>`
 
-> command: `browser.press`
+> command: `browser press`
 
 **Parameters:**
 
@@ -1578,7 +1578,7 @@ target: button[type=submit]
 
 #### `actionbook browser drag <selector> <selector|coordinates>`
 
-> command: `browser.drag`
+> command: `browser drag`
 
 **Parameters:**
 
@@ -1592,7 +1592,7 @@ target: button[type=submit]
 
 #### `actionbook browser mouse-move <coordinates>`
 
-> command: `browser.mouse-move`
+> command: `browser mouse-move`
 
 Move the mouse to absolute coordinates.
 
@@ -1600,7 +1600,7 @@ Move the mouse to absolute coordinates.
 
 #### `actionbook browser cursor-position`
 
-> command: `browser.cursor-position`
+> command: `browser cursor-position`
 
 Get the current mouse position.
 
@@ -1610,7 +1610,7 @@ Get the current mouse position.
 
 #### `actionbook browser scroll`
 
-> command: `browser.scroll`
+> command: `browser scroll`
 
 Scroll the page or a container.
 
@@ -1651,14 +1651,14 @@ Unified JSON `data` structure:
 **Text output:**
 ```
 [research-google t1] https://google.com
-ok browser.fill
+ok browser fill
 target: textarea[name=q]
 text_length: 10
 ```
 
 #### `actionbook browser type <selector> <text>`
 
-> command: `browser.type`
+> command: `browser type`
 
 Type text character by character (triggers keyboard events).
 
@@ -1673,7 +1673,7 @@ Type text character by character (triggers keyboard events).
 
 #### `actionbook browser fill <selector> <text>`
 
-> command: `browser.fill`
+> command: `browser fill`
 
 Directly set the value of an input field (triggers input event).
 
@@ -1681,7 +1681,7 @@ Directly set the value of an input field (triggers input event).
 
 #### `actionbook browser select <selector> <value>`
 
-> command: `browser.select`
+> command: `browser select`
 
 Select a value from a dropdown list.
 
@@ -1699,7 +1699,7 @@ Select a value from a dropdown list.
 
 #### `actionbook browser upload <selector> <file...>`
 
-> command: `browser.upload`
+> command: `browser upload`
 
 Upload files to a file input.
 
@@ -1718,7 +1718,7 @@ Upload files to a file input.
 
 ### 11.3 `actionbook browser eval <code>`
 
-> command: `browser.eval`
+> command: `browser eval`
 
 Execute JavaScript in the page context.
 
@@ -1766,13 +1766,13 @@ Unified JSON `data` structure:
 **Text output:**
 ```
 [research-google t1] https://example.com
-ok browser.wait.element
+ok browser wait element
 elapsed_ms: 182
 ```
 
 ### 12.1 `actionbook browser wait element <selector>`
 
-> command: `browser.wait.element`
+> command: `browser wait element`
 
 Wait for an element to appear in the DOM.
 
@@ -1792,7 +1792,7 @@ Wait for an element to appear in the DOM.
 
 ### 12.2 `actionbook browser wait navigation`
 
-> command: `browser.wait.navigation`
+> command: `browser wait navigation`
 
 Wait for navigation to complete.
 
@@ -1810,7 +1810,7 @@ Wait for navigation to complete.
 
 ### 12.3 `actionbook browser wait network-idle`
 
-> command: `browser.wait.network-idle`
+> command: `browser wait network-idle`
 
 Wait for network to become idle.
 
@@ -1828,7 +1828,7 @@ Wait for network to become idle.
 
 ### 12.4 `actionbook browser wait condition <expression>`
 
-> command: `browser.wait.condition`
+> command: `browser wait condition`
 
 Wait for a JS expression to become truthy.
 
@@ -1851,7 +1851,7 @@ All Cookies commands have addressing level: **Session** (`--session` only, no `-
 
 ### 13.1 `actionbook browser cookies list`
 
-> command: `browser.cookies.list`
+> command: `browser cookies list`
 
 **Parameters:**
 
@@ -1890,7 +1890,7 @@ SID .google.com /
 
 ### 13.2 `actionbook browser cookies get <name>`
 
-> command: `browser.cookies.get`
+> command: `browser cookies get`
 
 **Parameters:**
 
@@ -1905,7 +1905,7 @@ SID .google.com /
 
 ### 13.3 `actionbook browser cookies set <name> <value>`
 
-> command: `browser.cookies.set`
+> command: `browser cookies set`
 
 **Parameters:**
 
@@ -1927,7 +1927,7 @@ SID .google.com /
 
 ### 13.4 `actionbook browser cookies delete <name>`
 
-> command: `browser.cookies.delete`
+> command: `browser cookies delete`
 
 **Parameters:** `<name>` (required), `--session <SID>`
 
@@ -1937,7 +1937,7 @@ SID .google.com /
 
 ### 13.5 `actionbook browser cookies clear`
 
-> command: `browser.cookies.clear`
+> command: `browser cookies clear`
 
 **Parameters:**
 
@@ -1960,7 +1960,7 @@ Two storage types share the same subcommand structure:
 
 ### 14.1 `actionbook browser session-storage|local-storage list`
 
-> command: `browser.local-storage.list` / `browser.session-storage.list`
+> command: `browser local-storage list` / `browser session-storage list`
 
 **Parameters:** `--session <SID> --tab <TID>`
 
@@ -1986,7 +1986,7 @@ theme=dark
 
 ### 14.2 `actionbook browser session-storage|local-storage get <key>`
 
-> command: `browser.local-storage.get` / `browser.session-storage.get`
+> command: `browser local-storage get` / `browser session-storage get`
 
 **Parameters:** `<key>` (required), `--session <SID> --tab <TID>`
 
@@ -1996,7 +1996,7 @@ theme=dark
 
 ### 14.3 `actionbook browser session-storage|local-storage set <key> <value>`
 
-> command: `browser.local-storage.set` / `browser.session-storage.set`
+> command: `browser local-storage set` / `browser session-storage set`
 
 **Parameters:** `<key>` (required), `<value>` (required), `--session <SID> --tab <TID>`
 
@@ -2006,7 +2006,7 @@ theme=dark
 
 ### 14.4 `actionbook browser session-storage|local-storage delete <key>`
 
-> command: `browser.local-storage.delete` / `browser.session-storage.delete`
+> command: `browser local-storage delete` / `browser session-storage delete`
 
 **Parameters:** `<key>` (required), `--session <SID> --tab <TID>`
 
@@ -2016,7 +2016,7 @@ theme=dark
 
 ### 14.5 `actionbook browser session-storage|local-storage clear <key>`
 
-> command: `browser.local-storage.clear` / `browser.session-storage.clear`
+> command: `browser local-storage clear` / `browser session-storage clear`
 
 Clear the stored value for the specified key.
 
@@ -2042,111 +2042,111 @@ Clear the stored value for the specified key.
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
-| 6 | `browser start` | Global | `browser.start` |
-| 7 | `browser list-sessions` | Global | `browser.list-sessions` |
-| 8 | `browser status` | Session | `browser.status` |
-| 9 | `browser close` | Session | `browser.close` |
-| 10 | `browser restart` | Session | `browser.restart` |
+| 6 | `browser start` | Global | `browser start` |
+| 7 | `browser list-sessions` | Global | `browser list-sessions` |
+| 8 | `browser status` | Session | `browser status` |
+| 9 | `browser close` | Session | `browser close` |
+| 10 | `browser restart` | Session | `browser restart` |
 
 ### Browser Tab Management (3)
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
-| 11 | `browser list-tabs` | Session | `browser.list-tabs` |
-| 12 | `browser new-tab` / `open` | Session | `browser.new-tab` |
-| 13 | `browser close-tab` | Tab | `browser.close-tab` |
+| 11 | `browser list-tabs` | Session | `browser list-tabs` |
+| 12 | `browser new-tab` / `open` | Session | `browser new-tab` |
+| 13 | `browser close-tab` | Tab | `browser close-tab` |
 
 ### Browser Navigation (4)
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
-| 14 | `browser goto` | Tab | `browser.goto` |
-| 15 | `browser back` | Tab | `browser.back` |
-| 16 | `browser forward` | Tab | `browser.forward` |
-| 17 | `browser reload` | Tab | `browser.reload` |
+| 14 | `browser goto` | Tab | `browser goto` |
+| 15 | `browser back` | Tab | `browser back` |
+| 16 | `browser forward` | Tab | `browser forward` |
+| 17 | `browser reload` | Tab | `browser reload` |
 
 ### Browser Observation (17)
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
-| 18 | `browser snapshot` | Tab | `browser.snapshot` |
-| 19 | `browser screenshot` | Tab | `browser.screenshot` |
-| 20 | `browser pdf` | Tab | `browser.pdf` |
-| 21 | `browser title` | Tab | `browser.title` |
-| 22 | `browser url` | Tab | `browser.url` |
-| 23 | `browser viewport` | Tab | `browser.viewport` |
-| 24 | `browser query` | Tab | `browser.query` |
-| 25 | `browser html` | Tab | `browser.html` |
-| 26 | `browser text` | Tab | `browser.text` |
-| 27 | `browser value` | Tab | `browser.value` |
-| 28 | `browser attr` | Tab | `browser.attr` |
-| 29 | `browser attrs` | Tab | `browser.attrs` |
-| 30 | `browser box` | Tab | `browser.box` |
-| 31 | `browser styles` | Tab | `browser.styles` |
-| 32 | `browser describe` | Tab | `browser.describe` |
-| 33 | `browser state` | Tab | `browser.state` |
-| 34 | `browser inspect-point` | Tab | `browser.inspect-point` |
+| 18 | `browser snapshot` | Tab | `browser snapshot` |
+| 19 | `browser screenshot` | Tab | `browser screenshot` |
+| 20 | `browser pdf` | Tab | `browser pdf` |
+| 21 | `browser title` | Tab | `browser title` |
+| 22 | `browser url` | Tab | `browser url` |
+| 23 | `browser viewport` | Tab | `browser viewport` |
+| 24 | `browser query` | Tab | `browser query` |
+| 25 | `browser html` | Tab | `browser html` |
+| 26 | `browser text` | Tab | `browser text` |
+| 27 | `browser value` | Tab | `browser value` |
+| 28 | `browser attr` | Tab | `browser attr` |
+| 29 | `browser attrs` | Tab | `browser attrs` |
+| 30 | `browser box` | Tab | `browser box` |
+| 31 | `browser styles` | Tab | `browser styles` |
+| 32 | `browser describe` | Tab | `browser describe` |
+| 33 | `browser state` | Tab | `browser state` |
+| 34 | `browser inspect-point` | Tab | `browser inspect-point` |
 
 ### Browser Logging (2)
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
-| 35 | `browser logs console` | Tab | `browser.logs.console` |
-| 36 | `browser logs errors` | Tab | `browser.logs.errors` |
+| 35 | `browser logs console` | Tab | `browser logs console` |
+| 36 | `browser logs errors` | Tab | `browser logs errors` |
 
 ### Browser Interaction (15)
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
-| 37 | `browser click` | Tab | `browser.click` |
-| 38 | `browser type` | Tab | `browser.type` |
-| 39 | `browser fill` | Tab | `browser.fill` |
-| 40 | `browser select` | Tab | `browser.select` |
-| 41 | `browser hover` | Tab | `browser.hover` |
-| 42 | `browser focus` | Tab | `browser.focus` |
-| 43 | `browser press` | Tab | `browser.press` |
-| 44 | `browser drag` | Tab | `browser.drag` |
-| 45 | `browser upload` | Tab | `browser.upload` |
-| 46 | `browser eval` | Tab | `browser.eval` |
-| 47 | `browser mouse-move` | Tab | `browser.mouse-move` |
-| 48 | `browser cursor-position` | Tab | `browser.cursor-position` |
-| 49 | `browser scroll (direction)` | Tab | `browser.scroll` |
-| 50 | `browser scroll (top/bottom)` | Tab | `browser.scroll` |
-| 51 | `browser scroll into-view` | Tab | `browser.scroll` |
+| 37 | `browser click` | Tab | `browser click` |
+| 38 | `browser type` | Tab | `browser type` |
+| 39 | `browser fill` | Tab | `browser fill` |
+| 40 | `browser select` | Tab | `browser select` |
+| 41 | `browser hover` | Tab | `browser hover` |
+| 42 | `browser focus` | Tab | `browser focus` |
+| 43 | `browser press` | Tab | `browser press` |
+| 44 | `browser drag` | Tab | `browser drag` |
+| 45 | `browser upload` | Tab | `browser upload` |
+| 46 | `browser eval` | Tab | `browser eval` |
+| 47 | `browser mouse-move` | Tab | `browser mouse-move` |
+| 48 | `browser cursor-position` | Tab | `browser cursor-position` |
+| 49 | `browser scroll (direction)` | Tab | `browser scroll` |
+| 50 | `browser scroll (top/bottom)` | Tab | `browser scroll` |
+| 51 | `browser scroll into-view` | Tab | `browser scroll` |
 
 ### Browser Waiting (4)
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
-| 52 | `browser wait element` | Tab | `browser.wait.element` |
-| 53 | `browser wait navigation` | Tab | `browser.wait.navigation` |
-| 54 | `browser wait network-idle` | Tab | `browser.wait.network-idle` |
-| 55 | `browser wait condition` | Tab | `browser.wait.condition` |
+| 52 | `browser wait element` | Tab | `browser wait element` |
+| 53 | `browser wait navigation` | Tab | `browser wait navigation` |
+| 54 | `browser wait network-idle` | Tab | `browser wait network-idle` |
+| 55 | `browser wait condition` | Tab | `browser wait condition` |
 
 ### Browser Cookies (5)
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
-| 56 | `browser cookies list` | Session | `browser.cookies.list` |
-| 57 | `browser cookies get` | Session | `browser.cookies.get` |
-| 58 | `browser cookies set` | Session | `browser.cookies.set` |
-| 59 | `browser cookies delete` | Session | `browser.cookies.delete` |
-| 60 | `browser cookies clear` | Session | `browser.cookies.clear` |
+| 56 | `browser cookies list` | Session | `browser cookies list` |
+| 57 | `browser cookies get` | Session | `browser cookies get` |
+| 58 | `browser cookies set` | Session | `browser cookies set` |
+| 59 | `browser cookies delete` | Session | `browser cookies delete` |
+| 60 | `browser cookies clear` | Session | `browser cookies clear` |
 
 ### Browser Storage (10)
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
-| 61 | `browser session-storage list` | Tab | `browser.session-storage.list` |
-| 62 | `browser session-storage get` | Tab | `browser.session-storage.get` |
-| 63 | `browser session-storage set` | Tab | `browser.session-storage.set` |
-| 64 | `browser session-storage delete` | Tab | `browser.session-storage.delete` |
-| 65 | `browser session-storage clear` | Tab | `browser.session-storage.clear` |
-| 66 | `browser local-storage list` | Tab | `browser.local-storage.list` |
-| 67 | `browser local-storage get` | Tab | `browser.local-storage.get` |
-| 68 | `browser local-storage set` | Tab | `browser.local-storage.set` |
-| 69 | `browser local-storage delete` | Tab | `browser.local-storage.delete` |
-| 70 | `browser local-storage clear` | Tab | `browser.local-storage.clear` |
+| 61 | `browser session-storage list` | Tab | `browser session-storage list` |
+| 62 | `browser session-storage get` | Tab | `browser session-storage get` |
+| 63 | `browser session-storage set` | Tab | `browser session-storage set` |
+| 64 | `browser session-storage delete` | Tab | `browser session-storage delete` |
+| 65 | `browser session-storage clear` | Tab | `browser session-storage clear` |
+| 66 | `browser local-storage list` | Tab | `browser local-storage list` |
+| 67 | `browser local-storage get` | Tab | `browser local-storage get` |
+| 68 | `browser local-storage set` | Tab | `browser local-storage set` |
+| 69 | `browser local-storage delete` | Tab | `browser local-storage delete` |
+| 70 | `browser local-storage clear` | Tab | `browser local-storage clear` |
 
 **Total: 70 interfaces**
 

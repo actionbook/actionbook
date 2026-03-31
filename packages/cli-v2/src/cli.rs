@@ -70,6 +70,7 @@ pub enum BrowserCommands {
     /// Show session status
     Status(session::status::Cmd),
     /// Close a session
+    #[command(alias = "stop")]
     Close(session::close::Cmd),
     /// Restart a session
     Restart(session::restart::Cmd),
@@ -411,9 +412,9 @@ impl BrowserCommands {
             Self::NewTab(_) => tab::open::COMMAND_NAME,
             Self::CloseTab(_) => tab::close::COMMAND_NAME,
             Self::Goto(_) => navigation::goto::COMMAND_NAME,
-            Self::Back(_) => "browser.back",
-            Self::Forward(_) => "browser.forward",
-            Self::Reload(_) => "browser.reload",
+            Self::Back(_) => "browser back",
+            Self::Forward(_) => "browser forward",
+            Self::Reload(_) => "browser reload",
             Self::Snapshot(_) => observation::snapshot::COMMAND_NAME,
             Self::Title(_) => observation::title::COMMAND_NAME,
             Self::Url(_) => observation::url::COMMAND_NAME,

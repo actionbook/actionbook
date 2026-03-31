@@ -177,7 +177,7 @@ fn inspect_point_json_happy_path() {
 
     // §2.4 envelope
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.inspect-point");
+    assert_eq!(v["command"], "browser inspect-point");
     assert!(v["error"].is_null());
     assert_meta(&v);
 

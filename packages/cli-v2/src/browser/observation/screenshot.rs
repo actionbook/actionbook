@@ -38,7 +38,7 @@ pub struct Cmd {
     pub selector: Option<String>,
 }
 
-pub const COMMAND_NAME: &str = "browser.screenshot";
+pub const COMMAND_NAME: &str = "browser screenshot";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result

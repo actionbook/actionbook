@@ -33,7 +33,7 @@ pub struct Cmd {
     pub names: Vec<String>,
 }
 
-pub const COMMAND_NAME: &str = "browser.styles";
+pub const COMMAND_NAME: &str = "browser styles";
 
 pub const DEFAULT_STYLE_NAMES: [&str; 17] = [
     "display",

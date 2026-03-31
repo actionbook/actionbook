@@ -23,7 +23,7 @@ pub struct Cmd {
     pub tab: String,
 }
 
-pub const COMMAND_NAME: &str = "browser.close-tab";
+pub const COMMAND_NAME: &str = "browser close-tab";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     match result {

@@ -64,7 +64,7 @@ fn nav_goto_json() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.goto");
+    assert_eq!(v["command"], "browser goto");
     assert!(v["error"].is_null());
 
     assert!(v["context"].is_object(), "context must be present");
@@ -173,7 +173,7 @@ fn nav_goto_navigation_failed_json() {
     assert_failure(&out, "goto invalid scheme");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.goto");
+    assert_eq!(v["command"], "browser goto");
     assert_error_envelope(&v, "NAVIGATION_FAILED");
     assert!(
         v["context"].is_object(),
@@ -204,7 +204,7 @@ fn nav_goto_session_not_found_json() {
     assert_failure(&out, "goto nonexistent session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.goto");
+    assert_eq!(v["command"], "browser goto");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -261,7 +261,7 @@ fn nav_goto_tab_not_found_json() {
     assert_failure(&out, "goto nonexistent tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.goto");
+    assert_eq!(v["command"], "browser goto");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -322,7 +322,7 @@ fn nav_back_json() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.back");
+    assert_eq!(v["command"], "browser back");
     assert!(v["error"].is_null());
 
     assert!(v["context"].is_object(), "context must be present");
@@ -404,7 +404,7 @@ fn nav_back_session_not_found_json() {
     assert_failure(&out, "back nonexistent session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.back");
+    assert_eq!(v["command"], "browser back");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -434,7 +434,7 @@ fn nav_back_tab_not_found_json() {
     assert_failure(&out, "back nonexistent tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.back");
+    assert_eq!(v["command"], "browser back");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -472,7 +472,7 @@ fn nav_forward_json() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.forward");
+    assert_eq!(v["command"], "browser forward");
     assert!(v["error"].is_null());
 
     assert!(v["context"].is_object(), "context must be present");
@@ -559,7 +559,7 @@ fn nav_forward_session_not_found_json() {
     assert_failure(&out, "forward nonexistent session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.forward");
+    assert_eq!(v["command"], "browser forward");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -589,7 +589,7 @@ fn nav_forward_tab_not_found_json() {
     assert_failure(&out, "forward nonexistent tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.forward");
+    assert_eq!(v["command"], "browser forward");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -615,7 +615,7 @@ fn nav_reload_json() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.reload");
+    assert_eq!(v["command"], "browser reload");
     assert!(v["error"].is_null());
 
     assert!(v["context"].is_object(), "context must be present");
@@ -715,7 +715,7 @@ fn nav_reload_session_not_found_json() {
     assert_failure(&out, "reload nonexistent session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.reload");
+    assert_eq!(v["command"], "browser reload");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -745,7 +745,7 @@ fn nav_reload_tab_not_found_json() {
     assert_failure(&out, "reload nonexistent tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.reload");
+    assert_eq!(v["command"], "browser reload");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -770,7 +770,7 @@ fn nav_back_navigation_failed_json() {
     assert_failure(&out, "back with no history");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.back");
+    assert_eq!(v["command"], "browser back");
     assert_error_envelope(&v, "NAVIGATION_FAILED");
     assert!(
         v["context"].is_object(),
@@ -795,7 +795,7 @@ fn nav_forward_navigation_failed_json() {
     assert_failure(&out, "forward with no history");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.forward");
+    assert_eq!(v["command"], "browser forward");
     assert_error_envelope(&v, "NAVIGATION_FAILED");
     assert!(
         v["context"].is_object(),
@@ -829,10 +829,10 @@ fn nav_reload_navigation_failed_json() {
     if out.status.success() {
         let v = parse_json(&out);
         assert_eq!(v["ok"], true);
-        assert_eq!(v["command"], "browser.reload");
+        assert_eq!(v["command"], "browser reload");
     } else {
         let v = parse_json(&out);
-        assert_eq!(v["command"], "browser.reload");
+        assert_eq!(v["command"], "browser reload");
         assert_error_envelope(&v, "NAVIGATION_FAILED");
     }
 }

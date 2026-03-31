@@ -44,7 +44,7 @@ pub struct Cmd {
     pub by_ref: bool,
 }
 
-pub const COMMAND_NAME: &str = "browser.select";
+pub const COMMAND_NAME: &str = "browser select";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result

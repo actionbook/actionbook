@@ -132,7 +132,7 @@ fn logs_console_json_happy_path() {
     assert_success(&out, "logs console json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.logs.console");
+    assert_eq!(v["command"], "browser logs console");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_meta(&v);
@@ -411,7 +411,7 @@ fn logs_errors_json_happy_path() {
     let v = parse_json(&out);
     let items = v["data"]["items"].as_array().unwrap();
 
-    assert_eq!(v["command"], "browser.logs.errors");
+    assert_eq!(v["command"], "browser logs errors");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_eq!(v["data"]["cleared"], false);
@@ -571,7 +571,7 @@ fn logs_console_session_not_found_json() {
     assert_failure(&out, "logs console missing session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.logs.console");
+    assert_eq!(v["command"], "browser logs console");
     assert!(v["context"].is_null());
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
 }
@@ -600,7 +600,7 @@ fn logs_errors_tab_not_found_json() {
     assert_failure(&out, "logs errors missing tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.logs.errors");
+    assert_eq!(v["command"], "browser logs errors");
     assert!(v["context"].is_object());
     assert_eq!(v["context"]["session_id"], sid);
     assert!(v["context"]["tab_id"].is_null());

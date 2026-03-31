@@ -188,42 +188,42 @@ pub fn format_text(
             // Action commands: "ok <command>" then fields
             let is_action = matches!(
                 command,
-                "browser.start"
-                    | "browser.close"
-                    | "browser.restart"
-                    | "browser.goto"
-                    | "browser.back"
-                    | "browser.forward"
-                    | "browser.reload"
-                    | "browser.click"
-                    | "browser.hover"
-                    | "browser.focus"
-                    | "browser.press"
-                    | "browser.type"
-                    | "browser.fill"
-                    | "browser.screenshot"
-                    | "browser.select"
-                    | "browser.drag"
-                    | "browser.upload"
-                    | "browser.mouse-move"
-                    | "browser.cursor-position"
-                    | "browser.scroll"
-                    | "browser.new-tab"
-                    | "browser.close-tab"
-                    | "browser.pdf"
-                    | "browser.wait.element"
-                    | "browser.wait.navigation"
-                    | "browser.wait.network-idle"
-                    | "browser.wait.condition"
-                    | "browser.cookies.set"
-                    | "browser.cookies.delete"
-                    | "browser.cookies.clear"
-                    | "browser.local-storage.set"
-                    | "browser.local-storage.delete"
-                    | "browser.local-storage.clear"
-                    | "browser.session-storage.set"
-                    | "browser.session-storage.delete"
-                    | "browser.session-storage.clear"
+                "browser start"
+                    | "browser close"
+                    | "browser restart"
+                    | "browser goto"
+                    | "browser back"
+                    | "browser forward"
+                    | "browser reload"
+                    | "browser click"
+                    | "browser hover"
+                    | "browser focus"
+                    | "browser press"
+                    | "browser type"
+                    | "browser fill"
+                    | "browser screenshot"
+                    | "browser select"
+                    | "browser drag"
+                    | "browser upload"
+                    | "browser mouse-move"
+                    | "browser cursor-position"
+                    | "browser scroll"
+                    | "browser new-tab"
+                    | "browser close-tab"
+                    | "browser pdf"
+                    | "browser wait element"
+                    | "browser wait navigation"
+                    | "browser wait network-idle"
+                    | "browser wait condition"
+                    | "browser cookies set"
+                    | "browser cookies delete"
+                    | "browser cookies clear"
+                    | "browser local-storage set"
+                    | "browser local-storage delete"
+                    | "browser local-storage clear"
+                    | "browser session-storage set"
+                    | "browser session-storage delete"
+                    | "browser session-storage clear"
             );
 
             if is_action {
@@ -249,7 +249,7 @@ pub fn format_text(
 
 fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
     match command {
-        "browser.start" => {
+        "browser start" => {
             if let Some(mode) = data
                 .get("session")
                 .and_then(|s| s.get("mode"))
@@ -272,7 +272,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("title: {title}"));
             }
         }
-        "browser.list-sessions" => {
+        "browser list-sessions" => {
             let total = data
                 .get("total_sessions")
                 .and_then(|v| v.as_u64())
@@ -291,7 +291,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
             }
         }
-        "browser.status" => {
+        "browser status" => {
             if let Some(s) = data.get("session") {
                 if let Some(status) = s.get("status").and_then(|v| v.as_str()) {
                     lines.push(format!("status: {status}"));
@@ -304,12 +304,12 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
             }
         }
-        "browser.close" => {
+        "browser close" => {
             if let Some(tabs) = data.get("closed_tabs").and_then(|v| v.as_u64()) {
                 lines.push(format!("closed_tabs: {tabs}"));
             }
         }
-        "browser.restart" => {
+        "browser restart" => {
             if let Some(status) = data
                 .get("session")
                 .and_then(|s| s.get("status"))
@@ -318,7 +318,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("status: {status}"));
             }
         }
-        "browser.list-tabs" => {
+        "browser list-tabs" => {
             let total = data.get("total_tabs").and_then(|v| v.as_u64()).unwrap_or(0);
             let label = if total == 1 { "tab" } else { "tabs" };
             lines.push(format!("{total} {label}"));
@@ -336,7 +336,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
             }
         }
-        "browser.new-tab" => {
+        "browser new-tab" => {
             if let Some(title) = data
                 .get("tab")
                 .and_then(|t| t.get("title"))
@@ -345,15 +345,15 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("title: {title}"));
             }
         }
-        "browser.close-tab" => {
+        "browser close-tab" => {
             // No additional fields per §8.3 text format
         }
-        "browser.goto" | "browser.back" | "browser.forward" | "browser.reload" => {
+        "browser goto" | "browser back" | "browser forward" | "browser reload" => {
             if let Some(title) = data.get("title").and_then(|v| v.as_str()) {
                 lines.push(format!("title: {title}"));
             }
         }
-        "browser.type" | "browser.fill" => {
+        "browser type" | "browser fill" => {
             if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
                 lines.push(format!("target: {sel}"));
             }
@@ -364,7 +364,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("text_length: {len}"));
             }
         }
-        "browser.select" => {
+        "browser select" => {
             if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
                 lines.push(format!("target: {sel}"));
             }
@@ -387,7 +387,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("by_ref: {by_ref}"));
             }
         }
-        "browser.click" => {
+        "browser click" => {
             if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
                 lines.push(format!("target: {sel}"));
             } else if let Some(coords) =
@@ -396,17 +396,17 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("target: {coords}"));
             }
         }
-        "browser.hover" | "browser.focus" => {
+        "browser hover" | "browser focus" => {
             if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
                 lines.push(format!("target: {sel}"));
             }
         }
-        "browser.mouse-move" => {
+        "browser mouse-move" => {
             if let Some(coords) = data.pointer("/target/coordinates").and_then(|v| v.as_str()) {
                 lines.push(format!("target: {coords}"));
             }
         }
-        "browser.cursor-position" => {
+        "browser cursor-position" => {
             if let Some(x) = data.get("x").and_then(|v| v.as_f64()) {
                 lines.push(format!("x: {}", x as i64));
             }
@@ -414,7 +414,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("y: {}", y as i64));
             }
         }
-        "browser.scroll" => {
+        "browser scroll" => {
             if let Some(dir) = data.get("direction").and_then(|v| v.as_str()) {
                 lines.push(format!("direction: {dir}"));
             }
@@ -425,7 +425,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("container: {container}"));
             }
         }
-        "browser.drag" => {
+        "browser drag" => {
             if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
                 lines.push(format!("target: {sel}"));
             }
@@ -441,7 +441,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("destination: {coords}"));
             }
         }
-        "browser.upload" => {
+        "browser upload" => {
             if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
                 lines.push(format!("target: {sel}"));
             }
@@ -452,40 +452,40 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("count: {count}"));
             }
         }
-        "browser.press" => {
+        "browser press" => {
             if let Some(keys) = data.get("keys").and_then(|v| v.as_str()) {
                 lines.push(format!("keys: {keys}"));
             }
         }
-        "browser.screenshot" => {
+        "browser screenshot" => {
             if let Some(path) = data.pointer("/artifact/path").and_then(|v| v.as_str()) {
                 lines.push(format!("path: {path}"));
             }
         }
-        "browser.snapshot" => {
+        "browser snapshot" => {
             // §10.1: text mode outputs content directly (no "ok" prefix)
             if let Some(content) = data.get("content").and_then(|v| v.as_str()) {
                 lines.push(content.to_string());
             }
         }
-        "browser.html" | "browser.text" | "browser.value" | "browser.attr" => {
+        "browser html" | "browser text" | "browser value" | "browser attr" => {
             if let Some(val) = data.get("value") {
                 lines.push(text_scalar(val));
             }
         }
-        "browser.title" | "browser.url" => {
+        "browser title" | "browser url" => {
             if let Some(val) = data.get("value").and_then(|v| v.as_str()) {
                 lines.push(val.to_string());
             }
         }
-        "browser.viewport" => {
+        "browser viewport" => {
             let width = data.get("width").and_then(|v| v.as_u64());
             let height = data.get("height").and_then(|v| v.as_u64());
             if let (Some(w), Some(h)) = (width, height) {
                 lines.push(format!("{w}x{h}"));
             }
         }
-        "browser.attrs" => {
+        "browser attrs" => {
             if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
                 lines.push(format!("target: {sel}"));
             }
@@ -510,7 +510,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
             }
         }
-        "browser.box" => {
+        "browser box" => {
             if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
                 lines.push(format!("target: {sel}"));
             }
@@ -522,7 +522,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
             }
         }
-        "browser.styles" => {
+        "browser styles" => {
             if let Some(sel) = data.pointer("/target/selector").and_then(|v| v.as_str()) {
                 lines.push(format!("target: {sel}"));
             }
@@ -543,7 +543,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
             }
         }
-        "browser.describe" => {
+        "browser describe" => {
             let summary = data
                 .get("summary")
                 .and_then(|v| v.as_str())
@@ -569,7 +569,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
             }
         }
-        "browser.state" => {
+        "browser state" => {
             for key in [
                 "visible", "enabled", "checked", "focused", "editable", "selected",
             ] {
@@ -578,7 +578,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
             }
         }
-        "browser.query" => {
+        "browser query" => {
             let mode = data.get("mode").and_then(|v| v.as_str()).unwrap_or("");
             let count = data.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
             match mode {
@@ -624,7 +624,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 _ => {}
             }
         }
-        "browser.inspect-point" => {
+        "browser inspect-point" => {
             // §10.11: role "name" / selector / point
             if let Some(element) = data.get("element") {
                 let role = element.get("role").and_then(|v| v.as_str()).unwrap_or("");
@@ -649,7 +649,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
             }
         }
-        "browser.pdf" => {
+        "browser pdf" => {
             // §10.3: path line
             if let Some(path) = data
                 .get("artifact")
@@ -659,7 +659,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("path: {path}"));
             }
         }
-        "browser.logs.console" | "browser.logs.errors" => {
+        "browser logs console" | "browser logs errors" => {
             // §10.12-§10.13: N log(s) then level timestamp source text per item
             if let Some(items) = data.get("items").and_then(|v| v.as_array()) {
                 let count = items.len();
@@ -677,7 +677,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
             }
         }
-        "browser.wait.element" => {
+        "browser wait element" => {
             if let Some(ms) = data.get("elapsed_ms").and_then(|v| v.as_u64()) {
                 lines.push(format!("elapsed_ms: {ms}"));
             }
@@ -688,12 +688,12 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("target: {sel}"));
             }
         }
-        "browser.wait.navigation" | "browser.wait.network-idle" => {
+        "browser wait navigation" | "browser wait network-idle" => {
             if let Some(ms) = data.get("elapsed_ms").and_then(|v| v.as_u64()) {
                 lines.push(format!("elapsed_ms: {ms}"));
             }
         }
-        "browser.wait.condition" => {
+        "browser wait condition" => {
             if let Some(ms) = data.get("elapsed_ms").and_then(|v| v.as_u64()) {
                 lines.push(format!("elapsed_ms: {ms}"));
             }
@@ -701,12 +701,12 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("observed_value: {}", text_scalar(val)));
             }
         }
-        "browser.eval" => {
+        "browser eval" => {
             if let Some(val) = data.get("value") {
                 lines.push(text_scalar(val));
             }
         }
-        "browser.cookies.list" => {
+        "browser cookies list" => {
             let items = data.get("items").and_then(|v| v.as_array());
             let count = items.map(|v| v.len()).unwrap_or(0);
             let label = if count == 1 { "cookie" } else { "cookies" };
@@ -720,7 +720,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
             }
         }
-        "browser.cookies.get" => {
+        "browser cookies get" => {
             if let Some(item) = data.get("item") {
                 if item.is_null() {
                     lines.push("item: null".to_string());
@@ -732,10 +732,10 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
             }
         }
-        "browser.cookies.set" | "browser.cookies.delete" | "browser.cookies.clear" => {
+        "browser cookies set" | "browser cookies delete" | "browser cookies clear" => {
             // is_action already emits "ok {command}"; no additional text fields needed
         }
-        "browser.local-storage.list" | "browser.session-storage.list" => {
+        "browser local-storage list" | "browser session-storage list" => {
             let items = data.get("items").and_then(|v| v.as_array());
             let count = items.map(|v| v.len()).unwrap_or(0);
             let label = if count == 1 { "key" } else { "keys" };
@@ -748,7 +748,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
             }
         }
-        "browser.local-storage.get" | "browser.session-storage.get" => {
+        "browser local-storage get" | "browser session-storage get" => {
             if let Some(item) = data.get("item") {
                 if item.is_null() {
                     lines.push("item: null".to_string());
@@ -759,12 +759,12 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
             }
         }
-        "browser.local-storage.set"
-        | "browser.local-storage.delete"
-        | "browser.local-storage.clear"
-        | "browser.session-storage.set"
-        | "browser.session-storage.delete"
-        | "browser.session-storage.clear" => {
+        "browser local-storage set"
+        | "browser local-storage delete"
+        | "browser local-storage clear"
+        | "browser session-storage set"
+        | "browser session-storage delete"
+        | "browser session-storage clear" => {
             // is_action already emits "ok {command}"; no additional text fields needed
         }
         _ => {
@@ -803,7 +803,7 @@ mod tests {
         });
         let result = ActionResult::ok(json!({ "value": "Example title" }));
 
-        let text = format_text("browser.eval", &context, &result);
+        let text = format_text("browser eval", &context, &result);
 
         assert_eq!(text, "[s1 t2] https://example.com/page\nExample title");
     }
@@ -819,7 +819,7 @@ mod tests {
         });
         let result = ActionResult::ok(json!({ "value": 4 }));
 
-        let text = format_text("browser.eval", &context, &result);
+        let text = format_text("browser eval", &context, &result);
 
         assert_eq!(text, "[s1 t2] https://example.com/page\n4");
     }

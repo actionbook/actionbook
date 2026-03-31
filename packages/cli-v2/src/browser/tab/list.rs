@@ -22,7 +22,7 @@ pub struct Cmd {
     pub session: String,
 }
 
-pub const COMMAND_NAME: &str = "browser.list-tabs";
+pub const COMMAND_NAME: &str = "browser list-tabs";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     match result {

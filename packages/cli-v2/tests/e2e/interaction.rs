@@ -59,7 +59,7 @@ fn assert_click_success(
     expected_selector: Option<&str>,
 ) {
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.click");
+    assert_eq!(v["command"], "browser click");
     assert!(v["error"].is_null(), "error must be null on success");
 
     assert!(v["context"].is_object(), "context must be present");
@@ -92,7 +92,7 @@ fn assert_type_success(
     expected_text_length: u64,
 ) {
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.type");
+    assert_eq!(v["command"], "browser type");
     assert!(v["error"].is_null(), "error must be null on success");
 
     assert!(v["context"].is_object(), "context must be present");
@@ -115,7 +115,7 @@ fn assert_fill_success(
     expected_text_length: u64,
 ) {
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.fill");
+    assert_eq!(v["command"], "browser fill");
     assert!(v["error"].is_null(), "error must be null on success");
 
     assert!(v["context"].is_object(), "context must be present");
@@ -159,7 +159,7 @@ fn assert_select_success_full(
     expected_by_ref: bool,
 ) {
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.select");
+    assert_eq!(v["command"], "browser select");
     assert!(v["error"].is_null(), "error must be null on success");
 
     assert!(v["context"].is_object(), "context must be present");
@@ -183,7 +183,7 @@ fn assert_hover_success(
     expected_selector: &str,
 ) {
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.hover");
+    assert_eq!(v["command"], "browser hover");
     assert!(v["error"].is_null(), "error must be null on success");
 
     assert!(v["context"].is_object(), "context must be present");
@@ -212,7 +212,7 @@ fn assert_focus_success(
     expected_selector: &str,
 ) {
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.focus");
+    assert_eq!(v["command"], "browser focus");
     assert!(v["error"].is_null(), "error must be null on success");
 
     assert!(v["context"].is_object(), "context must be present");
@@ -241,7 +241,7 @@ fn assert_press_success(
     expected_keys: &str,
 ) {
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.press");
+    assert_eq!(v["command"], "browser press");
     assert!(v["error"].is_null(), "error must be null on success");
 
     assert!(v["context"].is_object(), "context must be present");
@@ -276,7 +276,7 @@ fn assert_drag_success(
     expected_destination_coordinates: Option<&str>,
 ) {
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.drag");
+    assert_eq!(v["command"], "browser drag");
     assert!(v["error"].is_null(), "error must be null on success");
 
     assert!(v["context"].is_object(), "context must be present");
@@ -311,7 +311,7 @@ fn assert_mouse_move_success(
     expected_coordinates: &str,
 ) {
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.mouse-move");
+    assert_eq!(v["command"], "browser mouse-move");
     assert!(v["error"].is_null(), "error must be null on success");
 
     assert!(v["context"].is_object(), "context must be present");
@@ -341,7 +341,7 @@ fn assert_upload_success(
     expected_files: &[String],
 ) {
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.upload");
+    assert_eq!(v["command"], "browser upload");
     assert!(v["error"].is_null(), "error must be null on success");
 
     assert!(v["context"].is_object(), "context must be present");
@@ -1503,7 +1503,7 @@ fn click_session_not_found_json() {
     assert_failure(&out, "click nonexistent session json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.click");
+    assert_eq!(v["command"], "browser click");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -1560,7 +1560,7 @@ fn click_tab_not_found_json() {
     assert_failure(&out, "click nonexistent tab json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.click");
+    assert_eq!(v["command"], "browser click");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -1624,7 +1624,7 @@ fn click_missing_selector_json() {
     assert_failure(&out, "click missing selector json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.click");
+    assert_eq!(v["command"], "browser click");
     assert!(v["context"].is_object(), "context must be present on error");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
@@ -1689,7 +1689,7 @@ fn click_invalid_coordinates_json() {
         assert_failure(&out, &format!("click invalid coordinates json: {target}"));
         let v = parse_json(&out);
 
-        assert_eq!(v["command"], "browser.click");
+        assert_eq!(v["command"], "browser click");
         assert_error_envelope(&v, "INVALID_ARGUMENT");
         assert!(
             v["context"].is_object(),
@@ -1866,7 +1866,7 @@ fn type_session_not_found_json() {
     assert_failure(&out, "type nonexistent session json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.type");
+    assert_eq!(v["command"], "browser type");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -1925,7 +1925,7 @@ fn type_tab_not_found_json() {
     assert_failure(&out, "type nonexistent tab json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.type");
+    assert_eq!(v["command"], "browser type");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -1991,7 +1991,7 @@ fn type_missing_selector_json() {
     assert_failure(&out, "type missing selector json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.type");
+    assert_eq!(v["command"], "browser type");
     assert!(v["context"].is_object(), "context must be present on error");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
@@ -2251,7 +2251,7 @@ fn fill_session_not_found_json() {
     assert_failure(&out, "fill nonexistent session json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.fill");
+    assert_eq!(v["command"], "browser fill");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -2310,7 +2310,7 @@ fn fill_tab_not_found_json() {
     assert_failure(&out, "fill nonexistent tab json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.fill");
+    assert_eq!(v["command"], "browser fill");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -2376,7 +2376,7 @@ fn fill_missing_selector_json() {
     assert_failure(&out, "fill missing selector json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.fill");
+    assert_eq!(v["command"], "browser fill");
     assert!(v["context"].is_object(), "context must be present on error");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
@@ -2719,7 +2719,7 @@ fn select_by_ref_and_by_text_mutually_exclusive() {
     assert_failure(&out, "select by-ref + by-text json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.select");
+    assert_eq!(v["command"], "browser select");
     assert_error_envelope(&v, "INVALID_ARGUMENT");
 
     close_session(&sid);
@@ -2751,7 +2751,7 @@ fn select_session_not_found_json() {
     assert_failure(&out, "select nonexistent session json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.select");
+    assert_eq!(v["command"], "browser select");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -2810,7 +2810,7 @@ fn select_tab_not_found_json() {
     assert_failure(&out, "select nonexistent tab json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.select");
+    assert_eq!(v["command"], "browser select");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -2876,7 +2876,7 @@ fn select_missing_selector_json() {
     assert_failure(&out, "select missing selector json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.select");
+    assert_eq!(v["command"], "browser select");
     assert!(v["context"].is_object(), "context must be present on error");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
@@ -3036,7 +3036,7 @@ fn hover_session_not_found_json() {
     assert_failure(&out, "hover nonexistent session json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.hover");
+    assert_eq!(v["command"], "browser hover");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -3092,7 +3092,7 @@ fn hover_tab_not_found_json() {
     assert_failure(&out, "hover nonexistent tab json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.hover");
+    assert_eq!(v["command"], "browser hover");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -3156,7 +3156,7 @@ fn hover_missing_selector_json() {
     assert_failure(&out, "hover missing selector json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.hover");
+    assert_eq!(v["command"], "browser hover");
     assert!(v["context"].is_object(), "context must be present on error");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
@@ -3323,7 +3323,7 @@ fn focus_session_not_found_json() {
     assert_failure(&out, "focus nonexistent session json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.focus");
+    assert_eq!(v["command"], "browser focus");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -3379,7 +3379,7 @@ fn focus_tab_not_found_json() {
     assert_failure(&out, "focus nonexistent tab json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.focus");
+    assert_eq!(v["command"], "browser focus");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -3443,7 +3443,7 @@ fn focus_missing_selector_json() {
     assert_failure(&out, "focus missing selector json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.focus");
+    assert_eq!(v["command"], "browser focus");
     assert!(v["context"].is_object(), "context must be present on error");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
@@ -3778,7 +3778,7 @@ fn press_session_not_found_json() {
     assert_failure(&out, "press nonexistent session json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.press");
+    assert_eq!(v["command"], "browser press");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -3834,7 +3834,7 @@ fn press_tab_not_found_json() {
     assert_failure(&out, "press nonexistent tab json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.press");
+    assert_eq!(v["command"], "browser press");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -3898,7 +3898,7 @@ fn press_invalid_chord_json() {
     assert_failure(&out, "press invalid chord json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.press");
+    assert_eq!(v["command"], "browser press");
     assert!(v["context"].is_object(), "context must be present on error");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
@@ -4071,7 +4071,7 @@ fn drag_session_not_found_json() {
     assert_failure(&out, "drag nonexistent session json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.drag");
+    assert_eq!(v["command"], "browser drag");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -4129,7 +4129,7 @@ fn drag_tab_not_found_json() {
     assert_failure(&out, "drag nonexistent tab json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.drag");
+    assert_eq!(v["command"], "browser drag");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -4195,7 +4195,7 @@ fn drag_missing_source_json() {
     assert_failure(&out, "drag missing source json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.drag");
+    assert_eq!(v["command"], "browser drag");
     assert!(v["context"].is_object(), "context must be present on error");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
@@ -4269,7 +4269,7 @@ fn drag_invalid_destination_coordinates_json() {
     assert_failure(&out, "drag invalid destination coordinates json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.drag");
+    assert_eq!(v["command"], "browser drag");
     assert!(v["context"].is_object(), "context must be present on error");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
@@ -4435,7 +4435,7 @@ fn upload_session_not_found_json() {
     assert_failure(&out, "upload nonexistent session json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.upload");
+    assert_eq!(v["command"], "browser upload");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -4493,7 +4493,7 @@ fn upload_tab_not_found_json() {
     assert_failure(&out, "upload nonexistent tab json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.upload");
+    assert_eq!(v["command"], "browser upload");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -4560,7 +4560,7 @@ fn upload_missing_selector_json() {
     assert_failure(&out, "upload missing selector json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.upload");
+    assert_eq!(v["command"], "browser upload");
     assert!(v["context"].is_object(), "context must be present on error");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
@@ -4635,7 +4635,7 @@ fn upload_relative_path_json() {
     assert_failure(&out, "upload relative path json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.upload");
+    assert_eq!(v["command"], "browser upload");
     assert!(v["context"].is_object(), "context must be present on error");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
@@ -4701,7 +4701,7 @@ fn eval_json_number() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.eval");
+    assert_eq!(v["command"], "browser eval");
     assert!(v["error"].is_null(), "error must be null on success");
     assert!(v["context"].is_object(), "context must be present");
     assert_eq!(v["context"]["session_id"], sid);
@@ -4772,7 +4772,7 @@ fn eval_session_not_found_json() {
     assert_failure(&out, "eval nonexistent session json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.eval");
+    assert_eq!(v["command"], "browser eval");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -4828,7 +4828,7 @@ fn eval_tab_not_found_json() {
     assert_failure(&out, "eval nonexistent tab json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.eval");
+    assert_eq!(v["command"], "browser eval");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -4892,7 +4892,7 @@ fn eval_exception_json() {
     assert_failure(&out, "eval exception json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.eval");
+    assert_eq!(v["command"], "browser eval");
     assert!(v["context"].is_object(), "context must be present on error");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
@@ -5058,7 +5058,7 @@ fn mouse_move_session_not_found_json() {
     assert_failure(&out, "mouse-move nonexistent session json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.mouse-move");
+    assert_eq!(v["command"], "browser mouse-move");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -5114,7 +5114,7 @@ fn mouse_move_tab_not_found_json() {
     assert_failure(&out, "mouse-move nonexistent tab json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.mouse-move");
+    assert_eq!(v["command"], "browser mouse-move");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -5178,7 +5178,7 @@ fn mouse_move_invalid_coordinates_json() {
     assert_failure(&out, "mouse-move invalid coordinates json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.mouse-move");
+    assert_eq!(v["command"], "browser mouse-move");
     assert!(v["context"].is_object(), "context must be present on error");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
@@ -5263,7 +5263,7 @@ fn cursor_position_json() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.cursor-position");
+    assert_eq!(v["command"], "browser cursor-position");
     assert!(v["error"].is_null(), "error must be null on success");
     assert!(v["context"].is_object(), "context must be present");
     assert_eq!(v["context"]["session_id"], sid);
@@ -5344,7 +5344,7 @@ fn cursor_position_session_not_found_json() {
     assert_failure(&out, "cursor-position nonexistent session json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.cursor-position");
+    assert_eq!(v["command"], "browser cursor-position");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -5398,7 +5398,7 @@ fn cursor_position_tab_not_found_json() {
     assert_failure(&out, "cursor-position nonexistent tab json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.cursor-position");
+    assert_eq!(v["command"], "browser cursor-position");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -5480,7 +5480,7 @@ fn cursor_position_after_click_json() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.cursor-position");
+    assert_eq!(v["command"], "browser cursor-position");
     assert_eq!(v["data"]["x"], 200, "x should match click coordinate");
     assert_eq!(v["data"]["y"], 250, "y should match click coordinate");
 
@@ -5517,7 +5517,7 @@ fn scroll_json_down_page() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.scroll");
+    assert_eq!(v["command"], "browser scroll");
     assert!(v["error"].is_null(), "error must be null on success");
     assert!(v["context"].is_object(), "context must be present");
     assert_eq!(v["context"]["session_id"], sid);
@@ -5616,7 +5616,7 @@ fn scroll_into_view_json() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.scroll");
+    assert_eq!(v["command"], "browser scroll");
     assert!(v["error"].is_null(), "error must be null on success");
     assert!(v["context"].is_object(), "context must be present");
     assert_eq!(v["context"]["session_id"], sid);
@@ -5669,7 +5669,7 @@ fn scroll_into_view_xpath_json() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.scroll");
+    assert_eq!(v["command"], "browser scroll");
     assert!(v["error"].is_null(), "error must be null on success");
     assert!(v["context"].is_object(), "context must be present");
     assert_eq!(v["context"]["session_id"], sid);
@@ -5714,7 +5714,7 @@ fn scroll_session_not_found_json() {
     assert_failure(&out, "scroll nonexistent session json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.scroll");
+    assert_eq!(v["command"], "browser scroll");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -5772,7 +5772,7 @@ fn scroll_tab_not_found_json() {
     assert_failure(&out, "scroll nonexistent tab json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.scroll");
+    assert_eq!(v["command"], "browser scroll");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -5839,7 +5839,7 @@ fn scroll_missing_container_json() {
     assert_failure(&out, "scroll missing container json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.scroll");
+    assert_eq!(v["command"], "browser scroll");
     assert!(v["context"].is_object(), "context must be present on error");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
@@ -5914,7 +5914,7 @@ fn scroll_into_view_missing_target_json() {
     assert_failure(&out, "scroll into-view missing target json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.scroll");
+    assert_eq!(v["command"], "browser scroll");
     assert!(v["context"].is_object(), "context must be present on error");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
