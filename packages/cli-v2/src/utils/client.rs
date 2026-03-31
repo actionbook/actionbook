@@ -82,11 +82,25 @@ fn check_version(ready_path: &std::path::Path) -> Result<(), CliError> {
 fn auto_start_daemon() -> Result<(), CliError> {
     let exe = std::env::current_exe().map_err(|e| CliError::Internal(e.to_string()))?;
 
+    // Redirect daemon stderr to a log file for diagnostics.
+    // Without this, all tracing output (including exit reasons) is lost.
+    let log_path = server::socket_path().with_extension("log");
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map(std::process::Stdio::from)
+        .unwrap_or_else(|_| std::process::Stdio::null());
+
     std::process::Command::new(&exe)
         .arg("__daemon")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(log_file)
+        .env(
+            "RUST_LOG",
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),
+        )
         .spawn()
         .map_err(|e| CliError::Internal(format!("failed to start daemon: {e}")))?;
 
