@@ -274,10 +274,20 @@ pub async fn get_element_center(
 }
 
 pub fn element_not_found(selector: &str) -> ActionResult {
+    // Detect likely snapshot ref without the @ prefix (e.g. "e46" instead of "@e46")
+    let hint = if selector.starts_with('e')
+        && selector.len() > 1
+        && selector[1..].chars().all(|c| c.is_ascii_digit())
+    {
+        format!("did you mean @{selector}? snapshot refs require the @ prefix")
+    } else {
+        String::new()
+    };
+
     ActionResult::Fatal {
         code: "ELEMENT_NOT_FOUND".to_string(),
         message: format!("element not found: {selector}"),
-        hint: String::new(),
+        hint,
         details: Some(json!({ "selector": selector })),
     }
 }
