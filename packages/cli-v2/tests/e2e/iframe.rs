@@ -159,6 +159,96 @@ fn iframe_html_reads_iframe_element() {
 }
 
 #[test]
+fn iframe_text_reads_iframe_element_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid, _guard) = start_iframe_session();
+
+    let snap = headless_json(
+        &["browser", "snapshot", "--session", &sid, "--tab", &tid],
+        15,
+    );
+    assert_success(&snap, "snapshot for iframe text json");
+    let snap_v = parse_json(&snap);
+    let content = snap_v["data"]["content"].as_str().unwrap_or("");
+
+    let iframe_ref = find_ref_for_name(content, "Child Frame");
+    if iframe_ref.is_empty() {
+        eprintln!("SKIP: could not find 'Child Frame' ref");
+        return;
+    }
+
+    let text_out = headless_json(
+        &[
+            "browser",
+            "text",
+            &format!("@{iframe_ref}"),
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&text_out, "text on iframe element json");
+    let text_v = parse_json(&text_out);
+    let text = text_v["data"]["value"].as_str().unwrap_or("");
+
+    assert_eq!(text_v["command"], "browser text");
+    assert_eq!(
+        text_v["data"]["target"]["selector"],
+        format!("@{iframe_ref}")
+    );
+    assert!(
+        text.contains("Child Content") || text.contains("Child Button"),
+        "text should return iframe document content.\nGot:\n{text}"
+    );
+}
+
+#[test]
+fn iframe_text_reads_iframe_element_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid, _guard) = start_iframe_session();
+
+    let snap = headless_json(
+        &["browser", "snapshot", "--session", &sid, "--tab", &tid],
+        15,
+    );
+    assert_success(&snap, "snapshot for iframe text");
+    let snap_v = parse_json(&snap);
+    let content = snap_v["data"]["content"].as_str().unwrap_or("");
+
+    let iframe_ref = find_ref_for_name(content, "Child Frame");
+    if iframe_ref.is_empty() {
+        eprintln!("SKIP: could not find 'Child Frame' ref");
+        return;
+    }
+
+    let text_out = headless(
+        &[
+            "browser",
+            "text",
+            &format!("@{iframe_ref}"),
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&text_out, "text on iframe element");
+    let text = stdout_str(&text_out);
+
+    assert!(
+        text.contains("Child Content") || text.contains("Child Button"),
+        "text should return iframe document content.\nGot:\n{text}"
+    );
+}
+
+#[test]
 fn iframe_click_works_on_iframe_element() {
     if skip() {
         return;
