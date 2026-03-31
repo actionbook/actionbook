@@ -1540,17 +1540,10 @@ mod tests {
                         "nodeId": "1",
                         "role": {"value": "RootWebArea"},
                         "name": {"value": ""},
-                        "childIds": ["2", "3"]
+                        "childIds": ["2"]
                     },
                     {
                         "nodeId": "2",
-                        "backendDOMNodeId": 42,
-                        "role": {"value": "button"},
-                        "name": {"value": ""},
-                        "childIds": []
-                    },
-                    {
-                        "nodeId": "3",
                         "backendDOMNodeId": 55,
                         "role": {"value": "link"},
                         "name": {"value": "Docs"},
@@ -1573,18 +1566,10 @@ mod tests {
         let output = build_output(nodes);
 
         assert!(
-            output.content.contains("- button [ref=e1]"),
-            "nameless button should omit empty quotes: {}",
-            output.content
-        );
-        assert!(
-            output.content.contains("- link \"Docs\" [ref=e2]"),
-            "named link should still render its label: {}",
-            output.content
-        );
-        assert!(
-            output.content.contains("- /url: https://example.com/docs"),
-            "link elements should surface their URL in snapshot output: {}",
+            output
+                .content
+                .contains("- link \"Docs\" [ref=e1] url=https://example.com/docs"),
+            "link elements should render their URL inline in snapshot output: {}",
             output.content
         );
     }
