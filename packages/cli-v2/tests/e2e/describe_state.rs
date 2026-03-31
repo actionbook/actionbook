@@ -10,6 +10,7 @@ const DESCRIBE_DISABLED_SELECTOR: &str = "#describe-disabled";
 const DESCRIBE_CHECKED_SELECTOR: &str = "#describe-checked";
 const DESCRIBE_MULTI_SELECTOR: &str = "#describe-multi";
 const DESCRIBE_NEARBY_FILTER_SELECTOR: &str = "#describe-nearby-target";
+const DESCRIBE_NEARBY_FIXES_SELECTOR: &str = "#describe-nearby-fixes-target";
 const DESCRIBE_UNCHECKED_SELECTOR: &str = "#describe-unchecked";
 const DESCRIBE_SELECTED_SELECTOR: &str = "#describe-selected";
 const DESCRIBE_UNSELECTED_SELECTOR: &str = "#describe-unselected";
@@ -108,6 +109,24 @@ document.title = 'Describe Nearby Filter Fixture';
 void(0)"#;
     let out = headless_json(&["browser", "eval", js, "--session", sid, "--tab", tid], 10);
     assert_success(&out, "inject nearby significance fixture");
+}
+
+fn inject_nearby_fixes_fixture(sid: &str, tid: &str) {
+    let js = r##"document.body.style.margin = '0';
+document.body.innerHTML = `
+  <div id="nearby-fixes-parent">
+    <div id="nearby-tab-previous" role="tab"><span>Overview</span></div>
+    <div id="describe-nearby-fixes-target" aria-label="Profile section">
+      <nav id="nearby-nav-child"><a href="#account">Account</a></nav>
+      <div id="nearby-selected-child" role="tab" aria-selected="true">Settings</div>
+    </div>
+    <div id="nearby-tab-next" role="tab"><span>Activity</span></div>
+  </div>
+`;
+document.title = 'Describe Nearby Fixes Fixture';
+void(0)"##;
+    let out = headless_json(&["browser", "eval", js, "--session", sid, "--tab", tid], 10);
+    assert_success(&out, "inject nearby fixes fixture");
 }
 
 fn assert_meta(v: &serde_json::Value) {
@@ -394,6 +413,91 @@ fn describe_nearby_filters_structural_nodes_text_output() {
     assert_eq!(lines.get(3), Some(&"child: text \"Helper text\""));
     assert_eq!(lines.get(4), Some(&"child: button \"Open\""));
     assert_eq!(lines.len(), 5);
+}
+
+#[test]
+fn describe_nearby_returns_parent_siblings_and_selected_qualifiers_json() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_nearby_fixes_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "describe",
+            DESCRIBE_NEARBY_FIXES_SELECTOR,
+            "--nearby",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "describe nearby fixes json");
+    let v = parse_json(&out);
+
+    let nearby = &v["data"]["nearby"];
+    assert!(
+        nearby["parent"].is_string(),
+        "parent should be returned for structural wrappers"
+    );
+    assert_eq!(nearby["previous_sibling"], "tab \"Overview\"");
+    assert_eq!(nearby["next_sibling"], "tab \"Activity\"");
+
+    let children = nearby["children"].as_array().unwrap();
+    assert_eq!(children.len(), 2);
+    assert_eq!(children[0], "nav \"Account\"");
+    assert_eq!(children[1], "tab \"Settings\" [selected]");
+}
+
+#[test]
+fn describe_nearby_returns_parent_siblings_and_selected_qualifiers_text_output() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_nearby_fixes_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "describe",
+            DESCRIBE_NEARBY_FIXES_SELECTOR,
+            "--nearby",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "describe nearby fixes text");
+    let text = stdout_str(&out);
+    let lines: Vec<&str> = text.lines().collect();
+
+    assert!(
+        lines
+            .first()
+            .unwrap_or(&"")
+            .starts_with(&format!("[{sid} {tid}]")),
+        "header must start with [session_id tab_id]: {text}"
+    );
+    assert_eq!(lines.get(1), Some(&"div \"Profile section\""));
+    assert!(
+        lines.iter().any(|line| line.starts_with("parent: ")),
+        "text output should include parent line.\nGot:\n{text}"
+    );
+    assert!(lines.contains(&"previous_sibling: tab \"Overview\""));
+    assert!(lines.contains(&"next_sibling: tab \"Activity\""));
+    assert!(lines.contains(&"child: nav \"Account\""));
+    assert!(lines.contains(&"child: tab \"Settings\" [selected]"));
 }
 
 #[test]
