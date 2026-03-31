@@ -930,6 +930,20 @@ mod tests {
         assert!(content.contains("[ref=e42]"));
     }
 
+    #[test]
+    fn test_render_content_omits_empty_quotes_for_nameless_nodes() {
+        let nodes = vec![make_node("e1", "button", "", true, 0)];
+        let content = render_content(&nodes);
+        assert!(
+            content.contains("- button [ref=e1]"),
+            "nameless nodes should not render empty quotes: {content}"
+        );
+        assert!(
+            !content.contains("\"\""),
+            "nameless nodes must not render empty quotes: {content}"
+        );
+    }
+
     // NOTE: build_stats tests removed — stats are computed inline in build_output.
 
     // ── build_output ─────────────────────────────────────────────────
@@ -1514,6 +1528,49 @@ mod tests {
             link.unwrap().depth,
             1,
             "link must be at depth 1 (child of navigation)"
+        );
+    }
+
+    #[test]
+    fn test_build_output_renders_link_urls_from_ax_properties() {
+        let response = serde_json::json!({
+            "result": {
+                "nodes": [
+                    {
+                        "nodeId": "1",
+                        "role": {"value": "RootWebArea"},
+                        "name": {"value": ""},
+                        "childIds": ["2"]
+                    },
+                    {
+                        "nodeId": "2",
+                        "backendDOMNodeId": 55,
+                        "role": {"value": "link"},
+                        "name": {"value": "Docs"},
+                        "childIds": [],
+                        "properties": [
+                            { "name": "url", "value": { "type": "string", "value": "https://example.com/docs" } }
+                        ]
+                    }
+                ]
+            }
+        });
+        let nodes = parse_ax_tree(
+            &response,
+            &SnapshotOptions::default(),
+            &mut RefCache::new(),
+            None,
+            None,
+            None,
+        );
+        let output = build_output(nodes);
+
+        assert!(
+            output
+                .content
+                .contains("- link \"Docs\" [ref=e1] url=https://example.com/docs"),
+            "link elements should render their URL inline in snapshot output: {}",
+            output.content
         );
     }
 
