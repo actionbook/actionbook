@@ -579,3 +579,52 @@ async fn resolve_by_ax_query(
 
     Ok(None)
 }
+
+// ── Target parsing (shared by click, fill, type) ──────────────────
+
+/// Result of parsing a positional target argument.
+pub enum ClickTarget {
+    Coordinates(f64, f64),
+    Selector(String),
+}
+
+/// Parse a target string into coordinates or a CSS selector.
+///
+/// Heuristic: if the first character is a digit, comma, or minus-digit,
+/// treat it as a coordinate attempt and validate strictly. Otherwise it
+/// is a CSS selector.
+pub fn parse_target(input: &str) -> Result<ClickTarget, ActionResult> {
+    let trimmed = input.trim();
+    let first = trimmed.chars().next().unwrap_or(' ');
+
+    let is_coord_attempt = first.is_ascii_digit()
+        || first == ','
+        || (first == '-' && trimmed.chars().nth(1).is_some_and(|c| c.is_ascii_digit()));
+
+    if !is_coord_attempt {
+        return Ok(ClickTarget::Selector(trimmed.to_string()));
+    }
+
+    let parts: Vec<&str> = trimmed.splitn(2, ',').collect();
+    if parts.len() != 2 {
+        return Err(ActionResult::fatal(
+            "INVALID_ARGUMENT",
+            format!("invalid coordinates: '{input}'"),
+        ));
+    }
+
+    let x = parts[0].trim().parse::<f64>().map_err(|_| {
+        ActionResult::fatal(
+            "INVALID_ARGUMENT",
+            format!("invalid coordinates: '{input}'"),
+        )
+    })?;
+    let y = parts[1].trim().parse::<f64>().map_err(|_| {
+        ActionResult::fatal(
+            "INVALID_ARGUMENT",
+            format!("invalid coordinates: '{input}'"),
+        )
+    })?;
+
+    Ok(ClickTarget::Coordinates(x, y))
+}

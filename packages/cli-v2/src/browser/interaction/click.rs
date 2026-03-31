@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::browser::element::TabContext;
+use crate::browser::element::{ClickTarget, TabContext, parse_target};
 use crate::browser::navigation;
 use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result};
 use crate::daemon::registry::SharedRegistry;
@@ -86,54 +86,6 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
         url,
         title,
     })
-}
-
-// ── Target parsing ─────────────────────────────────────────────────
-
-enum ClickTarget {
-    Coordinates(f64, f64),
-    Selector(String),
-}
-
-/// Parse the positional arg into coordinates or a CSS selector.
-///
-/// Heuristic: if the first character is a digit, comma, or minus-digit,
-/// treat it as a coordinate attempt and validate strictly. Otherwise it
-/// is a CSS selector.
-fn parse_target(input: &str) -> Result<ClickTarget, ActionResult> {
-    let trimmed = input.trim();
-    let first = trimmed.chars().next().unwrap_or(' ');
-
-    let is_coord_attempt = first.is_ascii_digit()
-        || first == ','
-        || (first == '-' && trimmed.chars().nth(1).is_some_and(|c| c.is_ascii_digit()));
-
-    if !is_coord_attempt {
-        return Ok(ClickTarget::Selector(trimmed.to_string()));
-    }
-
-    let parts: Vec<&str> = trimmed.splitn(2, ',').collect();
-    if parts.len() != 2 {
-        return Err(ActionResult::fatal(
-            "INVALID_ARGUMENT",
-            format!("invalid coordinates: '{input}'"),
-        ));
-    }
-
-    let x = parts[0].trim().parse::<f64>().map_err(|_| {
-        ActionResult::fatal(
-            "INVALID_ARGUMENT",
-            format!("invalid coordinates: '{input}'"),
-        )
-    })?;
-    let y = parts[1].trim().parse::<f64>().map_err(|_| {
-        ActionResult::fatal(
-            "INVALID_ARGUMENT",
-            format!("invalid coordinates: '{input}'"),
-        )
-    })?;
-
-    Ok(ClickTarget::Coordinates(x, y))
 }
 
 // ── Execute ────────────────────────────────────────────────────────

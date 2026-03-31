@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::browser::element::TabContext;
+use crate::browser::element::{ClickTarget, TabContext, parse_target};
 use crate::browser::navigation;
 use crate::daemon::cdp_session::cdp_error_to_result;
 use crate::daemon::registry::SharedRegistry;
@@ -15,15 +15,17 @@ use crate::output::ResponseContext;
 Examples:
   actionbook browser fill \"#email\" \"user@example.com\" --session s1 --tab t1
   actionbook browser fill @e4 \"search query\" --session s1 --tab t1
+  actionbook browser fill 420,310 \"hello\" --session s1 --tab t1
+  actionbook browser fill \"hello\" --session s1 --tab t1
 
-Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
+Accepts a CSS selector, XPath, snapshot ref (@eN), or coordinates (x,y).
+If selector is omitted, fills the currently focused element (document.activeElement).
 Sets the value instantly (no per-character events). Use for standard inputs.
 For fields that need keystroke events (autocomplete, validation), use type instead.")]
 pub struct Cmd {
-    /// Selector (CSS, XPath, or @ref)
-    pub selector: String,
-    /// Value to fill
-    pub value: String,
+    /// Positional args: [selector] value — if one arg, it's the value; if two, first is selector.
+    #[arg(num_args = 1..=2)]
+    pub args: Vec<String>,
     /// Session ID
     #[arg(long)]
     #[serde(rename = "session_id")]
@@ -65,34 +67,71 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
+    // Parse positional args: [selector] value
+    let (selector, value) = match cmd.args.as_slice() {
+        [v] => (None, v.as_str()),
+        [sel, v] => (Some(sel.as_str()), v.as_str()),
+        _ => {
+            return ActionResult::fatal(
+                "INVALID_ARGUMENT",
+                "fill requires 1 or 2 positional arguments: [selector] value",
+            );
+        }
+    };
+
     let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
 
-    // Resolve the target element
-    let node_id = match ctx.resolve_node(&cmd.selector).await {
-        Ok(id) => id,
-        Err(e) => return e,
-    };
+    let target_json: serde_json::Value;
 
-    // Focus the element
-    if let Err(e) = ctx
-        .execute_on_element("DOM.focus", json!({ "nodeId": node_id }))
-        .await
-    {
-        return cdp_error_to_result(e, "CDP_ERROR");
-    }
-
-    // Resolve to objectId so we can use callFunctionOn (works across frames,
-    // unlike document.activeElement which stays in the top-level context).
-    let object_id = match ctx.resolve_object_id(node_id).await {
-        Ok(oid) => oid,
-        Err(e) => return e,
+    let object_id = match selector {
+        Some(sel) => {
+            match parse_target(sel) {
+                Ok(ClickTarget::Coordinates(x, y)) => {
+                    // Click the coordinates to focus, then fill activeElement
+                    if let Err(e) = dispatch_mouse_click(&ctx, x, y).await {
+                        return e;
+                    }
+                    target_json = json!({ "coordinates": sel });
+                    match get_active_element_object_id(&ctx).await {
+                        Ok(oid) => oid,
+                        Err(e) => return e,
+                    }
+                }
+                Ok(ClickTarget::Selector(s)) => {
+                    target_json = json!({ "selector": s });
+                    let node_id = match ctx.resolve_node(&s).await {
+                        Ok(id) => id,
+                        Err(e) => return e,
+                    };
+                    if let Err(e) = ctx
+                        .execute_on_element("DOM.focus", json!({ "nodeId": node_id }))
+                        .await
+                    {
+                        return cdp_error_to_result(e, "CDP_ERROR");
+                    }
+                    match ctx.resolve_object_id(node_id).await {
+                        Ok(oid) => oid,
+                        Err(e) => return e,
+                    }
+                }
+                Err(e) => return e,
+            }
+        }
+        None => {
+            // No selector — fill current activeElement
+            target_json = json!({});
+            match get_active_element_object_id(&ctx).await {
+                Ok(oid) => oid,
+                Err(e) => return e,
+            }
+        }
     };
 
     // Set value directly via JS and dispatch an input event (no key events)
-    let value_json = serde_json::to_string(&cmd.value).unwrap_or_default();
+    let value_json = serde_json::to_string(&value).unwrap_or_default();
     let fill_fn = format!(
         r#"function() {{
             const proto = this instanceof HTMLTextAreaElement
@@ -137,9 +176,63 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     ActionResult::ok(json!({
         "action": "fill",
-        "target": { "selector": cmd.selector },
-        "value_summary": { "text_length": cmd.value.chars().count() },
+        "target": target_json,
+        "value_summary": { "text_length": value.chars().count() },
         "post_url": url,
         "post_title": title,
     }))
+}
+
+/// Click at coordinates to focus the element at that position.
+async fn dispatch_mouse_click(ctx: &TabContext, x: f64, y: f64) -> Result<(), ActionResult> {
+    for event_type in &["mousePressed", "mouseReleased"] {
+        ctx.cdp
+            .execute_on_tab(
+                &ctx.target_id,
+                "Input.dispatchMouseEvent",
+                json!({
+                    "type": event_type,
+                    "x": x,
+                    "y": y,
+                    "button": "left",
+                    "clickCount": 1,
+                    "buttons": 1,
+                }),
+            )
+            .await
+            .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+    }
+    Ok(())
+}
+
+/// Get the CDP objectId for document.activeElement; error if none is focused.
+async fn get_active_element_object_id(ctx: &TabContext) -> Result<String, ActionResult> {
+    let resp = ctx
+        .cdp
+        .execute_on_tab(
+            &ctx.target_id,
+            "Runtime.evaluate",
+            json!({
+                "expression": "document.activeElement && document.activeElement !== document.body ? document.activeElement : null",
+                "returnByValue": false,
+            }),
+        )
+        .await
+        .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+
+    let object_id = resp
+        .pointer("/result/result/objectId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if object_id.is_empty() {
+        return Err(ActionResult::fatal_with_hint(
+            "NO_FOCUSED_ELEMENT",
+            "no element is currently focused",
+            "click on an input field first, or pass a selector/coordinates as the first argument",
+        ));
+    }
+
+    Ok(object_id)
 }

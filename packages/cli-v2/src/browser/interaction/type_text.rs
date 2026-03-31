@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::browser::element::TabContext;
+use crate::browser::element::{ClickTarget, TabContext, parse_target};
 use crate::browser::navigation;
 use crate::daemon::cdp_session::cdp_error_to_result;
 use crate::daemon::registry::SharedRegistry;
@@ -15,14 +15,17 @@ use crate::output::ResponseContext;
 Examples:
   actionbook browser type \"#search\" \"hello world\" --session s1 --tab t1
   actionbook browser type @e4 \"hello world\" --session s1 --tab t1
+  actionbook browser type 420,310 \"hello\" --session s1 --tab t1
+  actionbook browser type \"hello\" --session s1 --tab t1
 
-Accepts a CSS selector, XPath, or snapshot ref (@eN from snapshot output).
+Accepts a CSS selector, XPath, snapshot ref (@eN), or coordinates (x,y).
+If selector is omitted, types into the currently focused element (document.activeElement).
 Types each character individually, firing keydown/keypress/keyup events.
 Use for fields with autocomplete, live validation, or input listeners.
 For simple value setting without events, use fill instead.")]
 pub struct Cmd {
-    /// Selector (CSS, XPath, or @ref)
-    pub selector: String,
+    /// Selector (CSS, XPath, @ref, or x,y coordinates). Omit to target activeElement.
+    pub selector: Option<String>,
     /// Text to type
     pub text: String,
     /// Session ID
@@ -71,17 +74,62 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return e,
     };
 
-    // Resolve and focus the target element
-    let node_id = match ctx.resolve_node(&cmd.selector).await {
-        Ok(id) => id,
-        Err(e) => return e,
-    };
+    let target_json: serde_json::Value;
 
-    if let Err(e) = ctx
-        .execute_on_element("DOM.focus", json!({ "nodeId": node_id }))
-        .await
-    {
-        return cdp_error_to_result(e, "CDP_ERROR");
+    match &cmd.selector {
+        Some(sel) => {
+            match parse_target(sel) {
+                Ok(ClickTarget::Coordinates(x, y)) => {
+                    let raw = sel.as_str();
+                    // Click the coordinates to focus
+                    if let Err(e) = dispatch_mouse_click(&ctx, x, y).await {
+                        return e;
+                    }
+                    target_json = json!({ "coordinates": raw });
+                }
+                Ok(ClickTarget::Selector(s)) => {
+                    target_json = json!({ "selector": s });
+                    // Resolve and focus the element
+                    let node_id = match ctx.resolve_node(&s).await {
+                        Ok(id) => id,
+                        Err(e) => return e,
+                    };
+                    if let Err(e) = ctx
+                        .execute_on_element("DOM.focus", json!({ "nodeId": node_id }))
+                        .await
+                    {
+                        return cdp_error_to_result(e, "CDP_ERROR");
+                    }
+                }
+                Err(e) => return e,
+            }
+        }
+        None => {
+            // No selector — ensure something is focused
+            let is_focused = ctx
+                .cdp
+                .execute_on_tab(
+                    &ctx.target_id,
+                    "Runtime.evaluate",
+                    json!({
+                        "expression": "document.activeElement && document.activeElement !== document.body",
+                        "returnByValue": true,
+                    }),
+                )
+                .await
+                .ok()
+                .and_then(|v| v.pointer("/result/result/value").and_then(|b| b.as_bool()))
+                .unwrap_or(false);
+
+            if !is_focused {
+                return ActionResult::fatal_with_hint(
+                    "NO_FOCUSED_ELEMENT",
+                    "no element is currently focused",
+                    "click on an input field first, or pass a selector/coordinates as the first argument",
+                );
+            }
+            target_json = json!({});
+        }
     }
 
     // Move cursor to end of existing value so typed text appends
@@ -135,9 +183,31 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     ActionResult::ok(json!({
         "action": "type",
-        "target": { "selector": cmd.selector },
+        "target": target_json,
         "value_summary": { "text_length": cmd.text.chars().count() },
         "post_url": url,
         "post_title": title,
     }))
+}
+
+/// Click at coordinates to focus the element at that position.
+async fn dispatch_mouse_click(ctx: &TabContext, x: f64, y: f64) -> Result<(), ActionResult> {
+    for event_type in &["mousePressed", "mouseReleased"] {
+        ctx.cdp
+            .execute_on_tab(
+                &ctx.target_id,
+                "Input.dispatchMouseEvent",
+                json!({
+                    "type": event_type,
+                    "x": x,
+                    "y": y,
+                    "button": "left",
+                    "clickCount": 1,
+                    "buttons": 1,
+                }),
+            )
+            .await
+            .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+    }
+    Ok(())
 }
