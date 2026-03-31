@@ -107,6 +107,54 @@ fn assert_type_success(
     assert_meta(v);
 }
 
+fn assert_type_success_coordinates(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_coordinates: &str,
+    expected_text_length: u64,
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser type");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "type");
+    assert_eq!(data["target"]["coordinates"], expected_coordinates);
+    assert_eq!(data["value_summary"]["text_length"], expected_text_length);
+
+    assert_meta(v);
+}
+
+fn assert_type_success_no_selector(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_text_length: u64,
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser type");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "type");
+    assert_eq!(data["value_summary"]["text_length"], expected_text_length);
+    assert!(
+        data.pointer("/target/selector").is_none(),
+        "selector-less type should not report a selector target"
+    );
+
+    assert_meta(v);
+}
+
 fn assert_fill_success(
     v: &serde_json::Value,
     session_id: &str,
@@ -126,6 +174,54 @@ fn assert_fill_success(
     assert_eq!(data["action"], "fill");
     assert_eq!(data["target"]["selector"], expected_selector);
     assert_eq!(data["value_summary"]["text_length"], expected_text_length);
+
+    assert_meta(v);
+}
+
+fn assert_fill_success_coordinates(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_coordinates: &str,
+    expected_text_length: u64,
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser fill");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "fill");
+    assert_eq!(data["target"]["coordinates"], expected_coordinates);
+    assert_eq!(data["value_summary"]["text_length"], expected_text_length);
+
+    assert_meta(v);
+}
+
+fn assert_fill_success_no_selector(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_text_length: u64,
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser fill");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "fill");
+    assert_eq!(data["value_summary"]["text_length"], expected_text_length);
+    assert!(
+        data.pointer("/target/selector").is_none(),
+        "selector-less fill should not report a selector target"
+    );
 
     assert_meta(v);
 }
@@ -1840,6 +1936,104 @@ fn type_with_spaces_and_punctuation_json() {
     close_session(&sid);
 }
 
+#[test]
+fn type_coordinates_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_type_fixture(&sid, &tid);
+    let coords = "60,290";
+
+    let out = headless_json(
+        &[
+            "browser",
+            "type",
+            coords,
+            "abc",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "type coordinates json");
+    let v = parse_json(&out);
+
+    assert_type_success_coordinates(&v, &sid, &tid, coords, 3);
+    assert_eq!(
+        eval_value(&sid, &tid, "document.querySelector('#ab-type-input').value"),
+        "seed-abc"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "document.activeElement && document.activeElement.id"
+        ),
+        "ab-type-input"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn type_no_selector_uses_active_element_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_type_fixture(&sid, &tid);
+
+    let click_out = headless_json(
+        &[
+            "browser",
+            "click",
+            "60,290",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&click_out, "focus type input by coordinates");
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "document.activeElement && document.activeElement.id"
+        ),
+        "ab-type-input"
+    );
+
+    let out = headless_json(
+        &["browser", "type", "abc", "--session", &sid, "--tab", &tid],
+        15,
+    );
+    assert_success(&out, "type with activeElement json");
+    let v = parse_json(&out);
+
+    assert_type_success_no_selector(&v, &sid, &tid, 3);
+    assert_eq!(
+        eval_value(&sid, &tid, "document.querySelector('#ab-type-input').value"),
+        "seed-abc"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "document.activeElement && document.activeElement.id"
+        ),
+        "ab-type-input"
+    );
+
+    close_session(&sid);
+}
+
 // ========================================================================
 // Group 6: type — error paths
 // ========================================================================
@@ -2220,6 +2414,104 @@ fn fill_replaces_existing_value_json() {
     assert_eq!(
         eval_value(&sid, &tid, "String(window.__ab_fill_input_count)"),
         "1"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn fill_coordinates_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_fill_fixture(&sid, &tid);
+    let coords = "60,350";
+
+    let out = headless_json(
+        &[
+            "browser",
+            "fill",
+            coords,
+            "abc",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "fill coordinates json");
+    let v = parse_json(&out);
+
+    assert_fill_success_coordinates(&v, &sid, &tid, coords, 3);
+    assert_eq!(
+        eval_value(&sid, &tid, "document.querySelector('#ab-fill-input').value"),
+        "abc"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "document.activeElement && document.activeElement.id"
+        ),
+        "ab-fill-input"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn fill_no_selector_uses_active_element_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_fill_fixture(&sid, &tid);
+
+    let click_out = headless_json(
+        &[
+            "browser",
+            "click",
+            "60,350",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&click_out, "focus fill input by coordinates");
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "document.activeElement && document.activeElement.id"
+        ),
+        "ab-fill-input"
+    );
+
+    let out = headless_json(
+        &["browser", "fill", "abc", "--session", &sid, "--tab", &tid],
+        15,
+    );
+    assert_success(&out, "fill with activeElement json");
+    let v = parse_json(&out);
+
+    assert_fill_success_no_selector(&v, &sid, &tid, 3);
+    assert_eq!(
+        eval_value(&sid, &tid, "document.querySelector('#ab-fill-input').value"),
+        "abc"
+    );
+    assert_eq!(
+        eval_value(
+            &sid,
+            &tid,
+            "document.activeElement && document.activeElement.id"
+        ),
+        "ab-fill-input"
     );
 
     close_session(&sid);
