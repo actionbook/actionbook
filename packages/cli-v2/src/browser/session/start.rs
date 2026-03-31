@@ -187,11 +187,23 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             ) {
                 Ok(session_id) => StartDisposition::Reserved(session_id),
                 Err(crate::error::CliError::SessionAlreadyExists(existing_id)) => {
-                    let msg = format!(
-                        "profile '{profile_name}' already has an active session: {existing_id}"
-                    );
+                    if mode == Mode::Local
+                        && reg
+                            .find_local_session_by_profile(profile_name, mode)
+                            .is_some_and(|entry| entry.id.as_str() == existing_id)
+                    {
+                        let msg = format!(
+                            "profile '{profile_name}' is already in use by active session '{existing_id}'; one session can own a profile at a time"
+                        );
+                        let hint = format!(
+                            "reuse it with --session {existing_id}, close it with browser close --session {existing_id}, or start with a different --profile"
+                        );
+                        return ActionResult::fatal_with_hint("SESSION_ALREADY_EXISTS", msg, &hint);
+                    }
+
+                    let msg = format!("session id '{existing_id}' is already in use");
                     let hint = format!(
-                        "use --session {existing_id} to address it, or run browser close --session {existing_id} first"
+                        "choose a different --set-session-id, or close the existing session with browser close --session {existing_id}"
                     );
                     return ActionResult::fatal_with_hint("SESSION_ALREADY_EXISTS", msg, &hint);
                 }

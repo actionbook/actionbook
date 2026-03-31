@@ -1071,6 +1071,32 @@ fn lifecycle_set_session_id_rejects_reuse_of_occupied_profile() {
         v["error"]["code"], "SESSION_ALREADY_EXISTS",
         "must return SESSION_ALREADY_EXISTS, not silently reuse"
     );
+    let message = v["error"]["message"].as_str().unwrap_or("");
+    let hint = v["error"]["hint"].as_str().unwrap_or("");
+    assert!(
+        message.contains(&prof1),
+        "profile-conflict message must name the occupied profile: {message}"
+    );
+    assert!(
+        message.contains(&sid1),
+        "profile-conflict message must name the active session: {message}"
+    );
+    assert!(
+        message.contains("one session"),
+        "profile-conflict message must explain the exclusivity mechanism: {message}"
+    );
+    assert!(
+        hint.contains(&format!("--session {sid1}")),
+        "profile-conflict hint must point to the active session: {hint}"
+    );
+    assert!(
+        hint.contains(&format!("browser close --session {sid1}")),
+        "profile-conflict hint must explain how to free the profile: {hint}"
+    );
+    assert!(
+        hint.contains("different --profile"),
+        "profile-conflict hint must suggest using a different profile: {hint}"
+    );
 }
 
 /// When --set-session-id matches an already-running session's ID,
@@ -1121,6 +1147,15 @@ fn lifecycle_set_session_id_rejects_duplicate_id() {
     assert_eq!(
         v["error"]["code"], "SESSION_ALREADY_EXISTS",
         "must return SESSION_ALREADY_EXISTS for duplicate ID"
+    );
+    let message = v["error"]["message"].as_str().unwrap_or("");
+    assert!(
+        message.contains(&sid),
+        "duplicate-id message must identify the conflicting session id: {message}"
+    );
+    assert!(
+        !message.contains(&prof2),
+        "duplicate-id message must not misreport the requested profile as occupied: {message}"
     );
 }
 
