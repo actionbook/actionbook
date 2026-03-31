@@ -171,13 +171,26 @@ impl CdpSession {
         // Enable the Network domain immediately so reader_loop tracks in-flight
         // requests from tab birth, before any user command (including wait network-idle)
         // is invoked.  Idempotent if called again on an already-enabled session.
-        let _ = self
+        if let Err(e) = self
             .execute("Network.enable", json!({}), Some(&session_id))
-            .await;
+            .await
+        {
+            // Roll back: remove local mapping AND detach from Chrome to avoid
+            // an orphaned browser-side session that is unreachable from our map.
+            self.tab_sessions.lock().await.remove(target_id);
+            let _ = self
+                .execute(
+                    "Target.detachFromTarget",
+                    json!({ "sessionId": session_id }),
+                    None,
+                )
+                .await;
+            return Err(e);
+        }
 
         // Enable auto-attach for cross-origin iframe support.
-        // Chrome will emit Target.attachedToTarget events for each OOPIF,
-        // which reader_loop captures into iframe_sessions.
+        // Best-effort: some restricted DevTools endpoints may not support this,
+        // and basic tab operation still works without it.
         let _ = self
             .execute(
                 "Target.setAutoAttach",
@@ -241,7 +254,19 @@ impl CdpSession {
         // Clean up the pending counter for this session.
         self.tab_net_pending.lock().await.remove(&session_id);
 
+        // Clean up all event subscriptions for this session.
+        self.unsubscribe_all(&session_id).await;
+
         Ok(())
+    }
+
+    /// Remove all event subscriptions for a given CDP session.
+    pub async fn unsubscribe_all(&self, cdp_session_id: &str) {
+        let prefix = format!("{cdp_session_id}:");
+        self.event_subs
+            .lock()
+            .await
+            .retain(|key, _| !key.starts_with(&prefix));
     }
 
     /// Execute a CDP command on a specific tab (by target_id).
@@ -386,8 +411,18 @@ impl CdpSession {
             ));
         }
 
-        let resp = rx
+        // 60s covers slow operations (PDF, screenshot, large eval) while still
+        // catching genuinely hung connections that the old code waited on forever.
+        let resp = tokio::time::timeout(std::time::Duration::from_secs(60), rx)
             .await
+            .map_err(|_| {
+                // Clean up the pending entry on timeout to prevent leak.
+                let pending = self.pending.clone();
+                tokio::spawn(async move {
+                    pending.lock().await.remove(&id);
+                });
+                CliError::Timeout
+            })?
             .map_err(|_| CliError::CdpError("response channel dropped".to_string()))??;
 
         // Surface CDP-level errors (e.g., method not found, target crashed)
@@ -474,9 +509,7 @@ impl CdpSession {
                 if !session_id.is_empty() {
                     let delta: i64 = match method {
                         "Network.requestWillBeSent" => 1,
-                        "Network.loadingFinished"
-                        | "Network.loadingFailed"
-                        | "Network.requestServedFromCache" => -1,
+                        "Network.loadingFinished" | "Network.loadingFailed" => -1,
                         _ => 0,
                     };
                     if delta != 0 {
@@ -1108,5 +1141,323 @@ mod tests {
             matches!(result, Ok(Err(_))),
             "execute after double close() should fail"
         );
+    }
+
+    // ── 13. test_execute_timeout ─────────────────────────────────────
+
+    /// execute() must return CliError::Timeout when server never replies
+    /// (instead of hanging forever). Uses tokio::time::pause() so we don't
+    /// actually wait 30 seconds.
+    #[tokio::test(start_paused = true)]
+    async fn test_execute_timeout() {
+        let (url, mut conns) = mock_ws_server().await;
+        let cdp = CdpSession::connect(&url).await.unwrap();
+        let (_reader, _writer) = conns.recv().await.unwrap();
+
+        // Server never replies — execute should timeout after 30s
+        let result = cdp.execute("Test.noReply", json!({}), None).await;
+
+        assert!(result.is_err(), "should timeout, not hang");
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, CliError::Timeout),
+            "expected Timeout, got: {err}"
+        );
+    }
+
+    // ── 14. test_execute_timeout_cleans_pending ──────────────────────
+
+    /// After timeout, the pending map entry for the timed-out request must
+    /// be cleaned up to prevent memory leaks.
+    #[tokio::test(start_paused = true)]
+    async fn test_execute_timeout_cleans_pending() {
+        let (url, mut conns) = mock_ws_server().await;
+        let cdp = CdpSession::connect(&url).await.unwrap();
+        let (_reader, _writer) = conns.recv().await.unwrap();
+
+        // execute will timeout
+        let _ = cdp.execute("Test.noReply", json!({}), None).await;
+
+        // Give the spawn cleanup task a tick to run
+        tokio::task::yield_now().await;
+
+        let map = cdp.pending.lock().await;
+        assert!(
+            map.is_empty(),
+            "pending map should be empty after timeout, has {} entries",
+            map.len()
+        );
+    }
+
+    // ── 15. test_attach_propagates_network_enable_error ──────────────
+
+    /// When Network.enable returns a CDP error during attach(), attach()
+    /// must propagate the error (not silently swallow it).
+    #[tokio::test]
+    async fn test_attach_propagates_network_enable_error() {
+        let (url, mut conns) = mock_ws_server().await;
+        let cdp = CdpSession::connect(&url).await.unwrap();
+        let (mut reader, mut writer) = conns.recv().await.unwrap();
+
+        let cdp_clone = cdp.clone();
+        let handle = tokio::spawn(async move { cdp_clone.attach("TARGET_NE", None).await });
+
+        // 1. Target.attachToTarget succeeds
+        let msg = read_json(&mut reader).await;
+        assert_eq!(msg["method"], "Target.attachToTarget");
+        send_json(
+            &mut writer,
+            json!({"id": msg["id"], "result": {"sessionId": "SESS_NE"}}),
+        )
+        .await;
+
+        // 2. Network.enable returns CDP error
+        let msg = read_json(&mut reader).await;
+        assert_eq!(msg["method"], "Network.enable");
+        send_json(
+            &mut writer,
+            json!({"id": msg["id"], "error": {"code": -32000, "message": "Network.enable failed"}}),
+        )
+        .await;
+
+        // 3. attach() rollback sends Target.detachFromTarget — reply to avoid timeout
+        let msg = read_json(&mut reader).await;
+        assert_eq!(msg["method"], "Target.detachFromTarget");
+        send_json(&mut writer, json!({"id": msg["id"], "result": {}})).await;
+
+        let result = handle.await.unwrap();
+        assert!(
+            result.is_err(),
+            "attach should fail when Network.enable errors"
+        );
+
+        // Session mapping must be rolled back — no stale half-attached entry.
+        assert!(
+            cdp.tab_sessions.lock().await.get("TARGET_NE").is_none(),
+            "session mapping should be rolled back on Network.enable failure"
+        );
+    }
+
+    // ── 16. test_attach_auto_attach_failure_is_best_effort ──────────
+
+    /// Target.setAutoAttach failure must NOT cause attach() to fail —
+    /// it is an optional capability (OOPIF/iframe support). Basic tab
+    /// operation still works without it.
+    #[tokio::test]
+    async fn test_attach_auto_attach_failure_is_best_effort() {
+        let (url, mut conns) = mock_ws_server().await;
+        let cdp = CdpSession::connect(&url).await.unwrap();
+        let (mut reader, mut writer) = conns.recv().await.unwrap();
+
+        let cdp_clone = cdp.clone();
+        let handle = tokio::spawn(async move { cdp_clone.attach("TARGET_AA", None).await });
+
+        // 1. Target.attachToTarget succeeds
+        let msg = read_json(&mut reader).await;
+        send_json(
+            &mut writer,
+            json!({"id": msg["id"], "result": {"sessionId": "SESS_AA"}}),
+        )
+        .await;
+
+        // 2. Network.enable succeeds
+        let msg = read_json(&mut reader).await;
+        assert_eq!(msg["method"], "Network.enable");
+        send_json(&mut writer, json!({"id": msg["id"], "result": {}})).await;
+
+        // 3. Target.setAutoAttach FAILS — should not block attach
+        let msg = read_json(&mut reader).await;
+        assert_eq!(msg["method"], "Target.setAutoAttach");
+        send_json(
+            &mut writer,
+            json!({"id": msg["id"], "error": {"code": -32000, "message": "setAutoAttach failed"}}),
+        )
+        .await;
+
+        let result = handle.await.unwrap();
+        assert!(
+            result.is_ok(),
+            "attach should succeed even when setAutoAttach fails: {:?}",
+            result.err()
+        );
+    }
+
+    // ── 17. test_attach_stealth_failure_does_not_block ───────────────
+
+    /// Stealth injection errors (Page.enable, addScriptToEvaluateOnNewDocument,
+    /// setUserAgentOverride) must NOT cause attach() to fail — they are
+    /// best-effort.
+    #[tokio::test]
+    async fn test_attach_stealth_failure_does_not_block() {
+        let (url, mut conns) = mock_ws_server().await;
+        let cdp = CdpSession::connect(&url).await.unwrap();
+        let (mut reader, mut writer) = conns.recv().await.unwrap();
+
+        let cdp_clone = cdp.clone();
+        let handle = tokio::spawn(async move {
+            cdp_clone
+                .attach("TARGET_ST", Some("Mozilla/5.0 FakeUA"))
+                .await
+        });
+
+        // 1. Target.attachToTarget succeeds
+        let msg = read_json(&mut reader).await;
+        send_json(
+            &mut writer,
+            json!({"id": msg["id"], "result": {"sessionId": "SESS_ST"}}),
+        )
+        .await;
+
+        // 2. Network.enable succeeds
+        let msg = read_json(&mut reader).await;
+        send_json(&mut writer, json!({"id": msg["id"], "result": {}})).await;
+
+        // 3. Target.setAutoAttach succeeds
+        let msg = read_json(&mut reader).await;
+        send_json(&mut writer, json!({"id": msg["id"], "result": {}})).await;
+
+        // 4. Page.enable FAILS
+        let msg = read_json(&mut reader).await;
+        assert_eq!(msg["method"], "Page.enable");
+        send_json(
+            &mut writer,
+            json!({"id": msg["id"], "error": {"code": -32000, "message": "Page.enable failed"}}),
+        )
+        .await;
+
+        // 5. addScriptToEvaluateOnNewDocument FAILS
+        let msg = read_json(&mut reader).await;
+        assert_eq!(msg["method"], "Page.addScriptToEvaluateOnNewDocument");
+        send_json(
+            &mut writer,
+            json!({"id": msg["id"], "error": {"code": -32000, "message": "script failed"}}),
+        )
+        .await;
+
+        // 6. setUserAgentOverride FAILS
+        let msg = read_json(&mut reader).await;
+        assert_eq!(msg["method"], "Emulation.setUserAgentOverride");
+        send_json(
+            &mut writer,
+            json!({"id": msg["id"], "error": {"code": -32000, "message": "ua failed"}}),
+        )
+        .await;
+
+        // attach() should still succeed despite all stealth errors
+        let result = handle.await.unwrap();
+        assert!(
+            result.is_ok(),
+            "attach should succeed even when stealth fails: {:?}",
+            result.err()
+        );
+        assert_eq!(result.unwrap(), "SESS_ST");
+    }
+
+    // ── 18. test_detach_cleans_event_subs ────────────────────────────
+
+    /// detach() must clean up all event subscriptions for the detached session.
+    #[tokio::test]
+    async fn test_detach_cleans_event_subs() {
+        let (url, mut conns) = mock_ws_server().await;
+        let cdp = CdpSession::connect(&url).await.unwrap();
+        let (mut reader, mut writer) = conns.recv().await.unwrap();
+
+        // Pre-populate session mapping (skip full attach handshake)
+        cdp.tab_sessions
+            .lock()
+            .await
+            .insert("TARGET_DC".to_string(), "SESS_DC".to_string());
+
+        // Subscribe to some events
+        let _rx1 = cdp
+            .subscribe_events("SESS_DC", "Network.requestWillBeSent")
+            .await;
+        let _rx2 = cdp.subscribe_events("SESS_DC", "Page.loadEventFired").await;
+        // Also subscribe for a different session (should NOT be cleaned)
+        let _rx3 = cdp
+            .subscribe_events("SESS_OTHER", "Network.requestWillBeSent")
+            .await;
+
+        // Verify subscriptions exist
+        assert_eq!(cdp.event_subs.lock().await.len(), 3);
+
+        // Detach
+        let cdp_clone = cdp.clone();
+        let handle = tokio::spawn(async move { cdp_clone.detach("TARGET_DC").await });
+
+        let msg = read_json(&mut reader).await;
+        assert_eq!(msg["method"], "Target.detachFromTarget");
+        send_json(&mut writer, json!({"id": msg["id"], "result": {}})).await;
+        handle.await.unwrap().unwrap();
+
+        // SESS_DC subscriptions should be removed, SESS_OTHER should remain
+        let subs = cdp.event_subs.lock().await;
+        assert_eq!(
+            subs.len(),
+            1,
+            "only SESS_OTHER subscription should remain, got: {:?}",
+            subs.keys().collect::<Vec<_>>()
+        );
+        assert!(subs.contains_key("SESS_OTHER:Network.requestWillBeSent"));
+    }
+
+    // ── 19. test_network_counter_ignores_cache ──────────────────────
+
+    /// Network.requestServedFromCache must NOT decrement the pending counter
+    /// because the corresponding requestWillBeSent + loadingFinished pair
+    /// already handles the request lifecycle.
+    #[tokio::test]
+    async fn test_network_counter_ignores_cache() {
+        let (url, mut conns) = mock_ws_server().await;
+        let cdp = CdpSession::connect(&url).await.unwrap();
+        let (_, mut writer) = conns.recv().await.unwrap();
+
+        cdp.tab_sessions
+            .lock()
+            .await
+            .insert("T_CACHE".to_string(), "S_CACHE".to_string());
+
+        // requestWillBeSent → counter = 1
+        send_json(
+            &mut writer,
+            json!({
+                "method": "Network.requestWillBeSent",
+                "sessionId": "S_CACHE",
+                "params": { "requestId": "r1" }
+            }),
+        )
+        .await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(cdp.network_pending("S_CACHE").await, 1);
+
+        // requestServedFromCache should NOT decrement
+        send_json(
+            &mut writer,
+            json!({
+                "method": "Network.requestServedFromCache",
+                "sessionId": "S_CACHE",
+                "params": { "requestId": "r1" }
+            }),
+        )
+        .await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            cdp.network_pending("S_CACHE").await,
+            1,
+            "requestServedFromCache must not decrement counter"
+        );
+
+        // loadingFinished brings it back to 0
+        send_json(
+            &mut writer,
+            json!({
+                "method": "Network.loadingFinished",
+                "sessionId": "S_CACHE",
+                "params": { "requestId": "r1" }
+            }),
+        )
+        .await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(cdp.network_pending("S_CACHE").await, 0);
     }
 }
