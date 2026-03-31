@@ -8,8 +8,13 @@ pub enum CliError {
     ConnectionFailed(String),
     #[error("session not found: {0}")]
     SessionNotFound(String),
-    #[error("session already exists: {0}")]
-    SessionAlreadyExists(String),
+    #[error("profile '{profile}' is already in use by session '{existing_session}'")]
+    SessionAlreadyExists {
+        profile: String,
+        existing_session: String,
+    },
+    #[error("session id '{0}' is already in use")]
+    SessionIdAlreadyExists(String),
     #[error("tab not found: {0}")]
     TabNotFound(String),
     #[error("invalid argument: {0}")]
@@ -56,7 +61,9 @@ impl CliError {
             CliError::DaemonNotRunning => "DAEMON_NOT_RUNNING",
             CliError::ConnectionFailed(_) => "CONNECTION_FAILED",
             CliError::SessionNotFound(_) => "SESSION_NOT_FOUND",
-            CliError::SessionAlreadyExists(_) => "SESSION_ALREADY_EXISTS",
+            CliError::SessionAlreadyExists { .. } | CliError::SessionIdAlreadyExists(_) => {
+                "SESSION_ALREADY_EXISTS"
+            }
             CliError::TabNotFound(_) => "TAB_NOT_FOUND",
             CliError::InvalidArgument(_) => "INVALID_ARGUMENT",
             CliError::InvalidSessionId(_) => "INVALID_SESSION_ID",
@@ -79,16 +86,31 @@ impl CliError {
         }
     }
 
-    pub fn hint(&self) -> &str {
+    pub fn hint(&self) -> String {
         match self {
             CliError::VersionMismatch { .. } => {
-                "daemon is outdated. Kill the daemon process and retry"
+                "daemon is outdated. Kill the daemon process and retry".to_string()
             }
-            CliError::DaemonNotRunning => "run a browser command to auto-start the daemon",
+            CliError::SessionAlreadyExists {
+                existing_session, ..
+            } => {
+                format!(
+                    "each Chrome profile can only be used by one session at a time. Use --session {existing_session} to reuse it, close it with `actionbook browser close --session {existing_session}`, or use a different --profile"
+                )
+            }
+            CliError::SessionIdAlreadyExists(existing_session) => {
+                format!(
+                    "choose a different --set-session-id, or close the existing session with `actionbook browser close --session {existing_session}`"
+                )
+            }
+            CliError::DaemonNotRunning => {
+                "run a browser command to auto-start the daemon".to_string()
+            }
             CliError::SessionClosed(_) => {
                 "the session was closed while a command was still in flight — start a new session"
+                    .to_string()
             }
-            _ => "",
+            _ => String::new(),
         }
     }
 
