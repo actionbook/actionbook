@@ -703,7 +703,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
         }
         "browser.eval" => {
             if let Some(val) = data.get("value") {
-                lines.push(val.as_str().unwrap_or(&val.to_string()).to_string());
+                lines.push(text_scalar(val));
             }
         }
         "browser.cookies.list" => {
@@ -783,5 +783,44 @@ fn text_scalar(value: &Value) -> String {
         Value::Number(n) => n.to_string(),
         Value::Bool(b) => b.to_string(),
         other => other.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ResponseContext, format_text};
+    use crate::action_result::ActionResult;
+    use serde_json::json;
+
+    #[test]
+    fn browser_eval_text_renders_string_value() {
+        let context = Some(ResponseContext {
+            session_id: "s1".to_string(),
+            tab_id: Some("t2".to_string()),
+            window_id: None,
+            url: Some("https://example.com/page".to_string()),
+            title: None,
+        });
+        let result = ActionResult::ok(json!({ "value": "Example title" }));
+
+        let text = format_text("browser.eval", &context, &result);
+
+        assert_eq!(text, "[s1 t2] https://example.com/page\nExample title");
+    }
+
+    #[test]
+    fn browser_eval_text_renders_non_string_scalar_value() {
+        let context = Some(ResponseContext {
+            session_id: "s1".to_string(),
+            tab_id: Some("t2".to_string()),
+            window_id: None,
+            url: Some("https://example.com/page".to_string()),
+            title: None,
+        });
+        let result = ActionResult::ok(json!({ "value": 4 }));
+
+        let text = format_text("browser.eval", &context, &result);
+
+        assert_eq!(text, "[s1 t2] https://example.com/page\n4");
     }
 }
