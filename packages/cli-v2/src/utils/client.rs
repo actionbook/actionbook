@@ -103,25 +103,23 @@ fn versions_match(version_path: &std::path::Path) -> bool {
 async fn restart_daemon() -> Result<(), CliError> {
     if let Some(pid) = server::read_daemon_pid().filter(|&p| p > 0) {
         eprintln!("daemon version mismatch, restarting (pid={pid})...",);
-        server::send_sigterm(pid);
 
-        // Wait for the specific PID to exit (up to 5 seconds).
-        // Use kill(pid, 0) instead of is_daemon_running() to track the
-        // original process — a concurrent CLI may have already started a
-        // new daemon, making the global flock check return true.
-        let start = std::time::Instant::now();
-        while start.elapsed() < Duration::from_secs(5) {
-            if !server::is_pid_alive(pid) {
-                break;
+        // send_sigterm returns false if process is already dead (ESRCH)
+        if server::send_sigterm(pid) {
+            // Wait for the specific PID to exit (up to 5 seconds).
+            let start = std::time::Instant::now();
+            while start.elapsed() < Duration::from_secs(5) {
+                if !server::is_pid_alive(pid) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
 
-        // If the specific old process is still alive, don't force-clean
-        if server::is_pid_alive(pid) {
-            return Err(CliError::Internal(
-                "old daemon did not exit after SIGTERM (5s timeout)".to_string(),
-            ));
+            if server::is_pid_alive(pid) {
+                return Err(CliError::Internal(
+                    "old daemon did not exit after SIGTERM (5s timeout)".to_string(),
+                ));
+            }
         }
     }
 
@@ -161,13 +159,10 @@ async fn wait_for_daemon(
 }
 
 fn cleanup_stale_files() {
-    let socket_dir = server::socket_path()
-        .parent()
-        .unwrap_or(std::path::Path::new("."))
-        .to_owned();
-    std::fs::remove_file(socket_dir.join("daemon.sock")).ok();
-    std::fs::remove_file(socket_dir.join("daemon.ready")).ok();
-    std::fs::remove_file(socket_dir.join("daemon.version")).ok();
+    let base = server::socket_path();
+    std::fs::remove_file(&base).ok(); // daemon.sock
+    std::fs::remove_file(base.with_extension("ready")).ok();
+    std::fs::remove_file(base.with_extension("version")).ok();
 }
 
 fn auto_start_daemon() -> Result<(), CliError> {

@@ -69,11 +69,17 @@ pub fn read_daemon_pid() -> Option<i32> {
 }
 
 /// Send SIGTERM to a process.
-pub fn send_sigterm(pid: i32) {
+/// Returns `true` if signal was delivered, `false` if process doesn't exist (ESRCH).
+/// Panics on EPERM (wrong user) — caller should validate PID ownership.
+pub fn send_sigterm(pid: i32) -> bool {
     unsafe extern "C" {
         safe fn kill(pid: i32, sig: i32) -> i32;
     }
-    kill(pid, 15); // SIGTERM = 15
+    if kill(pid, 15) == 0 {
+        return true;
+    }
+    // ESRCH (3) = no such process — already dead
+    std::io::Error::last_os_error().raw_os_error() != Some(3)
 }
 
 /// Check if a specific process is still alive (kill -0).
