@@ -15,8 +15,8 @@
 pub fn stealth_js(webgl_vendor: &str, webgl_renderer: &str) -> String {
     format!(
         r#"(function() {{
-if (typeof __stealth_guard__ !== 'undefined') {{ return; }}
-var __stealth_guard__ = 1;
+if (Navigator.prototype._s) {{ return; }}
+Object.defineProperty(Navigator.prototype, '_s', {{ value: 1, configurable: false, enumerable: false }});
 
 // 1. navigator.webdriver — delete from prototype so 'webdriver' in navigator === false
 // Do NOT re-define after deleting — re-defining would re-create the property.

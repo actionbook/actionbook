@@ -98,7 +98,7 @@ fn stealth_module_is_registered_and_contains_required_v1_evasions() {
     assert!(stealth.contains("37445"));
     assert!(stealth.contains("37446"));
     assert!(
-        stealth.contains("__stealth_guard__") && stealth.contains("return;"),
+        stealth.contains("Navigator.prototype._s") && stealth.contains("return;"),
         "stealth JS should guard against double injection"
     );
     assert!(
