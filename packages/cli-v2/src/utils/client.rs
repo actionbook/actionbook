@@ -101,7 +101,7 @@ fn versions_match(version_path: &std::path::Path) -> bool {
 
 /// Stop the running daemon and start a fresh one with the current binary.
 async fn restart_daemon() -> Result<(), CliError> {
-    if let Some(pid) = server::read_daemon_pid() {
+    if let Some(pid) = server::read_daemon_pid().filter(|&p| p > 0) {
         eprintln!("daemon version mismatch, restarting (pid={pid})...",);
         server::send_sigterm(pid);
 
