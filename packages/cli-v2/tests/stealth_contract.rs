@@ -98,7 +98,7 @@ fn stealth_module_is_registered_and_contains_required_v1_evasions() {
     assert!(stealth.contains("37445"));
     assert!(stealth.contains("37446"));
     assert!(
-        stealth.contains("if (window.__") && stealth.contains("return;"),
+        stealth.contains("Navigator.prototype._s") && stealth.contains("return;"),
         "stealth JS should guard against double injection"
     );
     assert!(
@@ -109,6 +109,48 @@ fn stealth_module_is_registered_and_contains_required_v1_evasions() {
         !stealth.contains("Native Client") && !stealth.contains("application/x-nacl"),
         "stealth plugins list should not expose NaCl"
     );
+
+    // V2 evasions: Playwright/Puppeteer traces
+    assert!(
+        stealth.contains("__playwright"),
+        "stealth JS should remove Playwright traces"
+    );
+    assert!(
+        stealth.contains("__pw_manual"),
+        "stealth JS should remove __pw_manual trace"
+    );
+    assert!(
+        stealth.contains("__PW_inspect"),
+        "stealth JS should remove __PW_inspect trace"
+    );
+
+    // V2: maxTouchPoints
+    assert!(
+        stealth.contains("maxTouchPoints"),
+        "stealth JS should set maxTouchPoints"
+    );
+
+    // V2: screen properties
+    assert!(
+        stealth.contains("colorDepth"),
+        "stealth JS should set screen colorDepth"
+    );
+    assert!(
+        stealth.contains("pixelDepth"),
+        "stealth JS should set screen pixelDepth"
+    );
+
+    // V2: canvas fingerprint noise
+    assert!(
+        stealth.contains("HTMLCanvasElement"),
+        "stealth JS should add canvas fingerprint noise"
+    );
+
+    // V2: chrome.loadTimes realistic fields
+    assert!(
+        stealth.contains("requestTime") && stealth.contains("navigationType"),
+        "chrome.loadTimes should return realistic timing fields"
+    );
 }
 
 #[test]
@@ -117,6 +159,7 @@ fn attach_source_injects_page_enable_stealth_script_and_user_agent_override() {
     assert!(source.contains("\"Page.enable\""));
     assert!(source.contains("\"Page.addScriptToEvaluateOnNewDocument\""));
     assert!(source.contains("\"Emulation.setUserAgentOverride\""));
+    assert!(source.contains("\"Emulation.setDeviceMetricsOverride\""));
 }
 
 #[test]
