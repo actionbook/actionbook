@@ -20,32 +20,31 @@ impl DaemonClient {
     pub async fn connect() -> Result<Self, CliError> {
         let path = server::socket_path();
         let ready_path = path.with_extension("ready");
+        let version_path = path.with_extension("version");
 
-        // Try connecting first
+        // Try connecting to an existing daemon
         if let Ok(stream) = UnixStream::connect(&path).await {
-            check_version(&ready_path)?;
-            let (reader, writer) = tokio::io::split(stream);
-            return Ok(DaemonClient { reader, writer });
+            if versions_match(&version_path) {
+                let (reader, writer) = tokio::io::split(stream);
+                return Ok(DaemonClient { reader, writer });
+            }
+            // Version mismatch — drop connection, restart daemon
+            drop(stream);
+            restart_daemon().await?;
+            return wait_for_daemon(&path, &ready_path, &version_path).await;
         }
 
-        // Only auto-start if no daemon is running
+        // Daemon not connectable but process may be running — check version
+        if server::is_daemon_running() && !versions_match(&version_path) {
+            restart_daemon().await?;
+        }
+
+        // No daemon running — start one
         if !server::is_daemon_running() {
             auto_start_daemon()?;
         }
 
-        // Wait for daemon to be ready (up to 10 seconds)
-        for _ in 0..100 {
-            if ready_path.exists()
-                && let Ok(stream) = UnixStream::connect(&path).await
-            {
-                check_version(&ready_path)?;
-                let (reader, writer) = tokio::io::split(stream);
-                return Ok(DaemonClient { reader, writer });
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-
-        Err(CliError::DaemonNotRunning)
+        wait_for_daemon(&path, &ready_path, &version_path).await
     }
 
     /// Send an action and receive the result.
@@ -60,23 +59,65 @@ impl DaemonClient {
     }
 }
 
-fn major_minor(version: &str) -> (&str, &str) {
-    let core = version.split('-').next().unwrap_or(version);
-    let mut parts = core.splitn(3, '.');
-    let major = parts.next().unwrap_or("0");
-    let minor = parts.next().unwrap_or("0");
-    (major, minor)
+/// Check if the running daemon's version matches the CLI binary exactly.
+/// Returns `true` if the version file is missing or empty (daemon still starting).
+fn versions_match(version_path: &std::path::Path) -> bool {
+    let daemon_version = std::fs::read_to_string(version_path).unwrap_or_default();
+    let daemon_version = daemon_version.trim();
+    daemon_version.is_empty() || daemon_version == crate::BUILD_VERSION
 }
 
-fn check_version(ready_path: &std::path::Path) -> Result<(), CliError> {
-    let daemon_version = std::fs::read_to_string(ready_path).unwrap_or_default();
-    if major_minor(&daemon_version) != major_minor(crate::BUILD_VERSION) {
-        return Err(CliError::VersionMismatch {
-            cli: crate::BUILD_VERSION.to_string(),
-            daemon: daemon_version,
-        });
+/// Stop the running daemon and start a fresh one with the current binary.
+async fn restart_daemon() -> Result<(), CliError> {
+    if let Some(pid) = server::read_daemon_pid() {
+        eprintln!("daemon version mismatch, restarting (pid={pid})...",);
+        server::send_sigterm(pid);
+
+        // Wait for flock release (up to 5 seconds)
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_secs(5) {
+            if !server::is_daemon_running() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
     }
-    Ok(())
+
+    // Remove stale ready/version files so wait_for_daemon doesn't see old data
+    cleanup_stale_files();
+
+    auto_start_daemon()
+}
+
+/// Wait for daemon to be ready and connect (up to 10 seconds).
+async fn wait_for_daemon(
+    path: &std::path::Path,
+    ready_path: &std::path::Path,
+    version_path: &std::path::Path,
+) -> Result<DaemonClient, CliError> {
+    for _ in 0..100 {
+        if ready_path.exists()
+            && let Ok(stream) = UnixStream::connect(path).await
+        {
+            if versions_match(version_path) {
+                let (reader, writer) = tokio::io::split(stream);
+                return Ok(DaemonClient { reader, writer });
+            }
+            drop(stream); // Old daemon still responding during restart window
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    Err(CliError::DaemonNotRunning)
+}
+
+fn cleanup_stale_files() {
+    let socket_dir = server::socket_path()
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .to_owned();
+    std::fs::remove_file(socket_dir.join("daemon.sock")).ok();
+    std::fs::remove_file(socket_dir.join("daemon.ready")).ok();
+    std::fs::remove_file(socket_dir.join("daemon.version")).ok();
 }
 
 fn auto_start_daemon() -> Result<(), CliError> {
@@ -123,62 +164,57 @@ mod tests {
         (major, minor, patch)
     }
 
-    fn write_ready_file(version: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+    fn write_version_file(version: &str) -> (tempfile::TempDir, std::path::PathBuf) {
         let dir = tempfile::tempdir().unwrap();
-        let ready_path = dir.path().join("daemon.ready");
-        std::fs::write(&ready_path, version).unwrap();
-        (dir, ready_path)
+        let version_path = dir.path().join("daemon.version");
+        std::fs::write(&version_path, version).unwrap();
+        (dir, version_path)
     }
 
     #[test]
-    fn check_version_accepts_same_major_minor_with_patch_hash_delta() {
-        let (major, minor, patch) = parsed_build_version();
-        let daemon_version = format!("{major}.{minor}.{}-hash2", patch + 1);
-        let (_dir, ready_path) = write_ready_file(&daemon_version);
+    fn versions_match_exact() {
+        let (_dir, path) = write_version_file(crate::BUILD_VERSION);
+        assert!(versions_match(&path), "exact version must match");
+    }
 
-        let result = check_version(&ready_path);
+    #[test]
+    fn versions_match_empty_file() {
+        let (_dir, path) = write_version_file("");
         assert!(
-            result.is_ok(),
-            "same major.minor should be compatible: cli={}, daemon={daemon_version}",
-            crate::BUILD_VERSION
+            versions_match(&path),
+            "empty version file (daemon starting) must be treated as match"
         );
     }
 
     #[test]
-    fn check_version_accepts_exact_match() {
-        let (_dir, ready_path) = write_ready_file(crate::BUILD_VERSION);
-
-        let result = check_version(&ready_path);
-        assert!(result.is_ok(), "exact version match should stay compatible");
-    }
-
-    #[test]
-    fn check_version_accepts_missing_hash_on_daemon_side() {
-        let (major, minor, patch) = parsed_build_version();
-        let daemon_version = format!("{major}.{minor}.{patch}");
-        let (_dir, ready_path) = write_ready_file(&daemon_version);
-
-        let result = check_version(&ready_path);
+    fn versions_match_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.version");
         assert!(
-            result.is_ok(),
-            "same major.minor.patch should stay compatible when daemon omits hash: cli={}, daemon={daemon_version}",
-            crate::BUILD_VERSION
+            versions_match(&path),
+            "missing version file must be treated as match"
         );
     }
 
     #[test]
-    fn check_version_rejects_different_minor() {
+    fn versions_mismatch_different_patch() {
+        let (major, minor, patch) = parsed_build_version();
+        let daemon_version = format!("{major}.{minor}.{}", patch + 1);
+        let (_dir, path) = write_version_file(&daemon_version);
+        assert!(
+            !versions_match(&path),
+            "different patch version must NOT match (full version compare)"
+        );
+    }
+
+    #[test]
+    fn versions_mismatch_different_minor() {
         let (major, minor, _) = parsed_build_version();
         let daemon_version = format!("{major}.{}.0", minor + 1);
-        let (_dir, ready_path) = write_ready_file(&daemon_version);
-
-        let err = check_version(&ready_path).expect_err("different minor must be incompatible");
-        match err {
-            CliError::VersionMismatch { cli, daemon } => {
-                assert_eq!(cli, crate::BUILD_VERSION);
-                assert_eq!(daemon, daemon_version);
-            }
-            other => panic!("expected VersionMismatch, got {other:?}"),
-        }
+        let (_dir, path) = write_version_file(&daemon_version);
+        assert!(
+            !versions_match(&path),
+            "different minor version must NOT match"
+        );
     }
 }

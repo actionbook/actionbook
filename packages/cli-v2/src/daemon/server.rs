@@ -34,6 +34,11 @@ pub fn pid_path() -> PathBuf {
     socket_path().with_extension("pid")
 }
 
+/// Version file path (same directory as socket).
+pub fn version_path() -> PathBuf {
+    socket_path().with_extension("version")
+}
+
 /// Check if a daemon is already running by probing the PID file lock.
 ///
 /// Uses `flock(LOCK_EX | LOCK_NB)` — if the lock cannot be acquired, a daemon
@@ -197,6 +202,10 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
         crate::BUILD_VERSION
     );
 
+    // Write version file for version mismatch detection
+    let ver_path = version_path();
+    std::fs::write(&ver_path, crate::BUILD_VERSION)?;
+
     // Write ready signal with build version for CLI version check
     std::fs::write(&ready_path, crate::BUILD_VERSION)?;
 
@@ -293,6 +302,7 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
     // Cleanup files
     std::fs::remove_file(&path).ok();
     std::fs::remove_file(&ready_path).ok();
+    std::fs::remove_file(version_path()).ok();
     std::fs::remove_file(&pid_file).ok();
 
     info!("daemon shutdown complete (pid={})", std::process::id());
