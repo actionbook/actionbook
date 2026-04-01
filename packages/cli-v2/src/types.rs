@@ -4,7 +4,7 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 /// Semantic session identifier.
-/// Auto-generated format: `SLOCAL-N`, `SCLOUD-N`, `SEXT-N`.
+/// Auto-generated format: `sN` (e.g. `s1`, `s2`, `s3`). Global counter, mode-agnostic.
 /// Manual format (--set-session-id): `^[a-z][a-z0-9-]{1,63}$`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SessionId(pub String);
@@ -22,15 +22,8 @@ impl SessionId {
         if id.len() < 2 || id.len() > 64 {
             return false;
         }
-        // Accept auto-generated SLOCAL-N / SCLOUD-N / SEXT-N format.
-        if let Some(rest) = id
-            .strip_prefix("SLOCAL-")
-            .or_else(|| id.strip_prefix("SCLOUD-"))
-            .or_else(|| id.strip_prefix("SEXT-"))
-        {
-            return !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit());
-        }
-        // Manual (--set-session-id): lowercase start, then lowercase/digit/hyphen.
+        // All session IDs: lowercase start, then lowercase/digit/hyphen.
+        // Auto-generated `sN` (e.g. s1, s42) satisfies this naturally.
         let bytes = id.as_bytes();
         if !bytes[0].is_ascii_lowercase() {
             return false;
@@ -44,18 +37,13 @@ impl SessionId {
         SessionId(id.into())
     }
 
-    /// Generate `SLOCAL-N` / `SCLOUD-N` / `SEXT-N` for the given mode.
+    /// Generate `sN` (e.g. `s1`, `s2`) — global counter, mode-agnostic.
     /// `n` is the 1-based counter value (already computed by the registry).
-    pub fn auto_generate(mode: Mode, n: u32) -> Self {
-        let prefix = match mode {
-            Mode::Local => "SLOCAL",
-            Mode::Cloud => "SCLOUD",
-            Mode::Extension => "SEXT",
-        };
-        SessionId(format!("{prefix}-{n}"))
+    pub fn auto_generate(n: u32) -> Self {
+        SessionId(format!("s{n}"))
     }
 
-    pub fn from_profile(profile: &str, mode: Mode, suffix: u32) -> Self {
+    pub fn from_profile(profile: &str, suffix: u32) -> Self {
         let sanitized = Self::sanitize_profile(profile);
         let max_base = if suffix == 0 {
             64
@@ -78,7 +66,7 @@ impl SessionId {
         if Self::is_valid(&base) {
             SessionId(base)
         } else {
-            Self::auto_generate(mode, suffix + 1)
+            Self::auto_generate(suffix + 1)
         }
     }
 
@@ -230,18 +218,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn session_id_accepts_uppercase_auto_prefixes() {
+    fn session_id_accepts_auto_generated_format() {
         assert_eq!(
-            SessionId::new("SLOCAL-1").expect("uppercase local id should be valid"),
-            SessionId::new_unchecked("SLOCAL-1")
+            SessionId::new("s1").expect("s1 should be valid"),
+            SessionId::new_unchecked("s1")
         );
         assert_eq!(
-            SessionId::new("SCLOUD-42").expect("uppercase cloud id should be valid"),
-            SessionId::new_unchecked("SCLOUD-42")
+            SessionId::new("s42").expect("s42 should be valid"),
+            SessionId::new_unchecked("s42")
         );
         assert_eq!(
-            SessionId::new("SEXT-9999").expect("uppercase extension id should be valid"),
-            SessionId::new_unchecked("SEXT-9999")
+            SessionId::new("s9999").expect("s9999 should be valid"),
+            SessionId::new_unchecked("s9999")
         );
+    }
+
+    #[test]
+    fn session_id_rejects_old_uppercase_prefixes() {
+        assert!(SessionId::new("SLOCAL-1").is_err());
+        assert!(SessionId::new("SCLOUD-42").is_err());
+        assert!(SessionId::new("SEXT-9999").is_err());
     }
 }
