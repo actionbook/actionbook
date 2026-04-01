@@ -24,11 +24,22 @@ impl DaemonClient {
 
         // Try connecting to an existing daemon
         if let Ok(stream) = UnixStream::connect(&path).await {
-            if versions_match(&version_path) {
+            // Wait briefly for version file — daemon may still be writing it
+            let mut matched = versions_match(&version_path);
+            if !matched {
+                for _ in 0..10 {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    if versions_match(&version_path) {
+                        matched = true;
+                        break;
+                    }
+                }
+            }
+            if matched {
                 let (reader, writer) = tokio::io::split(stream);
                 return Ok(DaemonClient { reader, writer });
             }
-            // Version mismatch — drop connection, restart daemon
+            // Version mismatch confirmed — drop connection, restart daemon
             drop(stream);
             restart_daemon().await?;
             return wait_for_daemon(&path, &ready_path, &version_path).await;
@@ -83,9 +94,16 @@ async fn restart_daemon() -> Result<(), CliError> {
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
+
+        // If old daemon is still running after timeout, don't force-clean
+        if server::is_daemon_running() {
+            return Err(CliError::Internal(
+                "old daemon did not exit after SIGTERM (5s timeout)".to_string(),
+            ));
+        }
     }
 
-    // Remove stale ready/version files so wait_for_daemon doesn't see old data
+    // Old daemon is confirmed gone — safe to clean up stale files
     cleanup_stale_files();
 
     auto_start_daemon()
