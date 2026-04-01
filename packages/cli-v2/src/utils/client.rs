@@ -101,25 +101,36 @@ fn versions_match(version_path: &std::path::Path) -> bool {
 
 /// Stop the running daemon and start a fresh one with the current binary.
 async fn restart_daemon() -> Result<(), CliError> {
-    if let Some(pid) = server::read_daemon_pid().filter(|&p| p > 0) {
-        eprintln!("daemon version mismatch, restarting (pid={pid})...",);
+    let Some(pid) = server::read_daemon_pid().filter(|&p| p > 0) else {
+        // No valid PID — cannot signal old daemon. If flock is still held,
+        // don't blindly clean up files (would break the live daemon).
+        if server::is_daemon_running() {
+            return Err(CliError::Internal(
+                "daemon PID file missing/corrupt but daemon is still running".to_string(),
+            ));
+        }
+        // Daemon is truly gone — clean up and start fresh
+        cleanup_stale_files();
+        return auto_start_daemon();
+    };
 
-        // send_sigterm returns false if process is already dead (ESRCH)
-        if server::send_sigterm(pid) {
-            // Wait for the specific PID to exit (up to 5 seconds).
-            let start = std::time::Instant::now();
-            while start.elapsed() < Duration::from_secs(5) {
-                if !server::is_pid_alive(pid) {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
+    eprintln!("daemon version mismatch, restarting (pid={pid})...",);
 
-            if server::is_pid_alive(pid) {
-                return Err(CliError::Internal(
-                    "old daemon did not exit after SIGTERM (5s timeout)".to_string(),
-                ));
+    // send_sigterm returns false if process is already dead (ESRCH)
+    if server::send_sigterm(pid) {
+        // Wait for the specific PID to exit (up to 5 seconds).
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_secs(5) {
+            if !server::is_pid_alive(pid) {
+                break;
             }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        if server::is_pid_alive(pid) {
+            return Err(CliError::Internal(
+                "old daemon did not exit after SIGTERM (5s timeout)".to_string(),
+            ));
         }
     }
 
