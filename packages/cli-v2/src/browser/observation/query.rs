@@ -198,6 +198,14 @@ fn css_query_js(selector_json: &str) -> String {
         var cs = window.getComputedStyle(el);
         return cs.display !== 'none' && cs.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
     }}
+    function ownText(el) {{
+        var text = '';
+        for (var i = 0; i < el.childNodes.length; i++) {{
+            var node = el.childNodes[i];
+            if (node && node.nodeType === 3) text += node.textContent || '';
+        }}
+        return text.trim();
+    }}
     var working = (raw || '').trim();
     var cI = extractCalls(working, 'contains'); working = cI.remaining;
     var hI = extractCalls(working, 'has'); working = hI.remaining;
@@ -214,7 +222,7 @@ fn css_query_js(selector_json: &str) -> String {
         if (eI.enabled && !!el.disabled) return false;
         if (dI.enabled && !el.disabled) return false;
         if (chI.enabled && !el.checked) return false;
-        var text = (el.innerText || el.textContent || '').trim();
+        var text = ownText(el);
         for (var i = 0; i < cTexts.length; i++) {{ if (text.indexOf(cTexts[i]) === -1) return false; }}
         for (var j = 0; j < hSels.length; j++) {{
             try {{ if (!el.querySelector(hSels[j])) return false; }}
