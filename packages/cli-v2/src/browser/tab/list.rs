@@ -74,10 +74,24 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         .cloned()
         .unwrap_or_default();
 
-    // Filter by type=="page" and cross-reference with registry
-    let tabs: Vec<serde_json::Value> = {
-        let reg = registry.lock().await;
-        let entry = match reg.get(&cmd.session) {
+    let live_pages: Vec<(&str, &str, &str)> = target_infos
+        .iter()
+        .filter(|tgt| tgt.get("type").and_then(|v| v.as_str()) == Some("page"))
+        .map(|tgt| {
+            let native_id = tgt.get("targetId").and_then(|v| v.as_str()).unwrap_or("");
+            let url = tgt.get("url").and_then(|v| v.as_str()).unwrap_or("");
+            let title = tgt.get("title").and_then(|v| v.as_str()).unwrap_or("");
+            (native_id, url, title)
+        })
+        .collect();
+
+    // Sync registry with live CDP state:
+    // - Matching native_id → keep short tab ID, update url/title
+    // - Stale registry tabs (not in CDP) → remove
+    // - New CDP tabs (not in registry) → assign new short ID
+    let (tabs, to_attach): (Vec<serde_json::Value>, Vec<String>) = {
+        let mut reg = registry.lock().await;
+        let entry = match reg.get_mut(&cmd.session) {
             Some(e) => e,
             None => {
                 return ActionResult::fatal_with_hint(
@@ -88,30 +102,47 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             }
         };
 
+        // Remove stale tabs whose native_id no longer exists in CDP
         entry
             .tabs
-            .iter()
-            .filter_map(|t| {
-                let native_id = &t.native_id;
-                target_infos
-                    .iter()
-                    .find(|tgt| {
-                        tgt.get("targetId").and_then(|v| v.as_str()) == Some(native_id.as_str())
-                            && tgt.get("type").and_then(|v| v.as_str()) == Some("page")
-                    })
-                    .map(|tgt| {
-                        let url = tgt.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                        let title = tgt.get("title").and_then(|v| v.as_str()).unwrap_or("");
-                        json!({
-                            "tab_id": t.id.0,
-                            "native_tab_id": native_id,
-                            "url": url,
-                            "title": title,
-                        })
-                    })
-            })
-            .collect()
+            .retain(|t| live_pages.iter().any(|(nid, _, _)| *nid == t.native_id));
+
+        let mut result = Vec::new();
+        let mut to_attach = Vec::new();
+        for (native_id, url, title) in &live_pages {
+            // Find existing short ID or assign a new one
+            if let Some(existing) = entry.tabs.iter_mut().find(|t| t.native_id == *native_id) {
+                // Update url/title from live CDP data
+                existing.url = url.to_string();
+                existing.title = title.to_string();
+                result.push(json!({
+                    "tab_id": existing.id.0,
+                    "native_tab_id": native_id,
+                    "url": url,
+                    "title": title,
+                }));
+            } else {
+                // New tab — assign next short ID and mark for CDP attach
+                entry.push_tab(native_id.to_string(), url.to_string(), title.to_string());
+                let new_tab = entry.tabs.last().unwrap();
+                to_attach.push(native_id.to_string());
+                result.push(json!({
+                    "tab_id": new_tab.id.0,
+                    "native_tab_id": native_id,
+                    "url": url,
+                    "title": title,
+                }));
+            }
+        }
+        (result, to_attach)
     };
+
+    // Attach newly discovered tabs outside the registry lock
+    for native_id in &to_attach {
+        if let Err(e) = cdp.attach(native_id, None).await {
+            tracing::warn!("failed to attach discovered tab {native_id}: {e}");
+        }
+    }
 
     ActionResult::ok(json!({
         "total_tabs": tabs.len(),

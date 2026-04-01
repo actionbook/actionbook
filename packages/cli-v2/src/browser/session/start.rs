@@ -423,6 +423,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     entry.cdp = Some(cdp);
     entry.stealth_ua = user_agent;
 
+    // Create per-session data directory for artifacts (snapshots, etc.)
+    let session_data_dir = config::session_data_dir(session_id.as_str());
+    std::fs::create_dir_all(&session_data_dir).ok();
+
     let first_short_id = entry
         .tabs
         .first()
@@ -732,6 +736,10 @@ async fn execute_cloud(
     entry.cdp = Some(cdp);
     entry.cdp_endpoint = Some(cdp_endpoint.to_string());
     entry.headers = headers.to_vec();
+
+    // Create per-session data directory for artifacts (snapshots, etc.)
+    let session_data_dir = config::session_data_dir(session_id.as_str());
+    std::fs::create_dir_all(&session_data_dir).ok();
 
     let first_short_id = entry
         .tabs

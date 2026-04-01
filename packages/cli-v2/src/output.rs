@@ -463,9 +463,11 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
             }
         }
         "browser snapshot" => {
-            // §10.1: text mode outputs content directly (no "ok" prefix)
-            if let Some(content) = data.get("content").and_then(|v| v.as_str()) {
-                lines.push(content.to_string());
+            // Snapshot output is saved to a file; show the path and ref usage hint.
+            lines.push("Elements are labeled with refs (e.g. [ref=e5]). Use the @eN syntax to target elements in other commands: click @e5, fill @e7 \"text\", hover @e3.".to_string());
+            lines.push("Refs are stable across snapshots — if the DOM node stays the same, the ref stays the same.".to_string());
+            if let Some(path) = data.get("path").and_then(|v| v.as_str()) {
+                lines.push(format!("output saved to {path}"));
             }
         }
         "browser html" | "browser text" | "browser value" | "browser attr" => {

@@ -81,6 +81,17 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }
     }
 
+    // Remove per-session data directory (snapshots, etc.).
+    // Safety: only delete if the path is an absolute path under sessions_dir().
+    let sessions_base = crate::config::sessions_dir();
+    let session_data_dir = sessions_base.join(&cmd.session);
+    if session_data_dir.is_absolute()
+        && session_data_dir.starts_with(&sessions_base)
+        && session_data_dir.exists()
+    {
+        let _ = std::fs::remove_dir_all(&session_data_dir);
+    }
+
     ActionResult::ok(json!({
         "session_id": cmd.session,
         "status": "closed",

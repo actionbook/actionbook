@@ -22,10 +22,10 @@ Examples:
   actionbook browser snapshot --selector \"#main\" --session s1 --tab t1
 
 Flags: -i (interactive only), -c (compact), --cursor (include cursor-interactive).
-Elements are labeled with refs (e.g. [ref=e1]) for use in click, fill, etc.
+Elements are labeled with refs (e.g. @e1, @e2). Use the @eN syntax to target
+elements in other commands: click @e5, fill @e7 \"text\", hover @e3.
 Refs are stable across snapshots — if the DOM node stays the same, the ref
-stays the same. This lets agents chain commands (click @e5, fill @e7, press
-Enter) without re-snapshotting after every step.")]
+stays the same. This lets agents chain commands without re-snapshotting after every step.")]
 pub struct Cmd {
     /// Session ID
     #[arg(long)]
@@ -186,9 +186,25 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Build output per §10.1
     let output = snapshot_transform::build_output(nodes);
 
+    // Write snapshot content to a file in the session data directory.
+    let session_data_dir = crate::config::session_data_dir(&cmd.session);
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let snapshot_path = session_data_dir.join(format!("snapshot_{ts}.txt"));
+    let snapshot_path_str = snapshot_path.to_string_lossy().to_string();
+
+    if let Err(e) = std::fs::write(&snapshot_path, &output.content) {
+        return ActionResult::fatal(
+            "ARTIFACT_WRITE_FAILED",
+            format!("failed to write snapshot to {snapshot_path_str}: {e}"),
+        );
+    }
+
     let mut data = json!({
         "format": "snapshot",
-        "content": output.content,
+        "path": snapshot_path_str,
         "nodes": output.nodes,
         "stats": {
             "node_count": output.node_count,
