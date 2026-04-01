@@ -272,6 +272,8 @@ async fn execute_inner(
         Ok(v) => v,
         Err(e) => return e,
     };
+    // Save the source frame context before destination resolution overwrites it
+    let src_frame_id = ctx.resolved_frame_id().map(String::from);
 
     // Resolve destination to coordinates
     let (dst_x, dst_y) = match destination {
@@ -284,7 +286,11 @@ async fn execute_inner(
 
     // Re-read source coordinates: the destination scroll may have moved
     // the viewport, making the original src_x/src_y stale.
-    if let Ok((rx, ry)) = ctx.get_center(src_node_id, &cmd.source).await {
+    // Use the saved source frame_id to ensure we query the correct frame.
+    if let Ok((rx, ry)) = ctx
+        .get_center(src_node_id, &cmd.source, src_frame_id.as_deref())
+        .await
+    {
         src_x = rx;
         src_y = ry;
     }

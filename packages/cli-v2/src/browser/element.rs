@@ -129,12 +129,15 @@ impl TabContext {
     /// Use after a prior `resolve_center` / `resolve_node` when you need
     /// fresh viewport coordinates but the element was already scrolled into
     /// view (e.g. drag re-reads source position after destination scroll).
+    ///
+    /// `frame_id` overrides `resolved_frame_id` so callers can target the
+    /// correct frame even after a subsequent resolve changed the context.
     pub async fn get_center(
         &self,
         node_id: i64,
         selector: &str,
+        frame_id: Option<&str>,
     ) -> Result<(f64, f64), ActionResult> {
-        let frame_id = self.resolved_frame_id.as_deref();
         get_element_center_for_frame(&self.cdp, &self.target_id, node_id, selector, frame_id).await
     }
 
