@@ -123,7 +123,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let (x, y) = match &target {
         ClickTarget::Coordinates(cx, cy) => (*cx, *cy),
         ClickTarget::Selector(sel) => match ctx.resolve_center(sel).await {
-            Ok(coords) => coords,
+            Ok((_node_id, cx, cy)) => (cx, cy),
             Err(e) => return e,
         },
     };

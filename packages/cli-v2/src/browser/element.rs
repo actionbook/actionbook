@@ -106,11 +106,35 @@ impl TabContext {
         }
     }
 
-    /// Selector → centre `(x, y)` coordinates. Sets `resolved_frame_id`.
-    pub async fn resolve_center(&mut self, selector: &str) -> Result<(f64, f64), ActionResult> {
+    /// Selector → `(nodeId, centre_x, centre_y)`. Sets `resolved_frame_id`.
+    ///
+    /// Returns the nodeId alongside the coordinates so callers (e.g. drag)
+    /// can later call `get_center(node_id)` to refresh coordinates without
+    /// re-scrolling.
+    pub async fn resolve_center(
+        &mut self,
+        selector: &str,
+    ) -> Result<(i64, f64, f64), ActionResult> {
         let node_id = self.resolve_node(selector).await?;
         let frame_id = self.resolved_frame_id.as_deref();
         scroll_into_view_for_frame(&self.cdp, &self.target_id, node_id, frame_id).await?;
+        let (x, y) =
+            get_element_center_for_frame(&self.cdp, &self.target_id, node_id, selector, frame_id)
+                .await?;
+        Ok((node_id, x, y))
+    }
+
+    /// Get the centre `(x, y)` of an already-resolved element **without scrolling**.
+    ///
+    /// Use after a prior `resolve_center` / `resolve_node` when you need
+    /// fresh viewport coordinates but the element was already scrolled into
+    /// view (e.g. drag re-reads source position after destination scroll).
+    pub async fn get_center(
+        &self,
+        node_id: i64,
+        selector: &str,
+    ) -> Result<(f64, f64), ActionResult> {
+        let frame_id = self.resolved_frame_id.as_deref();
         get_element_center_for_frame(&self.cdp, &self.target_id, node_id, selector, frame_id).await
     }
 
