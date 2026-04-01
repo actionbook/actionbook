@@ -77,11 +77,17 @@ pub fn send_sigterm(pid: i32) {
 }
 
 /// Check if a specific process is still alive (kill -0).
+/// Returns `true` if the process exists (including EPERM — the process is
+/// alive but we cannot signal it).  Only ESRCH means definitely dead.
 pub fn is_pid_alive(pid: i32) -> bool {
     unsafe extern "C" {
         safe fn kill(pid: i32, sig: i32) -> i32;
     }
-    kill(pid, 0) == 0
+    if kill(pid, 0) == 0 {
+        return true; // Signal succeeded → alive
+    }
+    // kill failed — check errno: EPERM means alive but no permission
+    std::io::Error::last_os_error().raw_os_error() == Some(1) // EPERM = 1
 }
 
 /// Try to acquire an exclusive non-blocking file lock.
