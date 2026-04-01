@@ -11,6 +11,10 @@ use crate::output::ResponseContext;
 
 use super::snapshot_transform::{self, CursorInfo, SnapshotOptions};
 
+fn cursor_default() -> bool {
+    true
+}
+
 /// Capture accessibility snapshot
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
 #[command(after_help = "\
@@ -21,7 +25,7 @@ Examples:
   actionbook browser snapshot -i --depth 3 --session s1 --tab t1
   actionbook browser snapshot --selector \"#main\" --session s1 --tab t1
 
-Flags: -i (interactive only), -c (compact), --cursor (include cursor-interactive).
+Flags: -i (interactive only), -c (compact), --cursor (cursor-interactive on by default).
 Elements are labeled with refs (e.g. @e1, @e2). Use the @eN syntax to target
 elements in other commands: click @e5, fill @e7 \"text\", hover @e3.
 Refs are stable across snapshots — if the DOM node stays the same, the ref
@@ -43,9 +47,9 @@ pub struct Cmd {
     #[arg(long, short = 'c', default_value_t = false)]
     #[serde(default)]
     pub compact: bool,
-    /// Additionally include cursor-interactive custom elements (cursor:pointer, onclick, tabindex)
-    #[arg(long, default_value_t = false)]
-    #[serde(default)]
+    /// Include cursor-interactive custom elements (cursor:pointer, onclick, tabindex) — enabled by default
+    #[arg(long, default_value_t = true)]
+    #[serde(default = "cursor_default")]
     pub cursor: bool,
     /// Limit maximum tree depth
     #[arg(long, short = 'd')]
