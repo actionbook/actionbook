@@ -298,7 +298,7 @@ def _handle_reload(
     yield tool.create_text_message(f"Page reloaded.\nURL: {page.url}")
 
 
-# Accessibility-tree snapshot JS — ported from actionbook-rs browser.rs
+# Accessibility-tree snapshot JS — ported from actionbook CLI browser.rs
 _SNAPSHOT_JS = r"""
 (function() {
     const SKIP_TAGS = new Set([
@@ -457,7 +457,7 @@ _SNAPSHOT_JS = r"""
 def _render_snapshot_node(node: dict[str, Any], depth: int = 0) -> str:
     """Render a snapshot tree node as indented text lines.
 
-    Output format matches actionbook-rs render_snapshot_tree:
+    Output format matches actionbook CLI render_snapshot_tree:
       - heading "Title" [ref=e1] [level=1]
       - button "Submit" [ref=e2]
       - link "Home" [ref=e3]:

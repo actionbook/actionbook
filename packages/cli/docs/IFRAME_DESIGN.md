@@ -6,7 +6,7 @@
 
 ## Overview
 
-Add iframe content expansion to the CLI v2 snapshot system. Currently, snapshots only capture the main frame's accessibility tree, ignoring content inside iframes (embedded forms, OAuth popups, third-party widgets, etc.).
+Add iframe content expansion to the CLI snapshot system. Currently, snapshots only capture the main frame's accessibility tree, ignoring content inside iframes (embedded forms, OAuth popups, third-party widgets, etc.).
 
 Goals:
 - Automatically expand 1 level of iframe content in snapshots

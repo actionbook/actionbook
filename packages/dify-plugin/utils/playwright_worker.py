@@ -2,7 +2,7 @@
 
 Runs outside Dify's patched runtime and executes browser operations over JSONL.
 
-Supports three selector formats (matching actionbook-rs behavior):
+Supports three selector formats (matching actionbook CLI behavior):
   - CSS selectors: ".btn", "#submit", "button:has-text('OK')"
   - XPath selectors: "//button[text()='Submit']"
   - Snapshot refs: "@e5" or "[ref=e5]" (resolved via DOM re-walk)
@@ -21,7 +21,7 @@ from playwright.sync_api import sync_playwright
 _REF_RE = re.compile(r"^(?:@e(\d+)|\[ref=e(\d+)\])$")
 
 # JavaScript that defines __findElement(selector).
-# Ported from actionbook-rs session.rs — supports CSS, XPath, and @eN refs.
+# Ported from actionbook CLI session.rs — supports CSS, XPath, and @eN refs.
 _FIND_ELEMENT_JS = r"""
 function __findElement(selector) {
     // Normalize [ref=eN] format to @eN
