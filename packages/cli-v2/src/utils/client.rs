@@ -86,17 +86,20 @@ async fn restart_daemon() -> Result<(), CliError> {
         eprintln!("daemon version mismatch, restarting (pid={pid})...",);
         server::send_sigterm(pid);
 
-        // Wait for flock release (up to 5 seconds)
+        // Wait for the specific PID to exit (up to 5 seconds).
+        // Use kill(pid, 0) instead of is_daemon_running() to track the
+        // original process — a concurrent CLI may have already started a
+        // new daemon, making the global flock check return true.
         let start = std::time::Instant::now();
         while start.elapsed() < Duration::from_secs(5) {
-            if !server::is_daemon_running() {
+            if !server::is_pid_alive(pid) {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
-        // If old daemon is still running after timeout, don't force-clean
-        if server::is_daemon_running() {
+        // If the specific old process is still alive, don't force-clean
+        if server::is_pid_alive(pid) {
             return Err(CliError::Internal(
                 "old daemon did not exit after SIGTERM (5s timeout)".to_string(),
             ));

@@ -76,6 +76,14 @@ pub fn send_sigterm(pid: i32) {
     kill(pid, 15); // SIGTERM = 15
 }
 
+/// Check if a specific process is still alive (kill -0).
+pub fn is_pid_alive(pid: i32) -> bool {
+    unsafe extern "C" {
+        safe fn kill(pid: i32, sig: i32) -> i32;
+    }
+    kill(pid, 0) == 0
+}
+
 /// Try to acquire an exclusive non-blocking file lock.
 ///
 /// Uses `flock(fd, LOCK_EX | LOCK_NB)`. Returns `true` if the lock was acquired.
