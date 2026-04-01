@@ -76,6 +76,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Remove non-default profile directory after Chrome has fully exited.
     if let Some(profile) = profile_to_clean {
         let profile_dir = crate::config::profiles_dir().join(&profile);
+        // Remove chrome.pid so a future browser start does not mistake the
+        // now-dead PID for an orphan.
+        let _ = std::fs::remove_file(profile_dir.join("chrome.pid"));
         if profile_dir.exists() {
             let _ = std::fs::remove_dir_all(&profile_dir);
         }

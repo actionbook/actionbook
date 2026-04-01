@@ -215,6 +215,26 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }
     }
 
+    // Kill any orphan Chrome from a previous daemon crash/SIGKILL.
+    // When the daemon is SIGKILL'd, it cannot run its graceful shutdown path,
+    // so Chrome is left alive using the same user-data-dir. A new Chrome
+    // launched against the same dir would race with the orphan and likely crash,
+    // causing discover_ws_url to time out with CDP_CONNECTION_FAILED.
+    let chrome_pid_file = user_data_dir.join("chrome.pid");
+    if let Ok(pid_str) = std::fs::read_to_string(&chrome_pid_file) {
+        if let Ok(pid) = pid_str.trim().parse::<i32>() {
+            unsafe extern "C" {
+                safe fn kill(pid: i32, sig: i32) -> i32;
+            }
+            // kill(pid, 0) checks liveness without sending a signal (POSIX).
+            if kill(pid, 0) == 0 {
+                kill(pid, 9); // SIGKILL orphan
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+        }
+        let _ = std::fs::remove_file(&chrome_pid_file);
+    }
+
     let (mut chrome_process, port, ws_url, mut targets) = if let Some(endpoint) = cdp_endpoint {
         let (ws_url, port) = match browser::resolve_cdp_endpoint(endpoint).await {
             Ok(value) => value,
@@ -295,6 +315,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         };
 
         let targets = browser::list_targets(port).await.unwrap_or_default();
+        // Write Chrome PID so a future daemon restart can detect and kill this
+        // process if the daemon is SIGKILL'd before it can run graceful shutdown.
+        let _ = std::fs::write(&chrome_pid_file, chrome.id().to_string());
         (Some(chrome), Some(port), ws_url, targets)
     };
 

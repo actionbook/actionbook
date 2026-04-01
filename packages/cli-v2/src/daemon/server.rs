@@ -202,9 +202,11 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
 
     let registry = new_shared_registry();
 
-    // Handle both SIGINT and SIGTERM
+    // Handle SIGINT, SIGTERM, and SIGHUP (terminal close).
     #[cfg(unix)]
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    #[cfg(unix)]
+    let mut sighup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
 
     // Idle timeout housekeeping
     let mut last_activity = Instant::now();
@@ -236,6 +238,10 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
             }
             _ = sigterm.recv() => {
                 info!("received SIGTERM, shutting down");
+                break;
+            }
+            _ = sighup.recv() => {
+                info!("received SIGHUP, shutting down");
                 break;
             }
             _ = housekeeping.tick() => {
