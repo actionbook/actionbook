@@ -1607,6 +1607,148 @@ fn double_close_returns_not_found() {
     assert_eq!(v["error"]["code"], "SESSION_NOT_FOUND");
 }
 
+// ===========================================================================
+// Group N: daemon crash recovery — orphan Chrome cleanup on next browser start
+// ===========================================================================
+
+/// When the daemon is SIGKILL'd (crash / OOM), Chrome is left as an orphan
+/// process. The next `browser start` must detect the stale `chrome.pid` file,
+/// SIGKILL the orphan, and start fresh — no CDP_CONNECTION_FAILED timeout.
+#[test]
+fn lifecycle_daemon_sigkill_orphan_recovered() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+    let profiles_dir = std::path::Path::new(&env.actionbook_home).join("profiles");
+
+    // Step 1: Start a browser session so Chrome is running.
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "sigkill-recover",
+            "--profile",
+            "sigkill-recover-prof",
+        ],
+        30,
+    );
+    assert_success(&out, "start before sigkill");
+
+    // Step 2: Confirm Chrome is alive.
+    let chrome_pids_before = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        !chrome_pids_before.is_empty(),
+        "expected Chrome to be running after browser start"
+    );
+
+    // Step 3: SIGKILL the daemon (simulates crash / kill -9).
+    let pid_path = std::path::Path::new(&env.actionbook_home).join("daemon.pid");
+    let pid_str = std::fs::read_to_string(&pid_path).expect("daemon.pid should exist");
+    let daemon_pid: u32 = pid_str
+        .trim()
+        .parse()
+        .expect("daemon.pid should be a number");
+    let _ = std::process::Command::new("kill")
+        .args(["-9", &daemon_pid.to_string()])
+        .output();
+
+    // Wait for daemon to die.
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Step 4: Chrome should still be alive (orphan — daemon never killed it).
+    let chrome_pids_orphan = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        !chrome_pids_orphan.is_empty(),
+        "Chrome should remain as orphan after daemon SIGKILL, found none — \
+         test setup broken or Chrome exited independently"
+    );
+
+    // Step 5: `browser start` must succeed — orphan detection should kill the
+    // stale Chrome and start a new one. Must NOT timeout or return CDP_CONNECTION_FAILED.
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "sigkill-recover-2",
+            "--profile",
+            "sigkill-recover-prof",
+        ],
+        30,
+    );
+    assert_success(&out, "browser start after daemon SIGKILL");
+    let v = parse_json(&out);
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser start");
+    assert_eq!(v["data"]["session"]["session_id"], "sigkill-recover-2");
+    assert_eq!(v["data"]["session"]["status"], "running");
+}
+
+/// When SIGHUP is sent to the daemon (terminal closed), it should trigger
+/// graceful shutdown — Chrome processes must be killed, same as SIGTERM.
+#[test]
+fn lifecycle_daemon_sighup_closes_chrome() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+    let profiles_dir = std::path::Path::new(&env.actionbook_home).join("profiles");
+
+    // Start a browser session.
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "sighup-test",
+            "--profile",
+            "sighup-test-prof",
+        ],
+        30,
+    );
+    assert_success(&out, "start before sighup");
+
+    let chrome_pids_before = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        !chrome_pids_before.is_empty(),
+        "expected Chrome to be running after browser start"
+    );
+
+    // Send SIGHUP to daemon (simulates terminal close).
+    let pid_path = std::path::Path::new(&env.actionbook_home).join("daemon.pid");
+    let pid_str = std::fs::read_to_string(&pid_path).expect("daemon.pid should exist");
+    let daemon_pid: u32 = pid_str
+        .trim()
+        .parse()
+        .expect("daemon.pid should be a number");
+    let _ = std::process::Command::new("kill")
+        .args(["-1", &daemon_pid.to_string()])
+        .output();
+
+    // Wait for daemon graceful shutdown and Chrome exit.
+    std::thread::sleep(Duration::from_secs(2));
+
+    // Chrome must be gone — SIGHUP should trigger the same graceful cleanup as SIGTERM.
+    let chrome_pids_after = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        chrome_pids_after.is_empty(),
+        "Chrome processes should be killed on SIGHUP graceful shutdown, \
+         but found PIDs: {:?}",
+        chrome_pids_after
+    );
+}
+
 /// Helper: find Chrome PIDs whose --user-data-dir is under the given directory.
 /// Uses `--` to prevent pgrep from interpreting the pattern as options.
 fn find_chrome_pids_for_dir(profiles_dir: &std::path::Path) -> Vec<u32> {
