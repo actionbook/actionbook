@@ -19,7 +19,7 @@ use crate::harness::{
     unique_session, url_a, url_b, wait_url_contains,
 };
 
-const DEFAULT_LOCAL_SESSION_ID: &str = "SLOCAL-1";
+const DEFAULT_LOCAL_SESSION_ID: &str = "s1";
 
 // ===========================================================================
 // 1. lifecycle_open_and_close — JSON (needs default session ID → SoloEnv)
@@ -94,8 +94,8 @@ fn lifecycle_open_and_close_text() {
     assert_success(&out, "start text");
     let text = stdout_str(&out);
     assert!(
-        text.contains("[SLOCAL-1"),
-        "start text: should contain [SLOCAL-1"
+        text.contains("[s1"),
+        "start text: should contain [s1"
     );
     assert!(text.contains("ok browser start"));
     assert!(text.contains("mode: local"));
@@ -108,7 +108,7 @@ fn lifecycle_open_and_close_text() {
     );
     assert_success(&out, "status text");
     let text = stdout_str(&out);
-    assert!(text.contains("[SLOCAL-1]"));
+    assert!(text.contains("[s1]"));
     assert!(text.contains("status: running"));
     assert!(text.contains("mode: local"));
 
@@ -118,7 +118,7 @@ fn lifecycle_open_and_close_text() {
     );
     assert_success(&out, "close text");
     let text = stdout_str(&out);
-    assert!(text.contains("[SLOCAL-1]"));
+    assert!(text.contains("[s1]"));
     assert!(text.contains("ok browser close"));
     assert!(text.contains("closed_tabs:"));
 }
@@ -770,7 +770,7 @@ fn lifecycle_start_reuse_existing_text() {
     let out = env.headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "second start (reuse) text");
     let text = stdout_str(&out);
-    assert!(text.contains("[SLOCAL-1"));
+    assert!(text.contains("[s1"));
     assert!(text.contains("ok browser start"));
     assert!(text.contains("status: running"));
 
