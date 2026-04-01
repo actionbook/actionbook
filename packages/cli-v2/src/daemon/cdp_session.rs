@@ -230,6 +230,22 @@ impl CdpSession {
                     )
                     .await;
             }
+
+            // Set device metrics to ensure proper rendering (broken image test, screen dimensions).
+            let _ = self
+                .execute(
+                    "Emulation.setDeviceMetricsOverride",
+                    json!({
+                        "width": 1920,
+                        "height": 1080,
+                        "deviceScaleFactor": 1.0,
+                        "mobile": false,
+                        "screenWidth": 1920,
+                        "screenHeight": 1080
+                    }),
+                    Some(&session_id),
+                )
+                .await;
         }
 
         Ok(session_id)
@@ -1285,8 +1301,8 @@ mod tests {
     // ── 17. test_attach_stealth_failure_does_not_block ───────────────
 
     /// Stealth injection errors (Page.enable, addScriptToEvaluateOnNewDocument,
-    /// setUserAgentOverride) must NOT cause attach() to fail — they are
-    /// best-effort.
+    /// setUserAgentOverride, setDeviceMetricsOverride) must NOT cause attach()
+    /// to fail — they are best-effort.
     #[tokio::test]
     async fn test_attach_stealth_failure_does_not_block() {
         let (url, mut conns) = mock_ws_server().await;
@@ -1340,6 +1356,15 @@ mod tests {
         send_json(
             &mut writer,
             json!({"id": msg["id"], "error": {"code": -32000, "message": "ua failed"}}),
+        )
+        .await;
+
+        // 7. setDeviceMetricsOverride FAILS
+        let msg = read_json(&mut reader).await;
+        assert_eq!(msg["method"], "Emulation.setDeviceMetricsOverride");
+        send_json(
+            &mut writer,
+            json!({"id": msg["id"], "error": {"code": -32000, "message": "metrics failed"}}),
         )
         .await;
 
