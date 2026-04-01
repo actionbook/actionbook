@@ -23,7 +23,7 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str, unique_session, wait_page_ready,
+    stdout_str, unique_session, url_cursor_fixture, wait_page_ready,
 };
 
 const URL_A: &str = "https://actionbook.dev";
@@ -74,10 +74,10 @@ fn assert_error_envelope(v: &serde_json::Value, expected_code: &str) {
 fn assert_snapshot_data(v: &serde_json::Value) {
     let data = &v["data"];
     assert_eq!(data["format"], "snapshot", "data.format must be 'snapshot'");
-    assert!(data["content"].is_string(), "data.content must be a string");
+    assert!(data["path"].is_string(), "data.path must be a string");
     assert!(
-        !data["content"].as_str().unwrap_or("").is_empty(),
-        "data.content must not be empty"
+        !data["path"].as_str().unwrap_or("").is_empty(),
+        "data.path must not be empty"
     );
     assert!(data["nodes"].is_array(), "data.nodes must be an array");
     assert!(
@@ -115,12 +115,23 @@ fn assert_snapshot_data(v: &serde_json::Value) {
     );
 }
 
-/// Assert content contains [ref=eN] labels.
+fn snapshot_path(v: &serde_json::Value) -> &str {
+    v["data"]["path"].as_str().unwrap_or("")
+}
+
+fn snapshot_content(v: &serde_json::Value) -> String {
+    let path = snapshot_path(v);
+    std::fs::read_to_string(path).unwrap_or_else(|e| {
+        panic!("snapshot path should be readable: {path} ({e})");
+    })
+}
+
+/// Assert saved snapshot file contains [ref=eN] labels.
 fn assert_content_has_refs(v: &serde_json::Value) {
-    let content = v["data"]["content"].as_str().unwrap_or("");
+    let content = snapshot_content(v);
     assert!(
         content.contains("[ref="),
-        "content must contain [ref=eN] labels, got: {content:.100}"
+        "snapshot file must contain [ref=eN] labels, got: {content:.100}"
     );
 }
 
@@ -181,7 +192,7 @@ fn snap_json_envelope() {
 
     // §2.4 envelope
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.snapshot");
+    assert_eq!(v["command"], "browser snapshot");
     assert!(v["error"].is_null());
 
     // context — tab-level
@@ -232,7 +243,7 @@ fn snap_json_data_fields() {
     assert_snapshot_data(&v);
     assert_content_has_refs(&v);
 
-    // §10.1 strict: data must only contain {format, content, nodes, stats}
+    // §10.1 strict: data must only contain {format, path, nodes, stats}
     // No internal fields (__ctx_*, snapshot, etc.) should leak into public data
     let data_keys: Vec<&str> = v["data"]
         .as_object()
@@ -240,7 +251,7 @@ fn snap_json_data_fields() {
         .keys()
         .map(|k| k.as_str())
         .collect();
-    let allowed = ["format", "content", "nodes", "stats"];
+    let allowed = ["format", "path", "nodes", "stats"];
     for key in &data_keys {
         assert!(
             allowed.contains(key),
@@ -317,10 +328,10 @@ fn snap_text_output() {
         "text output must contain [ref=eN] labels: got {text:.200}"
     );
 
-    // Must NOT contain "ok browser.snapshot" (observation commands don't use action format)
+    // Must NOT contain "ok browser snapshot" (observation commands don't use action format)
     assert!(
-        !text.contains("ok browser.snapshot"),
-        "text output must not contain 'ok browser.snapshot' — content is output directly"
+        !text.contains("ok browser snapshot"),
+        "text output must not contain 'ok browser snapshot' — content is output directly"
     );
 
     close_session(&sid);
@@ -572,7 +583,7 @@ fn snap_json_ref_starts_from_e1() {
     let v = parse_json(&out);
 
     // §10.1: refs start from e1 (1-based), never e0
-    let content = v["data"]["content"].as_str().unwrap_or("");
+    let content = snapshot_content(&v);
     assert!(
         content.contains("[ref=e1]"),
         "content must contain [ref=e1] (1-based ref): got {content:.200}"
@@ -611,7 +622,7 @@ fn snap_json_content_no_noise_roles() {
     assert_success(&out, "snapshot no noise");
     let v = parse_json(&out);
 
-    let content = v["data"]["content"].as_str().unwrap_or("");
+    let content = snapshot_content(&v);
 
     // Noise roles must be filtered out of content per snapshot algorithm.
     // Note: StaticText is NOT noise — it carries visible text content.
@@ -793,9 +804,8 @@ fn snap_cursor_content_has_clickable() {
     if skip() {
         return;
     }
-    let (sid, tid) = start_session(URL_A);
+    let (sid, tid) = start_session(&url_cursor_fixture());
     let _guard = SessionGuard::new(&sid);
-    // Use a site likely to have cursor:pointer / onclick elements;
 
     let out = headless_json(
         &[
@@ -812,13 +822,25 @@ fn snap_cursor_content_has_clickable() {
     assert_success(&out, "snapshot cursor content");
     let v = parse_json(&out);
 
-    let content = v["data"]["content"].as_str().unwrap_or("");
-    // If the page has any cursor-interactive elements, content should show "clickable"
-    // This is a soft assertion — some pages may not have cursor-interactive elements
-    // so we just verify the output is valid and doesn't error
+    let generic_count = v["data"]["nodes"]
+        .as_array()
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter(|node| node["role"].as_str() == Some("generic"))
+                .count()
+        })
+        .unwrap_or(0);
     assert!(
-        !content.is_empty(),
-        "cursor snapshot content must not be empty"
+        v["data"]["stats"]["interactive_count"]
+            .as_u64()
+            .unwrap_or(0)
+            >= 3,
+        "cursor fixture should surface 3 interactive cursor nodes in stats"
+    );
+    assert!(
+        generic_count >= 3,
+        "cursor fixture should surface the clickable divs as generic nodes"
     );
 
     close_session(&sid);
@@ -848,7 +870,7 @@ fn snap_session_not_found_json() {
     assert_failure(&out, "snapshot nonexistent session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.snapshot");
+    assert_eq!(v["command"], "browser snapshot");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     // §3.1: context must be null when session not found
     assert!(
@@ -904,7 +926,7 @@ fn snap_tab_not_found_json() {
     assert_failure(&out, "snapshot nonexistent tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.snapshot");
+    assert_eq!(v["command"], "browser snapshot");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     // §3.1: TAB_NOT_FOUND — context has session_id but tab_id must be absent/null
     assert!(
@@ -973,4 +995,55 @@ fn snap_missing_tab_arg() {
     // Missing --tab
     let out = headless_json(&["browser", "snapshot", "--session", "some-session"], 10);
     assert_failure(&out, "snapshot missing --tab");
+}
+
+// ===========================================================================
+// Group 6: snapshot — --cursor default on (§10.1)
+// ===========================================================================
+
+/// Verify that the default `browser snapshot` (no flags) includes cursor-interactive
+/// elements. Uses a deterministic local fixture with a known `cursor:pointer` div,
+/// an `onclick` div, and a `tabindex` div — elements that only appear when cursor
+/// detection is active.
+///
+/// **Expected to FAIL until #212 implementation lands** (cursor default = true).
+#[test]
+fn snap_cursor_on_by_default() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(&url_cursor_fixture());
+    let _guard = SessionGuard::new(&sid);
+
+    // Default snapshot — no flags. After #212, cursor is on by default.
+    let out = headless_json(
+        &["browser", "snapshot", "--session", &sid, "--tab", &tid],
+        30,
+    );
+    assert_success(&out, "cursor on by default");
+    let v = parse_json(&out);
+    assert_snapshot_data(&v);
+
+    let generic_count = v["data"]["nodes"]
+        .as_array()
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter(|node| node["role"].as_str() == Some("generic"))
+                .count()
+        })
+        .unwrap_or(0);
+    assert!(
+        v["data"]["stats"]["interactive_count"]
+            .as_u64()
+            .unwrap_or(0)
+            >= 3,
+        "default snapshot should include cursor-interactive nodes in stats"
+    );
+    assert!(
+        generic_count >= 3,
+        "default snapshot should include the cursor fixture divs in data.nodes"
+    );
+
+    close_session(&sid);
 }

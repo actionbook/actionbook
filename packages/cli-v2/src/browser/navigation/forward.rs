@@ -17,7 +17,7 @@ pub struct Cmd {
     pub tab: String,
 }
 
-pub const COMMAND_NAME: &str = "browser.forward";
+pub const COMMAND_NAME: &str = "browser forward";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     // SESSION_NOT_FOUND: context must be null per §3.1

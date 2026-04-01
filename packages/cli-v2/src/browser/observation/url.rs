@@ -23,7 +23,7 @@ pub struct Cmd {
     pub tab: String,
 }
 
-pub const COMMAND_NAME: &str = "browser.url";
+pub const COMMAND_NAME: &str = "browser url";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result

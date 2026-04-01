@@ -129,7 +129,7 @@ fn query_one_json_happy_path() {
     assert_success(&out, "query one json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_meta(&v);
@@ -211,7 +211,7 @@ fn query_one_element_not_found_json() {
     assert_failure(&out, "query one missing");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
     assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
@@ -245,7 +245,7 @@ fn query_one_multiple_matches_json() {
     assert_failure(&out, "query one multiple");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
     assert_error_envelope(&v, "MULTIPLE_MATCHES");
@@ -287,7 +287,7 @@ fn query_all_json_happy_path() {
     assert_success(&out, "query all json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_meta(&v);
@@ -385,7 +385,7 @@ fn query_all_empty_json() {
     assert_success(&out, "query all empty json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["mode"], "all");
     assert_eq!(v["data"]["query"], MISSING_QUERY);
@@ -419,7 +419,7 @@ fn query_one_disabled_json_happy_path() {
     assert_success(&out, "query disabled json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["mode"], "one");
     assert_eq!(v["data"]["query"], DISABLED_QUERY);
@@ -461,7 +461,7 @@ fn query_nth_json_happy_path() {
     assert_success(&out, "query nth json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["mode"], "nth");
     assert_eq!(v["data"]["query"], ITEMS_QUERY);
@@ -541,7 +541,7 @@ fn query_nth_index_out_of_range_json() {
     assert_failure(&out, "query nth out of range");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
     assert_error_envelope(&v, "INDEX_OUT_OF_RANGE");
@@ -576,7 +576,7 @@ fn query_count_json_happy_path() {
     assert_success(&out, "query count json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["mode"], "count");
     assert_eq!(v["data"]["query"], ITEMS_QUERY);
@@ -645,7 +645,7 @@ fn query_count_zero_json() {
     assert_success(&out, "query count zero json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["mode"], "count");
     assert_eq!(v["data"]["query"], MISSING_QUERY);
@@ -674,7 +674,7 @@ fn query_session_not_found_json() {
     assert_failure(&out, "query nonexistent session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert!(v["context"].is_null());
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
 }
@@ -704,7 +704,7 @@ fn query_tab_not_found_json() {
     assert_failure(&out, "query nonexistent tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert!(v["context"].is_object());
     assert_eq!(v["context"]["session_id"], sid);
     assert!(v["context"]["tab_id"].is_null());
@@ -751,7 +751,7 @@ fn query_js_exception_returns_error() {
     assert_failure(&out, "query js exception");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.query");
+    assert_eq!(v["command"], "browser query");
     assert_error_envelope(&v, "JS_EXCEPTION");
 }
 
@@ -804,4 +804,209 @@ fn query_all_does_not_mutate_dom() {
     assert_eq!(state["itemCount"], 3);
     assert_eq!(state["singleText"], "Unique CTA");
     assert_eq!(state["hiddenDisplay"], "none");
+}
+
+// ===========================================================================
+// Group 5: query — extended CSS selectors
+// ===========================================================================
+
+#[test]
+fn query_visible_pseudo_filters_hidden() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    // 3 .item elements, 1 has display:none — :visible should filter to 2
+    let out = headless_json(
+        &[
+            "browser",
+            "query",
+            "count",
+            ".item:visible",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "visible pseudo count");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser query");
+    assert_eq!(v["data"]["count"], 2);
+}
+
+#[test]
+fn query_contains_pseudo_matches_text() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "query",
+            "one",
+            r#":contains("Unique CTA")"#,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "contains pseudo one");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser query");
+    assert_eq!(v["data"]["count"], 1);
+    assert_eq!(v["data"]["item"]["text"], "Unique CTA");
+}
+
+#[test]
+fn query_has_pseudo_matches_parent() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    // #query-root contains .single — :has should find it
+    let out = headless_json(
+        &[
+            "browser",
+            "query",
+            "count",
+            "#query-root:has(.single)",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "has pseudo count");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser query");
+    assert_eq!(v["data"]["count"], 1);
+}
+
+#[test]
+fn query_enabled_pseudo_excludes_disabled() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    // Fixture has 1 enabled button (.single) and 1 disabled button (.disabled-item)
+    let out = headless_json(
+        &[
+            "browser",
+            "query",
+            "one",
+            "button:enabled",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "enabled pseudo one");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser query");
+    assert_eq!(v["data"]["count"], 1);
+    assert_eq!(v["data"]["item"]["enabled"], true);
+    assert_eq!(v["data"]["item"]["text"], "Unique CTA");
+}
+
+#[test]
+fn query_disabled_pseudo_excludes_enabled() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_fixture(&sid, &tid);
+
+    // Fixture has 1 enabled button (.single) and 1 disabled button (.disabled-item)
+    let out = headless_json(
+        &[
+            "browser",
+            "query",
+            "one",
+            "button:disabled",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "disabled pseudo one");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser query");
+    assert_eq!(v["data"]["count"], 1);
+    assert_eq!(v["data"]["item"]["enabled"], false);
+    assert_eq!(v["data"]["item"]["text"], "Disabled CTA");
+}
+
+#[test]
+fn query_checked_pseudo_matches_checked_input() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+
+    // Inject a fixture with one checked and one unchecked checkbox
+    let js = r#"document.body.innerHTML = `
+  <input type="checkbox" id="cb-checked" checked>
+  <input type="checkbox" id="cb-unchecked">
+`;
+document.title = 'Checked Fixture';
+void(0)"#;
+    let inject_out = headless_json(
+        &["browser", "eval", js, "--session", &sid, "--tab", &tid],
+        10,
+    );
+    assert_success(&inject_out, "inject checked fixture");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "query",
+            "count",
+            "input:checked",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "checked pseudo count");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser query");
+    assert_eq!(v["data"]["count"], 1);
 }

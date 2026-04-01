@@ -16,8 +16,10 @@ use std::time::Duration;
 use crate::harness::{
     SessionGuard, SoloEnv, assert_failure, assert_native_tab_id, assert_success, assert_tab_id,
     headless, headless_json, new_tab_json, parse_json, skip, start_session, stdout_str,
-    unique_session, url_a, url_b,
+    unique_session, url_a, url_b, wait_url_contains,
 };
+
+const DEFAULT_LOCAL_SESSION_ID: &str = "s1";
 
 // ===========================================================================
 // 1. lifecycle_open_and_close — JSON (needs default session ID → SoloEnv)
@@ -34,9 +36,9 @@ fn lifecycle_open_and_close_json() {
     assert_success(&out, "start");
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.start");
+    assert_eq!(v["command"], "browser start");
     assert!(v["error"].is_null(), "start: error should be null");
-    assert_eq!(v["data"]["session"]["session_id"], "local-1");
+    assert_eq!(v["data"]["session"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
     assert_eq!(v["data"]["session"]["mode"], "local");
     assert_eq!(v["data"]["session"]["status"], "running");
     assert!(v["data"]["session"]["headless"].is_boolean());
@@ -46,28 +48,34 @@ fn lifecycle_open_and_close_json() {
     assert!(v["data"]["tab"]["url"].is_string());
     assert!(v["data"]["tab"]["title"].is_string());
     assert_eq!(v["data"]["reused"], false);
-    assert_eq!(v["context"]["session_id"], "local-1");
+    assert_eq!(v["context"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
     assert_tab_id(&v["context"]["tab_id"]);
     assert!(v["meta"]["duration_ms"].is_number());
 
     // status
-    let out = env.headless_json(&["browser", "status", "--session", "local-1"], 10);
+    let out = env.headless_json(
+        &["browser", "status", "--session", DEFAULT_LOCAL_SESSION_ID],
+        10,
+    );
     assert_success(&out, "status");
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.status");
-    assert_eq!(v["context"]["session_id"], "local-1");
+    assert_eq!(v["command"], "browser status");
+    assert_eq!(v["context"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
 
     // close
-    let out = env.headless_json(&["browser", "close", "--session", "local-1"], 30);
+    let out = env.headless_json(
+        &["browser", "close", "--session", DEFAULT_LOCAL_SESSION_ID],
+        30,
+    );
     assert_success(&out, "close");
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.close");
-    assert_eq!(v["data"]["session_id"], "local-1");
+    assert_eq!(v["command"], "browser close");
+    assert_eq!(v["data"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
     assert_eq!(v["data"]["status"], "closed");
     assert!(v["data"]["closed_tabs"].is_number());
-    assert_eq!(v["context"]["session_id"], "local-1");
+    assert_eq!(v["context"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
     assert!(v["meta"]["duration_ms"].is_number());
 }
 
@@ -85,27 +93,30 @@ fn lifecycle_open_and_close_text() {
     let out = env.headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start text");
     let text = stdout_str(&out);
-    assert!(
-        text.contains("[local-1"),
-        "start text: should contain [local-1"
-    );
-    assert!(text.contains("ok browser.start"));
+    assert!(text.contains("[s1"), "start text: should contain [s1");
+    assert!(text.contains("ok browser start"));
     assert!(text.contains("mode: local"));
     assert!(text.contains("status: running"));
     assert!(text.contains("title:"));
 
-    let out = env.headless(&["browser", "status", "--session", "local-1"], 10);
+    let out = env.headless(
+        &["browser", "status", "--session", DEFAULT_LOCAL_SESSION_ID],
+        10,
+    );
     assert_success(&out, "status text");
     let text = stdout_str(&out);
-    assert!(text.contains("[local-1]"));
+    assert!(text.contains("[s1]"));
     assert!(text.contains("status: running"));
     assert!(text.contains("mode: local"));
 
-    let out = env.headless(&["browser", "close", "--session", "local-1"], 30);
+    let out = env.headless(
+        &["browser", "close", "--session", DEFAULT_LOCAL_SESSION_ID],
+        30,
+    );
     assert_success(&out, "close text");
     let text = stdout_str(&out);
-    assert!(text.contains("[local-1]"));
-    assert!(text.contains("ok browser.close"));
+    assert!(text.contains("[s1]"));
+    assert!(text.contains("ok browser close"));
     assert!(text.contains("closed_tabs:"));
 }
 
@@ -126,7 +137,10 @@ fn lifecycle_open_headless_json() {
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["session"]["headless"], true);
 
-    env.headless(&["browser", "close", "--session", "local-1"], 30);
+    env.headless(
+        &["browser", "close", "--session", DEFAULT_LOCAL_SESSION_ID],
+        30,
+    );
 }
 
 // ===========================================================================
@@ -138,8 +152,10 @@ fn lifecycle_open_with_url_json() {
     if skip() {
         return;
     }
-    let (sid, _tid) = start_session(&url_a());
+    let (sid, tid) = start_session(&url_a());
     let _guard = SessionGuard::new(&sid);
+    // Wait for --open-url navigation to reflect in the tab URL.
+    wait_url_contains(&sid, &tid, "page-a");
     let v = parse_json(&headless_json(
         &["browser", "status", "--session", &sid],
         10,
@@ -179,10 +195,15 @@ fn lifecycle_open_with_url_text() {
     );
     assert_success(&out, "start with url text");
     let _guard = SessionGuard::new(&sid);
-    let text = stdout_str(&out);
+    // --open-url navigates asynchronously; wait then verify via `browser url`.
+    // §7.3: `browser status` text output does not include tab URLs —
+    // use `browser url` to verify the navigated URL.
+    wait_url_contains(&sid, "t1", "page-a");
+    let url_out = headless(&["browser", "url", "--session", &sid, "--tab", "t1"], 10);
+    let url_text = stdout_str(&url_out);
     assert!(
-        text.contains("page-a"),
-        "start text should contain page-a URL, got: {text}"
+        url_text.contains("page-a"),
+        "browser url should contain page-a URL, got: {url_text}"
     );
 }
 
@@ -202,7 +223,7 @@ fn lifecycle_status_json() {
     assert_success(&out, "status");
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.status");
+    assert_eq!(v["command"], "browser status");
     assert_eq!(v["data"]["session"]["session_id"], sid);
     assert_eq!(v["data"]["session"]["status"], "running");
     assert_eq!(v["data"]["session"]["mode"], "local");
@@ -254,7 +275,7 @@ fn lifecycle_list_sessions_json() {
     assert_success(&out, "list-sessions");
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.list-sessions");
+    assert_eq!(v["command"], "browser list-sessions");
     assert!(v["context"].is_null());
     assert!(v["data"]["total_sessions"].as_u64().unwrap_or(0) >= 1);
     let sessions = v["data"]["sessions"].as_array().expect("sessions array");
@@ -302,7 +323,7 @@ fn lifecycle_restart_json() {
     assert_success(&out, "restart");
     let v = parse_json(&out);
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.restart");
+    assert_eq!(v["command"], "browser restart");
     assert_eq!(v["data"]["session"]["session_id"], sid);
     assert_eq!(v["data"]["session"]["mode"], "local");
     assert_eq!(v["data"]["session"]["status"], "running");
@@ -330,7 +351,7 @@ fn lifecycle_restart_text() {
     assert_success(&out, "restart text");
     let text = stdout_str(&out);
     assert!(text.contains(&format!("[{sid}")));
-    assert!(text.contains("ok browser.restart"));
+    assert!(text.contains("ok browser restart"));
     assert!(text.contains("status: running"));
 }
 
@@ -404,7 +425,7 @@ fn lifecycle_close_s1t2_closes_all_text() {
     let out = headless(&["browser", "close", "--session", &sid], 30);
     assert_success(&out, "close 2 tabs text");
     let text = stdout_str(&out);
-    assert!(text.contains("ok browser.close"));
+    assert!(text.contains("ok browser close"));
     assert!(
         text.contains("closed_tabs: 2"),
         "should show closed_tabs: 2, got: {text}"
@@ -430,7 +451,7 @@ fn lifecycle_double_close_json() {
     assert_failure(&out, "second close should fail");
     let v = parse_json(&out);
     assert_eq!(v["ok"], false);
-    assert_eq!(v["command"], "browser.close");
+    assert_eq!(v["command"], "browser close");
     assert!(v["data"].is_null());
     assert_eq!(v["error"]["code"], "SESSION_NOT_FOUND");
     assert!(v["error"]["message"].is_string());
@@ -470,7 +491,7 @@ fn lifecycle_status_nonexistent_json() {
     assert_failure(&out, "status nonexistent");
     let v = parse_json(&out);
     assert_eq!(v["ok"], false);
-    assert_eq!(v["command"], "browser.status");
+    assert_eq!(v["command"], "browser status");
     assert!(v["data"].is_null());
     assert_eq!(v["error"]["code"], "SESSION_NOT_FOUND");
     assert!(v["error"]["message"].is_string());
@@ -716,13 +737,13 @@ fn lifecycle_start_reuse_existing_json() {
     assert_success(&out, "first start");
     let v = parse_json(&out);
     assert_eq!(v["data"]["reused"], false);
-    assert_eq!(v["data"]["session"]["session_id"], "local-1");
+    assert_eq!(v["data"]["session"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
 
     let out = env.headless_json(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "second start (reuse)");
     let v = parse_json(&out);
     assert_eq!(v["data"]["reused"], true);
-    assert_eq!(v["data"]["session"]["session_id"], "local-1");
+    assert_eq!(v["data"]["session"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
     assert_eq!(v["data"]["session"]["status"], "running");
 
     let out = env.headless_json(&["browser", "list-sessions"], 10);
@@ -730,7 +751,10 @@ fn lifecycle_start_reuse_existing_json() {
     let v = parse_json(&out);
     assert_eq!(v["data"]["total_sessions"], serde_json::json!(1));
 
-    env.headless(&["browser", "close", "--session", "local-1"], 30);
+    env.headless(
+        &["browser", "close", "--session", DEFAULT_LOCAL_SESSION_ID],
+        30,
+    );
 }
 
 #[test]
@@ -745,11 +769,14 @@ fn lifecycle_start_reuse_existing_text() {
     let out = env.headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "second start (reuse) text");
     let text = stdout_str(&out);
-    assert!(text.contains("[local-1"));
-    assert!(text.contains("ok browser.start"));
+    assert!(text.contains("[s1"));
+    assert!(text.contains("ok browser start"));
     assert!(text.contains("status: running"));
 
-    env.headless(&["browser", "close", "--session", "local-1"], 30);
+    env.headless(
+        &["browser", "close", "--session", DEFAULT_LOCAL_SESSION_ID],
+        30,
+    );
 }
 
 // ===========================================================================
@@ -799,7 +826,7 @@ fn lifecycle_start_reuse_with_open_url_json() {
     assert_success(&out, "second start (reuse + navigate)");
     let v = parse_json(&out);
     assert_eq!(v["data"]["reused"], true);
-    assert_eq!(v["data"]["session"]["session_id"], "local-1");
+    assert_eq!(v["data"]["session"]["session_id"], DEFAULT_LOCAL_SESSION_ID);
     assert!(
         v["data"]["tab"]["url"]
             .as_str()
@@ -815,7 +842,7 @@ fn lifecycle_start_reuse_with_open_url_json() {
             "eval",
             "window.location.href",
             "--session",
-            "local-1",
+            DEFAULT_LOCAL_SESSION_ID,
             "--tab",
             &tab_id,
         ],
@@ -825,7 +852,10 @@ fn lifecycle_start_reuse_with_open_url_json() {
     let v = parse_json(&out);
     assert!(v["data"]["value"].as_str().unwrap_or("").contains("page-b"));
 
-    env.headless(&["browser", "close", "--session", "local-1"], 30);
+    env.headless(
+        &["browser", "close", "--session", DEFAULT_LOCAL_SESSION_ID],
+        30,
+    );
 }
 
 // ===========================================================================
@@ -978,7 +1008,7 @@ fn lifecycle_start_concurrent_same_profile_rejects_second_json() {
 
     let failure = parse_json(failures[0]);
     assert_eq!(failure["ok"], false);
-    assert_eq!(failure["command"], "browser.start");
+    assert_eq!(failure["command"], "browser start");
     assert_eq!(failure["error"]["code"], "SESSION_STARTING");
     assert_eq!(
         failure["error"]["hint"],
@@ -1045,6 +1075,32 @@ fn lifecycle_set_session_id_rejects_reuse_of_occupied_profile() {
         v["error"]["code"], "SESSION_ALREADY_EXISTS",
         "must return SESSION_ALREADY_EXISTS, not silently reuse"
     );
+    let message = v["error"]["message"].as_str().unwrap_or("");
+    let hint = v["error"]["hint"].as_str().unwrap_or("");
+    assert!(
+        message.contains(&prof1),
+        "profile-conflict message must name the occupied profile: {message}"
+    );
+    assert!(
+        message.contains(&sid1),
+        "profile-conflict message must name the active session: {message}"
+    );
+    assert!(
+        message.contains("already in use"),
+        "profile-conflict message must explain the exclusivity mechanism: {message}"
+    );
+    assert!(
+        hint.contains(&format!("--session {sid1}")),
+        "profile-conflict hint must point to the active session: {hint}"
+    );
+    assert!(
+        hint.contains(&format!("browser close --session {sid1}")),
+        "profile-conflict hint must explain how to free the profile: {hint}"
+    );
+    assert!(
+        hint.contains("different --profile"),
+        "profile-conflict hint must suggest using a different profile: {hint}"
+    );
 }
 
 /// When --set-session-id matches an already-running session's ID,
@@ -1095,6 +1151,15 @@ fn lifecycle_set_session_id_rejects_duplicate_id() {
     assert_eq!(
         v["error"]["code"], "SESSION_ALREADY_EXISTS",
         "must return SESSION_ALREADY_EXISTS for duplicate ID"
+    );
+    let message = v["error"]["message"].as_str().unwrap_or("");
+    assert!(
+        message.contains(&sid),
+        "duplicate-id message must identify the conflicting session id: {message}"
+    );
+    assert!(
+        !message.contains(&prof2),
+        "duplicate-id message must not misreport the requested profile as occupied: {message}"
     );
 }
 
@@ -1540,6 +1605,148 @@ fn double_close_returns_not_found() {
     assert_failure(&out, "second close should fail");
     let v = parse_json(&out);
     assert_eq!(v["error"]["code"], "SESSION_NOT_FOUND");
+}
+
+// ===========================================================================
+// Group N: daemon crash recovery — orphan Chrome cleanup on next browser start
+// ===========================================================================
+
+/// When the daemon is SIGKILL'd (crash / OOM), Chrome is left as an orphan
+/// process. The next `browser start` must detect the stale `chrome.pid` file,
+/// SIGKILL the orphan, and start fresh — no CDP_CONNECTION_FAILED timeout.
+#[test]
+fn lifecycle_daemon_sigkill_orphan_recovered() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+    let profiles_dir = std::path::Path::new(&env.actionbook_home).join("profiles");
+
+    // Step 1: Start a browser session so Chrome is running.
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "sigkill-recover",
+            "--profile",
+            "sigkill-recover-prof",
+        ],
+        30,
+    );
+    assert_success(&out, "start before sigkill");
+
+    // Step 2: Confirm Chrome is alive.
+    let chrome_pids_before = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        !chrome_pids_before.is_empty(),
+        "expected Chrome to be running after browser start"
+    );
+
+    // Step 3: SIGKILL the daemon (simulates crash / kill -9).
+    let pid_path = std::path::Path::new(&env.actionbook_home).join("daemon.pid");
+    let pid_str = std::fs::read_to_string(&pid_path).expect("daemon.pid should exist");
+    let daemon_pid: u32 = pid_str
+        .trim()
+        .parse()
+        .expect("daemon.pid should be a number");
+    let _ = std::process::Command::new("kill")
+        .args(["-9", &daemon_pid.to_string()])
+        .output();
+
+    // Wait for daemon to die.
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Step 4: Chrome should still be alive (orphan — daemon never killed it).
+    let chrome_pids_orphan = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        !chrome_pids_orphan.is_empty(),
+        "Chrome should remain as orphan after daemon SIGKILL, found none — \
+         test setup broken or Chrome exited independently"
+    );
+
+    // Step 5: `browser start` must succeed — orphan detection should kill the
+    // stale Chrome and start a new one. Must NOT timeout or return CDP_CONNECTION_FAILED.
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "sigkill-recover-2",
+            "--profile",
+            "sigkill-recover-prof",
+        ],
+        30,
+    );
+    assert_success(&out, "browser start after daemon SIGKILL");
+    let v = parse_json(&out);
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser start");
+    assert_eq!(v["data"]["session"]["session_id"], "sigkill-recover-2");
+    assert_eq!(v["data"]["session"]["status"], "running");
+}
+
+/// When SIGHUP is sent to the daemon (terminal closed), it should trigger
+/// graceful shutdown — Chrome processes must be killed, same as SIGTERM.
+#[test]
+fn lifecycle_daemon_sighup_closes_chrome() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+    let profiles_dir = std::path::Path::new(&env.actionbook_home).join("profiles");
+
+    // Start a browser session.
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "sighup-test",
+            "--profile",
+            "sighup-test-prof",
+        ],
+        30,
+    );
+    assert_success(&out, "start before sighup");
+
+    let chrome_pids_before = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        !chrome_pids_before.is_empty(),
+        "expected Chrome to be running after browser start"
+    );
+
+    // Send SIGHUP to daemon (simulates terminal close).
+    let pid_path = std::path::Path::new(&env.actionbook_home).join("daemon.pid");
+    let pid_str = std::fs::read_to_string(&pid_path).expect("daemon.pid should exist");
+    let daemon_pid: u32 = pid_str
+        .trim()
+        .parse()
+        .expect("daemon.pid should be a number");
+    let _ = std::process::Command::new("kill")
+        .args(["-1", &daemon_pid.to_string()])
+        .output();
+
+    // Wait for daemon graceful shutdown and Chrome exit.
+    std::thread::sleep(Duration::from_secs(2));
+
+    // Chrome must be gone — SIGHUP should trigger the same graceful cleanup as SIGTERM.
+    let chrome_pids_after = find_chrome_pids_for_dir(&profiles_dir);
+    assert!(
+        chrome_pids_after.is_empty(),
+        "Chrome processes should be killed on SIGHUP graceful shutdown, \
+         but found PIDs: {:?}",
+        chrome_pids_after
+    );
 }
 
 /// Helper: find Chrome PIDs whose --user-data-dir is under the given directory.

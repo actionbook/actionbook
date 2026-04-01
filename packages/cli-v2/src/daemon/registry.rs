@@ -4,6 +4,7 @@ use std::process::Child;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use crate::action_result::ActionResult;
 use crate::browser::observation::snapshot_transform::RefCache;
 use crate::daemon::cdp_session::CdpSession;
 use crate::error::CliError;
@@ -46,6 +47,9 @@ pub struct SessionEntry {
     pub id: SessionId,
     pub mode: Mode,
     pub headless: bool,
+    pub stealth: bool,
+    /// Stealth user-agent string — needed when attaching new tabs so they get the same stealth injection.
+    pub stealth_ua: Option<String>,
     pub profile: String,
     pub status: SessionState,
     pub cdp_port: Option<u16>,
@@ -71,11 +75,19 @@ impl Drop for SessionEntry {
 }
 
 impl SessionEntry {
-    pub fn starting(id: SessionId, mode: Mode, headless: bool, profile: String) -> Self {
+    pub fn starting(
+        id: SessionId,
+        mode: Mode,
+        headless: bool,
+        stealth: bool,
+        profile: String,
+    ) -> Self {
         Self {
             id,
             mode,
             headless,
+            stealth,
+            stealth_ua: None,
             profile,
             status: SessionState::Starting,
             cdp_port: None,
@@ -104,12 +116,36 @@ impl SessionEntry {
             title,
         });
     }
+
+    /// Append a tab with a caller-specified short ID.
+    /// Returns the assigned ID on success, or an error if the ID is already taken.
+    pub fn push_tab_with_id(
+        &mut self,
+        custom_id: String,
+        native_id: String,
+        url: String,
+        title: String,
+    ) -> Result<String, ActionResult> {
+        if self.tabs.iter().any(|t| t.id.0 == custom_id) {
+            return Err(ActionResult::fatal_with_hint(
+                "TAB_ID_CONFLICT",
+                format!("tab ID '{}' already exists in this session", custom_id),
+                "choose a different --set-tab-id or omit it for auto-assignment",
+            ));
+        }
+        self.tabs.push(TabEntry {
+            id: TabId(custom_id.clone()),
+            native_id,
+            url,
+            title,
+        });
+        Ok(custom_id)
+    }
 }
 
 /// Thread-safe session registry.
 pub struct SessionRegistry {
     sessions: HashMap<String, SessionEntry>,
-    next_auto_id: u32,
     /// Tab-scoped RefCache for stable snapshot refs. Key: "session_id\0tab_id"
     ref_caches: HashMap<String, RefCache>,
     /// Last known cursor position per tab. Key: "session_id\0tab_id"
@@ -126,7 +162,6 @@ impl SessionRegistry {
     pub fn new() -> Self {
         SessionRegistry {
             sessions: HashMap::new(),
-            next_auto_id: 0,
             ref_caches: HashMap::new(),
             cursor_positions: HashMap::new(),
         }
@@ -156,58 +191,77 @@ impl SessionRegistry {
         })
     }
 
+    /// Return the maximum N among active sessions with the given `PREFIX-` pattern.
+    fn max_active_prefix_n(&self, prefix: &str) -> u32 {
+        self.sessions
+            .values()
+            .filter(|e| e.status.is_active())
+            .filter_map(|e| {
+                e.id.as_str()
+                    .strip_prefix(prefix)
+                    .and_then(|n| n.parse::<u32>().ok())
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
     pub fn generate_session_id(
         &mut self,
         set_id: Option<&str>,
-        profile: Option<&str>,
     ) -> Result<SessionId, crate::error::CliError> {
         if let Some(id) = set_id {
             let sid = SessionId::new(id)
                 .map_err(|e| crate::error::CliError::InvalidSessionId(e.to_string()))?;
             if self.has_active_session_id(sid.as_str()) {
-                return Err(crate::error::CliError::SessionAlreadyExists(
+                return Err(crate::error::CliError::SessionIdAlreadyExists(
                     sid.to_string(),
                 ));
             }
             return Ok(sid);
         }
-        let sid = if let Some(p) = profile {
-            SessionId::from_profile(p, self.next_auto_id)
-        } else {
-            SessionId::auto_generate(self.next_auto_id)
-        };
-        self.next_auto_id += 1;
-        // Handle collision
-        if self.has_active_session_id(sid.as_str()) {
-            let sid = SessionId::auto_generate(self.next_auto_id);
-            self.next_auto_id += 1;
-            Ok(sid)
-        } else {
-            Ok(sid)
+        let max_n = self.max_active_prefix_n("s");
+        let start = if max_n >= 10000 { 1 } else { max_n + 1 };
+        let mut n = start;
+        loop {
+            let candidate = SessionId::auto_generate(n);
+            if !self.has_active_session_id(candidate.as_str()) {
+                return Ok(candidate);
+            }
+            n = if n >= 10000 { 1 } else { n + 1 };
+            if n == start {
+                return Err(crate::error::CliError::Internal(
+                    "all session ID slots exhausted".to_string(),
+                ));
+            }
         }
     }
 
     pub fn reserve_session_start(
         &mut self,
         set_id: Option<&str>,
-        requested_profile: Option<&str>,
+        _requested_profile: Option<&str>,
         resolved_profile: &str,
         mode: Mode,
         headless: bool,
+        stealth: bool,
     ) -> Result<SessionId, CliError> {
         if mode == Mode::Local
             && let Some(existing_id) = self
                 .find_local_session_by_profile(resolved_profile, mode)
                 .map(|entry| entry.id.to_string())
         {
-            return Err(CliError::SessionAlreadyExists(existing_id));
+            return Err(CliError::SessionAlreadyExists {
+                profile: resolved_profile.to_string(),
+                existing_session: existing_id,
+            });
         }
 
-        let session_id = self.generate_session_id(set_id, requested_profile)?;
+        let session_id = self.generate_session_id(set_id)?;
         self.insert(SessionEntry::starting(
             session_id.clone(),
             mode,
             headless,
+            stealth,
             resolved_profile.to_string(),
         ));
         Ok(session_id)
@@ -304,12 +358,105 @@ pub fn new_shared_registry() -> SharedRegistry {
 mod tests {
     use super::*;
 
+    fn insert_starting(
+        registry: &mut SessionRegistry,
+        id: &str,
+        mode: Mode,
+        profile: &str,
+        active: bool,
+    ) {
+        let mut entry = SessionEntry::starting(
+            SessionId::new_unchecked(id),
+            mode,
+            true,
+            true,
+            profile.to_string(),
+        );
+        if !active {
+            entry.status = SessionState::Closed;
+        }
+        registry.insert(entry);
+    }
+
+    #[test]
+    fn reserve_session_start_auto_ids_use_global_counter_not_mode() {
+        let mut registry = SessionRegistry::new();
+
+        let s1 = registry
+            .reserve_session_start(None, Some("work"), "work", Mode::Local, true, true)
+            .expect("reserve first session");
+        let s2 = registry
+            .reserve_session_start(None, Some("personal"), "personal", Mode::Local, true, true)
+            .expect("reserve second session");
+        let s3 = registry
+            .reserve_session_start(None, Some("shared"), "shared", Mode::Cloud, true, true)
+            .expect("reserve third session");
+        let s4 = registry
+            .reserve_session_start(
+                None,
+                Some("assistant"),
+                "assistant",
+                Mode::Extension,
+                true,
+                true,
+            )
+            .expect("reserve fourth session");
+
+        assert_eq!(s1.as_str(), "s1");
+        assert_eq!(s2.as_str(), "s2");
+        assert_eq!(s3.as_str(), "s3");
+        assert_eq!(s4.as_str(), "s4");
+    }
+
+    #[test]
+    fn reserve_session_start_uses_global_max_plus_one() {
+        let mut registry = SessionRegistry::new();
+        insert_starting(&mut registry, "s7", Mode::Local, "local-7", true);
+
+        let next = registry
+            .reserve_session_start(None, Some("fresh"), "fresh", Mode::Cloud, true, true)
+            .expect("next session after s7");
+
+        assert_eq!(next.as_str(), "s8");
+    }
+
+    #[test]
+    fn reserve_session_start_wraps_at_10000_and_skips_collisions() {
+        let mut registry = SessionRegistry::new();
+        insert_starting(&mut registry, "s10000", Mode::Local, "maxed", true);
+        insert_starting(&mut registry, "s1", Mode::Local, "occupied", true);
+
+        let sid = registry
+            .reserve_session_start(None, Some("wrap"), "wrap", Mode::Local, true, true)
+            .expect("wrapped session");
+
+        assert_eq!(sid.as_str(), "s2");
+    }
+
+    #[test]
+    fn reserve_session_start_preserves_manual_set_session_id() {
+        let mut registry = SessionRegistry::new();
+
+        let sid = registry
+            .reserve_session_start(
+                Some("manual-session"),
+                Some("profile-that-should-not-matter"),
+                "profile-that-should-not-matter",
+                Mode::Local,
+                true,
+                true,
+            )
+            .expect("manual id should bypass auto generation");
+
+        assert_eq!(sid.as_str(), "manual-session");
+    }
+
     #[test]
     fn reserve_session_start_rejects_second_placeholder_for_same_local_profile() {
         let mut registry = SessionRegistry::new();
 
         let session_id = registry
-            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true)
+            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true, true)
             .expect("reserve first placeholder");
 
         let entry = registry
@@ -318,7 +465,7 @@ mod tests {
         assert_eq!(entry.status, SessionState::Starting);
 
         let err = registry
-            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true)
+            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true, true)
             .expect_err("second placeholder should be rejected");
 
         assert_eq!(err.error_code(), "SESSION_ALREADY_EXISTS");
@@ -329,12 +476,12 @@ mod tests {
         let mut registry = SessionRegistry::new();
 
         let first = registry
-            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true)
+            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true, true)
             .expect("reserve first placeholder");
         registry.remove(first.as_str());
 
         let second = registry
-            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true)
+            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true, true)
             .expect("retry after cleanup should succeed");
 
         assert_eq!(
@@ -355,6 +502,7 @@ mod tests {
                 "myprofile",
                 Mode::Local,
                 true,
+                true,
             )
             .expect("reserve first session");
 
@@ -366,6 +514,7 @@ mod tests {
                 "myprofile",
                 Mode::Local,
                 true,
+                true,
             )
             .expect_err("should reject: profile already occupied");
 
@@ -375,21 +524,13 @@ mod tests {
     #[test]
     fn reserve_session_start_ignores_closed_sessions_for_uniqueness() {
         let mut registry = SessionRegistry::new();
-        let session_id = SessionId::new("testrace").expect("valid session id");
-        let mut entry = SessionEntry::starting(
-            session_id.clone(),
-            Mode::Local,
-            true,
-            "testrace".to_string(),
-        );
-        entry.status = SessionState::Closed;
-        registry.insert(entry);
+        insert_starting(&mut registry, "s1", Mode::Local, "testrace", false);
 
         let next = registry
-            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true)
+            .reserve_session_start(None, Some("testrace"), "testrace", Mode::Local, true, true)
             .expect("closed entry should not block new start");
 
-        assert_eq!(next.as_str(), session_id.as_str());
+        assert_eq!(next.as_str(), "s1");
         assert_eq!(
             registry.get(next.as_str()).map(|entry| entry.status),
             Some(SessionState::Starting)
@@ -406,7 +547,7 @@ mod tests {
     fn has_active_sessions_with_starting_session() {
         let mut registry = SessionRegistry::new();
         registry
-            .reserve_session_start(Some("s1"), Some("prof"), "prof", Mode::Local, true)
+            .reserve_session_start(Some("s1"), Some("prof"), "prof", Mode::Local, true, true)
             .unwrap();
         assert!(registry.has_active_sessions());
     }
@@ -415,13 +556,101 @@ mod tests {
     fn has_active_sessions_all_closed() {
         let mut registry = SessionRegistry::new();
         let sid = registry
-            .reserve_session_start(Some("s1"), Some("prof"), "prof", Mode::Local, true)
+            .reserve_session_start(Some("s1"), Some("prof"), "prof", Mode::Local, true, true)
             .unwrap();
         // Transition to Closed
         if let Some(entry) = registry.get_mut(sid.as_str()) {
             entry.status = SessionState::Closed;
         }
         assert!(!registry.has_active_sessions());
+    }
+
+    #[test]
+    fn push_tab_with_id_assigns_custom_id() {
+        let mut entry = SessionEntry::starting(
+            SessionId::new("test-session").unwrap(),
+            Mode::Local,
+            true,
+            true,
+            "profile".to_string(),
+        );
+
+        let id = entry
+            .push_tab_with_id(
+                "inbox".to_string(),
+                "native-1".to_string(),
+                "https://example.com".to_string(),
+                "Example".to_string(),
+            )
+            .expect("should succeed");
+
+        assert_eq!(id, "inbox");
+        assert_eq!(entry.tabs.len(), 1);
+        assert_eq!(entry.tabs[0].id.0, "inbox");
+        assert_eq!(entry.tabs[0].native_id, "native-1");
+    }
+
+    #[test]
+    fn push_tab_with_id_rejects_duplicate() {
+        let mut entry = SessionEntry::starting(
+            SessionId::new("test-session").unwrap(),
+            Mode::Local,
+            true,
+            true,
+            "profile".to_string(),
+        );
+
+        entry.push_tab(
+            "native-1".to_string(),
+            "https://a.com".to_string(),
+            String::new(),
+        );
+        // The auto-assigned ID is "t1"
+        assert_eq!(entry.tabs[0].id.0, "t1");
+
+        let err = entry
+            .push_tab_with_id(
+                "t1".to_string(),
+                "native-2".to_string(),
+                "https://b.com".to_string(),
+                String::new(),
+            )
+            .expect_err("should reject duplicate tab ID");
+
+        match err {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "TAB_ID_CONFLICT"),
+            _ => panic!("expected Fatal with TAB_ID_CONFLICT"),
+        }
+        assert_eq!(entry.tabs.len(), 1, "no tab should be added on conflict");
+    }
+
+    #[test]
+    fn push_tab_with_id_does_not_affect_auto_counter() {
+        let mut entry = SessionEntry::starting(
+            SessionId::new("test-session").unwrap(),
+            Mode::Local,
+            true,
+            true,
+            "profile".to_string(),
+        );
+
+        // Custom ID first
+        entry
+            .push_tab_with_id(
+                "custom".to_string(),
+                "native-1".to_string(),
+                "https://a.com".to_string(),
+                String::new(),
+            )
+            .unwrap();
+
+        // Auto-assigned should still start at t1
+        entry.push_tab(
+            "native-2".to_string(),
+            "https://b.com".to_string(),
+            String::new(),
+        );
+        assert_eq!(entry.tabs[1].id.0, "t1");
     }
 
     #[test]
@@ -448,6 +677,7 @@ mod tests {
             let mut entry = SessionEntry::starting(
                 crate::types::SessionId::new("drop-test").unwrap(),
                 Mode::Local,
+                true,
                 true,
                 "test-profile".to_string(),
             );

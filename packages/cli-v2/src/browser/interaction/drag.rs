@@ -43,7 +43,7 @@ pub struct Cmd {
     pub button: String,
 }
 
-pub const COMMAND_NAME: &str = "browser.drag";
+pub const COMMAND_NAME: &str = "browser drag";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result
@@ -141,7 +141,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     // Get CDP session and verify tab
-    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
+    let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -153,7 +153,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // stale-coordinate problem on responsive pages.
     let viewport_set = ensure_viewport(&ctx.cdp, &ctx.target_id, &destination).await;
 
-    let result = execute_inner(&ctx, cmd, &destination).await;
+    let result = execute_inner(&mut ctx, cmd, &destination).await;
 
     // Always clear the viewport override
     if viewport_set {
@@ -262,21 +262,38 @@ async fn ensure_viewport(cdp: &CdpSession, target_id: &str, destination: &DragDe
 }
 
 /// Inner execute logic run under the enlarged viewport.
-async fn execute_inner(ctx: &TabContext, cmd: &Cmd, destination: &DragDestination) -> ActionResult {
+async fn execute_inner(
+    ctx: &mut TabContext,
+    cmd: &Cmd,
+    destination: &DragDestination,
+) -> ActionResult {
     // Resolve source element to centre coordinates
-    let (src_x, src_y) = match ctx.resolve_center(&cmd.source).await {
-        Ok(coords) => coords,
+    let (src_node_id, mut src_x, mut src_y) = match ctx.resolve_center(&cmd.source).await {
+        Ok(v) => v,
         Err(e) => return e,
     };
+    // Save the source frame context before destination resolution overwrites it
+    let src_frame_id = ctx.resolved_frame_id().map(String::from);
 
     // Resolve destination to coordinates
     let (dst_x, dst_y) = match destination {
         DragDestination::Coordinates(x, y) => (*x, *y),
         DragDestination::Selector(sel) => match ctx.resolve_center(sel).await {
-            Ok(coords) => coords,
+            Ok((_nid, cx, cy)) => (cx, cy),
             Err(e) => return e,
         },
     };
+
+    // Re-read source coordinates: the destination scroll may have moved
+    // the viewport, making the original src_x/src_y stale.
+    // Use the saved source frame_id to ensure we query the correct frame.
+    if let Ok((rx, ry)) = ctx
+        .get_center(src_node_id, &cmd.source, src_frame_id.as_deref())
+        .await
+    {
+        src_x = rx;
+        src_y = ry;
+    }
 
     // Pre-drag state
     let pre_url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;

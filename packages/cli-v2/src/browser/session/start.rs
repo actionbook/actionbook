@@ -51,9 +51,17 @@ pub struct Cmd {
     /// Specify a semantic session ID
     #[arg(long)]
     pub set_session_id: Option<String>,
+    /// Enable stealth/anti-detection mode (default: true). Use --no-stealth to disable.
+    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[serde(default = "default_stealth")]
+    pub stealth: bool,
 }
 
-pub const COMMAND_NAME: &str = "browser.start";
+fn default_stealth() -> bool {
+    true
+}
+
+pub const COMMAND_NAME: &str = "browser start";
 
 struct ReuseTarget {
     session_id: String,
@@ -175,8 +183,14 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 profile_name,
                 mode,
                 headless,
+                cmd.stealth,
             ) {
                 Ok(session_id) => StartDisposition::Reserved(session_id),
+                Err(e @ crate::error::CliError::SessionAlreadyExists { .. })
+                | Err(e @ crate::error::CliError::SessionIdAlreadyExists(_)) => {
+                    let hint = e.hint();
+                    return ActionResult::fatal_with_hint(e.error_code(), e.to_string(), &hint);
+                }
                 Err(e) => return ActionResult::fatal(e.error_code(), e.to_string()),
             }
         }
@@ -201,6 +215,26 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }
     }
 
+    // Kill any orphan Chrome from a previous daemon crash/SIGKILL.
+    // When the daemon is SIGKILL'd, it cannot run its graceful shutdown path,
+    // so Chrome is left alive using the same user-data-dir. A new Chrome
+    // launched against the same dir would race with the orphan and likely crash,
+    // causing discover_ws_url to time out with CDP_CONNECTION_FAILED.
+    let chrome_pid_file = user_data_dir.join("chrome.pid");
+    if let Ok(pid_str) = std::fs::read_to_string(&chrome_pid_file) {
+        if let Ok(pid) = pid_str.trim().parse::<i32>() {
+            unsafe extern "C" {
+                safe fn kill(pid: i32, sig: i32) -> i32;
+            }
+            // kill(pid, 0) checks liveness without sending a signal (POSIX).
+            if kill(pid, 0) == 0 {
+                kill(pid, 9); // SIGKILL orphan
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+        }
+        let _ = std::fs::remove_file(&chrome_pid_file);
+    }
+
     let (mut chrome_process, port, ws_url, mut targets) = if let Some(endpoint) = cdp_endpoint {
         let (ws_url, port) = match browser::resolve_cdp_endpoint(endpoint).await {
             Ok(value) => value,
@@ -220,7 +254,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             let page_ws = format!("ws://127.0.0.1:{port}/devtools/page/{target_id}");
             if let Err(e) = cdp_navigate(
                 &page_ws,
-                &ensure_scheme(url).unwrap_or_else(|_| url.to_string()),
+                &ensure_scheme(url).unwrap_or_else(|_| "about:blank".to_string()),
             )
             .await
             {
@@ -254,7 +288,8 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             &executable,
             headless,
             &user_data_dir.to_string_lossy(),
-            cmd.open_url.as_deref(),
+            None,
+            cmd.stealth,
         )
         .await
         {
@@ -279,10 +314,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             }
         };
 
-        if cmd.open_url.is_some() {
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        }
         let targets = browser::list_targets(port).await.unwrap_or_default();
+        // Write Chrome PID so a future daemon restart can detect and kill this
+        // process if the daemon is SIGKILL'd before it can run graceful shutdown.
+        let _ = std::fs::write(&chrome_pid_file, chrome.id().to_string());
         (Some(chrome), Some(port), ws_url, targets)
     };
 
@@ -335,13 +370,51 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             .await;
         }
     };
+    // Fetch real User-Agent from browser, strip Headless markers for stealth.
+    // Only fetched when stealth is enabled; passed to attach() which gates injection on Some(ua).
+    let user_agent: Option<String> = if cmd.stealth {
+        if let Ok(v) = cdp
+            .execute("Browser.getVersion", serde_json::json!({}), None)
+            .await
+        {
+            let raw = v["result"]["userAgent"].as_str().unwrap_or("").to_string();
+            let ua = raw
+                .replace("HeadlessChrome", "Chrome")
+                .replace("Headless", "");
+            if ua.is_empty() { None } else { Some(ua) }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     for (native_id, ..) in &native_tabs {
-        if let Err(e) = cdp.attach(native_id).await {
+        if let Err(e) = cdp.attach(native_id, user_agent.as_deref()).await {
             tracing::warn!("failed to attach tab {native_id}: {e}");
         }
     }
 
     let first_native_id = native_tabs.first().map(|t| t.0.clone()).unwrap_or_default();
+
+    // Navigate to open_url after attach so the stealth script is already injected.
+    if let Some(url) = &cmd.open_url
+        && !first_native_id.is_empty()
+    {
+        let final_url = ensure_scheme(url).unwrap_or_else(|_| "about:blank".to_string());
+        let _ = cdp
+            .execute_on_tab(
+                &first_native_id,
+                "Page.navigate",
+                serde_json::json!({ "url": final_url }),
+            )
+            .await;
+        // Update native_tabs[0] URL to reflect the navigated URL so the registry
+        // stores the correct URL when push_tab is called below.
+        if let Some(first) = native_tabs.first_mut() {
+            first.1 = final_url;
+        }
+    }
 
     // Get real-time info for the first tab
     let (first_url, first_title) = if !first_native_id.is_empty() {
@@ -376,6 +449,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
     entry.chrome_process = chrome_process;
     entry.cdp = Some(cdp);
+    entry.stealth_ua = user_agent;
+
+    // Create per-session data directory for artifacts (snapshots, etc.)
+    let session_data_dir = config::session_data_dir(session_id.as_str());
+    std::fs::create_dir_all(&session_data_dir).ok();
 
     let first_short_id = entry
         .tabs
@@ -427,7 +505,7 @@ async fn reuse_running_session(
     target: ReuseTarget,
 ) -> ActionResult {
     if let Some(url) = &cmd.open_url {
-        let final_url = ensure_scheme(url).unwrap_or_else(|_| url.to_string());
+        let final_url = ensure_scheme(url).unwrap_or_else(|_| "about:blank".to_string());
         if let Some(ref cdp) = target.cdp
             && !target.first_native_id.is_empty()
         {
@@ -585,6 +663,7 @@ async fn execute_cloud(
             profile_name,
             Mode::Cloud,
             headless,
+            cmd.stealth,
         ) {
             Ok(sid) => sid,
             Err(e) => return ActionResult::fatal(e.error_code(), e.to_string()),
@@ -628,7 +707,7 @@ async fn execute_cloud(
 
     // Attach all tabs
     for (native_id, ..) in &tabs {
-        if let Err(e) = cdp.attach(native_id).await {
+        if let Err(e) = cdp.attach(native_id, None).await {
             tracing::warn!("cloud: failed to attach tab {native_id}: {e}");
         }
     }
@@ -685,6 +764,10 @@ async fn execute_cloud(
     entry.cdp = Some(cdp);
     entry.cdp_endpoint = Some(cdp_endpoint.to_string());
     entry.headers = headers.to_vec();
+
+    // Create per-session data directory for artifacts (snapshots, etc.)
+    let session_data_dir = config::session_data_dir(session_id.as_str());
+    std::fs::create_dir_all(&session_data_dir).ok();
 
     let first_short_id = entry
         .tabs

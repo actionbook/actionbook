@@ -10,6 +10,7 @@ const DESCRIBE_DISABLED_SELECTOR: &str = "#describe-disabled";
 const DESCRIBE_CHECKED_SELECTOR: &str = "#describe-checked";
 const DESCRIBE_MULTI_SELECTOR: &str = "#describe-multi";
 const DESCRIBE_NEARBY_FILTER_SELECTOR: &str = "#describe-nearby-target";
+const DESCRIBE_NEARBY_FIXES_SELECTOR: &str = "#describe-nearby-fixes-target";
 const DESCRIBE_UNCHECKED_SELECTOR: &str = "#describe-unchecked";
 const DESCRIBE_SELECTED_SELECTOR: &str = "#describe-selected";
 const DESCRIBE_UNSELECTED_SELECTOR: &str = "#describe-unselected";
@@ -110,6 +111,24 @@ void(0)"#;
     assert_success(&out, "inject nearby significance fixture");
 }
 
+fn inject_nearby_fixes_fixture(sid: &str, tid: &str) {
+    let js = r##"document.body.style.margin = '0';
+document.body.innerHTML = `
+  <div id="nearby-fixes-parent">
+    <div id="nearby-tab-previous" role="tab"><span>Overview</span></div>
+    <div id="describe-nearby-fixes-target" aria-label="Profile section">
+      <nav id="nearby-nav-child"><a href="#account">Account</a></nav>
+      <div id="nearby-selected-child" role="tab" aria-selected="true">Settings</div>
+    </div>
+    <div id="nearby-tab-next" role="tab"><span>Activity</span></div>
+  </div>
+`;
+document.title = 'Describe Nearby Fixes Fixture';
+void(0)"##;
+    let out = headless_json(&["browser", "eval", js, "--session", sid, "--tab", tid], 10);
+    assert_success(&out, "inject nearby fixes fixture");
+}
+
 fn assert_meta(v: &serde_json::Value) {
     assert!(v["meta"]["duration_ms"].is_number());
     assert!(v["meta"]["warnings"].is_array());
@@ -186,7 +205,7 @@ fn describe_json_happy_path() {
     assert_success(&out, "describe json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.describe");
+    assert_eq!(v["command"], "browser describe");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_meta(&v);
@@ -230,7 +249,7 @@ fn describe_nearby_json_happy_path() {
     assert_success(&out, "describe nearby json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.describe");
+    assert_eq!(v["command"], "browser describe");
     assert_eq!(v["ok"], true);
     let nearby = &v["data"]["nearby"];
     assert_eq!(nearby["parent"], "listitem \"John Smith\"");
@@ -397,6 +416,91 @@ fn describe_nearby_filters_structural_nodes_text_output() {
 }
 
 #[test]
+fn describe_nearby_returns_parent_siblings_and_selected_qualifiers_json() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_nearby_fixes_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "describe",
+            DESCRIBE_NEARBY_FIXES_SELECTOR,
+            "--nearby",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "describe nearby fixes json");
+    let v = parse_json(&out);
+
+    let nearby = &v["data"]["nearby"];
+    assert!(
+        nearby["parent"].is_string(),
+        "parent should be returned for structural wrappers"
+    );
+    assert_eq!(nearby["previous_sibling"], "tab \"Overview\"");
+    assert_eq!(nearby["next_sibling"], "tab \"Activity\"");
+
+    let children = nearby["children"].as_array().unwrap();
+    assert_eq!(children.len(), 2);
+    assert_eq!(children[0], "nav \"Account\"");
+    assert_eq!(children[1], "tab \"Settings\" [selected]");
+}
+
+#[test]
+fn describe_nearby_returns_parent_siblings_and_selected_qualifiers_text_output() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session();
+    let _guard = SessionGuard::new(&sid);
+    inject_nearby_fixes_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "describe",
+            DESCRIBE_NEARBY_FIXES_SELECTOR,
+            "--nearby",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "describe nearby fixes text");
+    let text = stdout_str(&out);
+    let lines: Vec<&str> = text.lines().collect();
+
+    assert!(
+        lines
+            .first()
+            .unwrap_or(&"")
+            .starts_with(&format!("[{sid} {tid}]")),
+        "header must start with [session_id tab_id]: {text}"
+    );
+    assert_eq!(lines.get(1), Some(&"div \"Profile section\""));
+    assert!(
+        lines.iter().any(|line| line.starts_with("parent: ")),
+        "text output should include parent line.\nGot:\n{text}"
+    );
+    assert!(lines.contains(&"previous_sibling: tab \"Overview\""));
+    assert!(lines.contains(&"next_sibling: tab \"Activity\""));
+    assert!(lines.contains(&"child: nav \"Account\""));
+    assert!(lines.contains(&"child: tab \"Settings\" [selected]"));
+}
+
+#[test]
 fn describe_summary_disabled_qualifier_json() {
     if skip() {
         return;
@@ -520,7 +624,7 @@ fn state_json_happy_path() {
     assert_success(&out, "state json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.state");
+    assert_eq!(v["command"], "browser state");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_meta(&v);
@@ -561,7 +665,7 @@ fn state_json_checked_true() {
     assert_success(&out, "state checked json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.state");
+    assert_eq!(v["command"], "browser state");
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["target"]["selector"], STATE_CHECKED_SELECTOR);
     assert_eq!(v["data"]["state"]["visible"], true);
@@ -597,7 +701,7 @@ fn state_json_enabled_false() {
     assert_success(&out, "state disabled json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.state");
+    assert_eq!(v["command"], "browser state");
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["target"]["selector"], STATE_DISABLED_SELECTOR);
     assert_eq!(v["data"]["state"]["visible"], true);
@@ -633,7 +737,7 @@ fn state_json_visible_false() {
     assert_success(&out, "state hidden json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.state");
+    assert_eq!(v["command"], "browser state");
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["target"]["selector"], STATE_HIDDEN_SELECTOR);
     assert_eq!(v["data"]["state"]["visible"], false);
@@ -714,7 +818,7 @@ fn describe_element_not_found_json() {
     assert_failure(&out, "describe missing element");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.describe");
+    assert_eq!(v["command"], "browser describe");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
     assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
@@ -746,7 +850,7 @@ fn state_element_not_found_json() {
     assert_failure(&out, "state missing element");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.state");
+    assert_eq!(v["command"], "browser state");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
     assert_error_envelope(&v, "ELEMENT_NOT_FOUND");
@@ -774,7 +878,7 @@ fn describe_session_not_found_json() {
     assert_failure(&out, "describe nonexistent session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.describe");
+    assert_eq!(v["command"], "browser describe");
     assert!(v["context"].is_null());
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
 }
@@ -800,7 +904,7 @@ fn state_session_not_found_json() {
     assert_failure(&out, "state nonexistent session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.state");
+    assert_eq!(v["command"], "browser state");
     assert!(v["context"].is_null());
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
 }
@@ -829,7 +933,7 @@ fn describe_tab_not_found_json() {
     assert_failure(&out, "describe nonexistent tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.describe");
+    assert_eq!(v["command"], "browser describe");
     assert!(v["context"].is_object());
     assert_eq!(v["context"]["session_id"], sid);
     assert!(v["context"]["tab_id"].is_null());
@@ -860,7 +964,7 @@ fn state_tab_not_found_json() {
     assert_failure(&out, "state nonexistent tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.state");
+    assert_eq!(v["command"], "browser state");
     assert!(v["context"].is_object());
     assert_eq!(v["context"]["session_id"], sid);
     assert!(v["context"]["tab_id"].is_null());
@@ -907,7 +1011,7 @@ fn describe_js_exception_returns_error() {
     assert_failure(&out, "describe js exception");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.describe");
+    assert_eq!(v["command"], "browser describe");
     assert_error_envelope(&v, "JS_EXCEPTION");
 }
 
@@ -950,6 +1054,6 @@ fn state_js_exception_returns_error() {
     assert_failure(&out, "state js exception");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.state");
+    assert_eq!(v["command"], "browser state");
     assert_error_envelope(&v, "JS_EXCEPTION");
 }

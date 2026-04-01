@@ -30,8 +30,8 @@ pub struct Cmd {
 
 pub fn command_name(kind: StorageKind) -> &'static str {
     match kind {
-        StorageKind::Local => "browser.local-storage.clear",
-        StorageKind::Session => "browser.session-storage.clear",
+        StorageKind::Local => "browser local-storage clear",
+        StorageKind::Session => "browser session-storage clear",
     }
 }
 

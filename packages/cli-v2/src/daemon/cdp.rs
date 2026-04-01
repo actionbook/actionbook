@@ -103,7 +103,7 @@ pub async fn cdp_navigate(ws_url: &str, url: &str) -> Result<(), CliError> {
             }
         }
     }
-    Ok(())
+    Err(CliError::CdpError("no response from CDP".to_string()))
 }
 
 /// Get accessibility tree via CDP.
@@ -155,4 +155,50 @@ pub fn ensure_scheme(url: &str) -> Result<String, crate::error::CliError> {
 pub fn ensure_scheme_or_fatal(url: &str) -> Result<String, crate::action_result::ActionResult> {
     ensure_scheme(url)
         .map_err(|e| crate::action_result::ActionResult::fatal("INVALID_ARGUMENT", e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::SocketAddr;
+    use tokio::net::TcpListener;
+
+    /// Start a mock WS server that accepts one connection, reads one message,
+    /// then sends a graceful Close frame without replying — simulating an
+    /// EOF before the expected CDP response.
+    async fn mock_ws_server_read_then_close() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let url = format!("ws://127.0.0.1:{}", addr.port());
+
+        tokio::spawn(async move {
+            use futures_util::{SinkExt, StreamExt};
+            use tokio_tungstenite::tungstenite::Message;
+            if let Ok((stream, _)) = listener.accept().await {
+                let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+                // Read the client's request message
+                let _ = ws.next().await;
+                // Gracefully close (sends Close frame) — no CDP response
+                let _ = ws.send(Message::Close(None)).await;
+            }
+        });
+
+        url
+    }
+
+    // ── test_cdp_navigate_eof_returns_error ──────────────────────────
+
+    /// When the WebSocket closes before a response is received,
+    /// cdp_navigate must return an error, not Ok(()).
+    #[tokio::test]
+    async fn test_cdp_navigate_eof_returns_error() {
+        let url = mock_ws_server_read_then_close().await;
+
+        let result = cdp_navigate(&url, "https://example.com").await;
+
+        assert!(
+            result.is_err(),
+            "cdp_navigate should return error on EOF, not Ok(())"
+        );
+    }
 }

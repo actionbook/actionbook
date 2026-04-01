@@ -143,7 +143,7 @@ fn cookies_list_json_happy_path() {
         ],
         10,
     );
-    assert_eq!(set_v["command"], "browser.cookies.set");
+    assert_eq!(set_v["command"], "browser cookies set");
     assert_eq!(set_v["data"]["action"], "set");
     assert_eq!(set_v["data"]["affected"], 1);
 
@@ -151,7 +151,7 @@ fn cookies_list_json_happy_path() {
     assert_success(&out, "cookies list json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.cookies.list");
+    assert_eq!(v["command"], "browser cookies list");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_meta(&v);
@@ -330,7 +330,7 @@ fn cookies_get_json_happy_path() {
     assert_success(&out, "cookies get json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.cookies.get");
+    assert_eq!(v["command"], "browser cookies get");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_meta(&v);
@@ -371,7 +371,7 @@ fn cookies_get_missing_json() {
     assert_success(&out, "cookies get missing json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.cookies.get");
+    assert_eq!(v["command"], "browser cookies get");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_meta(&v);
@@ -416,7 +416,7 @@ fn cookies_set_json_happy_path() {
     assert_success(&out, "cookies set json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.cookies.set");
+    assert_eq!(v["command"], "browser cookies set");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_meta(&v);
@@ -459,7 +459,7 @@ fn cookies_actions_text_output() {
         "set text must contain session header: {set_text}"
     );
     assert!(
-        set_text.contains("ok browser.cookies.set"),
+        set_text.contains("ok browser cookies set"),
         "set text must contain ok line: {set_text}"
     );
 
@@ -477,7 +477,7 @@ fn cookies_actions_text_output() {
     assert_success(&delete_out, "cookies delete text");
     let delete_text = stdout_str(&delete_out);
     assert!(delete_text.contains(&format!("[{sid}]")));
-    assert!(delete_text.contains("ok browser.cookies.delete"));
+    assert!(delete_text.contains("ok browser cookies delete"));
 
     set_cookie(
         &sid,
@@ -502,7 +502,7 @@ fn cookies_actions_text_output() {
     assert_success(&clear_out, "cookies clear text");
     let clear_text = stdout_str(&clear_out);
     assert!(clear_text.contains(&format!("[{sid}]")));
-    assert!(clear_text.contains("ok browser.cookies.clear"));
+    assert!(clear_text.contains("ok browser cookies clear"));
 }
 
 #[test]
@@ -537,7 +537,7 @@ fn cookies_delete_json_happy_path() {
     assert_success(&out, "cookies delete json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.cookies.delete");
+    assert_eq!(v["command"], "browser cookies delete");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_meta(&v);
@@ -594,7 +594,7 @@ fn cookies_clear_json_happy_path() {
     assert_success(&out, "cookies clear json");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.cookies.clear");
+    assert_eq!(v["command"], "browser cookies clear");
     assert_eq!(v["ok"], true);
     assert!(v["error"].is_null());
     assert_meta(&v);
@@ -638,7 +638,7 @@ fn cookies_session_not_found_json() {
     assert_failure(&out, "cookies missing session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.cookies.list");
+    assert_eq!(v["command"], "browser cookies list");
     assert!(v["context"].is_null());
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
 }

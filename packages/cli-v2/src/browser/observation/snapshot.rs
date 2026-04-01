@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use clap::Args;
 use serde::{Deserialize, Serialize};
@@ -11,6 +11,10 @@ use crate::output::ResponseContext;
 
 use super::snapshot_transform::{self, CursorInfo, SnapshotOptions};
 
+fn cursor_default() -> bool {
+    true
+}
+
 /// Capture accessibility snapshot
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
 #[command(after_help = "\
@@ -21,8 +25,11 @@ Examples:
   actionbook browser snapshot -i --depth 3 --session s1 --tab t1
   actionbook browser snapshot --selector \"#main\" --session s1 --tab t1
 
-Flags: -i (interactive only), -c (compact), --cursor (include cursor-interactive).
-Elements are labeled with refs (e.g. [ref=e1]) for use in click, fill, etc.")]
+Flags: -i (interactive only), -c (compact), --cursor (cursor-interactive on by default).
+Elements are labeled with refs (e.g. @e1, @e2). Use the @eN syntax to target
+elements in other commands: click @e5, fill @e7 \"text\", hover @e3.
+Refs are stable across snapshots — if the DOM node stays the same, the ref
+stays the same. This lets agents chain commands without re-snapshotting after every step.")]
 pub struct Cmd {
     /// Session ID
     #[arg(long)]
@@ -40,9 +47,9 @@ pub struct Cmd {
     #[arg(long, short = 'c', default_value_t = false)]
     #[serde(default)]
     pub compact: bool,
-    /// Additionally include cursor-interactive custom elements (cursor:pointer, onclick, tabindex)
-    #[arg(long, default_value_t = false)]
-    #[serde(default)]
+    /// Include cursor-interactive custom elements (cursor:pointer, onclick, tabindex) — enabled by default
+    #[arg(long, default_value_t = true)]
+    #[serde(default = "cursor_default")]
     pub cursor: bool,
     /// Limit maximum tree depth
     #[arg(long, short = 'd')]
@@ -54,7 +61,7 @@ pub struct Cmd {
     pub selector: Option<String>,
 }
 
-pub const COMMAND_NAME: &str = "browser.snapshot";
+pub const COMMAND_NAME: &str = "browser snapshot";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     // SESSION_NOT_FOUND: context must be null per §3.1
@@ -155,7 +162,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         &mut ref_cache,
         scope_backend_ids.as_ref(),
         cursor_elements.as_ref(),
+        None, // main frame
     );
+
+    // Expand 1 level of iframe content (only from main frame, no recursion)
+    expand_iframes(&cdp, &target_id, &mut nodes, &mut ref_cache, &options).await;
 
     // Apply token budget truncation (100K tokens max)
     const MAX_TOKENS: usize = 100_000;
@@ -179,9 +190,25 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Build output per §10.1
     let output = snapshot_transform::build_output(nodes);
 
+    // Write snapshot content to a file in the session data directory.
+    let session_data_dir = crate::config::session_data_dir(&cmd.session);
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let snapshot_path = session_data_dir.join(format!("snapshot_{ts}.txt"));
+    let snapshot_path_str = snapshot_path.to_string_lossy().to_string();
+
+    if let Err(e) = std::fs::write(&snapshot_path, &output.content) {
+        return ActionResult::fatal(
+            "ARTIFACT_WRITE_FAILED",
+            format!("failed to write snapshot to {snapshot_path_str}: {e}"),
+        );
+    }
+
     let mut data = json!({
         "format": "snapshot",
-        "content": output.content,
+        "path": snapshot_path_str,
         "nodes": output.nodes,
         "stats": {
             "node_count": output.node_count,
@@ -198,6 +225,153 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
     ActionResult::ok(data)
 }
+
+// ── iframe expansion helpers ──────────────────────────────────────
+
+/// Resolve the child frame ID for an iframe element given its backendNodeId.
+/// Uses DOM.describeNode to get contentDocument.frameId.
+async fn resolve_iframe_frame_id(
+    cdp: &CdpSession,
+    target_id: &str,
+    backend_node_id: i64,
+) -> Result<String, String> {
+    let describe = cdp
+        .execute_on_tab(
+            target_id,
+            "DOM.describeNode",
+            json!({ "backendNodeId": backend_node_id, "depth": 1 }),
+        )
+        .await
+        .map_err(|e| format!("DOM.describeNode failed: {e}"))?;
+
+    // Try contentDocument.frameId first (standard for iframes)
+    if let Some(frame_id) = describe
+        .pointer("/result/node/contentDocument/frameId")
+        .and_then(|v| v.as_str())
+    {
+        return Ok(frame_id.to_string());
+    }
+
+    // Fallback: the node itself may have a frameId
+    describe
+        .pointer("/result/node/frameId")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "could not resolve iframe frame ID".to_string())
+}
+
+/// Fetch the accessibility tree for a child frame.
+/// Cross-origin iframes (found in iframe_sessions) use their dedicated CDP session.
+/// Same-origin iframes use the parent session with a frameId parameter.
+async fn fetch_iframe_ax_tree(
+    cdp: &CdpSession,
+    target_id: &str,
+    frame_id: &str,
+    iframe_sessions: &HashMap<String, String>,
+) -> Result<Value, String> {
+    if let Some(iframe_sid) = iframe_sessions.get(frame_id) {
+        // Cross-origin: use dedicated iframe CDP session (no frameId param needed)
+        cdp.execute("Accessibility.getFullAXTree", json!({}), Some(iframe_sid))
+            .await
+            .map_err(|e| format!("iframe AX tree (cross-origin) failed: {e}"))
+    } else {
+        // Same-origin: use parent session with frameId parameter
+        cdp.execute_on_tab(
+            target_id,
+            "Accessibility.getFullAXTree",
+            json!({ "frameId": frame_id }),
+        )
+        .await
+        .map_err(|e| format!("iframe AX tree (same-origin) failed: {e}"))
+    }
+}
+
+/// Enable DOM and Accessibility domains on newly discovered iframe sessions.
+/// Called before querying iframe AX trees.
+async fn enable_iframe_sessions(cdp: &CdpSession) {
+    let pending = cdp.drain_pending_iframe_enables().await;
+    for sid in &pending {
+        let _ = cdp.execute("DOM.enable", json!({}), Some(sid)).await;
+        let _ = cdp
+            .execute("Accessibility.enable", json!({}), Some(sid))
+            .await;
+    }
+}
+
+/// Expand 1 level of iframe content into the snapshot node list.
+/// For each Iframe node with a ref, resolves its child frame, fetches the AX tree,
+/// and inserts child nodes right after the Iframe node with depth += iframe_depth + 1.
+async fn expand_iframes(
+    cdp: &CdpSession,
+    target_id: &str,
+    nodes: &mut Vec<snapshot_transform::AXNode>,
+    ref_cache: &mut snapshot_transform::RefCache,
+    options: &SnapshotOptions,
+) {
+    // Enable any pending iframe sessions first
+    enable_iframe_sessions(cdp).await;
+
+    let iframe_sessions = cdp.iframe_sessions().await;
+
+    // Collect iframe nodes to expand (index, ref_id, depth)
+    // We collect first to avoid borrow issues during mutation.
+    let iframe_info: Vec<(usize, String, usize)> = nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| n.role == "Iframe" && !n.ref_id.is_empty())
+        .map(|(i, n)| (i, n.ref_id.clone(), n.depth))
+        .collect();
+
+    // Process in reverse order so insertion indices stay valid
+    for (idx, ref_id, iframe_depth) in iframe_info.into_iter().rev() {
+        let backend_node_id = match ref_cache.backend_node_id_for_ref(&ref_id) {
+            Some(bid) if bid > 0 => bid,
+            _ => continue,
+        };
+
+        // Resolve child frame ID
+        let child_frame_id = match resolve_iframe_frame_id(cdp, target_id, backend_node_id).await {
+            Ok(fid) => fid,
+            Err(_) => continue, // silently skip inaccessible iframes
+        };
+
+        // Fetch child AX tree
+        let child_response =
+            match fetch_iframe_ax_tree(cdp, target_id, &child_frame_id, &iframe_sessions).await {
+                Ok(resp) => resp,
+                Err(_) => continue, // silently skip
+            };
+
+        // Parse child tree with frame_id for RefCache isolation
+        let mut child_nodes = snapshot_transform::parse_ax_tree(
+            &child_response,
+            options,
+            ref_cache,
+            None, // no selector scope for iframe content
+            None, // no cursor detection in iframes (main frame only)
+            Some(&child_frame_id),
+        );
+
+        if child_nodes.is_empty() {
+            continue;
+        }
+
+        // Adjust depth: child nodes should be nested under the Iframe node
+        let depth_offset = iframe_depth + 1;
+        for child in &mut child_nodes {
+            child.depth += depth_offset;
+        }
+
+        // Insert right after the Iframe node
+        let insert_at = idx + 1;
+        // Splice child nodes into the flat list
+        let tail = nodes.split_off(insert_at);
+        nodes.extend(child_nodes);
+        nodes.extend(tail);
+    }
+}
+
+// ── Selector scope helpers ────────────────────────────────────────
 
 /// Resolve a CSS selector to all backendNodeIds in its subtree.
 /// Uses CDP DOM.getDocument → DOM.querySelector → DOM.describeNode(depth=-1).

@@ -2,10 +2,11 @@ use std::fs::OpenOptions;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::net::UnixListener;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use super::registry::{SharedRegistry, new_shared_registry};
 use super::router;
+use crate::action_result::ActionResult;
 use crate::config;
 use crate::utils::wire;
 
@@ -129,6 +130,11 @@ fn housekeeping_interval() -> Duration {
 
 /// Run the daemon server (blocking).
 pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
+    info!(
+        "daemon starting (pid={}, version={})",
+        std::process::id(),
+        crate::BUILD_VERSION
+    );
     let path = socket_path();
     let pid_file = pid_path();
     let ready_path = path.with_extension("ready");
@@ -196,9 +202,11 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
 
     let registry = new_shared_registry();
 
-    // Handle both SIGINT and SIGTERM
+    // Handle SIGINT, SIGTERM, and SIGHUP (terminal close).
     #[cfg(unix)]
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    #[cfg(unix)]
+    let mut sighup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
 
     // Idle timeout housekeeping
     let mut last_activity = Instant::now();
@@ -232,6 +240,10 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
                 info!("received SIGTERM, shutting down");
                 break;
             }
+            _ = sighup.recv() => {
+                info!("received SIGHUP, shutting down");
+                break;
+            }
             _ = housekeeping.tick() => {
                 if let Some(timeout) = idle_timeout_duration
                     && last_activity.elapsed() > timeout {
@@ -249,6 +261,11 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+
+    info!(
+        "daemon exiting main loop, starting graceful shutdown (pid={})",
+        std::process::id()
+    );
 
     // Graceful shutdown: collect all sessions, then release registry lock
     // before slow I/O (CDP close + Chrome kill).
@@ -284,6 +301,8 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::remove_file(&ready_path).ok();
     std::fs::remove_file(&pid_file).ok();
 
+    info!("daemon shutdown complete (pid={})", std::process::id());
+
     // `pid_file_fd` is dropped here → kernel releases flock
     drop(pid_file_fd);
 
@@ -304,7 +323,28 @@ async fn handle_connection(
         };
 
         let request: wire::Request = serde_json::from_slice(&payload)?;
+        let cmd_name = request.action.command_name().to_owned();
+        let addr = request.action.session_tab_label();
+        let start = std::time::Instant::now();
+
         let result = router::route(&request.action, registry).await;
+        let elapsed = start.elapsed();
+
+        match &result {
+            ActionResult::Ok { .. } => {
+                info!("{cmd_name} [{addr}] ok ({elapsed:.0?})");
+            }
+            ActionResult::Retryable { reason, .. } => {
+                warn!("{cmd_name} [{addr}] retryable: {reason} ({elapsed:.0?})");
+            }
+            ActionResult::UserAction { action, .. } => {
+                warn!("{cmd_name} [{addr}] user_action: {action} ({elapsed:.0?})");
+            }
+            ActionResult::Fatal { code, message, .. } => {
+                error!("{cmd_name} [{addr}] fatal({code}): {message} ({elapsed:.0?})");
+            }
+        }
+
         let response_payload = wire::serialize_response(request.id, &result)?;
         wire::write_frame(&mut writer, &response_payload).await?;
     }

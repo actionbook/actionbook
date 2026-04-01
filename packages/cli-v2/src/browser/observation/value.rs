@@ -30,7 +30,7 @@ pub struct Cmd {
     pub tab: String,
 }
 
-pub const COMMAND_NAME: &str = "browser.value";
+pub const COMMAND_NAME: &str = "browser value";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result
@@ -66,12 +66,12 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
+    let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
 
-    let value = match get_value(&ctx, &cmd.selector).await {
+    let value = match get_value(&mut ctx, &cmd.selector).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -86,12 +86,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }))
 }
 
-async fn get_value(ctx: &TabContext, selector: &str) -> Result<Value, ActionResult> {
+async fn get_value(ctx: &mut TabContext, selector: &str) -> Result<Value, ActionResult> {
     let (_, object_id) = ctx.resolve_object(selector).await?;
     let resp = ctx
-        .cdp
-        .execute_on_tab(
-            &ctx.target_id,
+        .execute_on_element(
             "Runtime.callFunctionOn",
             json!({
                 "objectId": object_id,

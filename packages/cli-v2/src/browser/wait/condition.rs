@@ -34,7 +34,7 @@ pub struct Cmd {
     pub timeout: Option<u64>,
 }
 
-pub const COMMAND_NAME: &str = "browser.wait.condition";
+pub const COMMAND_NAME: &str = "browser wait condition";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result

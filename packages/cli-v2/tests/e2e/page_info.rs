@@ -119,7 +119,7 @@ fn title_json_happy_path() {
 
     // §2.4 envelope
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.title");
+    assert_eq!(v["command"], "browser title");
     assert!(v["error"].is_null());
     assert_meta(&v);
 
@@ -221,7 +221,7 @@ fn title_session_not_found_json() {
     assert_failure(&out, "title nonexistent session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.title");
+    assert_eq!(v["command"], "browser title");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     // §3.1: context must be null when session not found
     assert!(
@@ -277,7 +277,7 @@ fn title_tab_not_found_json() {
     assert_failure(&out, "title nonexistent tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.title");
+    assert_eq!(v["command"], "browser title");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     // §3.1: TAB_NOT_FOUND — context has session_id but tab_id must be absent/null
     assert!(
@@ -331,7 +331,7 @@ fn url_json_happy_path() {
 
     // §2.4 envelope
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.url");
+    assert_eq!(v["command"], "browser url");
     assert!(v["error"].is_null());
     assert_meta(&v);
 
@@ -438,7 +438,7 @@ fn url_session_not_found_json() {
     assert_failure(&out, "url nonexistent session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.url");
+    assert_eq!(v["command"], "browser url");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -493,7 +493,7 @@ fn url_tab_not_found_json() {
     assert_failure(&out, "url nonexistent tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.url");
+    assert_eq!(v["command"], "browser url");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(v["context"].is_object(), "context must be present");
     assert_eq!(v["context"]["session_id"], sid);
@@ -546,7 +546,7 @@ fn viewport_json_happy_path() {
 
     // §2.4 envelope
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.viewport");
+    assert_eq!(v["command"], "browser viewport");
     assert!(v["error"].is_null());
     assert_meta(&v);
 
@@ -638,8 +638,8 @@ fn viewport_text_happy_path() {
     );
 
     assert!(
-        !text.contains("ok browser.viewport"),
-        "text must not contain 'ok browser.viewport'"
+        !text.contains("ok browser viewport"),
+        "text must not contain 'ok browser viewport'"
     );
 
     close_session(&sid);
@@ -665,7 +665,7 @@ fn viewport_session_not_found_json() {
     assert_failure(&out, "viewport nonexistent session");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.viewport");
+    assert_eq!(v["command"], "browser viewport");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(
         v["context"].is_null(),
@@ -720,7 +720,7 @@ fn viewport_tab_not_found_json() {
     assert_failure(&out, "viewport nonexistent tab");
     let v = parse_json(&out);
 
-    assert_eq!(v["command"], "browser.viewport");
+    assert_eq!(v["command"], "browser viewport");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(v["context"].is_object(), "context must be present");
     assert_eq!(v["context"]["session_id"], sid);

@@ -70,6 +70,7 @@ pub enum BrowserCommands {
     /// Show session status
     Status(session::status::Cmd),
     /// Close a session
+    #[command(alias = "stop")]
     Close(session::close::Cmd),
     /// Restart a session
     Restart(session::restart::Cmd),
@@ -248,14 +249,44 @@ pub enum CookiesCommands {
 #[command(disable_help_subcommand = true)]
 pub enum StorageSubCommands {
     /// List all key-value entries
+    #[command(after_help = "\
+Examples:
+  actionbook browser local-storage list --session s1 --tab t1
+  actionbook browser session-storage list --session s1 --tab t1
+
+Returns all key-value pairs in the storage object.")]
     List(StorageArgs),
     /// Get a value by key
+    #[command(after_help = "\
+Examples:
+  actionbook browser local-storage get auth_token --session s1 --tab t1
+  actionbook browser session-storage get user_id --session s1 --tab t1
+
+Returns null if the key does not exist.")]
     Get(StorageKeyArgs),
     /// Set a key-value entry
+    #[command(after_help = "\
+Examples:
+  actionbook browser local-storage set theme dark --session s1 --tab t1
+  actionbook browser session-storage set lang en --session s1 --tab t1
+
+Creates the key if it does not exist, overwrites if it does.")]
     Set(StorageSetArgs),
     /// Delete a key
+    #[command(after_help = "\
+Examples:
+  actionbook browser local-storage delete auth_token --session s1 --tab t1
+  actionbook browser session-storage delete temp_data --session s1 --tab t1
+
+Removes the key entirely. No-op if the key does not exist.")]
     Delete(StorageKeyArgs),
     /// Clear the value for a key
+    #[command(after_help = "\
+Examples:
+  actionbook browser local-storage clear cache_key --session s1 --tab t1
+  actionbook browser session-storage clear pref --session s1 --tab t1
+
+Removes the key from storage. Returns affected count (1 if existed, 0 if not).")]
     Clear(StorageKeyArgs),
 }
 
@@ -381,9 +412,9 @@ impl BrowserCommands {
             Self::NewTab(_) => tab::open::COMMAND_NAME,
             Self::CloseTab(_) => tab::close::COMMAND_NAME,
             Self::Goto(_) => navigation::goto::COMMAND_NAME,
-            Self::Back(_) => "browser.back",
-            Self::Forward(_) => "browser.forward",
-            Self::Reload(_) => "browser.reload",
+            Self::Back(_) => "browser back",
+            Self::Forward(_) => "browser forward",
+            Self::Reload(_) => "browser reload",
             Self::Snapshot(_) => observation::snapshot::COMMAND_NAME,
             Self::Title(_) => observation::title::COMMAND_NAME,
             Self::Url(_) => observation::url::COMMAND_NAME,

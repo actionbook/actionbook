@@ -104,7 +104,7 @@ fn screenshot_json_happy_path() {
 
     // §2.4 envelope
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.screenshot");
+    assert_eq!(v["command"], "browser screenshot");
     assert!(v["error"].is_null());
     assert_meta(&v);
 
@@ -174,10 +174,10 @@ fn screenshot_text_happy_path() {
         lines[0]
     );
 
-    // "ok browser.screenshot" line
+    // "ok browser screenshot" line
     assert!(
-        text.contains("ok browser.screenshot"),
-        "text must contain 'ok browser.screenshot': got {text:.400}"
+        text.contains("ok browser screenshot"),
+        "text must contain 'ok browser screenshot': got {text:.400}"
     );
 
     // "path: ..." line

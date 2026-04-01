@@ -82,6 +82,98 @@ pub enum Action {
 }
 
 impl Action {
+    /// Extract session/tab addressing for log lines.
+    ///
+    /// Returns e.g. `"s0/t1"`, `"s0"`, or `"-"` (for list-sessions).
+    pub fn session_tab_label(&self) -> String {
+        // Helper: most commands carry (session, tab).
+        macro_rules! st {
+            ($cmd:expr) => {
+                format!("{}/{}", $cmd.session, $cmd.tab)
+            };
+        }
+        macro_rules! s_only {
+            ($cmd:expr) => {
+                $cmd.session.clone()
+            };
+        }
+
+        match self {
+            // Session-level (no tab)
+            Action::StartSession(_) | Action::ListSessions(_) => "-".into(),
+            Action::SessionStatus(c) => s_only!(c),
+            Action::Close(c) => s_only!(c),
+            Action::Restart(c) => s_only!(c),
+
+            // Tab management
+            Action::NewTab(c) => s_only!(c),
+            Action::CloseTab(c) => st!(c),
+            Action::ListTabs(c) => s_only!(c),
+
+            // Navigation
+            Action::Goto(c) => st!(c),
+            Action::Back(c) => st!(c),
+            Action::Forward(c) => st!(c),
+            Action::Reload(c) => st!(c),
+
+            // Observation
+            Action::Snapshot(c) => st!(c),
+            Action::Screenshot(c) => st!(c),
+            Action::Title(c) => st!(c),
+            Action::Url(c) => st!(c),
+            Action::Viewport(c) => st!(c),
+            Action::Html(c) => st!(c),
+            Action::Text(c) => st!(c),
+            Action::Value(c) => st!(c),
+            Action::Attr(c) => st!(c),
+            Action::Attrs(c) => st!(c),
+            Action::Box(c) => st!(c),
+            Action::Styles(c) => st!(c),
+            Action::Describe(c) => st!(c),
+            Action::State(c) => st!(c),
+            Action::Query(c) => format!("{}/{}", c.session(), c.tab()),
+            Action::InspectPoint(c) => st!(c),
+            Action::Pdf(c) => st!(c),
+            Action::LogsConsole(c) => st!(c),
+            Action::LogsErrors(c) => st!(c),
+
+            // Cookies (session-level, no tab)
+            Action::CookiesList(c) => s_only!(c),
+            Action::CookiesGet(c) => s_only!(c),
+            Action::CookiesSet(c) => s_only!(c),
+            Action::CookiesDelete(c) => s_only!(c),
+            Action::CookiesClear(c) => s_only!(c),
+
+            // Storage
+            Action::StorageList(c) => st!(c),
+            Action::StorageGet(c) => st!(c),
+            Action::StorageSet(c) => st!(c),
+            Action::StorageDelete(c) => st!(c),
+            Action::StorageClear(c) => st!(c),
+
+            // Wait
+            Action::WaitElement(c) => st!(c),
+            Action::WaitNavigation(c) => st!(c),
+            Action::WaitNetworkIdle(c) => st!(c),
+            Action::WaitCondition(c) => st!(c),
+
+            // Interaction
+            Action::Eval(c) => st!(c),
+            Action::Click(c) => st!(c),
+            Action::Hover(c) => st!(c),
+            Action::Focus(c) => st!(c),
+            Action::Press(c) => st!(c),
+            Action::Type(c) => st!(c),
+            Action::Fill(c) => st!(c),
+            Action::Select(c) => st!(c),
+            Action::Drag(c) => st!(c),
+            Action::Upload(c) => st!(c),
+            Action::MouseMove(c) => st!(c),
+            Action::CursorPosition(c) => st!(c),
+            Action::Scroll(c) => st!(c),
+        }
+    }
+
     /// Normalized command name for the JSON envelope.
     pub fn command_name(&self) -> &str {
         match self {

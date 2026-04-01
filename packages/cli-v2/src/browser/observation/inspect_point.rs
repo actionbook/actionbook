@@ -35,7 +35,7 @@ pub struct Cmd {
     pub parent_depth: Option<u32>,
 }
 
-pub const COMMAND_NAME: &str = "browser.inspect-point";
+pub const COMMAND_NAME: &str = "browser inspect-point";
 
 /// Parse coordinate string "x,y" into (f64, f64).
 pub fn parse_coordinates(coords: &str) -> Result<(f64, f64), String> {
@@ -215,7 +215,7 @@ async fn get_ax_info_for_backend_node(
     };
 
     // Assign stable ref from RefCache
-    let selector = ref_cache.get_or_assign(backend_node_id, &role, &name);
+    let selector = ref_cache.get_or_assign(backend_node_id, &role, &name, None);
 
     Ok(json!({
         "role": role,
@@ -313,9 +313,9 @@ async fn collect_parents(
         // Use backendDOMNodeId for stable ref assignment
         let backend_dom_id = parent_node["backendDOMNodeId"].as_i64().unwrap_or(0);
         let selector = if backend_dom_id != 0 {
-            ref_cache.get_or_assign(backend_dom_id, &role, &name)
+            ref_cache.get_or_assign(backend_dom_id, &role, &name, None)
         } else {
-            ref_cache.get_or_assign(parent_idx as i64, &role, &name)
+            ref_cache.get_or_assign(parent_idx as i64, &role, &name, None)
         };
 
         parents.push(json!({

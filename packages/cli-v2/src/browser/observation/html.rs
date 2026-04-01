@@ -32,7 +32,7 @@ pub struct Cmd {
     pub tab: String,
 }
 
-pub const COMMAND_NAME: &str = "browser.html";
+pub const COMMAND_NAME: &str = "browser html";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result
@@ -68,12 +68,12 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
+    let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
 
-    let value = match get_html(&ctx, cmd.selector.as_deref()).await {
+    let value = match get_html(&mut ctx, cmd.selector.as_deref()).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -88,14 +88,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }))
 }
 
-async fn get_html(ctx: &TabContext, selector: Option<&str>) -> Result<Value, ActionResult> {
+async fn get_html(ctx: &mut TabContext, selector: Option<&str>) -> Result<Value, ActionResult> {
     match selector {
         Some(selector) => {
             let (_, object_id) = ctx.resolve_object(selector).await?;
             let resp = ctx
-                .cdp
-                .execute_on_tab(
-                    &ctx.target_id,
+                .execute_on_element(
                     "Runtime.callFunctionOn",
                     json!({
                         "objectId": object_id,

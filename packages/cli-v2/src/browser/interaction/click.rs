@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::browser::element::TabContext;
+use crate::browser::element::{ClickTarget, TabContext, parse_target};
 use crate::browser::navigation;
 use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result};
 use crate::daemon::registry::SharedRegistry;
@@ -57,7 +57,7 @@ pub struct Cmd {
     pub count: u32,
 }
 
-pub const COMMAND_NAME: &str = "browser.click";
+pub const COMMAND_NAME: &str = "browser click";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     // SESSION_NOT_FOUND: context must be null per §3.1
@@ -88,54 +88,6 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     })
 }
 
-// ── Target parsing ─────────────────────────────────────────────────
-
-enum ClickTarget {
-    Coordinates(f64, f64),
-    Selector(String),
-}
-
-/// Parse the positional arg into coordinates or a CSS selector.
-///
-/// Heuristic: if the first character is a digit, comma, or minus-digit,
-/// treat it as a coordinate attempt and validate strictly. Otherwise it
-/// is a CSS selector.
-fn parse_target(input: &str) -> Result<ClickTarget, ActionResult> {
-    let trimmed = input.trim();
-    let first = trimmed.chars().next().unwrap_or(' ');
-
-    let is_coord_attempt = first.is_ascii_digit()
-        || first == ','
-        || (first == '-' && trimmed.chars().nth(1).is_some_and(|c| c.is_ascii_digit()));
-
-    if !is_coord_attempt {
-        return Ok(ClickTarget::Selector(trimmed.to_string()));
-    }
-
-    let parts: Vec<&str> = trimmed.splitn(2, ',').collect();
-    if parts.len() != 2 {
-        return Err(ActionResult::fatal(
-            "INVALID_ARGUMENT",
-            format!("invalid coordinates: '{input}'"),
-        ));
-    }
-
-    let x = parts[0].trim().parse::<f64>().map_err(|_| {
-        ActionResult::fatal(
-            "INVALID_ARGUMENT",
-            format!("invalid coordinates: '{input}'"),
-        )
-    })?;
-    let y = parts[1].trim().parse::<f64>().map_err(|_| {
-        ActionResult::fatal(
-            "INVALID_ARGUMENT",
-            format!("invalid coordinates: '{input}'"),
-        )
-    })?;
-
-    Ok(ClickTarget::Coordinates(x, y))
-}
-
 // ── Execute ────────────────────────────────────────────────────────
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
@@ -162,7 +114,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     // Get CDP session and verify tab
-    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
+    let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -171,14 +123,14 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let (x, y) = match &target {
         ClickTarget::Coordinates(cx, cy) => (*cx, *cy),
         ClickTarget::Selector(sel) => match ctx.resolve_center(sel).await {
-            Ok(coords) => coords,
+            Ok((_node_id, cx, cy)) => (cx, cy),
             Err(e) => return e,
         },
     };
 
     // Handle --new-tab: if the target is a link, open href in a new tab
     if cmd.new_tab
-        && let Some(href) = get_element_href(&ctx, &target, x, y).await
+        && let Some(href) = get_element_href(&mut ctx, &target, x, y).await
     {
         return match open_in_new_tab(&ctx.cdp, &href, ctx.session_id(), ctx.registry()).await {
             Ok(()) => {
@@ -274,7 +226,7 @@ fn build_response(
 /// @eN refs) and then inspects the node. For coordinates, uses
 /// `document.elementFromPoint`.
 async fn get_element_href(
-    ctx: &TabContext,
+    ctx: &mut TabContext,
     target: &ClickTarget,
     x: f64,
     y: f64,
@@ -284,9 +236,7 @@ async fn get_element_href(
             let node_id = ctx.resolve_node(sel).await.ok()?;
             let object_id = ctx.resolve_object_id(node_id).await.ok()?;
             let eval = ctx
-                .cdp
-                .execute_on_tab(
-                    &ctx.target_id,
+                .execute_on_element(
                     "Runtime.callFunctionOn",
                     json!({
                         "objectId": object_id,
@@ -334,6 +284,11 @@ async fn open_in_new_tab(
     session_id: &str,
     registry: &SharedRegistry,
 ) -> Result<(), ActionResult> {
+    // Get stealth_ua from session so the new tab gets the same stealth injection.
+    let stealth_ua = {
+        let reg = registry.lock().await;
+        reg.get(session_id).and_then(|e| e.stealth_ua.clone())
+    };
     let resp = cdp
         .execute_browser("Target.createTarget", json!({ "url": url }))
         .await
@@ -347,8 +302,9 @@ async fn open_in_new_tab(
         })?
         .to_string();
 
-    // Attach — rollback on failure
-    if let Err(e) = cdp.attach(&new_target_id).await {
+    // Attach — rollback on failure.
+    // Pass stealth_ua so new tabs get the same stealth injection.
+    if let Err(e) = cdp.attach(&new_target_id, stealth_ua.as_deref()).await {
         let _ = cdp
             .execute_browser("Target.closeTarget", json!({ "targetId": new_target_id }))
             .await;

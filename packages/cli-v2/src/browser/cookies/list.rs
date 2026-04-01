@@ -24,7 +24,7 @@ pub struct Cmd {
     pub domain: Option<String>,
 }
 
-pub const COMMAND_NAME: &str = "browser.cookies.list";
+pub const COMMAND_NAME: &str = "browser cookies list";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result

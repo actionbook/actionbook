@@ -29,7 +29,7 @@ fn tab_list_tabs_json() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.list-tabs");
+    assert_eq!(v["command"], "browser list-tabs");
     assert!(v["error"].is_null());
     assert_context_object(&v);
     assert_eq!(v["context"]["session_id"], sid);
@@ -121,7 +121,7 @@ fn tab_new_tab_json() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.new-tab");
+    assert_eq!(v["command"], "browser new-tab");
     assert!(v["error"].is_null());
     assert_context_object(&v);
     assert_eq!(v["context"]["session_id"], sid);
@@ -154,7 +154,7 @@ fn tab_new_tab_text() {
         text.contains(&format!("[{sid}")),
         "header should contain session_id"
     );
-    assert!(text.contains("ok browser.new-tab"));
+    assert!(text.contains("ok browser new-tab"));
     assert!(text.contains("title:"));
 }
 
@@ -193,7 +193,7 @@ fn tab_new_tab_alias_open_json() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.new-tab");
+    assert_eq!(v["command"], "browser new-tab");
     assert!(v["error"].is_null());
     assert_context_object(&v);
     assert_eq!(v["context"]["session_id"], sid);
@@ -229,7 +229,7 @@ fn tab_close_tab_json() {
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser.close-tab");
+    assert_eq!(v["command"], "browser close-tab");
     assert!(v["error"].is_null());
     assert_context_object(&v);
     assert_eq!(v["context"]["session_id"], sid);
@@ -254,7 +254,7 @@ fn tab_close_tab_text() {
     assert_success(&out, "close-tab text");
     let text = stdout_str(&out);
     assert!(text.contains(&format!("[{sid}")));
-    assert!(text.contains("ok browser.close-tab"));
+    assert!(text.contains("ok browser close-tab"));
 }
 
 #[test]
@@ -297,7 +297,7 @@ fn tab_list_tabs_nonexistent_session_json() {
     assert_failure(&out, "list-tabs nonexistent session");
     let v = parse_json(&out);
     assert_eq!(v["ok"], false);
-    assert_eq!(v["command"], "browser.list-tabs");
+    assert_eq!(v["command"], "browser list-tabs");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(v["context"].is_null());
 }
@@ -326,7 +326,7 @@ fn tab_new_tab_nonexistent_session_json() {
     assert_failure(&out, "new-tab nonexistent session");
     let v = parse_json(&out);
     assert_eq!(v["ok"], false);
-    assert_eq!(v["command"], "browser.new-tab");
+    assert_eq!(v["command"], "browser new-tab");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(v["context"].is_null());
 }
@@ -365,7 +365,7 @@ fn tab_close_tab_nonexistent_session_json() {
     assert_failure(&out, "close-tab nonexistent session");
     let v = parse_json(&out);
     assert_eq!(v["ok"], false);
-    assert_eq!(v["command"], "browser.close-tab");
+    assert_eq!(v["command"], "browser close-tab");
     assert_error_envelope(&v, "SESSION_NOT_FOUND");
     assert!(v["context"].is_null());
 }
@@ -412,7 +412,7 @@ fn tab_close_tab_nonexistent_tab_json() {
     assert_failure(&out, "close-tab nonexistent tab");
     let v = parse_json(&out);
     assert_eq!(v["ok"], false);
-    assert_eq!(v["command"], "browser.close-tab");
+    assert_eq!(v["command"], "browser close-tab");
     assert_error_envelope(&v, "TAB_NOT_FOUND");
     assert!(
         v["context"].is_object(),
@@ -618,4 +618,109 @@ fn tab_concurrent_close_tabs_cross_session() {
     let out = headless_json(&["browser", "list-tabs", "--session", &sid_y], 10);
     let v = parse_json(&out);
     assert_eq!(v["data"]["total_tabs"], serde_json::json!(1));
+}
+
+// ===========================================================================
+// Group 7: list-tabs — CDP-based real-time sync
+// ===========================================================================
+
+use crate::harness::SoloEnv;
+
+/// list-tabs reflects real CDP state, not stale registry.
+/// After restart, old native_tab_ids are gone — list-tabs must still return tabs.
+#[test]
+fn tab_list_tabs_syncs_after_restart() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+
+    // Start session
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "sync-test",
+            "--profile",
+            "sync-prof",
+            "--open-url",
+            &url_a(),
+        ],
+        30,
+    );
+    assert_success(&out, "start sync-test");
+
+    // list-tabs before restart — should have 1 tab
+    let out = env.headless_json(&["browser", "list-tabs", "--session", "sync-test"], 10);
+    assert_success(&out, "list-tabs before restart");
+    let v = parse_json(&out);
+    assert!(
+        v["data"]["total_tabs"].as_u64().unwrap_or(0) >= 1,
+        "should have at least 1 tab before restart"
+    );
+    let old_native_id = v["data"]["tabs"][0]["native_tab_id"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+
+    // Restart — Chrome process replaced, native_tab_ids change
+    let out = env.headless_json(&["browser", "restart", "--session", "sync-test"], 30);
+    assert_success(&out, "restart sync-test");
+
+    // list-tabs after restart — should still show tabs (synced from CDP)
+    let out = env.headless_json(&["browser", "list-tabs", "--session", "sync-test"], 10);
+    assert_success(&out, "list-tabs after restart");
+    let v = parse_json(&out);
+    let total = v["data"]["total_tabs"].as_u64().unwrap_or(0);
+    assert!(
+        total >= 1,
+        "should have at least 1 tab after restart, got {total}"
+    );
+
+    // Native tab ID should be different from before restart
+    let new_native_id = v["data"]["tabs"][0]["native_tab_id"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    assert_ne!(
+        old_native_id, new_native_id,
+        "native_tab_id should change after restart"
+    );
+
+    // Short tab ID should still be valid tN format
+    assert_tab_id(&v["data"]["tabs"][0]["tab_id"]);
+}
+
+/// list-tabs preserves existing short IDs for known tabs after sync.
+#[test]
+fn tab_list_tabs_preserves_known_ids_after_sync() {
+    if skip() {
+        return;
+    }
+    let (sid, t1) = start_session(&url_a());
+    let _guard = SessionGuard::new(&sid);
+    let t2 = new_tab_json(&sid, &url_b());
+
+    // list-tabs should return t1 and t2 with stable IDs
+    let out = headless_json(&["browser", "list-tabs", "--session", &sid], 10);
+    assert_success(&out, "list-tabs with 2 tabs");
+    let v = parse_json(&out);
+    assert_eq!(v["data"]["total_tabs"], serde_json::json!(2));
+
+    let tabs = v["data"]["tabs"].as_array().unwrap();
+    let ids: Vec<&str> = tabs.iter().filter_map(|t| t["tab_id"].as_str()).collect();
+    assert!(ids.contains(&t1.as_str()), "should preserve t1");
+    assert!(ids.contains(&t2.as_str()), "should preserve t2");
+
+    // Call list-tabs again — IDs should be identical (stable)
+    let out2 = headless_json(&["browser", "list-tabs", "--session", &sid], 10);
+    assert_success(&out2, "list-tabs second call");
+    let v2 = parse_json(&out2);
+    let tabs2 = v2["data"]["tabs"].as_array().unwrap();
+    let ids2: Vec<&str> = tabs2.iter().filter_map(|t| t["tab_id"].as_str()).collect();
+    assert_eq!(ids, ids2, "tab IDs should be stable across list-tabs calls");
 }

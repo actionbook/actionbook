@@ -9,12 +9,24 @@ use crate::error::CliError;
 use crate::types::Mode;
 
 pub(crate) const DEFAULT_PROFILE: &str = "actionbook";
+pub(crate) const CURRENT_CONFIG_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct ConfigFile {
+    pub(crate) version: Option<u32>,
     pub(crate) api: ApiConfig,
     pub(crate) browser: BrowserConfig,
+}
+
+impl Default for ConfigFile {
+    fn default() -> Self {
+        Self {
+            version: Some(CURRENT_CONFIG_VERSION),
+            api: ApiConfig::default(),
+            browser: BrowserConfig::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -73,6 +85,19 @@ pub fn profiles_dir() -> PathBuf {
     actionbook_home().join("profiles")
 }
 
+/// Per-session data directory root: `~/.actionbook/sessions/`
+pub fn sessions_dir() -> PathBuf {
+    actionbook_home().join("sessions")
+}
+
+/// Data directory for a specific session: `~/.actionbook/sessions/{session_id}/`
+///
+/// Used to store session artifacts (snapshots, etc.).
+/// Created on `browser start`, removed on `browser close`.
+pub fn session_data_dir(session_id: &str) -> PathBuf {
+    sessions_dir().join(session_id)
+}
+
 fn ensure_actionbook_home() -> Result<PathBuf, CliError> {
     let dir = actionbook_home();
     fs::create_dir_all(&dir)?;
@@ -97,9 +122,82 @@ fn bootstrap_default_config_if_missing() -> Result<PathBuf, CliError> {
 pub(crate) fn load_config() -> Result<ConfigFile, CliError> {
     let path = bootstrap_default_config_if_missing()?;
     let text = fs::read_to_string(&path)?;
-    toml::from_str(&text).map_err(|e| {
+
+    // Parse as raw TOML first to check version without struct constraints,
+    // since old configs may contain incompatible field values (e.g. mode = "isolate").
+    let raw: toml::Value = toml::from_str(&text).map_err(|e| {
         CliError::InvalidArgument(format!("invalid config file {}: {e}", path.display()))
-    })
+    })?;
+
+    let version = raw
+        .get("version")
+        .and_then(|v| v.as_integer())
+        .map(|v| v as u32);
+
+    if version == Some(CURRENT_CONFIG_VERSION) {
+        toml::from_str(&text).map_err(|e| {
+            CliError::InvalidArgument(format!("invalid config file {}: {e}", path.display()))
+        })
+    } else {
+        migrate_config(&path, &raw)
+    }
+}
+
+/// Migrate an old config (missing or outdated version) to the current format.
+/// Backs up the old file and copies compatible fields to a new config.
+fn migrate_config(path: &std::path::Path, raw: &toml::Value) -> Result<ConfigFile, CliError> {
+    // Back up old config
+    let backup_path = path.with_file_name("config.toml.bak");
+    fs::copy(path, &backup_path)?;
+
+    let mut config = ConfigFile::default();
+
+    // Copy api fields
+    if let Some(api) = raw.get("api").and_then(|v| v.as_table()) {
+        if let Some(base_url) = api.get("base_url").and_then(|v| v.as_str()) {
+            config.api.base_url = Some(base_url.to_string());
+        }
+        if let Some(api_key) = api.get("api_key").and_then(|v| v.as_str()) {
+            config.api.api_key = Some(api_key.to_string());
+        }
+    }
+
+    // Copy browser fields; mode is forced to the current default (Local)
+    if let Some(browser) = raw.get("browser").and_then(|v| v.as_table()) {
+        if let Some(headless) = browser.get("headless").and_then(|v| v.as_bool()) {
+            config.browser.headless = headless;
+        }
+        if let Some(profile) = browser
+            .get("profile_name")
+            .or_else(|| browser.get("default_profile"))
+            .and_then(|v| v.as_str())
+        {
+            config.browser.profile_name = profile.to_string();
+        }
+        if let Some(exec) = browser
+            .get("executable_path")
+            .or_else(|| browser.get("executable"))
+            .and_then(|v| v.as_str())
+        {
+            config.browser.executable_path = Some(exec.to_string());
+        }
+        if let Some(cdp) = browser
+            .get("cdp_endpoint")
+            .or_else(|| browser.get("cdp-endpoint"))
+            .and_then(|v| v.as_str())
+        {
+            config.browser.cdp_endpoint = Some(cdp.to_string());
+        }
+    }
+
+    save_config(&config)?;
+
+    eprintln!(
+        "Config migrated to v{CURRENT_CONFIG_VERSION}: old config backed up to {}",
+        backup_path.display()
+    );
+
+    Ok(config)
 }
 
 pub(crate) fn save_config(config: &ConfigFile) -> Result<PathBuf, CliError> {
@@ -259,6 +357,7 @@ mod tests {
             cdp_endpoint: None,
             header: vec![],
             set_session_id: None,
+            stealth: true,
         }
     }
 
@@ -366,5 +465,94 @@ cdp_endpoint = "ws://127.0.0.1:9333/devtools/browser/config"
         let resolved = resolve_start_command(cmd).expect("resolve");
 
         assert_eq!(resolved.headless, Some(false));
+    }
+
+    #[test]
+    fn migrate_old_config_without_version() {
+        let _lock = test_lock();
+        let (_tmp, _guard) = make_home();
+        fs::create_dir_all(actionbook_home()).expect("home");
+
+        // Old config: no version field, incompatible mode value
+        fs::write(
+            config_path(),
+            r#"[api]
+api_key = "test-key-123"
+base_url = "https://api.example.com"
+
+[browser]
+mode = "isolate"
+headless = true
+profile_name = "my-profile"
+executable_path = "/usr/bin/chrome"
+"#,
+        )
+        .expect("write old config");
+
+        let config = load_config().expect("should migrate successfully");
+
+        assert_eq!(config.version, Some(CURRENT_CONFIG_VERSION));
+        assert_eq!(config.browser.mode, Mode::Local);
+        assert_eq!(config.api.api_key.as_deref(), Some("test-key-123"));
+        assert_eq!(
+            config.api.base_url.as_deref(),
+            Some("https://api.example.com")
+        );
+        assert!(config.browser.headless);
+        assert_eq!(config.browser.profile_name, "my-profile");
+        assert_eq!(
+            config.browser.executable_path.as_deref(),
+            Some("/usr/bin/chrome")
+        );
+
+        // Backup should exist with old content
+        let backup = config_path().with_file_name("config.toml.bak");
+        assert!(backup.exists(), "backup should be created");
+        let backup_text = fs::read_to_string(&backup).expect("read backup");
+        assert!(
+            backup_text.contains("isolate"),
+            "backup should contain old config"
+        );
+
+        // Saved config should have version
+        let saved_text = fs::read_to_string(config_path()).expect("read saved config");
+        assert!(saved_text.contains("version = 1"));
+    }
+
+    #[test]
+    fn load_current_config_no_migration() {
+        let _lock = test_lock();
+        let (_tmp, _guard) = make_home();
+        fs::create_dir_all(actionbook_home()).expect("home");
+
+        fs::write(
+            config_path(),
+            format!(
+                r#"version = {CURRENT_CONFIG_VERSION}
+
+[api]
+api_key = "current-key"
+
+[browser]
+mode = "extension"
+headless = false
+profile_name = "actionbook"
+"#
+            ),
+        )
+        .expect("write current config");
+
+        let config = load_config().expect("should load without migration");
+
+        assert_eq!(config.version, Some(CURRENT_CONFIG_VERSION));
+        assert_eq!(config.browser.mode, Mode::Extension);
+        assert_eq!(config.api.api_key.as_deref(), Some("current-key"));
+
+        // No backup should be created
+        let backup = config_path().with_file_name("config.toml.bak");
+        assert!(
+            !backup.exists(),
+            "no backup should be created for current config"
+        );
     }
 }

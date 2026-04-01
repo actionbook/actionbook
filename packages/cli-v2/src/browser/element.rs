@@ -7,12 +7,40 @@
 //! 1. **CSS selector** — default path, `DOM.querySelector`.
 //! 2. **XPath** — prefix `//` or `/`, `Runtime.evaluate`.
 //! 3. **Snapshot ref** — prefix `@e`, e.g. `@e5`, via RefCache + CDP.
+//!
+//! iframe support: after resolving an `@eN` ref, `resolved_frame_id` is set
+//! so that subsequent `execute_on_element()` calls route to the correct CDP
+//! session for cross-origin iframes.
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::action_result::ActionResult;
 use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result, get_cdp_and_target};
 use crate::daemon::registry::SharedRegistry;
+use crate::error::CliError;
+
+// ── Frame-aware CDP execution ─────────────────────────────────────
+
+/// Execute a CDP command on the correct session for a given frame_id.
+///
+/// - Cross-origin iframes (found in `cdp.iframe_sessions()`): use their dedicated session.
+/// - Same-origin iframes and main frame: use `execute_on_tab` (parent session).
+pub async fn execute_for_frame(
+    cdp: &CdpSession,
+    target_id: &str,
+    frame_id: Option<&str>,
+    method: &str,
+    params: Value,
+) -> Result<Value, CliError> {
+    if let Some(fid) = frame_id {
+        let iframe_sessions = cdp.iframe_sessions().await;
+        if let Some(iframe_sid) = iframe_sessions.get(fid) {
+            return cdp.execute(method, params, Some(iframe_sid)).await;
+        }
+    }
+    // Main frame or same-origin iframe: use parent tab session
+    cdp.execute_on_tab(target_id, method, params).await
+}
 
 // ── TabContext ─────────────────────────────────────────────────────
 
@@ -21,12 +49,20 @@ use crate::daemon::registry::SharedRegistry;
 /// Created once per command execution via [`TabContext::new`].
 /// Exposes `cdp` and `target_id` as pub fields so callers can also
 /// issue non-element CDP calls (e.g. `Input.dispatchMouseEvent`).
+///
+/// After resolving a selector, `resolved_frame_id` tracks the frame
+/// the element belongs to. Use `execute_on_element()` for subsequent
+/// DOM/Runtime commands on that element.
 pub struct TabContext {
     pub cdp: CdpSession,
     pub target_id: String,
     registry: SharedRegistry,
     session_id: String,
     tab_id: String,
+    /// Frame context set by the most recent resolve_node / resolve_center / resolve_object call.
+    /// None = main frame. Some(frame_id) = iframe element.
+    /// Used by execute_on_element() for subsequent CDP commands on the same element.
+    resolved_frame_id: Option<String>,
 }
 
 impl TabContext {
@@ -43,13 +79,14 @@ impl TabContext {
             registry: registry.clone(),
             session_id: session_id.to_string(),
             tab_id: tab_id.to_string(),
+            resolved_frame_id: None,
         })
     }
 
-    /// Selector → CDP `nodeId`.
-    pub async fn resolve_node(&self, selector: &str) -> Result<i64, ActionResult> {
+    /// Selector → CDP `nodeId`. Sets `resolved_frame_id` for @eN refs.
+    pub async fn resolve_node(&mut self, selector: &str) -> Result<i64, ActionResult> {
         if selector.starts_with("@e") {
-            resolve_ref(
+            let (node_id, frame_id) = resolve_ref(
                 &self.cdp,
                 &self.target_id,
                 selector,
@@ -57,36 +94,92 @@ impl TabContext {
                 &self.session_id,
                 &self.tab_id,
             )
-            .await
+            .await?;
+            self.resolved_frame_id = frame_id;
+            Ok(node_id)
         } else if selector.starts_with("//") || selector.starts_with('/') {
+            self.resolved_frame_id = None;
             resolve_xpath(&self.cdp, &self.target_id, selector).await
         } else {
+            self.resolved_frame_id = None;
             resolve_css(&self.cdp, &self.target_id, selector).await
         }
     }
 
-    /// Selector → centre `(x, y)` coordinates.
-    pub async fn resolve_center(&self, selector: &str) -> Result<(f64, f64), ActionResult> {
+    /// Selector → `(nodeId, centre_x, centre_y)`. Sets `resolved_frame_id`.
+    ///
+    /// Returns the nodeId alongside the coordinates so callers (e.g. drag)
+    /// can later call `get_center(node_id)` to refresh coordinates without
+    /// re-scrolling.
+    pub async fn resolve_center(
+        &mut self,
+        selector: &str,
+    ) -> Result<(i64, f64, f64), ActionResult> {
         let node_id = self.resolve_node(selector).await?;
-        self.scroll_into_view(node_id).await?;
-        get_element_center(&self.cdp, &self.target_id, node_id, selector).await
+        let frame_id = self.resolved_frame_id.as_deref();
+        scroll_into_view_for_frame(&self.cdp, &self.target_id, node_id, frame_id).await?;
+        let (x, y) =
+            get_element_center_for_frame(&self.cdp, &self.target_id, node_id, selector, frame_id)
+                .await?;
+        Ok((node_id, x, y))
     }
 
-    /// Selector → `(nodeId, objectId)`.
-    pub async fn resolve_object(&self, selector: &str) -> Result<(i64, String), ActionResult> {
+    /// Get the centre `(x, y)` of an already-resolved element **without scrolling**.
+    ///
+    /// Use after a prior `resolve_center` / `resolve_node` when you need
+    /// fresh viewport coordinates but the element was already scrolled into
+    /// view (e.g. drag re-reads source position after destination scroll).
+    ///
+    /// `frame_id` overrides `resolved_frame_id` so callers can target the
+    /// correct frame even after a subsequent resolve changed the context.
+    pub async fn get_center(
+        &self,
+        node_id: i64,
+        selector: &str,
+        frame_id: Option<&str>,
+    ) -> Result<(f64, f64), ActionResult> {
+        get_element_center_for_frame(&self.cdp, &self.target_id, node_id, selector, frame_id).await
+    }
+
+    /// Selector → `(nodeId, objectId)`. Sets `resolved_frame_id`.
+    pub async fn resolve_object(&mut self, selector: &str) -> Result<(i64, String), ActionResult> {
         let node_id = self.resolve_node(selector).await?;
-        let object_id = self.resolve_object_id(node_id).await?;
+        let frame_id = self.resolved_frame_id.as_deref();
+        let object_id =
+            resolve_object_id_for_frame(&self.cdp, &self.target_id, node_id, frame_id).await?;
         Ok((node_id, object_id))
     }
 
     /// Scroll an element into the viewport if needed.
     pub async fn scroll_into_view(&self, node_id: i64) -> Result<(), ActionResult> {
-        scroll_into_view(&self.cdp, &self.target_id, node_id).await
+        let frame_id = self.resolved_frame_id.as_deref();
+        scroll_into_view_for_frame(&self.cdp, &self.target_id, node_id, frame_id).await
     }
 
     /// `nodeId` → remote JS object ID for `Runtime.callFunctionOn`.
     pub async fn resolve_object_id(&self, node_id: i64) -> Result<String, ActionResult> {
-        resolve_object_id(&self.cdp, &self.target_id, node_id).await
+        let frame_id = self.resolved_frame_id.as_deref();
+        resolve_object_id_for_frame(&self.cdp, &self.target_id, node_id, frame_id).await
+    }
+
+    /// Execute a CDP command on the frame of the most recently resolved element.
+    ///
+    /// Use for: DOM.focus, Runtime.callFunctionOn, Runtime.evaluate (on element),
+    /// DOM.setFileInputFiles, etc. Falls back to execute_on_tab if no frame context.
+    pub async fn execute_on_element(&self, method: &str, params: Value) -> Result<Value, CliError> {
+        execute_for_frame(
+            &self.cdp,
+            &self.target_id,
+            self.resolved_frame_id.as_deref(),
+            method,
+            params,
+        )
+        .await
+    }
+
+    /// Access the resolved frame_id (set by the most recent resolve call).
+    pub fn resolved_frame_id(&self) -> Option<&str> {
+        self.resolved_frame_id.as_deref()
     }
 
     pub fn session_id(&self) -> &str {
@@ -102,34 +195,52 @@ impl TabContext {
     }
 }
 
-// ── Standalone helpers (used by TabContext + low-level callers) ────
+// ── Standalone helpers (frame-aware versions) ─────────────────────
 
-/// Scroll an element into the viewport if it is not already visible.
-pub async fn scroll_into_view(
+/// Scroll an element to the viewport center, routing to the correct frame session.
+///
+/// Uses `scrollIntoView({ block: 'center' })` instead of `DOM.scrollIntoViewIfNeeded`
+/// to center the element in the viewport. This prevents edge cases where elements at
+/// the viewport edge are intercepted by sticky headers/footers (Playwright-style).
+async fn scroll_into_view_for_frame(
     cdp: &CdpSession,
     target_id: &str,
     node_id: i64,
+    frame_id: Option<&str>,
 ) -> Result<(), ActionResult> {
-    cdp.execute_on_tab(
+    let object_id = resolve_object_id_for_frame(cdp, target_id, node_id, frame_id).await?;
+    execute_for_frame(
+        cdp,
         target_id,
-        "DOM.scrollIntoViewIfNeeded",
-        json!({ "nodeId": node_id }),
+        frame_id,
+        "Runtime.callFunctionOn",
+        json!({
+            "objectId": object_id,
+            "functionDeclaration": "function() { this.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }); }",
+            "returnByValue": true,
+        }),
     )
     .await
     .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
     Ok(())
 }
 
-/// `nodeId` → remote JS object ID.
-pub async fn resolve_object_id(
+/// `nodeId` → remote JS object ID, routing to the correct frame session.
+async fn resolve_object_id_for_frame(
     cdp: &CdpSession,
     target_id: &str,
     node_id: i64,
+    frame_id: Option<&str>,
 ) -> Result<String, ActionResult> {
-    let resolve_resp = cdp
-        .execute_on_tab(target_id, "DOM.resolveNode", json!({ "nodeId": node_id }))
-        .await
-        .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+    let resolve_resp = execute_for_frame(
+        cdp,
+        target_id,
+        frame_id,
+        "DOM.resolveNode",
+        json!({ "nodeId": node_id }),
+    )
+    .await
+    .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
 
     resolve_resp
         .pointer("/result/object/objectId")
@@ -138,17 +249,23 @@ pub async fn resolve_object_id(
         .ok_or_else(|| ActionResult::fatal("CDP_ERROR", "could not resolve element to JS object"))
 }
 
-/// Get the centre point of an element's bounding box.
-pub async fn get_element_center(
+/// Get the centre point of an element's bounding box, routing to the correct frame session.
+async fn get_element_center_for_frame(
     cdp: &CdpSession,
     target_id: &str,
     node_id: i64,
     selector: &str,
+    frame_id: Option<&str>,
 ) -> Result<(f64, f64), ActionResult> {
-    let bm = cdp
-        .execute_on_tab(target_id, "DOM.getBoxModel", json!({ "nodeId": node_id }))
-        .await
-        .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+    let bm = execute_for_frame(
+        cdp,
+        target_id,
+        frame_id,
+        "DOM.getBoxModel",
+        json!({ "nodeId": node_id }),
+    )
+    .await
+    .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
 
     let content = bm
         .pointer("/result/model/content")
@@ -162,11 +279,51 @@ pub async fn get_element_center(
     Ok((cx, cy))
 }
 
+// ── Legacy standalone helpers (main-frame only, kept for non-TabContext callers) ──
+
+/// Scroll an element into the viewport if it is not already visible.
+pub async fn scroll_into_view(
+    cdp: &CdpSession,
+    target_id: &str,
+    node_id: i64,
+) -> Result<(), ActionResult> {
+    scroll_into_view_for_frame(cdp, target_id, node_id, None).await
+}
+
+/// `nodeId` → remote JS object ID.
+pub async fn resolve_object_id(
+    cdp: &CdpSession,
+    target_id: &str,
+    node_id: i64,
+) -> Result<String, ActionResult> {
+    resolve_object_id_for_frame(cdp, target_id, node_id, None).await
+}
+
+/// Get the centre point of an element's bounding box.
+pub async fn get_element_center(
+    cdp: &CdpSession,
+    target_id: &str,
+    node_id: i64,
+    selector: &str,
+) -> Result<(f64, f64), ActionResult> {
+    get_element_center_for_frame(cdp, target_id, node_id, selector, None).await
+}
+
 pub fn element_not_found(selector: &str) -> ActionResult {
+    // Detect likely snapshot ref without the @ prefix (e.g. "e46" instead of "@e46")
+    let hint = if selector.starts_with('e')
+        && selector.len() > 1
+        && selector[1..].chars().all(|c| c.is_ascii_digit())
+    {
+        format!("did you mean @{selector}? snapshot refs require the @ prefix")
+    } else {
+        String::new()
+    };
+
     ActionResult::Fatal {
         code: "ELEMENT_NOT_FOUND".to_string(),
         message: format!("element not found: {selector}"),
-        hint: String::new(),
+        hint,
         details: Some(json!({ "selector": selector })),
     }
 }
@@ -189,14 +346,33 @@ async fn resolve_css(
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
 
-    let query = cdp
+    let query = match cdp
         .execute_on_tab(
             target_id,
             "DOM.querySelector",
             json!({ "nodeId": root_id, "selector": selector }),
         )
         .await
-        .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+    {
+        Ok(v) => v,
+        Err(e) => {
+            let msg = e.to_string();
+            // CDP -32000 "DOM Error while querying" means invalid CSS selector syntax
+            if msg.contains("DOM Error while querying") {
+                return Err(ActionResult::Fatal {
+                    code: "INVALID_SELECTOR".to_string(),
+                    message: format!("invalid CSS selector: '{selector}'"),
+                    hint: if selector.starts_with('@') {
+                        "snapshot refs must use @eN format (e.g. @e5), not @N".to_string()
+                    } else {
+                        "check your selector syntax".to_string()
+                    },
+                    details: Some(json!({ "selector": selector })),
+                });
+            }
+            return Err(cdp_error_to_result(e, "CDP_ERROR"));
+        }
+    };
 
     let node_id = query
         .pointer("/result/nodeId")
@@ -260,7 +436,10 @@ async fn resolve_xpath(
     Ok(node_id)
 }
 
-/// Snapshot ref (`@eN`) → nodeId via RefCache + CDP.
+/// Snapshot ref (`@eN`) → (nodeId, frame_id) via RefCache + CDP.
+///
+/// Returns both the resolved nodeId and the frame_id from RefCache,
+/// so callers can route subsequent CDP commands to the correct session.
 ///
 /// Strategy: try backendNodeId directly (> 0), then fall back to
 /// `Accessibility.queryAXTree` with role + name.
@@ -272,7 +451,7 @@ async fn resolve_ref(
     registry: &SharedRegistry,
     session_id: &str,
     tab_id: &str,
-) -> Result<i64, ActionResult> {
+) -> Result<(i64, Option<String>), ActionResult> {
     let ref_id = selector.strip_prefix('@').unwrap_or(selector);
 
     if !ref_id.starts_with('e') || ref_id.len() < 2 || ref_id[1..].parse::<u64>().is_err() {
@@ -282,15 +461,19 @@ async fn resolve_ref(
         ));
     }
 
-    let (backend_node_id, role, name) = {
+    let (backend_node_id, role, name, frame_id) = {
         let reg = registry.lock().await;
         let cache = reg.peek_ref_cache(session_id, tab_id);
         let bid = cache.and_then(|c| c.backend_node_id_for_ref(ref_id));
         let entry = cache.and_then(|c| c.entry_for_ref(ref_id));
+        let fid = cache
+            .and_then(|c| c.frame_id_for_ref(ref_id))
+            .map(String::from);
         (
             bid,
             entry.map(|e| e.role.clone()).unwrap_or_default(),
             entry.map(|e| e.name.clone()).unwrap_or_default(),
+            fid,
         )
     };
 
@@ -302,22 +485,31 @@ async fn resolve_ref(
         )
     })?;
 
-    cdp.execute_on_tab(target_id, "DOM.getDocument", json!({}))
-        .await
-        .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+    // Get document on the correct frame session
+    execute_for_frame(
+        cdp,
+        target_id,
+        frame_id.as_deref(),
+        "DOM.getDocument",
+        json!({}),
+    )
+    .await
+    .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
 
     // Try direct resolution for real backendNodeIds (> 0)
     if backend_node_id > 0
-        && let Some(node_id) = resolve_backend_node(cdp, target_id, backend_node_id).await?
+        && let Some(node_id) =
+            resolve_backend_node(cdp, target_id, backend_node_id, frame_id.as_deref()).await?
     {
-        return Ok(node_id);
+        return Ok((node_id, frame_id));
     }
 
     // Fallback: use role + name via Accessibility.queryAXTree
     if !name.is_empty()
-        && let Some(node_id) = resolve_by_ax_query(cdp, target_id, &role, &name).await?
+        && let Some(node_id) =
+            resolve_by_ax_query(cdp, target_id, &role, &name, frame_id.as_deref()).await?
     {
-        return Ok(node_id);
+        return Ok((node_id, frame_id));
     }
 
     Err(ActionResult::fatal_with_hint(
@@ -328,18 +520,21 @@ async fn resolve_ref(
 }
 
 /// backendNodeId → nodeId. Returns `Ok(None)` if stale (-32000).
+/// Routes to the correct frame session for cross-origin iframes.
 async fn resolve_backend_node(
     cdp: &CdpSession,
     target_id: &str,
     backend_node_id: i64,
+    frame_id: Option<&str>,
 ) -> Result<Option<i64>, ActionResult> {
-    let resolve_resp = match cdp
-        .execute_on_tab(
-            target_id,
-            "DOM.resolveNode",
-            json!({ "backendNodeId": backend_node_id }),
-        )
-        .await
+    let resolve_resp = match execute_for_frame(
+        cdp,
+        target_id,
+        frame_id,
+        "DOM.resolveNode",
+        json!({ "backendNodeId": backend_node_id }),
+    )
+    .await
     {
         Ok(resp) => resp,
         Err(e) => {
@@ -359,14 +554,15 @@ async fn resolve_backend_node(
         None => return Ok(None),
     };
 
-    let node_resp = cdp
-        .execute_on_tab(
-            target_id,
-            "DOM.requestNode",
-            json!({ "objectId": object_id }),
-        )
-        .await
-        .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+    let node_resp = execute_for_frame(
+        cdp,
+        target_id,
+        frame_id,
+        "DOM.requestNode",
+        json!({ "objectId": object_id }),
+    )
+    .await
+    .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
 
     let node_id = node_resp
         .pointer("/result/nodeId")
@@ -381,19 +577,22 @@ async fn resolve_backend_node(
 }
 
 /// Find an element by ARIA role + name via `Accessibility.queryAXTree`.
+/// Routes to the correct frame session for cross-origin iframes.
 async fn resolve_by_ax_query(
     cdp: &CdpSession,
     target_id: &str,
     role: &str,
     name: &str,
+    frame_id: Option<&str>,
 ) -> Result<Option<i64>, ActionResult> {
-    let resp = match cdp
-        .execute_on_tab(
-            target_id,
-            "Accessibility.queryAXTree",
-            json!({ "accessibleName": name, "role": role }),
-        )
-        .await
+    let resp = match execute_for_frame(
+        cdp,
+        target_id,
+        frame_id,
+        "Accessibility.queryAXTree",
+        json!({ "accessibleName": name, "role": role }),
+    )
+    .await
     {
         Ok(r) => r,
         Err(_) => return Ok(None),
@@ -408,11 +607,60 @@ async fn resolve_by_ax_query(
     for node in nodes {
         let bid = node["backendDOMNodeId"].as_i64().unwrap_or(0);
         if bid > 0
-            && let Some(node_id) = resolve_backend_node(cdp, target_id, bid).await?
+            && let Some(node_id) = resolve_backend_node(cdp, target_id, bid, frame_id).await?
         {
             return Ok(Some(node_id));
         }
     }
 
     Ok(None)
+}
+
+// ── Target parsing (shared by click, fill, type) ──────────────────
+
+/// Result of parsing a positional target argument.
+pub enum ClickTarget {
+    Coordinates(f64, f64),
+    Selector(String),
+}
+
+/// Parse a target string into coordinates or a CSS selector.
+///
+/// Heuristic: if the first character is a digit, comma, or minus-digit,
+/// treat it as a coordinate attempt and validate strictly. Otherwise it
+/// is a CSS selector.
+pub fn parse_target(input: &str) -> Result<ClickTarget, ActionResult> {
+    let trimmed = input.trim();
+    let first = trimmed.chars().next().unwrap_or(' ');
+
+    let is_coord_attempt = first.is_ascii_digit()
+        || first == ','
+        || (first == '-' && trimmed.chars().nth(1).is_some_and(|c| c.is_ascii_digit()));
+
+    if !is_coord_attempt {
+        return Ok(ClickTarget::Selector(trimmed.to_string()));
+    }
+
+    let parts: Vec<&str> = trimmed.splitn(2, ',').collect();
+    if parts.len() != 2 {
+        return Err(ActionResult::fatal(
+            "INVALID_ARGUMENT",
+            format!("invalid coordinates: '{input}'"),
+        ));
+    }
+
+    let x = parts[0].trim().parse::<f64>().map_err(|_| {
+        ActionResult::fatal(
+            "INVALID_ARGUMENT",
+            format!("invalid coordinates: '{input}'"),
+        )
+    })?;
+    let y = parts[1].trim().parse::<f64>().map_err(|_| {
+        ActionResult::fatal(
+            "INVALID_ARGUMENT",
+            format!("invalid coordinates: '{input}'"),
+        )
+    })?;
+
+    Ok(ClickTarget::Coordinates(x, y))
 }

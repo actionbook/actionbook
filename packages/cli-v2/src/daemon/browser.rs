@@ -39,6 +39,7 @@ pub async fn launch_chrome(
     headless: bool,
     user_data_dir: &str,
     open_url: Option<&str>,
+    stealth: bool,
 ) -> Result<(Child, u16), CliError> {
     let mut args = vec![
         "--remote-debugging-port=0".to_string(),
@@ -46,12 +47,19 @@ pub async fn launch_chrome(
         "--no-first-run".to_string(),
         "--no-default-browser-check".to_string(),
     ];
+    if stealth {
+        args.push("--disable-dev-shm-usage".to_string());
+        args.push("--disable-save-password-bubble".to_string());
+        args.push("--disable-translate".to_string());
+        args.push("--window-size=1920,1080".to_string());
+        args.push("--force-webrtc-ip-handling-policy=disable_non_proxied_udp".to_string());
+    }
     if headless {
         args.push("--headless=new".to_string());
     }
-    if let Some(url) = open_url {
-        args.push(ensure_scheme(url));
-    }
+    // open_url is NOT passed as a Chrome launch arg — Chrome starts on about:blank.
+    // The caller navigates after attach() so the stealth script is already injected.
+    let _ = open_url;
 
     let exe = executable.to_string();
     // Spawn Chrome and read stderr in a blocking thread to avoid blocking tokio
@@ -225,17 +233,4 @@ fn parse_endpoint_port(endpoint: &str) -> Result<u16, CliError> {
     port_str.parse::<u16>().map_err(|_| {
         CliError::InvalidArgument(format!("invalid endpoint port in {endpoint}: {port_str}"))
     })
-}
-
-fn ensure_scheme(url: &str) -> String {
-    let lower = url.to_ascii_lowercase();
-    // Block dangerous protocols — same policy as cdp::ensure_scheme
-    if lower.starts_with("javascript:") || lower.starts_with("data:text/html") {
-        return "about:blank".to_string();
-    }
-    if url.contains("://") || url.starts_with("about:") || url.starts_with("chrome:") {
-        url.to_string()
-    } else {
-        format!("https://{url}")
-    }
 }

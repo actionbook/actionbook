@@ -23,7 +23,7 @@ pub struct Cmd {
     pub session: String,
 }
 
-pub const COMMAND_NAME: &str = "browser.cookies.get";
+pub const COMMAND_NAME: &str = "browser cookies get";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result

@@ -16,7 +16,7 @@ Examples:
 Returns each session's ID, mode, status, and tab count.")]
 pub struct Cmd {}
 
-pub const COMMAND_NAME: &str = "browser.list-sessions";
+pub const COMMAND_NAME: &str = "browser list-sessions";
 
 pub fn context(_cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
     None

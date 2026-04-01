@@ -39,6 +39,14 @@ async fn main() {
     //   actionbook browser --help / -h  → browser grouped help
     {
         let raw_args: Vec<String> = std::env::args().collect();
+        let json_mode = raw_args.iter().any(|a| a == "--json");
+
+        // Intercept --version before positional dispatch so it doesn't fall through to help
+        if raw_args.iter().any(|a| a == "--version" || a == "-V") {
+            handle_version(json_mode);
+            return;
+        }
+
         // Collect non-flag args after the binary name, skipping --timeout's value
         let mut positional_args: Vec<&str> = Vec::new();
         let mut skip_next = false;
@@ -56,7 +64,6 @@ async fn main() {
             }
             positional_args.push(arg);
         }
-        let json_mode = raw_args.iter().any(|a| a == "--json");
 
         match positional_args.as_slice() {
             // `actionbook` (no args), `actionbook --help`, `actionbook help`
@@ -166,16 +173,17 @@ async fn handle_browser(
                         cdp_endpoint: None,
                         header: vec![],
                         set_session_id: None,
+                        stealth: true,
                     });
                 let result = ActionResult::fatal(err.error_code(), err.to_string());
                 let duration = start.elapsed();
                 let context = failed_command.context(&result);
                 if json_mode {
                     let envelope =
-                        JsonEnvelope::from_result("browser.start", context, &result, duration);
+                        JsonEnvelope::from_result("browser start", context, &result, duration);
                     println!("{}", serde_json::to_string(&envelope)?);
                 } else {
-                    let text = output::format_text("browser.start", &context, &result);
+                    let text = output::format_text("browser start", &context, &result);
                     println!("{text}");
                 }
                 std::process::exit(1);
@@ -316,7 +324,7 @@ Session:
   start                              Start or attach a browser session
   list-sessions                      List all active sessions
   status              --session      Show session status
-  close               --session      Close a session
+  close               --session      Close a session (alias: stop)
   restart             --session      Restart a session
 
 Tab:
@@ -346,6 +354,32 @@ Observation:
   describe <selector>     --session --tab  Describe element properties
   state <selector>        --session --tab  Get element state flags
   inspect-point <x,y>    --session --tab  Inspect element at coordinates
+  query one|all|count <selector>  --session --tab  Query elements
+  query nth <n> <selector>        --session --tab  Query nth element (1-based)
+
+Logs:
+  logs console        --session --tab  Get console logs
+  logs errors         --session --tab  Get error logs (exceptions + rejections)
+
+Wait:
+  wait element <selector>  --session --tab  Wait for element to appear
+  wait navigation          --session --tab  Wait for navigation to complete
+  wait network-idle        --session --tab  Wait for network to become idle
+  wait condition <expr>    --session --tab  Wait for JS expression to be truthy
+
+Cookies:
+  cookies list        --session      List all cookies
+  cookies get <name>  --session      Get a cookie by name
+  cookies set <name> <value>  --session  Set a cookie
+  cookies delete <name>  --session   Delete a cookie
+  cookies clear       --session      Clear cookies
+
+Storage (local-storage | session-storage):
+  <storage> list      --session --tab  List all key-value entries
+  <storage> get <key> --session --tab  Get a value by key
+  <storage> set <key> <value>  --session --tab  Set a key-value entry
+  <storage> delete <key>  --session --tab  Delete a key
+  <storage> clear <key>   --session --tab  Clear a key
 
 Interaction:
   click <selector|x,y>   --session --tab  Click element or coordinates
@@ -378,7 +412,7 @@ Run actionbook browser <subcommand> --help for full usage and examples.";
 
     if json_mode {
         let envelope = JsonEnvelope::success(
-            "browser.help",
+            "browser help",
             None,
             json!(help_text),
             std::time::Duration::ZERO,

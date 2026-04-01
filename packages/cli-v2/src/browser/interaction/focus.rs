@@ -31,7 +31,7 @@ pub struct Cmd {
     pub tab: String,
 }
 
-pub const COMMAND_NAME: &str = "browser.focus";
+pub const COMMAND_NAME: &str = "browser focus";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result
@@ -62,7 +62,7 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
+    let mut ctx = match TabContext::new(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -73,12 +73,15 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return e,
     };
 
+    // Scroll element to viewport center before focusing
+    if let Err(e) = ctx.scroll_into_view(node_id).await {
+        return e;
+    }
+
     // Stash a reference to the current activeElement, focus the target,
     // then compare with === for true element identity (not a lossy string).
     if let Err(e) = ctx
-        .cdp
-        .execute_on_tab(
-            &ctx.target_id,
+        .execute_on_element(
             "Runtime.evaluate",
             json!({
                 "expression": "window.__ab_pre_focus = document.activeElement",
@@ -89,20 +92,38 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         return cdp_error_to_result(e, "CDP_ERROR");
     }
 
-    // Focus the element via DOM.focus
+    // Focus the element via DOM.focus (CDP-level focus)
     if let Err(e) = ctx
-        .cdp
-        .execute_on_tab(&ctx.target_id, "DOM.focus", json!({ "nodeId": node_id }))
+        .execute_on_element("DOM.focus", json!({ "nodeId": node_id }))
         .await
     {
         return cdp_error_to_result(e, "CDP_ERROR");
     }
 
+    // Also call .focus() via JS to durably update document.activeElement in headless Chrome.
+    // DOM.focus alone does not reliably update activeElement in headless environments.
+    let resolve = ctx
+        .execute_on_element("DOM.resolveNode", json!({ "nodeId": node_id }))
+        .await;
+    if let Ok(ref resolved) = resolve
+        && let Some(obj_id) = resolved
+            .pointer("/result/object/objectId")
+            .and_then(|v| v.as_str())
+    {
+        let _ = ctx
+            .execute_on_element(
+                "Runtime.callFunctionOn",
+                json!({
+                    "functionDeclaration": "function() { this.focus(); }",
+                    "objectId": obj_id,
+                }),
+            )
+            .await;
+    }
+
     // Compare pre/post active element by reference identity
     let focus_changed = ctx
-        .cdp
-        .execute_on_tab(
-            &ctx.target_id,
+        .execute_on_element(
             "Runtime.evaluate",
             json!({
                 "expression": "document.activeElement !== window.__ab_pre_focus",
@@ -116,9 +137,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Clean up the temporary global
     let _ = ctx
-        .cdp
-        .execute_on_tab(
-            &ctx.target_id,
+        .execute_on_element(
             "Runtime.evaluate",
             json!({ "expression": "delete window.__ab_pre_focus" }),
         )

@@ -3,8 +3,9 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-/// Semantic session identifier (e.g. "local-1", "research-google").
-/// Validated: `^[a-z][a-z0-9-]{1,63}$`.
+/// Semantic session identifier.
+/// Auto-generated format: `sN` (e.g. `s1`, `s2`, `s3`). Global counter, mode-agnostic.
+/// Manual format (--set-session-id): `^[a-z][a-z0-9-]{1,63}$`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SessionId(pub String);
 
@@ -21,6 +22,8 @@ impl SessionId {
         if id.len() < 2 || id.len() > 64 {
             return false;
         }
+        // All session IDs: lowercase start, then lowercase/digit/hyphen.
+        // Auto-generated `sN` (e.g. s1, s42) satisfies this naturally.
         let bytes = id.as_bytes();
         if !bytes[0].is_ascii_lowercase() {
             return false;
@@ -34,8 +37,10 @@ impl SessionId {
         SessionId(id.into())
     }
 
+    /// Generate `sN` (e.g. `s1`, `s2`) — global counter, mode-agnostic.
+    /// `n` is the 1-based counter value (already computed by the registry).
     pub fn auto_generate(n: u32) -> Self {
-        SessionId(format!("local-{}", n + 1))
+        SessionId(format!("s{n}"))
     }
 
     pub fn from_profile(profile: &str, suffix: u32) -> Self {
@@ -61,7 +66,7 @@ impl SessionId {
         if Self::is_valid(&base) {
             SessionId(base)
         } else {
-            Self::auto_generate(suffix)
+            Self::auto_generate(suffix + 1)
         }
     }
 
@@ -207,3 +212,31 @@ impl fmt::Display for ParseIdError {
 }
 
 impl std::error::Error for ParseIdError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_id_accepts_auto_generated_format() {
+        assert_eq!(
+            SessionId::new("s1").expect("s1 should be valid"),
+            SessionId::new_unchecked("s1")
+        );
+        assert_eq!(
+            SessionId::new("s42").expect("s42 should be valid"),
+            SessionId::new_unchecked("s42")
+        );
+        assert_eq!(
+            SessionId::new("s9999").expect("s9999 should be valid"),
+            SessionId::new_unchecked("s9999")
+        );
+    }
+
+    #[test]
+    fn session_id_rejects_old_uppercase_prefixes() {
+        assert!(SessionId::new("SLOCAL-1").is_err());
+        assert!(SessionId::new("SCLOUD-42").is_err());
+        assert!(SessionId::new("SEXT-9999").is_err());
+    }
+}

@@ -20,7 +20,7 @@ pub struct Cmd {
     pub session: String,
 }
 
-pub const COMMAND_NAME: &str = "browser.close";
+pub const COMMAND_NAME: &str = "browser close";
 
 pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
     Some(ResponseContext {
@@ -65,6 +65,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // Close CDP session (shuts down background tasks, frees cloud connection slot).
     if let Some(cdp) = cdp {
+        cdp.clear_iframe_sessions().await;
         cdp.close().await;
     }
 
@@ -75,9 +76,23 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Remove non-default profile directory after Chrome has fully exited.
     if let Some(profile) = profile_to_clean {
         let profile_dir = crate::config::profiles_dir().join(&profile);
+        // Remove chrome.pid so a future browser start does not mistake the
+        // now-dead PID for an orphan.
+        let _ = std::fs::remove_file(profile_dir.join("chrome.pid"));
         if profile_dir.exists() {
             let _ = std::fs::remove_dir_all(&profile_dir);
         }
+    }
+
+    // Remove per-session data directory (snapshots, etc.).
+    // Safety: only delete if the path is an absolute path under sessions_dir().
+    let sessions_base = crate::config::sessions_dir();
+    let session_data_dir = sessions_base.join(&cmd.session);
+    if session_data_dir.is_absolute()
+        && session_data_dir.starts_with(&sessions_base)
+        && session_data_dir.exists()
+    {
+        let _ = std::fs::remove_dir_all(&session_data_dir);
     }
 
     ActionResult::ok(json!({
