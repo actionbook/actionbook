@@ -23,7 +23,7 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str, unique_session, wait_page_ready,
+    stdout_str, unique_session, url_cursor_fixture, wait_page_ready,
 };
 
 const URL_A: &str = "https://actionbook.dev";
@@ -973,4 +973,45 @@ fn snap_missing_tab_arg() {
     // Missing --tab
     let out = headless_json(&["browser", "snapshot", "--session", "some-session"], 10);
     assert_failure(&out, "snapshot missing --tab");
+}
+
+// ===========================================================================
+// Group 6: snapshot — --cursor default on (§10.1)
+// ===========================================================================
+
+/// Verify that the default `browser snapshot` (no flags) includes cursor-interactive
+/// elements. Uses a deterministic local fixture with a known `cursor:pointer` div,
+/// an `onclick` div, and a `tabindex` div — elements that only appear when cursor
+/// detection is active.
+///
+/// **Expected to FAIL until #212 implementation lands** (cursor default = true).
+#[test]
+fn snap_cursor_on_by_default() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(&url_cursor_fixture());
+    let _guard = SessionGuard::new(&sid);
+
+    // Default snapshot — no flags. After #212, cursor is on by default.
+    let out = headless_json(
+        &["browser", "snapshot", "--session", &sid, "--tab", &tid],
+        30,
+    );
+    assert_success(&out, "cursor on by default");
+    let v = parse_json(&out);
+    assert_snapshot_data(&v);
+
+    let content = v["data"]["content"].as_str().unwrap_or("");
+    // At least one of the cursor-interactive fixture elements must appear.
+    assert!(
+        content.contains("cursor-pointer-item")
+            || content.contains("onclick-item")
+            || content.contains("tabindex-item"),
+        "default snapshot must include cursor-interactive elements; \
+         got content (first 300 chars): {:.300}",
+        content
+    );
+
+    close_session(&sid);
 }
