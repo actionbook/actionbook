@@ -1607,6 +1607,154 @@ fn double_close_returns_not_found() {
 
 /// Helper: find Chrome PIDs whose --user-data-dir is under the given directory.
 /// Uses `--` to prevent pgrep from interpreting the pattern as options.
+/// After tampering daemon.version to simulate a rebuild, the next CLI
+/// invocation should auto-restart the daemon and succeed.
+#[test]
+fn daemon_version_mismatch_auto_restart() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+
+    // 1. Start a session (auto-starts daemon)
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "ver-test",
+        ],
+        30,
+    );
+    assert_success(&out, "initial start");
+
+    // 2. Record the daemon PID
+    let pid_path = std::path::Path::new(&env.actionbook_home).join("daemon.pid");
+    let old_pid: u32 = std::fs::read_to_string(&pid_path)
+        .expect("PID file should exist")
+        .trim()
+        .parse()
+        .expect("PID should be a number");
+
+    // 3. Tamper daemon.version to simulate a binary rebuild
+    let version_path = std::path::Path::new(&env.actionbook_home).join("daemon.version");
+    assert!(
+        version_path.exists(),
+        "daemon.version should exist after start"
+    );
+    std::fs::write(&version_path, "0.0.0-fake").expect("write fake version");
+
+    // 4. Run another command — should detect mismatch and auto-restart
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            "ver-restart-prof",
+            "--set-session-id",
+            "ver-restarted",
+        ],
+        30,
+    );
+    assert_success(&out, "start after version mismatch auto-restart");
+
+    // 5. Verify daemon PID changed (new daemon process)
+    let new_pid: u32 = std::fs::read_to_string(&pid_path)
+        .expect("PID file should exist after restart")
+        .trim()
+        .parse()
+        .expect("PID should be a number");
+    assert_ne!(
+        old_pid, new_pid,
+        "daemon PID should change after version-triggered restart (old={old_pid}, new={new_pid})"
+    );
+
+    // 6. Verify version file now matches current build
+    let new_version =
+        std::fs::read_to_string(&version_path).expect("version file should exist after restart");
+    assert_eq!(
+        new_version.trim(),
+        actionbook_cli::BUILD_VERSION,
+        "daemon.version should match CLI build version after restart"
+    );
+
+    // Cleanup
+    let _ = env.headless(&["browser", "close", "--session", "ver-restarted"], 10);
+}
+
+/// When daemon.version is missing (old daemon), the next CLI invocation
+/// should treat it as a version mismatch and restart.
+#[test]
+fn daemon_missing_version_file_triggers_restart() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+
+    // 1. Start a session
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            "no-ver-test",
+        ],
+        30,
+    );
+    assert_success(&out, "initial start");
+
+    // 2. Record PID and delete version file (simulate old daemon)
+    let pid_path = std::path::Path::new(&env.actionbook_home).join("daemon.pid");
+    let old_pid: u32 = std::fs::read_to_string(&pid_path)
+        .expect("PID file")
+        .trim()
+        .parse()
+        .expect("PID number");
+
+    let version_path = std::path::Path::new(&env.actionbook_home).join("daemon.version");
+    std::fs::remove_file(&version_path).expect("remove version file");
+
+    // 3. Next command should detect missing version → restart
+    let out = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            "no-ver-prof",
+            "--set-session-id",
+            "no-ver-restarted",
+        ],
+        30,
+    );
+    assert_success(&out, "start after missing version restart");
+
+    // 4. Verify daemon restarted
+    let new_pid: u32 = std::fs::read_to_string(&pid_path)
+        .expect("PID file after restart")
+        .trim()
+        .parse()
+        .expect("PID number");
+    assert_ne!(
+        old_pid, new_pid,
+        "daemon should restart when version file is missing"
+    );
+
+    // Cleanup
+    let _ = env.headless(&["browser", "close", "--session", "no-ver-restarted"], 10);
+}
+
 fn find_chrome_pids_for_dir(profiles_dir: &std::path::Path) -> Vec<u32> {
     let pattern = format!("--user-data-dir={}", profiles_dir.display());
     let output = std::process::Command::new("pgrep")
