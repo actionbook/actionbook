@@ -5,6 +5,7 @@ use crate::harness::{
     SessionGuard, assert_success, headless, headless_json, parse_json, skip, stdout_str,
     unique_session, url_iframe_cross_origin_parent, url_iframe_parent, wait_page_ready,
 };
+use serde_json::Value;
 
 fn start_iframe_session() -> (String, String, SessionGuard) {
     let (sid, profile) = unique_session("iframe");
@@ -38,6 +39,29 @@ fn start_iframe_session() -> (String, String, SessionGuard) {
     (sid, tid, guard)
 }
 
+fn snapshot_content(v: &Value) -> String {
+    let path = v["data"]["path"].as_str().unwrap_or("");
+    std::fs::read_to_string(path).unwrap_or_else(|e| {
+        panic!("snapshot path should be readable: {path} ({e})");
+    })
+}
+
+fn snapshot_nodes_contain(v: &Value, needle: &str) -> bool {
+    v["data"]["nodes"]
+        .as_array()
+        .map(|nodes| {
+            nodes.iter().any(|node| {
+                ["name", "value", "role"].iter().any(|field| {
+                    node.get(*field)
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.contains(needle))
+                        .unwrap_or(false)
+                })
+            })
+        })
+        .unwrap_or(false)
+}
+
 // ── Snapshot expansion ────────────────────────────────────────────
 
 #[test]
@@ -47,31 +71,31 @@ fn iframe_snapshot_expands_child_content() {
     }
     let (sid, tid, _guard) = start_iframe_session();
 
-    let out = headless(
+    let out = headless_json(
         &["browser", "snapshot", "--session", &sid, "--tab", &tid],
         15,
     );
     assert_success(&out, "snapshot");
-    let text = stdout_str(&out);
+    let v = parse_json(&out);
 
     // Main page elements should be present
     assert!(
-        text.contains("Main Page") || text.contains("heading"),
+        snapshot_nodes_contain(&v, "Main Page") || snapshot_nodes_contain(&v, "heading"),
         "main page heading should appear in snapshot"
     );
 
     // Iframe node should appear
     assert!(
-        text.contains("Iframe"),
+        snapshot_nodes_contain(&v, "Child Frame") || snapshot_nodes_contain(&v, "Iframe"),
         "Iframe node should appear in snapshot output"
     );
 
     // Child content should be expanded under the Iframe node
     assert!(
-        text.contains("Child Content")
-            || text.contains("Child Input")
-            || text.contains("Child Button"),
-        "iframe child content should be expanded in snapshot.\nGot:\n{text}"
+        snapshot_nodes_contain(&v, "Child Content")
+            || snapshot_nodes_contain(&v, "Child Input")
+            || snapshot_nodes_contain(&v, "Child Button"),
+        "iframe child content should be expanded in snapshot nodes.\nGot:\n{v:?}"
     );
 }
 
@@ -82,7 +106,7 @@ fn iframe_snapshot_interactive_filter_includes_iframe_elements() {
     }
     let (sid, tid, _guard) = start_iframe_session();
 
-    let out = headless(
+    let out = headless_json(
         &[
             "browser",
             "snapshot",
@@ -95,17 +119,20 @@ fn iframe_snapshot_interactive_filter_includes_iframe_elements() {
         15,
     );
     assert_success(&out, "snapshot -i");
-    let text = stdout_str(&out);
+    let v = parse_json(&out);
 
     // Interactive elements from both main page and iframe should have refs
     assert!(
-        text.contains("[ref="),
+        v["data"]["nodes"]
+            .as_array()
+            .map(|nodes| !nodes.is_empty())
+            .unwrap_or(false),
         "interactive snapshot should contain refs"
     );
     // The iframe's child button should appear with a ref
     assert!(
-        text.contains("Child Button") || text.contains("Child Input"),
-        "iframe interactive elements should appear with -i flag.\nGot:\n{text}"
+        snapshot_nodes_contain(&v, "Child Button") || snapshot_nodes_contain(&v, "Child Input"),
+        "iframe interactive elements should appear with -i flag.\nGot:\n{v:?}"
     );
 }
 
@@ -125,10 +152,7 @@ fn iframe_html_reads_iframe_element() {
     );
     assert_success(&snap, "snapshot for refs");
     let snap_v = parse_json(&snap);
-    let content = snap_v["data"]["content"].as_str().unwrap_or("");
-
-    // Find the ref for "Child Button" in the snapshot content
-    let child_btn_ref = find_ref_for_name(content, "Child Button");
+    let child_btn_ref = find_ref_for_name(&snap_v, "Child Button");
     if child_btn_ref.is_empty() {
         // If we can't find it by name, the iframe may not have expanded — skip gracefully
         eprintln!(
@@ -171,9 +195,7 @@ fn iframe_text_reads_iframe_element_json() {
     );
     assert_success(&snap, "snapshot for iframe text json");
     let snap_v = parse_json(&snap);
-    let content = snap_v["data"]["content"].as_str().unwrap_or("");
-
-    let iframe_ref = find_ref_for_name(content, "Child Frame");
+    let iframe_ref = find_ref_for_name(&snap_v, "Child Frame");
     if iframe_ref.is_empty() {
         eprintln!("SKIP: could not find 'Child Frame' ref");
         return;
@@ -219,9 +241,7 @@ fn iframe_text_reads_iframe_element_text() {
     );
     assert_success(&snap, "snapshot for iframe text");
     let snap_v = parse_json(&snap);
-    let content = snap_v["data"]["content"].as_str().unwrap_or("");
-
-    let iframe_ref = find_ref_for_name(content, "Child Frame");
+    let iframe_ref = find_ref_for_name(&snap_v, "Child Frame");
     if iframe_ref.is_empty() {
         eprintln!("SKIP: could not find 'Child Frame' ref");
         return;
@@ -262,9 +282,7 @@ fn iframe_click_works_on_iframe_element() {
     );
     assert_success(&snap, "snapshot");
     let snap_v = parse_json(&snap);
-    let content = snap_v["data"]["content"].as_str().unwrap_or("");
-
-    let child_btn_ref = find_ref_for_name(content, "Child Button");
+    let child_btn_ref = find_ref_for_name(&snap_v, "Child Button");
     if child_btn_ref.is_empty() {
         eprintln!("SKIP: could not find 'Child Button' ref");
         return;
@@ -299,9 +317,7 @@ fn iframe_value_reads_iframe_input() {
     );
     assert_success(&snap, "snapshot");
     let snap_v = parse_json(&snap);
-    let content = snap_v["data"]["content"].as_str().unwrap_or("");
-
-    let child_input_ref = find_ref_for_name(content, "Child Input");
+    let child_input_ref = find_ref_for_name(&snap_v, "Child Input");
     if child_input_ref.is_empty() {
         eprintln!("SKIP: could not find 'Child Input' ref");
         return;
@@ -341,9 +357,7 @@ fn iframe_fill_writes_to_iframe_input() {
     );
     assert_success(&snap, "snapshot");
     let snap_v = parse_json(&snap);
-    let content = snap_v["data"]["content"].as_str().unwrap_or("");
-
-    let child_input_ref = find_ref_for_name(content, "Child Input");
+    let child_input_ref = find_ref_for_name(&snap_v, "Child Input");
     if child_input_ref.is_empty() {
         eprintln!("SKIP: could not find 'Child Input' ref");
         return;
@@ -478,9 +492,7 @@ fn iframe_scroll_into_view_works_on_iframe_element() {
     );
     assert_success(&snap, "snapshot");
     let snap_v = parse_json(&snap);
-    let content = snap_v["data"]["content"].as_str().unwrap_or("");
-
-    let child_btn_ref = find_ref_for_name(content, "Child Button");
+    let child_btn_ref = find_ref_for_name(&snap_v, "Child Button");
     if child_btn_ref.is_empty() {
         eprintln!("SKIP: could not find 'Child Button' ref");
         return;
@@ -545,25 +557,25 @@ fn xo_iframe_snapshot_expands_cross_origin_content() {
     }
     let (sid, tid, _guard) = start_xo_iframe_session();
 
-    let out = headless(
+    let out = headless_json(
         &["browser", "snapshot", "--session", &sid, "--tab", &tid],
         15,
     );
     assert_success(&out, "xo snapshot");
-    let text = stdout_str(&out);
+    let v = parse_json(&out);
 
     // Iframe node should appear
     assert!(
-        text.contains("Iframe"),
+        snapshot_nodes_contain(&v, "Cross-Origin Frame") || snapshot_nodes_contain(&v, "Iframe"),
         "Iframe node should appear in snapshot"
     );
 
     // Cross-origin child content should be expanded
     assert!(
-        text.contains("Cross-Origin Content")
-            || text.contains("XO Input")
-            || text.contains("XO Button"),
-        "cross-origin iframe content should be expanded.\nGot:\n{text}"
+        snapshot_nodes_contain(&v, "Cross-Origin Content")
+            || snapshot_nodes_contain(&v, "XO Input")
+            || snapshot_nodes_contain(&v, "XO Button"),
+        "cross-origin iframe content should be expanded.\nGot:\n{v:?}"
     );
 }
 
@@ -580,9 +592,7 @@ fn xo_iframe_html_reads_cross_origin_element() {
     );
     assert_success(&snap, "xo snapshot");
     let snap_v = parse_json(&snap);
-    let content = snap_v["data"]["content"].as_str().unwrap_or("");
-
-    let xo_btn_ref = find_ref_for_name(content, "XO Button");
+    let xo_btn_ref = find_ref_for_name(&snap_v, "XO Button");
     if xo_btn_ref.is_empty() {
         eprintln!("SKIP: could not find 'XO Button' ref (cross-origin iframe may not have loaded)");
         return;
@@ -621,9 +631,7 @@ fn xo_iframe_fill_writes_to_cross_origin_input() {
     );
     assert_success(&snap, "xo snapshot");
     let snap_v = parse_json(&snap);
-    let content = snap_v["data"]["content"].as_str().unwrap_or("");
-
-    let xo_input_ref = find_ref_for_name(content, "XO Input");
+    let xo_input_ref = find_ref_for_name(&snap_v, "XO Input");
     if xo_input_ref.is_empty() {
         eprintln!("SKIP: could not find 'XO Input' ref");
         return;
@@ -679,9 +687,7 @@ fn xo_iframe_click_works_on_cross_origin_element() {
     );
     assert_success(&snap, "xo snapshot");
     let snap_v = parse_json(&snap);
-    let content = snap_v["data"]["content"].as_str().unwrap_or("");
-
-    let xo_btn_ref = find_ref_for_name(content, "XO Button");
+    let xo_btn_ref = find_ref_for_name(&snap_v, "XO Button");
     if xo_btn_ref.is_empty() {
         eprintln!("SKIP: could not find 'XO Button' ref");
         return;
@@ -704,16 +710,27 @@ fn xo_iframe_click_works_on_cross_origin_element() {
 
 // ── Helper ────────────────────────────────────────────────────────
 
-/// Find the ref ID (e.g. "e42") for an element with the given name in snapshot content.
-fn find_ref_for_name(content: &str, name: &str) -> String {
+/// Find the ref ID (e.g. "e42") for an element with the given name in snapshot data.
+fn find_ref_for_name(snapshot: &Value, name: &str) -> String {
+    if let Some(nodes) = snapshot["data"]["nodes"].as_array() {
+        for node in nodes {
+            let matches = ["name", "value"]
+                .iter()
+                .any(|field| node.get(*field).and_then(|v| v.as_str()) == Some(name));
+            if matches && let Some(r) = node.get("ref").and_then(|v| v.as_str()) {
+                return r.to_string();
+            }
+        }
+    }
+
+    let content = snapshot_content(snapshot);
     for line in content.lines() {
-        if line.contains(name) {
-            // Look for [ref=eNN] pattern
-            if let Some(start) = line.find("[ref=") {
-                let after = &line[start + 5..];
-                if let Some(end) = after.find(']') {
-                    return after[..end].to_string();
-                }
+        if line.contains(name)
+            && let Some(start) = line.find("[ref=")
+        {
+            let after = &line[start + 5..];
+            if let Some(end) = after.find(']') {
+                return after[..end].to_string();
             }
         }
     }
