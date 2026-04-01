@@ -386,6 +386,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 serde_json::json!({ "url": final_url }),
             )
             .await;
+        // Update native_tabs[0] URL to reflect the navigated URL so the registry
+        // stores the correct URL when push_tab is called below.
+        if let Some(first) = native_tabs.first_mut() {
+            first.1 = final_url;
+        }
     }
 
     // Get real-time info for the first tab

@@ -195,13 +195,15 @@ fn lifecycle_open_with_url_text() {
     );
     assert_success(&out, "start with url text");
     let _guard = SessionGuard::new(&sid);
-    // --open-url navigates asynchronously; wait then verify via status.
+    // --open-url navigates asynchronously; wait then verify via `browser url`.
+    // §7.3: `browser status` text output does not include tab URLs —
+    // use `browser url` to verify the navigated URL.
     wait_url_contains(&sid, "t1", "page-a");
-    let status_out = headless(&["browser", "status", "--session", &sid], 10);
-    let status_text = stdout_str(&status_out);
+    let url_out = headless(&["browser", "url", "--session", &sid, "--tab", "t1"], 10);
+    let url_text = stdout_str(&url_out);
     assert!(
-        status_text.contains("page-a"),
-        "status text should contain page-a URL, got: {status_text}"
+        url_text.contains("page-a"),
+        "browser url should contain page-a URL, got: {url_text}"
     );
 }
 

@@ -92,12 +92,34 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         return cdp_error_to_result(e, "CDP_ERROR");
     }
 
-    // Focus the element via DOM.focus
+    // Focus the element via DOM.focus (CDP-level focus)
     if let Err(e) = ctx
         .execute_on_element("DOM.focus", json!({ "nodeId": node_id }))
         .await
     {
         return cdp_error_to_result(e, "CDP_ERROR");
+    }
+
+    // Also call .focus() via JS to durably update document.activeElement in headless Chrome.
+    // DOM.focus alone does not reliably update activeElement in headless environments.
+    let resolve = ctx
+        .execute_on_element("DOM.resolveNode", json!({ "nodeId": node_id }))
+        .await;
+    if let Ok(ref resolved) = resolve {
+        if let Some(obj_id) = resolved
+            .pointer("/result/object/objectId")
+            .and_then(|v| v.as_str())
+        {
+            let _ = ctx
+                .execute_on_element(
+                    "Runtime.callFunctionOn",
+                    json!({
+                        "functionDeclaration": "function() { this.focus(); }",
+                        "objectId": obj_id,
+                    }),
+                )
+                .await;
+        }
     }
 
     // Compare pre/post active element by reference identity
