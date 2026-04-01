@@ -52,11 +52,11 @@
 #### session_id
 
 - **Type:** String
-- **Source:** Can be specified via `actionbook browser start --set-session-id <SID>`
+- **Auto-generated format:** `sN` (e.g. `s1`, `s2`, `s3`) — global counter, mode-agnostic
+- **Manual format:** via `actionbook browser start --set-session-id <SID>` — must match `^[a-z][a-z0-9-]{1,63}$`
 - **Requirements:**
-  - Semantically meaningful for humans and LLMs
   - Uniquely identifies a session within the current CLI lifecycle and persisted state
-- **Examples:** `research-google`, `github-login-debug`, `airbnb-form-fill`
+- **Examples (manual):** `research-google`, `github-login-debug`, `airbnb-form-fill`
 
 #### tab_id
 
@@ -80,7 +80,7 @@ These fields are only used for bridging and debugging, not as primary reference 
 
 This version adopts the following defaults:
 
-- `session_id` is a semantic string, user-specifiable
+- `session_id` auto-generated as `sN` (s1, s2, …); user-specifiable via `--set-session-id`
 - `tab_id` is a session-scoped short ID `tN`
 - `native_tab_id` is an optional debug-only field
 - Non-session commands omit `context`
@@ -275,6 +275,7 @@ error ELEMENT_NOT_FOUND: Element not found: button[type=submit]
 
 ### 5.2 ID Rules
 
+- Without `--set-session-id`, the first session is `s1`, the second `s2`, etc. (global counter)
 - `browser start --set-session-id research-google` returns `session_id` = `"research-google"`
 - Opening tabs sequentially within the same session returns `t1`, `t2`, `t3`
 - `native_tab_id` may change, but `tab_id` remains stable for the upper layer
@@ -854,7 +855,7 @@ Capture an accessibility tree snapshot of the page.
 | `--session <SID>` | string | Yes | Session ID |
 | `--tab <TID>` | string | Yes | Tab ID |
 | `--interactive` | bool | No | Include only interactive elements |
-| `--cursor` | bool | No | Additionally include mouse/focus-interactive custom elements (cursor:pointer, onclick, tabindex, etc.) |
+| `--cursor` | bool | No (default: true) | Include mouse/focus-interactive custom elements (cursor:pointer, onclick, tabindex, etc.) — always enabled by default |
 | `--compact` | bool | No | Compact output, remove empty structural nodes |
 | `--depth <n>` | int | No | Limit maximum tree depth |
 | `--selector <sel>` | string | No | Limit to a specific subtree |
@@ -864,7 +865,7 @@ Capture an accessibility tree snapshot of the page.
 ```json
 {
   "format": "snapshot",
-  "content": "- textbox \"Search\" [ref=e1]\n- button \"Google Search\" [ref=e2]\n",
+  "path": "/Users/alice/.actionbook/sessions/s1/snapshot_1711900000000.txt",
   "nodes": [
     {
       "ref": "e1",
@@ -880,14 +881,16 @@ Capture an accessibility tree snapshot of the page.
 }
 ```
 
+> Note: snapshot content is saved to a file at `data.path`. To read the content, use the file path directly. `data.nodes` provides the structured tree for programmatic use.
+
 **Text output:**
 ```
 [research-google t1] https://google.com
-- textbox "Search" [ref=e1]
-- button "Google Search" [ref=e2]
+Refs are stable across snapshots — if the DOM node stays the same, the ref stays the same.
+output saved to /Users/alice/.actionbook/sessions/s1/snapshot_1711900000000.txt
 ```
 
-> Rule: In text mode, output the snapshot content directly without additional descriptive text. When truncated, `meta.truncated = true`; text output may append `truncated: true` at the end.
+> When truncated, `meta.truncated = true`.
 
 ---
 
