@@ -4,6 +4,7 @@ use std::process::Child;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use crate::action_result::ActionResult;
 use crate::browser::observation::snapshot_transform::RefCache;
 use crate::daemon::cdp_session::CdpSession;
 use crate::error::CliError;
@@ -114,6 +115,31 @@ impl SessionEntry {
             url,
             title,
         });
+    }
+
+    /// Append a tab with a caller-specified short ID.
+    /// Returns the assigned ID on success, or an error if the ID is already taken.
+    pub fn push_tab_with_id(
+        &mut self,
+        custom_id: String,
+        native_id: String,
+        url: String,
+        title: String,
+    ) -> Result<String, ActionResult> {
+        if self.tabs.iter().any(|t| t.id.0 == custom_id) {
+            return Err(ActionResult::fatal_with_hint(
+                "TAB_ID_CONFLICT",
+                format!("tab ID '{}' already exists in this session", custom_id),
+                "choose a different --set-tab-id or omit it for auto-assignment",
+            ));
+        }
+        self.tabs.push(TabEntry {
+            id: TabId(custom_id.clone()),
+            native_id,
+            url,
+            title,
+        });
+        Ok(custom_id)
     }
 }
 
@@ -574,6 +600,86 @@ mod tests {
             entry.status = SessionState::Closed;
         }
         assert!(!registry.has_active_sessions());
+    }
+
+    #[test]
+    fn push_tab_with_id_assigns_custom_id() {
+        let mut entry = SessionEntry::starting(
+            SessionId::new("test-session").unwrap(),
+            Mode::Local,
+            true,
+            true,
+            "profile".to_string(),
+        );
+
+        let id = entry
+            .push_tab_with_id(
+                "inbox".to_string(),
+                "native-1".to_string(),
+                "https://example.com".to_string(),
+                "Example".to_string(),
+            )
+            .expect("should succeed");
+
+        assert_eq!(id, "inbox");
+        assert_eq!(entry.tabs.len(), 1);
+        assert_eq!(entry.tabs[0].id.0, "inbox");
+        assert_eq!(entry.tabs[0].native_id, "native-1");
+    }
+
+    #[test]
+    fn push_tab_with_id_rejects_duplicate() {
+        let mut entry = SessionEntry::starting(
+            SessionId::new("test-session").unwrap(),
+            Mode::Local,
+            true,
+            true,
+            "profile".to_string(),
+        );
+
+        entry.push_tab("native-1".to_string(), "https://a.com".to_string(), String::new());
+        // The auto-assigned ID is "t1"
+        assert_eq!(entry.tabs[0].id.0, "t1");
+
+        let err = entry
+            .push_tab_with_id(
+                "t1".to_string(),
+                "native-2".to_string(),
+                "https://b.com".to_string(),
+                String::new(),
+            )
+            .expect_err("should reject duplicate tab ID");
+
+        match err {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "TAB_ID_CONFLICT"),
+            _ => panic!("expected Fatal with TAB_ID_CONFLICT"),
+        }
+        assert_eq!(entry.tabs.len(), 1, "no tab should be added on conflict");
+    }
+
+    #[test]
+    fn push_tab_with_id_does_not_affect_auto_counter() {
+        let mut entry = SessionEntry::starting(
+            SessionId::new("test-session").unwrap(),
+            Mode::Local,
+            true,
+            true,
+            "profile".to_string(),
+        );
+
+        // Custom ID first
+        entry
+            .push_tab_with_id(
+                "custom".to_string(),
+                "native-1".to_string(),
+                "https://a.com".to_string(),
+                String::new(),
+            )
+            .unwrap();
+
+        // Auto-assigned should still start at t1
+        entry.push_tab("native-2".to_string(), "https://b.com".to_string(), String::new());
+        assert_eq!(entry.tabs[1].id.0, "t1");
     }
 
     #[test]
