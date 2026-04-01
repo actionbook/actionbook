@@ -60,11 +60,13 @@ impl DaemonClient {
 }
 
 /// Check if the running daemon's version matches the CLI binary exactly.
-/// Returns `true` if the version file is missing or empty (daemon still starting).
+/// Missing or empty version file → `false` (old daemon without version support).
 fn versions_match(version_path: &std::path::Path) -> bool {
-    let daemon_version = std::fs::read_to_string(version_path).unwrap_or_default();
+    let Ok(daemon_version) = std::fs::read_to_string(version_path) else {
+        return false;
+    };
     let daemon_version = daemon_version.trim();
-    daemon_version.is_empty() || daemon_version == crate::BUILD_VERSION
+    !daemon_version.is_empty() && daemon_version == crate::BUILD_VERSION
 }
 
 /// Stop the running daemon and start a fresh one with the current binary.
@@ -178,21 +180,21 @@ mod tests {
     }
 
     #[test]
-    fn versions_match_empty_file() {
+    fn versions_mismatch_empty_file() {
         let (_dir, path) = write_version_file("");
         assert!(
-            versions_match(&path),
-            "empty version file (daemon starting) must be treated as match"
+            !versions_match(&path),
+            "empty version file must be treated as mismatch (old daemon)"
         );
     }
 
     #[test]
-    fn versions_match_missing_file() {
+    fn versions_mismatch_missing_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("daemon.version");
         assert!(
-            versions_match(&path),
-            "missing version file must be treated as match"
+            !versions_match(&path),
+            "missing version file must be treated as mismatch (old daemon)"
         );
     }
 
