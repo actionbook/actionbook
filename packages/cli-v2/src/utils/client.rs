@@ -45,9 +45,28 @@ impl DaemonClient {
             return wait_for_daemon(&path, &ready_path, &version_path).await;
         }
 
-        // Daemon not connectable but process may be running — check version
-        if server::is_daemon_running() && !versions_match(&version_path) {
-            restart_daemon().await?;
+        // Daemon not connectable but process may be running.
+        // Wait briefly for version file — daemon may still be starting up.
+        if server::is_daemon_running() {
+            let mut needs_restart = false;
+            for _ in 0..10 {
+                if versions_match(&version_path) {
+                    break; // Same version, just wait for it to become connectable
+                }
+                if version_path.exists() {
+                    needs_restart = true; // Version file present but mismatched
+                    break;
+                }
+                // No version file yet — daemon may still be writing it
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            // If version file never appeared after 1s, treat as old daemon
+            if !needs_restart && !versions_match(&version_path) {
+                needs_restart = true;
+            }
+            if needs_restart {
+                restart_daemon().await?;
+            }
         }
 
         // No daemon running — start one
@@ -106,7 +125,15 @@ async fn restart_daemon() -> Result<(), CliError> {
         }
     }
 
-    // Old daemon is confirmed gone — safe to clean up stale files
+    // Before cleaning up, check if a concurrent CLI already started a new
+    // daemon with the correct version — if so, skip cleanup and let the
+    // caller connect to it via wait_for_daemon.
+    let version_path = server::socket_path().with_extension("version");
+    if versions_match(&version_path) {
+        return Ok(());
+    }
+
+    // No matching daemon running — safe to clean up stale files and start
     cleanup_stale_files();
 
     auto_start_daemon()
