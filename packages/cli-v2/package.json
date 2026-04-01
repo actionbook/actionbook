@@ -1,6 +1,6 @@
 {
   "name": "@actionbookdev/cli-v2",
-  "version": "1.0.0-alpha.1",
+  "version": "1.0.0-alpha.2",
   "private": true,
   "description": "Actionbook CLI v2 - Browser automation for AI agents",
   "scripts": {
