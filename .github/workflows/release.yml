@@ -209,7 +209,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     defaults:
       run:
-        working-directory: packages/actionbook-rs
+        working-directory: packages/cli
 
     steps:
       - uses: actions/checkout@v4
@@ -226,7 +226,7 @@ jobs:
       - name: Build (cross)
         if: matrix.use-cross
         working-directory: .
-        run: cross build --release --target ${{ matrix.target }} --manifest-path packages/actionbook-rs/Cargo.toml
+        run: cross build --release --target ${{ matrix.target }} --manifest-path packages/cli/Cargo.toml
 
       - name: Build (native)
         if: ${{ !matrix.use-cross }}

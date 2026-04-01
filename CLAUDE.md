@@ -32,7 +32,7 @@ actionbook/
 ├── packages/
 │   ├── js-sdk/             # @actionbookdev/sdk - JavaScript SDK with tool definitions
 │   ├── mcp/                # @actionbookdev/mcp - MCP Server (standalone, publishable to npm)
-│   ├── cli-v2/                # @actionbookdev/cli - Command line interface
+│   ├── cli/                   # @actionbookdev/cli - Command line interface (Rust CLI + npm wrapper)
 │   └── tools-ai-sdk/       # @actionbookdev/tools-ai-sdk - Vercel AI SDK tools integration
 ├── playground/             # Demo and example projects
 │   ├── rust-learner/       # Rust learner plugin example
@@ -176,7 +176,7 @@ The following packages are published to npm:
 | ---------------------- | --------------------------- | ------------------------------------------------- |
 | `packages/js-sdk`      | `@actionbookdev/sdk`        | Core SDK with types and tool definitions          |
 | `packages/mcp`         | `@actionbookdev/mcp`        | MCP Server implementation (CLI: `actionbook-mcp`) |
-| `packages/cli-v2`         | `@actionbookdev/cli-v2`        | Command line interface                            |
+| `packages/cli`            | `@actionbookdev/cli`           | Command line interface                            |
 | `packages/tools-ai-sdk`| `@actionbookdev/tools-ai-sdk` | Vercel AI SDK tools integration                 |
 
 ## Release Workflow
@@ -206,7 +206,7 @@ git commit -m "[scope]feat: description"
 | Type | Packages | Publish Target |
 |------|----------|----------------|
 | JS packages | `sdk`, `mcp`, `tools-ai-sdk`, `json-ui` | npm (`npm publish --provenance`) |
-| CLI | `@actionbookdev/cli-v2` + 6 platform packages | Rust cross-compile → npm + GitHub Release |
+| CLI | `@actionbookdev/cli` + 6 platform packages | Rust cross-compile → npm + GitHub Release |
 | Extension | `actionbook-extension` | ZIP → GitHub Release |
 | Dify Plugin | `dify-plugin` | `.difypkg` → GitHub Release |
 
@@ -225,7 +225,7 @@ Branch names MUST follow these formats:
 - `bugfix/xxx` — bug fixes
 - `release/x.x.x` — release branches
 
-When creating worktrees, the branch name should match the convention (e.g., `feature/cli-v2-package-json`).
+When creating worktrees, the branch name should match the convention (e.g., `feature/cli-package-json`).
 
 ## Git Commit Message Convention
 
@@ -259,7 +259,7 @@ When creating worktrees, the branch name should match the convention (e.g., `fea
 
 ## Actionbook CLI
 
-In `packages/cli-v2*` or `packages/actionbook-rs`, should follow the rules
+In `packages/cli/`, should follow the rules
 
 
 ### Product Principles

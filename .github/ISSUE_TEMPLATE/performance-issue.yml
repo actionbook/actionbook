@@ -18,7 +18,6 @@ body:
       description: Which component has the performance issue?
       options:
         - "CLI (@actionbookdev/cli)"
-        - "Rust CLI Core (packages/actionbook-rs)"
         - "SDK (@actionbookdev/sdk)"
         - "MCP Server (@actionbookdev/mcp)"
         - "Tools AI SDK (@actionbookdev/tools-ai-sdk)"

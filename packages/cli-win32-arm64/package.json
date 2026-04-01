@@ -1,6 +1,6 @@
 {
   "name": "@actionbookdev/cli-win32-arm64",
-  "version": "0.11.5",
+  "version": "1.0.0-alpha.4",
   "description": "Actionbook CLI native binary for Windows ARM64",
   "os": [
     "win32"

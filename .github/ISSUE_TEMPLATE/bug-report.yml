@@ -58,7 +58,6 @@ body:
       description: Which component seems affected?
       options:
         - "CLI (@actionbookdev/cli)"
-        - "Rust CLI Core (packages/actionbook-rs)"
         - "SDK (@actionbookdev/sdk)"
         - "MCP Server (@actionbookdev/mcp)"
         - "Tools AI SDK (@actionbookdev/tools-ai-sdk)"

@@ -18,7 +18,7 @@ fn main() {
     println!("cargo:rustc-env=BUILD_VERSION={build_version}");
 
     // Resolve repo root .git/HEAD for monorepo — relative paths are resolved
-    // from the package directory (packages/cli-v2/), not the repo root.
+    // from the package directory (packages/cli/), not the repo root.
     let git_dir = std::process::Command::new("git")
         .args(["rev-parse", "--git-dir"])
         .output()

@@ -1,8 +1,8 @@
 {
   "name": "@actionbookdev/cli",
-  "version": "0.11.5",
-  "description": "CLI for Actionbook - Browser automation and action manuals for AI agents",
+  "version": "1.0.0-alpha.4",
   "private": false,
+  "description": "Actionbook CLI - Browser automation for AI agents",
   "bin": {
     "actionbook": "./bin/actionbook.js"
   },
@@ -15,12 +15,18 @@
   },
   "scripts": {
     "postinstall": "node scripts/postinstall.js",
-    "test": "vitest run"
-  },
-  "devDependencies": {
-    "vitest": "^1.6.0",
-    "@types/node": "^20.14.0",
-    "typescript": "^5.6.3"
+    "build": "cargo build --release",
+    "test": "cargo test",
+    "test:ut": "cargo test --lib",
+    "test:e2e": "RUN_E2E_TESTS=true cargo test --test e2e -- --test-threads=8",
+    "lint": "pnpm lint:fmt && pnpm lint:clippy",
+    "lint:fmt": "cargo fmt -- --check",
+    "lint:clippy": "cargo clippy -- -D warnings",
+    "fmt": "cargo fmt",
+    "clean": "cargo clean",
+    "dev": "cargo watch -w src -w Cargo.toml -x build",
+    "dev:check": "cargo watch -w src -w Cargo.toml -x check",
+    "dev:test": "cargo watch -w src -w tests -w Cargo.toml -x test"
   },
   "optionalDependencies": {
     "@actionbookdev/cli-darwin-arm64": "workspace:*",
@@ -37,9 +43,7 @@
     "actionbook",
     "cli",
     "ai-agent",
-    "browser-automation",
-    "web-scraping",
-    "selectors"
+    "browser-automation"
   ],
   "repository": {
     "type": "git",
@@ -48,5 +52,5 @@
   },
   "homepage": "https://actionbook.dev",
   "author": "Actionbook Team",
-  "license": "Apache-2.0"
+  "license": "MIT"
 }

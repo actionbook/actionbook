@@ -1,14 +1,14 @@
-name: Tests (cli-v2)
+name: Tests (cli)
 
 on:
   push:
     branches: [main, "release/**"]
     paths:
-      - "packages/cli-v2/**"
+      - "packages/cli/**"
   pull_request:
     branches: [main, "release/**"]
     paths:
-      - "packages/cli-v2/**"
+      - "packages/cli/**"
 
 env:
   CARGO_TERM_COLOR: always
@@ -37,17 +37,17 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            packages/cli-v2/target
-          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('packages/cli-v2/Cargo.lock') }}
+            packages/cli/target
+          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('packages/cli/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-lint-
 
       - name: Check formatting
-        working-directory: packages/cli-v2
+        working-directory: packages/cli
         run: cargo fmt --all -- --check
 
       - name: Run clippy
-        working-directory: packages/cli-v2
+        working-directory: packages/cli
         run: cargo clippy --all-targets -- -D warnings
 
   unit-tests:
@@ -64,11 +64,11 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: packages/cli-v2
+          workspaces: packages/cli
           shared-key: unit-tests
 
       - name: Run unit tests
-        working-directory: packages/cli-v2
+        working-directory: packages/cli
         run: cargo test --lib
 
   e2e-tests:
@@ -87,7 +87,7 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: packages/cli-v2
+          workspaces: packages/cli
           shared-key: e2e-tests
 
       - name: Install Chrome
@@ -96,7 +96,7 @@ jobs:
           chrome-version: stable
 
       - name: Run E2E tests
-        working-directory: packages/cli-v2
+        working-directory: packages/cli
         env:
           RUN_E2E_TESTS: "true"
         run: cargo test --test e2e
