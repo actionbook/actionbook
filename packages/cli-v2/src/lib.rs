@@ -2,8 +2,10 @@ pub const BUILD_VERSION: &str = env!("BUILD_VERSION");
 
 pub mod action;
 pub mod action_result;
+pub mod api;
 pub mod browser;
 pub mod cli;
+pub mod commands;
 pub mod config;
 pub mod daemon;
 pub mod error;

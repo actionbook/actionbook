@@ -51,6 +51,8 @@ pub enum CliError {
     CloudConnectionLost(String),
     #[error("version mismatch: cli={cli}, daemon={daemon}")]
     VersionMismatch { cli: String, daemon: String },
+    #[error("api error: {0}")]
+    ApiError(String),
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -82,6 +84,7 @@ impl CliError {
             CliError::MissingCdpEndpoint => "MISSING_CDP_ENDPOINT",
             CliError::CloudConnectionLost(_) => "CLOUD_CONNECTION_LOST",
             CliError::VersionMismatch { .. } => "VERSION_MISMATCH",
+            CliError::ApiError(_) => "API_ERROR",
             CliError::Internal(_) => "INTERNAL_ERROR",
         }
     }

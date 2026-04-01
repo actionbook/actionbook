@@ -21,6 +21,15 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub timeout: Option<u64>,
 
+    /// API key for authenticated access
+    #[arg(
+        long,
+        env = "ACTIONBOOK_API_KEY",
+        global = true,
+        hide_env_values = true
+    )]
+    pub api_key: Option<String>,
+
     /// Print version
     #[arg(long, short = 'v')]
     pub version: bool,
@@ -32,6 +41,34 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 #[command(disable_help_subcommand = true)]
 pub enum Commands {
+    /// Search for action manuals by keyword
+    Search {
+        /// Search keyword (e.g., "airbnb search", "google login")
+        query: String,
+
+        /// Filter by domain (e.g., "airbnb.com")
+        #[arg(short, long)]
+        domain: Option<String>,
+
+        /// Filter by URL
+        #[arg(short, long)]
+        url: Option<String>,
+
+        /// Page number
+        #[arg(short, long, default_value = "1")]
+        page: u32,
+
+        /// Results per page (1-100)
+        #[arg(short = 's', long, default_value = "10")]
+        page_size: u32,
+    },
+
+    /// Get complete action details by area ID
+    Get {
+        /// Area ID (e.g., "airbnb.com:/:default")
+        area_id: String,
+    },
+
     /// Browser automation commands
     Browser {
         #[command(subcommand)]

@@ -127,11 +127,32 @@ async fn main() {
     }
 }
 
-async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(mut cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let json_mode = cli.json;
     let timeout_ms = cli.timeout;
 
-    match cli.command.unwrap() {
+    let command = cli.command.take().unwrap();
+    match command {
+        Commands::Search {
+            query,
+            domain,
+            url,
+            page,
+            page_size,
+        } => {
+            actionbook_cli::commands::search::run(
+                &cli,
+                &query,
+                domain.as_deref(),
+                url.as_deref(),
+                page,
+                page_size,
+            )
+            .await?;
+        }
+        Commands::Get { area_id } => {
+            actionbook_cli::commands::get::run(&cli, &area_id).await?;
+        }
         Commands::Browser { command } => {
             handle_browser(command, json_mode, timeout_ms).await?;
         }
@@ -287,6 +308,8 @@ No \"current tab\" — run commands on any session/tab in parallel.
 Usage: actionbook <command> [options]
 
 Commands:
+  search     Search for action manuals by keyword
+  get        Get complete action details by area ID
   browser    Control browser sessions, tabs, and page interactions
   setup      Configure actionbook
   help       Show this help
@@ -295,8 +318,11 @@ Commands:
 Global flags:
   --json          Output as JSON envelope
   --timeout <ms>  Set command timeout
+  --api-key       API key for authenticated access (env: ACTIONBOOK_API_KEY)
 
 Quick start:
+  actionbook search \"airbnb search\"
+  actionbook get \"airbnb.com:/:default\"
   actionbook browser start --set-session-id my-session
   actionbook browser goto https://example.com --session my-session --tab t1
   actionbook browser snapshot --session my-session --tab t1
