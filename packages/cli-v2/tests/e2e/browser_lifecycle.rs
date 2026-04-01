@@ -93,10 +93,7 @@ fn lifecycle_open_and_close_text() {
     let out = env.headless(&["browser", "start", "--mode", "local", "--headless"], 30);
     assert_success(&out, "start text");
     let text = stdout_str(&out);
-    assert!(
-        text.contains("[s1"),
-        "start text: should contain [s1"
-    );
+    assert!(text.contains("[s1"), "start text: should contain [s1");
     assert!(text.contains("ok browser start"));
     assert!(text.contains("mode: local"));
     assert!(text.contains("status: running"));
