@@ -264,6 +264,27 @@ fn handle_http(mut stream: std::net::TcpStream) {
         return;
     }
 
+    // Deterministic fixture for cursor-interactive detection tests.
+    // Contains a cursor:pointer div, an onclick div, and a tabindex div —
+    // all of which should be captured only when cursor detection is active.
+    if path == "/cursor-fixture" {
+        let body = r#"<!DOCTYPE html><html><head><title>Cursor Fixture</title></head>
+<body>
+<h1>Cursor Fixture Page</h1>
+<div id="cursor-div" style="cursor:pointer">cursor-pointer-item</div>
+<div id="onclick-div" onclick="void(0)">onclick-item</div>
+<div id="tabindex-div" tabindex="0">tabindex-item</div>
+<p>plain-text-paragraph</p>
+</body></html>"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
     let body = format!(
         "<!DOCTYPE html><html><head><title>{title}</title></head>\
          <body><h1>{title}</h1></body></html>"
@@ -299,6 +320,11 @@ pub fn url_slow() -> String {
 /// URL for an iframe test page (parent with embedded same-origin child iframe).
 pub fn url_iframe_parent() -> String {
     format!("http://127.0.0.1:{}/iframe-parent", local_server().port)
+}
+
+/// URL for cursor-interactive fixture (cursor:pointer, onclick, tabindex elements).
+pub fn url_cursor_fixture() -> String {
+    format!("http://127.0.0.1:{}/cursor-fixture", local_server().port)
 }
 
 // ── Cross-origin server (second port for OOPIF tests) ─────────────
