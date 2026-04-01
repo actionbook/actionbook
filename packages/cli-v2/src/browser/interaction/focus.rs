@@ -105,21 +105,20 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let resolve = ctx
         .execute_on_element("DOM.resolveNode", json!({ "nodeId": node_id }))
         .await;
-    if let Ok(ref resolved) = resolve {
-        if let Some(obj_id) = resolved
+    if let Ok(ref resolved) = resolve
+        && let Some(obj_id) = resolved
             .pointer("/result/object/objectId")
             .and_then(|v| v.as_str())
-        {
-            let _ = ctx
-                .execute_on_element(
-                    "Runtime.callFunctionOn",
-                    json!({
-                        "functionDeclaration": "function() { this.focus(); }",
-                        "objectId": obj_id,
-                    }),
-                )
-                .await;
-        }
+    {
+        let _ = ctx
+            .execute_on_element(
+                "Runtime.callFunctionOn",
+                json!({
+                    "functionDeclaration": "function() { this.focus(); }",
+                    "objectId": obj_id,
+                }),
+            )
+            .await;
     }
 
     // Compare pre/post active element by reference identity
