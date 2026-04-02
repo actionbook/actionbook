@@ -6689,12 +6689,12 @@ fn click_spa_navigation() {
 document.title = 'SPA Nav Fixture';
 const link = document.createElement('a');
 link.id = 'spa-link';
-link.href = '/spa-destination';
+link.href = '#spa-destination';
 link.textContent = 'Navigate';
 link.style.cssText = 'display:block;width:200px;height:40px;background:#ccc;position:fixed;top:100px;left:100px;';
 link.addEventListener('click', function(e) {
   e.preventDefault();
-  history.pushState({}, 'SPA Destination', '/spa-destination');
+  history.pushState({}, 'SPA Destination', '#spa-destination');
   window.__spa_navigated = true;
 });
 document.body.appendChild(link);
@@ -6730,7 +6730,7 @@ void(0)
     assert_success(&out, "click spa link");
     let v = parse_json(&out);
 
-    // The SPA router must have fired: URL changed to /spa-destination.
+    // The SPA router must have fired: URL changed to about:blank#spa-destination.
     assert_eq!(
         v["data"]["changed"]["url_changed"], true,
         "url_changed must be true after SPA click"
