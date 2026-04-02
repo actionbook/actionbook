@@ -4,7 +4,7 @@
 //! tabs via CDP flat sessions (Target.attachToTarget + sessionId). Concurrent
 //! requests are multiplexed using incrementing message IDs.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -465,6 +465,11 @@ impl CdpSession {
     ) where
         S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
     {
+        // Request IDs whose +1 was suppressed (WebSocket/favicon/data:).
+        // Their loadingFinished/loadingFailed must also be suppressed to
+        // avoid undercounting (see Playwright parity).
+        let mut skipped_request_ids: HashSet<String> = HashSet::new();
+
         while let Some(raw) = reader.next().await {
             let msg = match raw {
                 Ok(Message::Text(t)) => t.to_string(),
@@ -537,20 +542,49 @@ impl CdpSession {
                                 .and_then(|p| p.pointer("/request/url"))
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("");
+                            let req_id = params
+                                .and_then(|p| p.get("requestId"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            let is_redirect =
+                                params.and_then(|p| p.get("redirectResponse")).is_some();
                             // Skip requests that should not block network-idle:
-                            // - WebSocket upgrades never fire loadingFinished,
+                            // - WebSocket/EventSource never fire loadingFinished,
                             //   so counting them leaves pending stuck at ≥1.
                             // - Favicon and data: URLs match Playwright's exclusions.
+                            // - Redirects reuse the same requestId: the original
+                            //   requestWillBeSent already incremented, and only one
+                            //   loadingFinished will fire, so don't double-count.
+                            // Track skipped requestIds so their loadingFinished/
+                            // loadingFailed events are also suppressed.
                             if req_type == "WebSocket"
+                                || req_type == "EventSource"
                                 || url.ends_with("/favicon.ico")
                                 || url.starts_with("data:")
                             {
+                                if !req_id.is_empty() {
+                                    skipped_request_ids.insert(req_id.to_string());
+                                }
+                                0
+                            } else if is_redirect {
+                                // Redirect: same requestId already counted; don't
+                                // increment again (only one loadingFinished comes).
                                 0
                             } else {
                                 1
                             }
                         }
-                        "Network.loadingFinished" | "Network.loadingFailed" => -1,
+                        "Network.loadingFinished" | "Network.loadingFailed" => {
+                            let req_id = resp
+                                .pointer("/params/requestId")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            if skipped_request_ids.remove(req_id) {
+                                0 // This request was never counted; skip its finish too.
+                            } else {
+                                -1
+                            }
+                        }
                         _ => 0,
                     };
                     if delta != 0 {
@@ -1057,6 +1091,156 @@ mod tests {
         .await;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(cdp.network_pending("S_NET").await, 0);
+    }
+
+    // ── 8b. test_network_counter_skips_websocket_favicon_data ─────────
+
+    /// WebSocket, favicon, and data: requests must not increment the pending
+    /// counter.  Their loadingFinished/loadingFailed must also be suppressed
+    /// so they don't undercount other in-flight requests.
+    #[tokio::test]
+    async fn test_network_counter_skips_websocket_favicon_data() {
+        let (url, mut conns) = mock_ws_server().await;
+        let cdp = CdpSession::connect(&url).await.unwrap();
+        let (_, mut writer) = conns.recv().await.unwrap();
+
+        cdp.tab_sessions
+            .lock()
+            .await
+            .insert("T_SKIP".to_string(), "S_SKIP".to_string());
+
+        // ── WebSocket request: should be skipped ──
+        send_json(
+            &mut writer,
+            json!({
+                "method": "Network.requestWillBeSent",
+                "sessionId": "S_SKIP",
+                "params": {
+                    "requestId": "ws1",
+                    "type": "WebSocket",
+                    "request": { "url": "wss://example.com/socket" }
+                }
+            }),
+        )
+        .await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            cdp.network_pending("S_SKIP").await,
+            0,
+            "WebSocket request must not increment counter"
+        );
+
+        // ── Favicon request: should be skipped ──
+        send_json(
+            &mut writer,
+            json!({
+                "method": "Network.requestWillBeSent",
+                "sessionId": "S_SKIP",
+                "params": {
+                    "requestId": "fav1",
+                    "request": { "url": "https://example.com/favicon.ico" }
+                }
+            }),
+        )
+        .await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            cdp.network_pending("S_SKIP").await,
+            0,
+            "favicon request must not increment counter"
+        );
+
+        // ── data: URL request: should be skipped ──
+        send_json(
+            &mut writer,
+            json!({
+                "method": "Network.requestWillBeSent",
+                "sessionId": "S_SKIP",
+                "params": {
+                    "requestId": "data1",
+                    "request": { "url": "data:image/png;base64,iVBOR..." }
+                }
+            }),
+        )
+        .await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            cdp.network_pending("S_SKIP").await,
+            0,
+            "data: URL must not increment counter"
+        );
+
+        // ── Normal request: should be counted ──
+        send_json(
+            &mut writer,
+            json!({
+                "method": "Network.requestWillBeSent",
+                "sessionId": "S_SKIP",
+                "params": {
+                    "requestId": "r1",
+                    "request": { "url": "https://example.com/api/data" }
+                }
+            }),
+        )
+        .await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            cdp.network_pending("S_SKIP").await,
+            1,
+            "normal request must increment counter"
+        );
+
+        // ── Favicon loadingFinished must NOT undercount ──
+        // (This is the P0 bug that Codex bot caught)
+        send_json(
+            &mut writer,
+            json!({
+                "method": "Network.loadingFinished",
+                "sessionId": "S_SKIP",
+                "params": { "requestId": "fav1" }
+            }),
+        )
+        .await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            cdp.network_pending("S_SKIP").await,
+            1,
+            "favicon finish must not decrement — its +1 was skipped"
+        );
+
+        // ── data: loadingFinished must NOT undercount ──
+        send_json(
+            &mut writer,
+            json!({
+                "method": "Network.loadingFinished",
+                "sessionId": "S_SKIP",
+                "params": { "requestId": "data1" }
+            }),
+        )
+        .await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            cdp.network_pending("S_SKIP").await,
+            1,
+            "data: finish must not decrement — its +1 was skipped"
+        );
+
+        // ── Normal request finishes: counter should go to 0 ──
+        send_json(
+            &mut writer,
+            json!({
+                "method": "Network.loadingFinished",
+                "sessionId": "S_SKIP",
+                "params": { "requestId": "r1" }
+            }),
+        )
+        .await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            cdp.network_pending("S_SKIP").await,
+            0,
+            "normal request finish should bring counter to 0"
+        );
     }
 
     // ── 9. test_event_routing ─────────────────────────────────────────
