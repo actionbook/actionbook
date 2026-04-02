@@ -6727,7 +6727,10 @@ fn type_contenteditable_json() {
         &tid,
         "document.getElementById('ab-ce-editor').textContent",
     );
-    assert_eq!(content, "hello world", "contenteditable must contain typed text");
+    assert_eq!(
+        content, "hello world",
+        "contenteditable must contain typed text"
+    );
 
     // Verify click was dispatched (contenteditable path uses click-to-focus)
     let click_count = eval_value(&sid, &tid, "String(window.__ab_ce_click_count)");
