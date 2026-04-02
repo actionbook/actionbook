@@ -20,12 +20,10 @@ fn cursor_default() -> bool {
 #[command(after_help = "\
 Examples:
   actionbook browser snapshot --session s1 --tab t1
-  actionbook browser snapshot -i --session s1 --tab t1
-  actionbook browser snapshot -i -c --session s1 --tab t1
-  actionbook browser snapshot -i --depth 3 --session s1 --tab t1
+  actionbook browser snapshot --depth 3 --session s1 --tab t1
   actionbook browser snapshot --selector \"#main\" --session s1 --tab t1
 
-Flags: -i (interactive only), -c (compact), --cursor (cursor-interactive on by default).
+Output includes a `path` field pointing to the saved snapshot file.
 Elements are labeled with refs (e.g. @e1, @e2). Use the @eN syntax to target
 elements in other commands: click @e5, fill @e7 \"text\", hover @e3.
 Refs are stable across snapshots — if the DOM node stays the same, the ref
