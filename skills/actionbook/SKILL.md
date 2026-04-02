@@ -1,6 +1,6 @@
 ---
 name: actionbook
-description: Browser action engine for AI agents. Provides up-to-date action manuals for the modern web so your agent operates any website instantly — one tab or dozens, concurrently.
+description: Browser action engine. Provides up-to-date action manuals for the modern web — operate any website instantly, one tab or dozens, concurrently.
 ---
 
 ## When to Use This Skill
