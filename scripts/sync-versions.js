@@ -49,7 +49,7 @@ for (const rel of PLATFORM_PACKAGES) {
 }
 
 // Sync Cargo.toml version
-const cargoTomlPath = path.join(ROOT, "packages/actionbook-rs/Cargo.toml");
+const cargoTomlPath = path.join(ROOT, "packages/cli/Cargo.toml");
 let cargoToml = fs.readFileSync(cargoTomlPath, "utf8");
 const cargoVersionMatch = cargoToml.match(/^version\s*=\s*"(.+)"/m);
 if (!cargoVersionMatch) {
@@ -62,22 +62,22 @@ if (cargoVersionMatch[1] !== cliVersion) {
     `$1${cliVersion}$2`
   );
   fs.writeFileSync(cargoTomlPath, cargoToml);
-  console.log(`  packages/actionbook-rs/Cargo.toml: ${prevCargo} → ${cliVersion}`);
+  console.log(`  packages/cli/Cargo.toml: ${prevCargo} → ${cliVersion}`);
 }
 
 // Sync Cargo.lock root package version (text replacement, no cargo needed)
-const cargoLockPath = path.join(ROOT, "packages/actionbook-rs/Cargo.lock");
+const cargoLockPath = path.join(ROOT, "packages/cli/Cargo.lock");
 let cargoLock = fs.readFileSync(cargoLockPath, "utf8");
-const lockVersionRe = /(^\[\[package\]\]\nname = "actionbook"\nversion = ")([^"]+)(")/m;
+const lockVersionRe = /(^\[\[package\]\]\nname = "actionbook-cli"\nversion = ")([^"]+)(")/m;
 const lockMatch = cargoLock.match(lockVersionRe);
 if (!lockMatch) {
-  throw new Error("Cargo.lock: root actionbook package entry not found");
+  throw new Error("Cargo.lock: root actionbook-cli package entry not found");
 }
 if (lockMatch[2] !== cliVersion) {
   const prevLock = lockMatch[2];
   cargoLock = cargoLock.replace(lockVersionRe, `$1${cliVersion}$3`);
   fs.writeFileSync(cargoLockPath, cargoLock);
-  console.log(`  packages/actionbook-rs/Cargo.lock: ${prevLock} → ${cliVersion}`);
+  console.log(`  packages/cli/Cargo.lock: ${prevLock} → ${cliVersion}`);
 }
 
 console.log(`CLI sync done (v${cliVersion})`);

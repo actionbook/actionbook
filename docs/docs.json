@@ -31,7 +31,6 @@
             "group": "Advanced",
             "pages": [
               "examples",
-              "api-reference/evaluate-api",
               "guides/mcp-server",
               "guides/sdk-integration",
               "guides/dify-plugin",

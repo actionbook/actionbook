@@ -1,5 +1,0 @@
-*.tgz
-dist/
-
-# Platform binaries (built by CI, not committed to git)
-bin/actionbook-*

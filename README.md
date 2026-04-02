@@ -6,14 +6,11 @@
 
 ![GitHub last commit](https://img.shields.io/github/last-commit/actionbook/actionbook) [![NPM Downloads](https://img.shields.io/npm/d18m/%40actionbookdev%2Fcli)](https://www.npmjs.com/package/@actionbookdev/cli) [![npm version](https://img.shields.io/npm/v/%40actionbookdev%2Fcli)](https://www.npmjs.com/package/@actionbookdev/cli) [![skills](https://img.shields.io/badge/skills-ready-blue)](https://skills.sh/actionbook/actionbook/actionbook)
 
-
-
-
 **Browser Action Engine for AI Agents**
 <br />
-Actionbook provides up-to-date action manuals and DOM structure,
+Actionbook provides up-to-date action manuals built for the modern web,
 <br />
-so your agent operates any website instantly without guessing.
+so your agent operates any website instantly. One tab or dozens, concurrently.
 
 [Website](https://actionbook.dev) · [GitHub](https://github.com/actionbook/actionbook) · [X](https://x.com/ActionbookHQ) · [Discord](https://actionbook.dev/discord)
 
@@ -24,8 +21,9 @@ so your agent operates any website instantly without guessing.
 ## Table of Contents
 
 - [Why Actionbook?](#why-actionbook)
-- [Quick Start](#quick-start)
 - [Installation](#installation)
+- [Quick Start](#quick-start)
+- [AI Agent Skills](#ai-agent-skills)
 - [Examples](#examples)
 - [Available Tools](#available-tools)
 - [Documentation](#documentation)
@@ -35,45 +33,37 @@ so your agent operates any website instantly without guessing.
 
 ### ❌ Without Actionbook
 
-Building reliable browser agents is difficult and expensive:
-
-- **Slow Execution:** Agents waste time parsing full HTML pages to find elements.
-- **High Token Costs:** Sending entire DOM trees to LLMs consumes massive context windows.
-- **Brittle Selectors:** Updates to website UIs break hardcoded selectors and agent logic immediately.
-- **Hallucinations:** LLMs often guess incorrect actions when faced with complex, unstructured DOMs.
+- **Slow.** Agents take a snapshot after every single step, parse the page, then decide what to do next. Searching one room on Airbnb takes 15 minutes.
+- **Brittle.** Modern websites use virtual DOMs, streaming components, and SPAs. Agents don't understand these rendering mechanisms, so they fail to interact with dropdowns, date pickers, and dynamic content.
+- **One at a time.** Your agent finishes one page before it can start the next. Need to check 30 company websites? That's 30 rounds, one after another.
 
 ### ✅ With Actionbook
 
-Actionbook places up-to-date action manuals with the relevant DOM selectors directly into your LLM's context.
+- **10x faster.** Action manuals tell agents exactly what to do. No parsing, no guessing.
+- **Accurate.** Built for virtual DOMs, SPAs, and streaming components. Agents operate reliably.
+- **Concurrent.** Stateless architecture. Operate dozens of tabs in parallel.
 
-- **10x Faster:** Agents access pre-computed "Action manuals" to know exactly what to do without exploring.
-- **100x Token Savings:** Instead of whole HTML page, agents receive only related DOM elements in concise, semantic JSON definitions.
-- **Resilient Automation:** Action manuals are maintained and versioned. If a site changes, the manual is updated, not your agent.
-- **Universal Compatibility:** Works with any LLM (OpenAI, Anthropic, Gemini) and any AI operator framework.
+See an agent visits **192** First Round portfolio company websites and collects their taglines in 3 minutes. (**Video is not sped up or edited**)
 
-See how Actionbook enables an agent to complete an Airbnb search task 10x faster.
+https://github.com/user-attachments/assets/174458b8-efd3-4fa6-9ef4-2422587edf4b
 
-https://github.com/user-attachments/assets/9f896fe7-296a-44b3-8592-931a099612de
+## Installation
 
-## Quick Start
+Install via npm:
 
-Get started with Actionbook in under 2 minutes:
-
-**Step 1: Install the CLI**
-
-macOS / Linux
 ```bash
-curl -fsSL https://actionbook.dev/install.sh | bash
+npm install -g @actionbookdev/cli
 ```
 
-Windows (PowerShell)
-```
-irm https://actionbook.dev/install.ps1 | iex
+Or build from source:
+
+```bash
+cargo install --git https://github.com/actionbook/actionbook --path packages/cli --locked
 ```
 
 The Rust-based CLI uses your existing system browser (Chrome, Brave, Edge, Arc, Chromium), so no extra browser install step is required.
 
-**Step 2: Use with any AI Agent**
+## Quick Start
 
 When working with any AI coding assistant (Claude Code, Cursor, etc.), add this to your prompt:
 
@@ -83,43 +73,13 @@ Use Actionbook to understand and operate the web page.
 
 The agent will automatically use the CLI to fetch action manuals and execute browser operations.
 
-**Step 3 (Optional): Add the Skill**
+## AI Agent Skills
 
-For enhanced agent integration, add the Actionbook skill:
+Actionbook ships with Agent Skills that teach your AI agent how to use the CLI. Add them with one command:
 
 ```bash
 npx skills add actionbook/actionbook
 ```
-
-## Installation
-
-### macOS / Linux
-
-```bash
-curl -fsSL https://actionbook.dev/install.sh | bash
-```
-
-### Windows
-
-```powershell
-irm https://actionbook.dev/install.ps1 | iex
-```
-
-### npm
-
-```bash
-npm install -g @actionbookdev/cli
-```
-
-### Setup
-
-```bash
-actionbook setup
-```
-
-For more install options (Homebrew, from source) and upgrade instructions, see the [Installation Guide](https://actionbook.dev/docs/guides/installation).
-
-The CLI is all you need to get started. For advanced use cases, Actionbook also offers an [MCP Server](https://actionbook.dev/docs/guides/mcp-server) and [JavaScript SDK](https://actionbook.dev/docs/guides/sdk-integration).
 
 
 ## Examples

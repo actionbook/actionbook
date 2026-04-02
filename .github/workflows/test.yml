@@ -1,0 +1,102 @@
+name: Tests (cli)
+
+on:
+  push:
+    branches: [main, "release/**"]
+    paths:
+      - "packages/cli/**"
+  pull_request:
+    branches: [main, "release/**"]
+    paths:
+      - "packages/cli/**"
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  lint:
+    name: Lint (fmt + clippy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/cli/target
+          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('packages/cli/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-lint-
+
+      - name: Check formatting
+        working-directory: packages/cli
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        working-directory: packages/cli
+        run: cargo clippy --all-targets -- -D warnings
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/cli
+          shared-key: unit-tests
+
+      - name: Run unit tests
+        working-directory: packages/cli
+        run: cargo test --lib
+
+  e2e-tests:
+    name: E2E Tests
+    # Only run on merge to main/release branches, not on PRs
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/cli
+          shared-key: e2e-tests
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Run E2E tests
+        working-directory: packages/cli
+        env:
+          RUN_E2E_TESTS: "true"
+        run: cargo test --test e2e

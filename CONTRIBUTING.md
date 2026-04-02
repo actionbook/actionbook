@@ -19,7 +19,7 @@ Before you begin, ensure you have the following installed:
 
 - **Node.js** 20+
 - **pnpm** 10+
-- **Rust** stable (required for `packages/actionbook-rs`)
+- **Rust** stable (required for `packages/cli`)
 - **Git**
 
 ### Fork and Clone
@@ -53,7 +53,7 @@ pnpm --filter @actionbookdev/sdk test
 pnpm --filter @actionbookdev/mcp build
 pnpm --filter @actionbookdev/tools-ai-sdk test
 pnpm --filter @actionbookdev/json-ui build
-cargo test --manifest-path packages/actionbook-rs/Cargo.toml
+cargo test --manifest-path packages/cli/Cargo.toml
 ```
 
 ## Project Structure
@@ -63,8 +63,7 @@ Actionbook is a monorepo managed with [pnpm](https://pnpm.io/) workspaces and [T
 ```text
 actionbook/
 ├── packages/
-│   ├── actionbook-rs/   # Rust CLI implementation
-│   ├── cli/             # npm wrapper for the CLI binaries
+│   ├── cli/             # Rust CLI + npm wrapper
 │   ├── js-sdk/          # @actionbookdev/sdk
 │   ├── mcp/             # @actionbookdev/mcp
 │   ├── tools-ai-sdk/    # AI SDK integration
@@ -86,7 +85,7 @@ All commit messages must follow this format:
 ### Format Rules
 
 - **`[scope]`**: The workspace path in square brackets, or `[root]` for root-level files
-  - Examples: `[packages/js-sdk]`, `[packages/mcp]`, `[packages/actionbook-rs]`, `[root]`
+  - Examples: `[packages/js-sdk]`, `[packages/mcp]`, `[packages/cli]`, `[root]`
 - **`type`**: Conventional commit type
   - `feat` - New feature
   - `fix` - Bug fix
@@ -103,7 +102,7 @@ All commit messages must follow this format:
 ```bash
 [packages/js-sdk]feat: add site filter to search actions
 [packages/mcp]fix: align cli output with sdk schema
-[packages/actionbook-rs]refactor: simplify browser session lifecycle
+[packages/cli]refactor: simplify browser session lifecycle
 [root]docs: update public repo contribution guide
 ```
 
@@ -142,7 +141,7 @@ Before opening a pull request:
 
 - Prefer targeted package-level checks over broad monorepo runs.
 - For JavaScript and TypeScript packages, use `pnpm --filter <package> <script>`.
-- For Rust CLI changes, use `cargo test --manifest-path packages/actionbook-rs/Cargo.toml`.
+- For Rust CLI changes, use `cargo test --manifest-path packages/cli/Cargo.toml`.
 - If a change only affects docs or metadata, say so explicitly in the PR.
 
 ## Community Guidelines

@@ -2,25 +2,29 @@
 
 Complete reference for all `actionbook` CLI commands.
 
-## Action Search & Retrieval
+Every browser command requires `--session <SID>`. Most also require `--tab <TID>`.
+Session-level commands (start, close, restart, status, list-sessions) need only `--session` or nothing.
 
-### search - Search for action manuals
+Selectors accept CSS, XPath, or snapshot refs (`@eN` from `snapshot` output).
 
-```bash
-actionbook search "<query>"                    # Basic keyword search
-actionbook search "<query>" --domain site.com  # Filter by domain
-actionbook search "<query>" --url <url>        # Filter by specific URL
-actionbook search "<query>" -p 2               # Page 2 (default: 1)
-actionbook search "<query>" -s 20              # 20 results per page (default: 10, max: 100)
-actionbook search "<query>" --domain site.com --url <url> -p 1 -s 5  # Combined
+## Global Flags
+
+```
+--json            Output as JSON envelope
+--timeout <ms>    Command timeout in milliseconds
 ```
 
-Returns area IDs with descriptions and relevance scores. Use the area_id with `actionbook get` to fetch full details.
-
-### get - Get action details by area ID
+## Action Search & Retrieval
 
 ```bash
-actionbook get "<area_id>"
+actionbook search "<query>"                       # Search for action manuals by keyword
+actionbook search "<query>" --domain site.com     # Filter by domain
+actionbook search "<query>" --url <url>           # Filter by specific URL
+actionbook search "<query>" -p 2                  # Page 2 (default: 1)
+actionbook search "<query>" -s 20                 # 20 results per page (default: 10, max: 100)
+actionbook search "<query>" --domain site.com --url <url> -p 1 -s 5  # Combined
+
+actionbook get "<area_id>"                        # Get complete action details by area ID
 # area_id format: "site.com:/path:area_name"
 # Examples:
 #   actionbook get "airbnb.com:/:default"
@@ -28,228 +32,285 @@ actionbook get "<area_id>"
 #   actionbook get "arxiv.org:/search/advanced:default"
 ```
 
-Returns complete action manual with CSS/XPath selectors, element types, and allowed methods.
+`search` returns area IDs with descriptions and relevance scores. Use the area_id with `get` to fetch full details including CSS/XPath selectors, element types, and allowed methods.
 
-### sources - List and search sources
-
-```bash
-actionbook sources list                        # List all available sources
-actionbook sources search "<query>"            # Search sources by keyword
-```
-
-## Browser Automation
-
-### Navigation
+## Session
 
 ```bash
-actionbook browser open <url>                  # Open URL in new tab
-actionbook browser goto <url>                  # Navigate current page to URL
-actionbook browser goto <url> --timeout 5000   # Custom navigation timeout (default: 30000ms)
-actionbook browser back                        # Go back in history
-actionbook browser forward                     # Go forward in history
-actionbook browser reload                      # Reload current page
-actionbook browser pages                       # List all open pages/tabs
-actionbook browser switch <page_id>            # Switch to specific page by ID
-actionbook browser close                       # Close the browser
-actionbook browser restart                     # Restart the browser
-actionbook browser connect <endpoint>          # Connect to existing browser (CDP port or ws:// URL)
-actionbook browser status                      # Show detected browsers and session status
+actionbook browser start                                   # Start a browser session
+actionbook browser start --set-session-id s1               # Start with a custom session ID
+actionbook browser start --headless                        # Start headless
+actionbook browser start --mode cloud --cdp-endpoint <ws>  # Connect to cloud browser
+actionbook browser start --open-url https://example.com    # Open URL on start
+actionbook browser start --profile myprofile               # Use named profile
+actionbook browser start --executable-path /path/to/chrome # Custom browser binary
+
+actionbook browser list-sessions                           # List all active sessions
+actionbook browser status --session s1                     # Show session status
+actionbook browser close --session s1                      # Close a session
+actionbook browser restart --session s1                    # Restart a session
 ```
 
-### Element Interactions
-
-All interaction commands take CSS selectors. Use selectors from Action Manuals or from `snapshot` output.
+## Tab
 
 ```bash
-actionbook browser click "<selector>"                  # Click element
-actionbook browser click "<selector>" --wait 1000      # Wait 1s for element, then click
-actionbook browser fill "<selector>" "text"            # Clear element, then type text
-actionbook browser fill "<selector>" "text" --wait 500 # Wait for element, then fill
-actionbook browser type "<selector>" "text"            # Type text (append, no clear)
-actionbook browser type "<selector>" "text" --wait 500 # Wait for element, then type
-actionbook browser select "<selector>" "value"         # Select dropdown option by value
-actionbook browser hover "<selector>"                  # Hover over element
-actionbook browser focus "<selector>"                  # Focus on element
-actionbook browser press <key>                         # Press keyboard key
-# Key examples: Enter, Tab, Escape, ArrowDown, ArrowUp, Backspace, Delete, Space
+actionbook browser list-tabs --session s1                  # List tabs in a session
+actionbook browser new-tab https://example.com --session s1  # Open a new tab
+actionbook browser new-tab https://example.com --session s1 --new-window  # In new window
+actionbook browser close-tab --session s1 --tab t1         # Close a tab
 ```
 
-### Information Retrieval
+`new-tab` is also available as `open`.
+
+## Navigation
 
 ```bash
-actionbook browser text                        # Get full page text content
-actionbook browser text "<selector>"           # Get text of specific element
-actionbook browser html                        # Get full page HTML
-actionbook browser html "<selector>"           # Get outer HTML of specific element
-actionbook browser snapshot                    # Get accessibility snapshot (tree structure)
-actionbook browser viewport                    # Get viewport dimensions
+actionbook browser goto <url> --session s1 --tab t1        # Navigate to URL
+actionbook browser back --session s1 --tab t1              # Go back
+actionbook browser forward --session s1 --tab t1           # Go forward
+actionbook browser reload --session s1 --tab t1            # Reload page
 ```
 
-### Wait Conditions
+## Interaction
+
+All interaction commands accept CSS selectors, XPath, or snapshot refs (`@eN`).
 
 ```bash
-actionbook browser wait "<selector>"                   # Wait for element to appear
-actionbook browser wait "<selector>" --timeout 5000    # Custom timeout (default: 30000ms)
-actionbook browser wait-nav                            # Wait for navigation to complete
-actionbook browser wait-nav --timeout 10000            # Custom navigation timeout
+# Click
+actionbook browser click "<selector>" --session s1 --tab t1
+actionbook browser click 420,310 --session s1 --tab t1        # Click coordinates
+actionbook browser click "@e5" --session s1 --tab t1          # Click by snapshot ref
+actionbook browser click "<selector>" --count 2 --session s1 --tab t1  # Double-click
+actionbook browser click "<selector>" --button right --session s1 --tab t1  # Right-click
+actionbook browser click "<selector>" --new-tab --session s1 --tab t1  # Open in new tab
+
+# Text input
+actionbook browser fill "<selector>" "text" --session s1 --tab t1   # Clear field, then set value
+actionbook browser type "<selector>" "text" --session s1 --tab t1   # Type keystroke by keystroke (appends)
+
+# Keyboard
+actionbook browser press Enter --session s1 --tab t1
+actionbook browser press Tab --session s1 --tab t1
+actionbook browser press Control+A --session s1 --tab t1
+actionbook browser press Shift+Tab --session s1 --tab t1
+
+# Selection
+actionbook browser select "<selector>" "value" --session s1 --tab t1
+actionbook browser select "<selector>" "Display Text" --by-text --session s1 --tab t1
+
+# Mouse
+actionbook browser hover "<selector>" --session s1 --tab t1
+actionbook browser focus "<selector>" --session s1 --tab t1
+actionbook browser mouse-move 420,310 --session s1 --tab t1
+actionbook browser cursor-position --session s1 --tab t1
+actionbook browser drag "<source>" "<destination>" --session s1 --tab t1
+
+# Scroll
+actionbook browser scroll down --session s1 --tab t1
+actionbook browser scroll down 500 --session s1 --tab t1            # Scroll down 500px
+actionbook browser scroll up --container "#sidebar" --session s1 --tab t1
+actionbook browser scroll into-view "@e8" --session s1 --tab t1     # Scroll element into view
+actionbook browser scroll into-view "@e8" --align center --session s1 --tab t1
+actionbook browser scroll top --session s1 --tab t1                 # Scroll to top
+actionbook browser scroll bottom --session s1 --tab t1              # Scroll to bottom
+
+# File upload
+actionbook browser upload "<selector>" /path/to/file.pdf --session s1 --tab t1
+
+# JavaScript
+actionbook browser eval "document.title" --session s1 --tab t1
+actionbook browser eval "document.querySelectorAll('a').length" --session s1 --tab t1
 ```
+
+**fill vs type:** `fill` clears the field and sets the value directly (like pasting). `type` simulates individual keystrokes and appends to existing content.
+
+## Observation
+
+```bash
+# Page info
+actionbook browser title --session s1 --tab t1              # Get page title
+actionbook browser url --session s1 --tab t1                # Get current URL
+actionbook browser viewport --session s1 --tab t1           # Get viewport dimensions
+
+# Content
+actionbook browser text --session s1 --tab t1               # Full page text
+actionbook browser text "<selector>" --session s1 --tab t1  # Element text
+actionbook browser html --session s1 --tab t1               # Full page HTML
+actionbook browser html "<selector>" --session s1 --tab t1  # Element outer HTML
+actionbook browser value "<selector>" --session s1 --tab t1 # Input element value
+
+# Element inspection
+actionbook browser attr "<selector>" href --session s1 --tab t1       # Single attribute
+actionbook browser attrs "<selector>" --session s1 --tab t1           # All attributes
+actionbook browser box "<selector>" --session s1 --tab t1             # Bounding rect (x, y, width, height)
+actionbook browser styles "<selector>" color fontSize --session s1 --tab t1  # Computed styles
+actionbook browser describe "<selector>" --session s1 --tab t1        # Full element description
+actionbook browser state "<selector>" --session s1 --tab t1           # State flags (visible, enabled, checked, etc.)
+actionbook browser inspect-point 420,310 --session s1 --tab t1        # Inspect element at coordinates
+
+# Snapshot
+actionbook browser snapshot --session s1 --tab t1                     # Full accessibility tree
+actionbook browser snapshot -i --session s1 --tab t1                  # Interactive elements only
+actionbook browser snapshot -i -c --session s1 --tab t1               # Interactive + compact
+actionbook browser snapshot --depth 3 --session s1 --tab t1           # Limit tree depth
+actionbook browser snapshot --selector "#main" --session s1 --tab t1  # Subtree only
+```
+
+Output includes a `path` field pointing to the saved snapshot file. Sample output:
+
+```
+- generic
+  - link "Home" [ref=e8] url=https://example.com/
+  - generic
+    - combobox "Search" [ref=e9]
+    - image "clear" [ref=e10] clickable [cursor:pointer]
+  - generic
+    - link "Help" [ref=e11] url=https://example.com/help
+      - image "Help"
+```
+
+The default snapshot contains all information including interactive elements, structural nodes, and cursor-interactive elements. Use additional flags as needed.
+
+Snapshot refs (`@eN`) are **stable across snapshots** — if the element stays the same, the ref stays the same. This lets agents chain commands without re-snapshotting after every step.
+
+### Query
+
+Query elements with cardinality constraints.
+
+```bash
+actionbook browser query one "<selector>" --session s1 --tab t1    # Exactly one match (fails on 0 or 2+)
+actionbook browser query all "<selector>" --session s1 --tab t1    # All matches (up to 500)
+actionbook browser query nth 2 "<selector>" --session s1 --tab t1  # 2nd match (1-based)
+actionbook browser query count "<selector>" --session s1 --tab t1  # Match count only
+```
+
+Extended pseudo-classes: `:contains("text")`, `:has(child)`, `:visible`, `:enabled`, `:disabled`, `:checked`.
 
 ### Screenshots & Export
 
 ```bash
-actionbook browser screenshot                  # Save as screenshot.png
-actionbook browser screenshot output.png       # Save to custom path
-actionbook browser screenshot --full-page      # Full page screenshot
-actionbook browser pdf output.pdf              # Export page as PDF
+actionbook browser screenshot output.png --session s1 --tab t1
+actionbook browser screenshot output.png --full --session s1 --tab t1          # Full page
+actionbook browser screenshot output.png --annotate --session s1 --tab t1      # Numbered labels
+actionbook browser screenshot output.jpg --screenshot-quality 80 --session s1 --tab t1
+actionbook browser pdf output.pdf --session s1 --tab t1
 ```
 
-### JavaScript & DOM Inspection
+## Logs
 
 ```bash
-actionbook browser eval "document.title"               # Execute JavaScript, return result
-actionbook browser eval "document.querySelectorAll('a').length"
-actionbook browser inspect <x> <y>                     # Inspect DOM element at viewport coordinates
-actionbook browser inspect <x> <y> --desc "login btn"  # With description hint
+actionbook browser logs console --session s1 --tab t1                 # All console logs
+actionbook browser logs console --level warn,error --session s1 --tab t1  # Filter by level
+actionbook browser logs console --tail 10 --session s1 --tab t1      # Last 10 entries
+actionbook browser logs console --since log-5 --session s1 --tab t1  # Entries after log-5
+actionbook browser logs console --clear --session s1 --tab t1        # Clear after retrieval
+
+actionbook browser logs errors --session s1 --tab t1                 # Uncaught errors + rejections
+actionbook browser logs errors --source app.js --session s1 --tab t1 # Filter by source file
+actionbook browser logs errors --tail 5 --session s1 --tab t1
+actionbook browser logs errors --since err-3 --session s1 --tab t1
+actionbook browser logs errors --clear --session s1 --tab t1
 ```
 
-### Dialog Handling
-
-Handle JavaScript dialogs (alert, confirm, prompt, beforeunload). When a dialog is open, all other browser commands will block until it is resolved.
+## Wait
 
 ```bash
-actionbook browser dialog status               # Check if a dialog is currently open
-actionbook browser dialog accept               # Accept dialog (OK / confirm)
-actionbook browser dialog accept "my input"    # Accept prompt dialog with text
-actionbook browser dialog dismiss              # Dismiss/cancel dialog
+actionbook browser wait element "<selector>" --session s1 --tab t1              # Wait for element
+actionbook browser wait element "<selector>" --timeout 5000 --session s1 --tab t1
+actionbook browser wait navigation --session s1 --tab t1                        # Wait for navigation
+actionbook browser wait network-idle --session s1 --tab t1                      # Wait for network idle
+actionbook browser wait condition "document.readyState === 'complete'" --session s1 --tab t1
 ```
 
-The CLI automatically warns on stderr when a pending dialog is detected during any command. If commands start timing out, check `dialog status` first.
+Default timeout for all wait commands: 30000ms. Override with `--timeout <ms>`.
 
-### Cookie Management
+## Cookies
+
+Cookie commands operate at session level (no `--tab` required).
 
 ```bash
-actionbook browser cookies                     # List all cookies (default)
-actionbook browser cookies list                # List all cookies
-actionbook browser cookies get "<name>"        # Get specific cookie by name
-actionbook browser cookies set "<name>" "<value>"              # Set cookie
-actionbook browser cookies set "<name>" "<value>" --domain ".example.com"  # Set with domain
-actionbook browser cookies delete "<name>"     # Delete specific cookie
-actionbook browser cookies clear               # Clear all cookies
+actionbook browser cookies list --session s1                          # List all cookies
+actionbook browser cookies list --domain .example.com --session s1    # Filter by domain
+actionbook browser cookies get session_id --session s1                # Get cookie by name
+actionbook browser cookies set token abc123 --session s1              # Set a cookie
+actionbook browser cookies set token abc123 --domain .example.com --secure --http-only --session s1
+actionbook browser cookies delete token --session s1                  # Delete by name
+actionbook browser cookies clear --session s1                         # Clear all cookies
+actionbook browser cookies clear --domain .example.com --session s1   # Clear by domain
 ```
 
-## Configuration
+## Storage
 
-### config - Manage settings
+Commands are identical for `local-storage` and `session-storage`.
 
 ```bash
-actionbook config show                         # Display full configuration
-actionbook config get <key>                    # Get specific config value
-actionbook config set <key> <value>            # Set config value
-actionbook config edit                         # Open config in $EDITOR
-actionbook config path                         # Show config file location
+actionbook browser local-storage list --session s1 --tab t1
+actionbook browser local-storage get auth_token --session s1 --tab t1
+actionbook browser local-storage set theme dark --session s1 --tab t1
+actionbook browser local-storage delete auth_token --session s1 --tab t1
+actionbook browser local-storage clear cache_key --session s1 --tab t1
+
+# Same for session-storage:
+actionbook browser session-storage list --session s1 --tab t1
+actionbook browser session-storage get user_id --session s1 --tab t1
+actionbook browser session-storage set lang en --session s1 --tab t1
 ```
 
-**Config keys:**
-- `api.base_url` - API endpoint (default: https://api.actionbook.dev)
-- `api.api_key` - API authentication key
-- `browser.executable` - Browser path override
-- `browser.default_profile` - Default profile name
-- `browser.headless` - Headless mode (true/false)
-
-### profile - Manage browser profiles
+## Setup
 
 ```bash
-actionbook profile list                        # List all profiles
-actionbook profile create <name>               # Create new profile
-actionbook profile create <name> --cdp-port 9222  # With specific CDP port
-actionbook profile delete <name>               # Delete profile
-actionbook profile show <name>                 # Show profile details
+actionbook setup                              # Interactive configuration wizard
+actionbook setup --non-interactive --api-key <KEY>  # Non-interactive setup
+actionbook setup --reset                      # Reset configuration
 ```
-
-## Global Flags
-
-These flags can be used with any command:
-
-```bash
-actionbook --json <command>                    # Output in JSON format
-actionbook --headless <command>                # Run browser in headless mode
-actionbook --verbose <command>                 # Enable verbose logging
-actionbook -P <profile> <command>              # Use specific browser profile
-actionbook --cdp <port|url> <command>          # Connect via CDP port or WebSocket URL
-actionbook --browser-path <path> <command>     # Override browser executable path
-actionbook --no-daemon <command>              # Disable daemon, use direct WS per command
-```
-
-## Environment Variables
-
-```bash
-ACTIONBOOK_API_URL="https://api.actionbook.dev"  # API endpoint
-ACTIONBOOK_API_KEY="your-key"                     # API authentication key
-ACTIONBOOK_BROWSER_PATH="/path/to/chrome"         # Browser executable
-ACTIONBOOK_CDP="9222"                             # CDP port or WebSocket URL
-ACTIONBOOK_PROFILE="default"                      # Default profile name
-ACTIONBOOK_HEADLESS="true"                        # Headless mode
-ACTIONBOOK_NO_DAEMON="true"                       # Disable daemon mode
-```
-
-## Daemon Management
-
-The daemon runs automatically on Unix + CDP mode. These commands manage daemon lifecycle.
-
-```bash
-actionbook daemon status                     # Show daemon status for current profile
-actionbook daemon status -P myprofile        # Show daemon status for specific profile
-actionbook daemon stop                       # Stop daemon for current profile
-actionbook daemon stop -P myprofile          # Stop daemon for specific profile
-```
-
-**Note:** `daemon serve` is an internal command used by the auto-start mechanism. Do not call it directly.
 
 ## Practical Examples
 
 ### Form Submission
 
 ```bash
-actionbook browser open "https://example.com/form"
-actionbook browser snapshot
-# Read the snapshot to find selectors
-
-actionbook browser fill "#email" "user@example.com"
-actionbook browser fill "#password" "password123"
-actionbook browser click "button[type=submit]"
-actionbook browser wait-nav
-actionbook browser text "h1"  # Check result
+actionbook browser start --set-session-id s1
+actionbook browser goto "https://example.com/form" --session s1 --tab t1
+actionbook browser snapshot --session s1 --tab t1
+# Read snapshot refs, then use them:
+actionbook browser fill "@e3" "user@example.com" --session s1 --tab t1
+actionbook browser fill "@e5" "password123" --session s1 --tab t1
+actionbook browser click "@e7" --session s1 --tab t1
+actionbook browser wait navigation --session s1 --tab t1
+actionbook browser text "h1" --session s1 --tab t1
 ```
 
 ### Multi-page Navigation
 
 ```bash
-actionbook browser open "https://example.com"
-actionbook browser click "a[href='/products']"
-actionbook browser wait-nav
-actionbook browser click ".product-card:first-child a"
-actionbook browser wait-nav
-actionbook browser text ".product-details"
-actionbook browser screenshot product.png
+actionbook browser start --set-session-id s1
+actionbook browser goto "https://example.com" --session s1 --tab t1
+actionbook browser snapshot --session s1 --tab t1
+actionbook browser click "@e4" --session s1 --tab t1
+actionbook browser wait navigation --session s1 --tab t1
+actionbook browser snapshot --session s1 --tab t1
+actionbook browser click "@e2" --session s1 --tab t1
+actionbook browser wait navigation --session s1 --tab t1
+actionbook browser text ".product-details" --session s1 --tab t1
+actionbook browser screenshot product.png --session s1 --tab t1
 ```
 
 ### Data Extraction
 
 ```bash
-actionbook browser open "https://example.com/data"
-actionbook browser wait-nav
-actionbook browser text ".results-table"       # Get table text
-actionbook browser eval "JSON.stringify([...document.querySelectorAll('.item')].map(e => e.textContent))"
-actionbook browser close
+actionbook browser start --set-session-id s1
+actionbook browser goto "https://example.com/data" --session s1 --tab t1
+actionbook browser wait network-idle --session s1 --tab t1
+actionbook browser text ".results-table" --session s1 --tab t1
+actionbook browser eval "JSON.stringify([...document.querySelectorAll('.item')].map(e => e.textContent))" --session s1 --tab t1
+actionbook browser close --session s1
 ```
 
-### Connect to Existing Browser
+### Polling for Changes
 
 ```bash
-# Start Chrome with debugging port
-# google-chrome --remote-debugging-port=9222
-
-actionbook browser connect 9222
-actionbook browser pages
-actionbook browser snapshot
+# Check for new console errors periodically
+actionbook browser logs errors --session s1 --tab t1
+# Note the last ID (e.g., err-3), then later:
+actionbook browser logs errors --since err-3 --session s1 --tab t1
 ```

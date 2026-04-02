@@ -28,16 +28,6 @@ importers:
   packages/actionbook-extension: {}
 
   packages/cli:
-    devDependencies:
-      '@types/node':
-        specifier: ^20.14.0
-        version: 20.19.27
-      typescript:
-        specifier: ^5.6.3
-        version: 5.9.3
-      vitest:
-        specifier: ^1.6.0
-        version: 1.6.1(@types/node@20.19.27)(lightningcss@1.30.2)
     optionalDependencies:
       '@actionbookdev/cli-darwin-arm64':
         specifier: workspace:*
