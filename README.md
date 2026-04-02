@@ -41,12 +41,9 @@ so your agent operates any website instantly. One tab or dozens, concurrently.
 
 ### ✅ With Actionbook
 
-Actionbook places up-to-date action manuals with the relevant DOM selectors directly into your LLM's context.
-
-- **10x Faster:** Agents access pre-computed "Action manuals" to know exactly what to do without exploring.
-- **100x Token Savings:** Instead of whole HTML page, agents receive only related DOM elements in concise, semantic JSON definitions.
-- **Resilient Automation:** Action manuals are maintained and versioned. If a site changes, the manual is updated, not your agent.
-- **Universal Compatibility:** Works with any LLM (OpenAI, Anthropic, Gemini) and any AI operator framework.
+- **10x faster.** Action manuals tell agents exactly what to do. No parsing, no guessing.
+- **Accurate.** Built for virtual DOMs, SPAs, and streaming components. Agents operate reliably.
+- **Concurrent.** Stateless architecture. Operate dozens of tabs in parallel.
 
 See how Actionbook enables an agent to complete an Airbnb search task 10x faster.
 
