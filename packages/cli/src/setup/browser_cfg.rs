@@ -30,9 +30,7 @@ pub(crate) async fn configure_browser(
     match mode {
         Mode::Local => configure_local(json, env, config),
         Mode::Cloud => configure_cloud(json, config),
-        Mode::Extension => {
-            return Err(unsupported_setup_mode_error("extension"));
-        }
+        Mode::Extension => Err(unsupported_setup_mode_error("extension")),
     }
 }
 
