@@ -82,6 +82,7 @@ async fn main() {
 
     let cli = Cli::parse();
     let json_output = cli.json;
+    let is_setup_command = matches!(cli.command.as_ref(), Some(Commands::Setup(_)));
 
     // Handle --version before subcommand dispatch
     if cli.version {
@@ -103,7 +104,7 @@ async fn main() {
                 Some(cli_err) => (cli_err.error_code().to_string(), cli_err.hint().to_string()),
                 None => ("INTERNAL_ERROR".to_string(), String::new()),
             };
-            if json_output {
+            if json_output && !is_setup_command {
                 let envelope = JsonEnvelope::error(
                     "unknown",
                     None,
@@ -154,6 +155,9 @@ async fn run(mut cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Browser { command } => {
             handle_browser(command, json_mode, timeout_ms).await?;
+        }
+        Commands::Setup(cmd) => {
+            actionbook_cli::setup::execute(&cmd, json_mode).await?;
         }
         Commands::Help => {
             handle_help(json_mode);
@@ -307,7 +311,7 @@ Commands:
   search     Search for action manuals by keyword
   get        Get complete action details by area ID
   browser    Control browser sessions, tabs, and page interactions
-  setup      Coming soon
+  setup      Configure actionbook
   help       Show this help
   --version  Show version
 
