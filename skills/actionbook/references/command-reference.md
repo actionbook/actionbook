@@ -150,11 +150,28 @@ actionbook browser inspect-point 420,310 --session s1 --tab t1        # Inspect 
 
 # Snapshot
 actionbook browser snapshot --session s1 --tab t1                     # Full accessibility tree
+actionbook browser snapshot -i --session s1 --tab t1                  # Interactive elements only
+actionbook browser snapshot -i -c --session s1 --tab t1               # Interactive + compact
 actionbook browser snapshot --depth 3 --session s1 --tab t1           # Limit tree depth
 actionbook browser snapshot --selector "#main" --session s1 --tab t1  # Subtree only
 ```
 
-Output includes a `path` field pointing to the saved snapshot file. Snapshot refs (`@eN`) are **stable across snapshots** — if the DOM node stays the same, the ref stays the same. This lets agents chain commands without re-snapshotting after every step.
+Output includes a `path` field pointing to the saved snapshot file. Sample output:
+
+```
+- generic
+  - link "Home" [ref=e8] url=https://example.com/
+  - generic
+    - combobox "Search" [ref=e9]
+    - image "clear" [ref=e10] clickable [cursor:pointer]
+  - generic
+    - link "Help" [ref=e11] url=https://example.com/help
+      - image "Help"
+```
+
+Snapshot refs (`@eN`) are **stable across snapshots** — if the DOM node stays the same, the ref stays the same. This lets agents chain commands without re-snapshotting after every step.
+
+Use `-i` to show only interactive elements (inputs, buttons, links). Use `-c` to remove empty structural nodes for shorter output.
 
 ### Query
 
