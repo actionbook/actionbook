@@ -4,7 +4,7 @@
 //! tabs via CDP flat sessions (Target.attachToTarget + sessionId). Concurrent
 //! requests are multiplexed using incrementing message IDs.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -21,8 +21,11 @@ use crate::error::CliError;
 type PendingResponseTx = oneshot::Sender<Result<Value, CliError>>;
 type PendingRequests = Arc<Mutex<HashMap<u64, PendingResponseTx>>>;
 type EventSubs = Arc<Mutex<HashMap<String, Vec<mpsc::Sender<Value>>>>>;
-/// Per-tab in-flight network request counter, keyed by CDP flat-session ID.
-type TabNetPending = Arc<Mutex<HashMap<String, i64>>>;
+/// Per-tab in-flight network request set, keyed by CDP flat-session ID.
+/// Inner value: map of requestId → insertion timestamp (for stale cleanup).
+/// Using a map (like Playwright's Set) instead of a counter avoids mismatches
+/// when loadingFinished fires on a different CDP session (cross-origin iframes).
+type TabNetPending = Arc<Mutex<HashMap<String, HashMap<String, std::time::Instant>>>>;
 /// Cross-origin iframe frame_id → dedicated CDP session_id.
 /// Populated by reader_loop from Target.attachedToTarget events.
 type IframeSessions = Arc<Mutex<HashMap<String, String>>>;
@@ -98,27 +101,25 @@ impl CdpSession {
         let tab_net_pending: TabNetPending = Arc::new(Mutex::new(HashMap::new()));
         let iframe_sessions: IframeSessions = Arc::new(Mutex::new(HashMap::new()));
         let pending_iframe_enables: PendingIframeEnables = Arc::new(Mutex::new(Vec::new()));
+        let tab_sessions: Arc<Mutex<HashMap<String, String>>> =
+            Arc::new(Mutex::new(HashMap::new()));
 
         tokio::spawn(Self::writer_loop(ws_writer, writer_rx));
-        let pending_clone = pending.clone();
-        let event_subs_clone = event_subs.clone();
-        let tab_net_pending_clone = tab_net_pending.clone();
-        let iframe_sessions_clone = iframe_sessions.clone();
-        let pending_iframe_enables_clone = pending_iframe_enables.clone();
         tokio::spawn(Self::reader_loop(
             ws_reader,
-            pending_clone,
-            event_subs_clone,
-            tab_net_pending_clone,
-            iframe_sessions_clone,
-            pending_iframe_enables_clone,
+            pending.clone(),
+            event_subs.clone(),
+            tab_net_pending.clone(),
+            iframe_sessions.clone(),
+            pending_iframe_enables.clone(),
+            tab_sessions.clone(),
         ));
 
         Ok(CdpSession {
             writer_tx: Arc::new(Mutex::new(Some(writer_tx))),
             pending,
             next_id,
-            tab_sessions: Arc::new(Mutex::new(HashMap::new())),
+            tab_sessions,
             event_subs,
             tab_net_pending,
             iframe_sessions,
@@ -323,13 +324,19 @@ impl CdpSession {
     /// called (which enables the Network domain), so it reflects ALL requests since
     /// tab attachment — not just those that started after `wait network-idle` was
     /// invoked.
+    /// Returns the number of in-flight network requests for this session.
+    /// Requests older than 10 seconds are considered stale (their
+    /// loadingFinished likely fired on a different CDP session, e.g.
+    /// cross-origin iframe) and are automatically evicted.
     pub async fn network_pending(&self, cdp_session_id: &str) -> i64 {
-        *self
-            .tab_net_pending
-            .lock()
-            .await
-            .get(cdp_session_id)
-            .unwrap_or(&0)
+        let mut tp = self.tab_net_pending.lock().await;
+        if let Some(map) = tp.get_mut(cdp_session_id) {
+            let cutoff = std::time::Instant::now() - std::time::Duration::from_secs(3);
+            map.retain(|_, ts| *ts > cutoff);
+            map.len() as i64
+        } else {
+            0
+        }
     }
 
     /// Subscribe to a CDP event for a specific flat-session.
@@ -462,14 +469,10 @@ impl CdpSession {
         tab_net_pending: TabNetPending,
         iframe_sessions: IframeSessions,
         pending_iframe_enables: PendingIframeEnables,
+        _tab_sessions: Arc<Mutex<HashMap<String, String>>>,
     ) where
         S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
     {
-        // Request IDs whose +1 was suppressed (WebSocket/favicon/data:).
-        // Their loadingFinished/loadingFailed must also be suppressed to
-        // avoid undercounting (see Playwright parity).
-        let mut skipped_request_ids: HashSet<String> = HashSet::new();
-
         while let Some(raw) = reader.next().await {
             let msg = match raw {
                 Ok(Message::Text(t)) => t.to_string(),
@@ -526,12 +529,14 @@ impl CdpSession {
                     _ => {}
                 }
 
-                // Maintain per-tab Network pending counter.
-                // Matches Playwright's behaviour: exclude WebSocket upgrades,
-                // favicon requests, and data: URLs from the inflight count so
-                // that persistent connections don't block network-idle.
+                // Maintain per-tab in-flight request set (Playwright-style).
+                // Using a Set<requestId> instead of a counter ensures that
+                // cross-origin iframe requests (whose loadingFinished fires on
+                // a child CDP session) don't permanently inflate the count.
+                // Only track requests from the main frame (frameId == target_id)
+                // to match Playwright's per-frame idle semantics.
                 if !session_id.is_empty() {
-                    let delta: i64 = match method {
+                    match method {
                         "Network.requestWillBeSent" => {
                             let params = resp.get("params");
                             let req_type = params
@@ -546,32 +551,22 @@ impl CdpSession {
                                 .and_then(|p| p.get("requestId"))
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("");
-                            let is_redirect =
-                                params.and_then(|p| p.get("redirectResponse")).is_some();
-                            // Skip requests that should not block network-idle:
-                            // - WebSocket/EventSource never fire loadingFinished,
-                            //   so counting them leaves pending stuck at ≥1.
-                            // - Favicon and data: URLs match Playwright's exclusions.
-                            // - Redirects reuse the same requestId: the original
-                            //   requestWillBeSent already incremented, and only one
-                            //   loadingFinished will fire, so don't double-count.
-                            // Track skipped requestIds so their loadingFinished/
-                            // loadingFailed events are also suppressed.
-                            if req_type == "WebSocket"
+                            // Exclude request types that don't reliably fire
+                            // loadingFinished on the same CDP session:
+                            // - WebSocket/EventSource: persistent, never finish.
+                            // - Favicon, data: URLs: Playwright compatibility.
+                            // Requests from iframes whose loadingFinished arrives
+                            // on a different CDP session are cleaned up by the
+                            // stale eviction in network_pending().
+                            let skip = req_type == "WebSocket"
                                 || req_type == "EventSource"
                                 || url.ends_with("/favicon.ico")
-                                || url.starts_with("data:")
-                            {
-                                if !req_id.is_empty() {
-                                    skipped_request_ids.insert(req_id.to_string());
-                                }
-                                0
-                            } else if is_redirect {
-                                // Redirect: same requestId already counted; don't
-                                // increment again (only one loadingFinished comes).
-                                0
-                            } else {
-                                1
+                                || url.starts_with("data:");
+                            if !skip && !req_id.is_empty() {
+                                let mut tp = tab_net_pending.lock().await;
+                                tp.entry(session_id.to_string())
+                                    .or_default()
+                                    .insert(req_id.to_string(), std::time::Instant::now());
                             }
                         }
                         "Network.loadingFinished" | "Network.loadingFailed" => {
@@ -579,18 +574,14 @@ impl CdpSession {
                                 .pointer("/params/requestId")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("");
-                            if skipped_request_ids.remove(req_id) {
-                                0 // This request was never counted; skip its finish too.
-                            } else {
-                                -1
+                            if !req_id.is_empty() {
+                                let mut tp = tab_net_pending.lock().await;
+                                if let Some(set) = tp.get_mut(session_id) {
+                                    set.remove(req_id);
+                                }
                             }
                         }
-                        _ => 0,
-                    };
-                    if delta != 0 {
-                        let mut tp = tab_net_pending.lock().await;
-                        let count = tp.entry(session_id.to_string()).or_insert(0);
-                        *count = (*count + delta).max(0);
+                        _ => {}
                     }
                 }
 
@@ -1033,7 +1024,7 @@ mod tests {
             json!({
                 "method": "Network.requestWillBeSent",
                 "sessionId": "S_NET",
-                "params": { "requestId": "r1" }
+                "params": { "requestId": "r1", "frameId": "T_NET" }
             }),
         )
         .await;
@@ -1046,7 +1037,7 @@ mod tests {
             json!({
                 "method": "Network.requestWillBeSent",
                 "sessionId": "S_NET",
-                "params": { "requestId": "r2" }
+                "params": { "requestId": "r2", "frameId": "T_NET" }
             }),
         )
         .await;
@@ -1059,7 +1050,7 @@ mod tests {
             json!({
                 "method": "Network.loadingFinished",
                 "sessionId": "S_NET",
-                "params": { "requestId": "r1" }
+                "params": { "requestId": "r1", "frameId": "T_NET" }
             }),
         )
         .await;
@@ -1072,7 +1063,7 @@ mod tests {
             json!({
                 "method": "Network.loadingFailed",
                 "sessionId": "S_NET",
-                "params": { "requestId": "r2" }
+                "params": { "requestId": "r2", "frameId": "T_NET" }
             }),
         )
         .await;
@@ -1178,6 +1169,7 @@ mod tests {
                 "sessionId": "S_SKIP",
                 "params": {
                     "requestId": "r1",
+                    "frameId": "T_SKIP",
                     "request": { "url": "https://example.com/api/data" }
                 }
             }),
@@ -1231,7 +1223,7 @@ mod tests {
             json!({
                 "method": "Network.loadingFinished",
                 "sessionId": "S_SKIP",
-                "params": { "requestId": "r1" }
+                "params": { "requestId": "r1", "frameId": "T_NET" }
             }),
         )
         .await;
@@ -1657,7 +1649,7 @@ mod tests {
             json!({
                 "method": "Network.requestWillBeSent",
                 "sessionId": "S_CACHE",
-                "params": { "requestId": "r1" }
+                "params": { "requestId": "r1", "frameId": "T_CACHE" }
             }),
         )
         .await;
@@ -1670,7 +1662,7 @@ mod tests {
             json!({
                 "method": "Network.requestServedFromCache",
                 "sessionId": "S_CACHE",
-                "params": { "requestId": "r1" }
+                "params": { "requestId": "r1", "frameId": "T_CACHE" }
             }),
         )
         .await;
@@ -1687,7 +1679,7 @@ mod tests {
             json!({
                 "method": "Network.loadingFinished",
                 "sessionId": "S_CACHE",
-                "params": { "requestId": "r1" }
+                "params": { "requestId": "r1", "frameId": "T_CACHE" }
             }),
         )
         .await;
