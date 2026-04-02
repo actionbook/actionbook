@@ -113,7 +113,6 @@ Join the community:
 
 - **[Read the Contributing Guide](CONTRIBUTING.md)** - See repository setup, package layout, and validation workflows for the public repo.
 - **[Request a Website](https://actionbook.dev/request-website)** - Suggest websites you want Actionbook to index.
-- **[Join the Waitlist](https://actionbook.dev)** - We are currently in private beta. Join if you are interested in contributing or using Actionbook.
 
 ## License
 
