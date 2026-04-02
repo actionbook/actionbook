@@ -25,9 +25,8 @@ Examples:
   actionbook browser snapshot --depth 3 --session s1 --tab t1
   actionbook browser snapshot --selector \"#main\" --session s1 --tab t1
 
-Flags:
-  -i  Interactive only — show only interactive elements (inputs, buttons, links)
-  -c  Compact — remove empty structural nodes for shorter output
+The default snapshot contains all information including interactive elements,
+structural nodes, and cursor-interactive elements. Use additional flags as needed.
 
 Output includes a `path` field pointing to the saved snapshot file.
 Elements are labeled with refs (e.g. @e8, @e9). Use @eN to target elements

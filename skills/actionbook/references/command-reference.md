@@ -169,9 +169,9 @@ Output includes a `path` field pointing to the saved snapshot file. Sample outpu
       - image "Help"
 ```
 
-Snapshot refs (`@eN`) are **stable across snapshots** — if the DOM node stays the same, the ref stays the same. This lets agents chain commands without re-snapshotting after every step.
+The default snapshot contains all information including interactive elements, structural nodes, and cursor-interactive elements. Use additional flags as needed.
 
-Use `-i` to show only interactive elements (inputs, buttons, links). Use `-c` to remove empty structural nodes for shorter output.
+Snapshot refs (`@eN`) are **stable across snapshots** — if the DOM node stays the same, the ref stays the same. This lets agents chain commands without re-snapshotting after every step.
 
 ### Query
 
