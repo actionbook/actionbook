@@ -68,9 +68,6 @@ pub async fn launch_chrome(
         args.push("--disable-translate".to_string());
         args.push("--disable-background-timer-throttling".to_string());
         args.push("--disable-backgrounding-occluded-windows".to_string());
-
-        // Window size
-        args.push("--window-size=1920,1080".to_string());
     }
     if headless {
         args.push("--headless=new".to_string());

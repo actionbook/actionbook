@@ -724,3 +724,67 @@ fn tab_list_tabs_preserves_known_ids_after_sync() {
     let ids2: Vec<&str> = tabs2.iter().filter_map(|t| t["tab_id"].as_str()).collect();
     assert_eq!(ids, ids2, "tab IDs should be stable across list-tabs calls");
 }
+
+// ===========================================================================
+// --tab alias for --set-tab-id
+// ===========================================================================
+
+/// `browser new-tab --tab inbox` creates a tab with the given custom ID.
+#[test]
+fn tab_new_tab_with_tab_alias_creates() {
+    if skip() {
+        return;
+    }
+    let (sid, _t1) = start_session(&url_a());
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "new-tab",
+            &url_b(),
+            "--session",
+            &sid,
+            "--tab",
+            "inbox",
+        ],
+        30,
+    );
+    assert_success(&out, "new-tab with --tab alias");
+    let v = parse_json(&out);
+    assert_eq!(
+        v["data"]["tab"]["tab_id"], "inbox",
+        "tab_id must match the provided --tab value"
+    );
+    assert_eq!(v["data"]["created"], true);
+}
+
+/// `browser new-tab --tab tid` with a conflicting ID returns TAB_ID_CONFLICT.
+#[test]
+fn tab_new_tab_with_tab_alias_conflict() {
+    if skip() {
+        return;
+    }
+    let (sid, t1) = start_session(&url_a());
+    let _guard = SessionGuard::new(&sid);
+
+    // t1 already exists from start_session
+    let out = headless_json(
+        &[
+            "browser",
+            "new-tab",
+            &url_b(),
+            "--session",
+            &sid,
+            "--tab",
+            &t1,
+        ],
+        30,
+    );
+    assert_failure(&out, "duplicate --tab alias must fail");
+    let v = parse_json(&out);
+    assert_eq!(
+        v["error"]["code"], "TAB_ID_CONFLICT",
+        "conflict should return TAB_ID_CONFLICT"
+    );
+}

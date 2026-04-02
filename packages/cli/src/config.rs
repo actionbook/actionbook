@@ -356,6 +356,7 @@ mod tests {
             open_url: None,
             cdp_endpoint: None,
             header: vec![],
+            session: None,
             set_session_id: None,
             stealth: true,
         }

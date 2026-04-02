@@ -719,6 +719,8 @@ fn install_fill_fixture(session_id: &str, tab_id: &str) {
 }
 
 fn install_select_fixture(session_id: &str, tab_id: &str) {
+    // Use DOM APIs instead of innerHTML to avoid Trusted Types restrictions
+    // that Chrome 146+ may enforce on certain pages.
     let expression = r#"
 (() => {
   const existing = document.getElementById('ab-select-fixture');
@@ -730,26 +732,23 @@ fn install_select_fixture(session_id: &str, tab_id: &str) {
 
   const root = document.createElement('div');
   root.id = 'ab-select-fixture';
-  root.innerHTML = `
-    <style>
-      #ab-select {
-        position: fixed;
-        top: 480px;
-        left: 40px;
-        width: 240px;
-        height: 36px;
-        z-index: 2147483647;
-      }
-    </style>
-    <select id="ab-select">
-      <option value="apple" selected>Apple</option>
-      <option value="banana">Banana</option>
-      <option value="citrus">Citrus Fruit</option>
-    </select>
-  `;
+
+  const style = document.createElement('style');
+  style.textContent = '#ab-select { position: fixed; top: 200px; left: 40px; width: 240px; height: 36px; z-index: 2147483647; }';
+  root.appendChild(style);
+
+  const select = document.createElement('select');
+  select.id = 'ab-select';
+  [['apple', 'Apple', true], ['banana', 'Banana', false], ['citrus', 'Citrus Fruit', false]].forEach(([val, txt, sel]) => {
+    const opt = document.createElement('option');
+    opt.value = val;
+    opt.textContent = txt;
+    opt.selected = sel;
+    select.appendChild(opt);
+  });
+  root.appendChild(select);
   document.body.appendChild(root);
 
-  const select = document.getElementById('ab-select');
   select.addEventListener('input', () => {
     window.__ab_select_input_count += 1;
     window.__ab_select_events.push('input:' + select.value);
@@ -6637,6 +6636,149 @@ fn click_offscreen_avoids_sticky_header() {
 }
 
 // ========================================================================
+// Group: contenteditable support — focus fallback + click-to-place-cursor
+// ========================================================================
+
+/// Install a contenteditable div fixture that tracks focus and input events.
+/// Simulates Slate/ProseMirror/Lark-style rich text editors that use
+/// `contenteditable` divs rather than `<input>`/`<textarea>`.
+fn install_contenteditable_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-ce-fixture');
+  if (existing) existing.remove();
+
+  window.__ab_ce_focus_count = 0;
+  window.__ab_ce_click_count = 0;
+
+  const root = document.createElement('div');
+  root.id = 'ab-ce-fixture';
+  root.innerHTML = `
+    <style>
+      #ab-ce-editor {
+        position: fixed;
+        top: 200px;
+        left: 40px;
+        width: 300px;
+        height: 60px;
+        border: 1px solid #ccc;
+        z-index: 2147483647;
+      }
+    </style>
+    <div id="ab-ce-editor" contenteditable="true"></div>
+  `;
+  document.body.appendChild(root);
+
+  const editor = document.getElementById('ab-ce-editor');
+  editor.addEventListener('focus', () => {
+    window.__ab_ce_focus_count += 1;
+  });
+  editor.addEventListener('click', () => {
+    window.__ab_ce_click_count += 1;
+  });
+
+  return 'ok';
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(
+        value, "ok",
+        "contenteditable fixture should install successfully"
+    );
+}
+
+/// `browser type` on a contenteditable div must succeed (no "Element is not
+/// focusable" error) and produce correct text content. Previously, DOM.focus
+/// failed on contenteditable elements with CDP error -32000.
+#[test]
+fn type_contenteditable_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_contenteditable_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "type",
+            "#ab-ce-editor",
+            "hello world",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "type into contenteditable");
+    let v = parse_json(&out);
+
+    assert_eq!(v["ok"], true, "ok must be true");
+    assert_eq!(v["command"], "browser type");
+    assert_eq!(v["data"]["action"], "type");
+
+    // Verify text was actually inserted
+    let content = eval_value(
+        &sid,
+        &tid,
+        "document.getElementById('ab-ce-editor').textContent",
+    );
+    assert_eq!(
+        content, "hello world",
+        "contenteditable must contain typed text"
+    );
+
+    // Verify click was dispatched (contenteditable path uses click-to-focus)
+    let click_count = eval_value(&sid, &tid, "String(window.__ab_ce_click_count)");
+    assert_eq!(
+        click_count, "1",
+        "contenteditable type must click element to establish cursor"
+    );
+
+    close_session(&sid);
+}
+
+/// `browser focus` on a contenteditable div must succeed (no error) via
+/// JS .focus() fallback when CDP DOM.focus returns "Element is not focusable".
+/// In headless Chrome, DOM.focus may silently succeed on contenteditable divs
+/// without triggering a JS focus event, so we only assert the command doesn't
+/// error — the important contract is "no crash on contenteditable".
+#[test]
+fn focus_contenteditable_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_contenteditable_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "focus",
+            "#ab-ce-editor",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "focus contenteditable");
+    let v = parse_json(&out);
+
+    assert_eq!(v["ok"], true, "ok must be true");
+    assert_eq!(v["command"], "browser focus");
+    // focus_changed may be false in headless (DOM.focus succeeds silently
+    // on contenteditable without updating activeElement). The key contract:
+    // the command must not error with "Element is not focusable".
+
+    close_session(&sid);
+}
+
 // Group: SPA navigation — mouseMoved hover state required for SPA routers
 // ========================================================================
 

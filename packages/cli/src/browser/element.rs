@@ -162,6 +162,51 @@ impl TabContext {
         resolve_object_id_for_frame(&self.cdp, &self.target_id, node_id, frame_id).await
     }
 
+    /// Focus an element, with JS fallback for contenteditable elements.
+    ///
+    /// CDP `DOM.focus` only works on natively focusable elements (`<input>`,
+    /// `<textarea>`, `<button>`, etc.).  For `contenteditable` divs and other
+    /// custom editable surfaces (Lark, Notion, Slate-based editors), it returns
+    /// `-32000: Element is not focusable`.  When that happens we fall back to
+    /// resolving the node to a JS object and calling `.focus()` in-page.
+    pub async fn focus_element(&self, node_id: i64) -> Result<(), ActionResult> {
+        let cdp_result = self
+            .execute_on_element("DOM.focus", json!({ "nodeId": node_id }))
+            .await;
+
+        if cdp_result.is_ok() {
+            return Ok(());
+        }
+
+        // Fallback: resolve node → JS .focus()
+        let resolved = self
+            .execute_on_element("DOM.resolveNode", json!({ "nodeId": node_id }))
+            .await
+            .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+
+        let obj_id = resolved
+            .pointer("/result/object/objectId")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                ActionResult::fatal(
+                    "CDP_ERROR",
+                    "element is not focusable and could not resolve JS object for fallback",
+                )
+            })?;
+
+        self.execute_on_element(
+            "Runtime.callFunctionOn",
+            json!({
+                "functionDeclaration": "function() { this.focus(); }",
+                "objectId": obj_id,
+            }),
+        )
+        .await
+        .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+
+        Ok(())
+    }
+
     /// Execute a CDP command on the frame of the most recently resolved element.
     ///
     /// Use for: DOM.focus, Runtime.callFunctionOn, Runtime.evaluate (on element),

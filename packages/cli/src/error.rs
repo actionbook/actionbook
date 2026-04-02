@@ -103,7 +103,7 @@ impl CliError {
             }
             CliError::SessionIdAlreadyExists(existing_session) => {
                 format!(
-                    "choose a different --set-session-id, or close the existing session with `actionbook browser close --session {existing_session}`"
+                    "choose a different --session / --set-session-id, or close the existing session with `actionbook browser close --session {existing_session}`"
                 )
             }
             CliError::DaemonNotRunning => {

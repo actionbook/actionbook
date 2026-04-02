@@ -19,11 +19,13 @@ use crate::types::{Mode, SessionId};
 #[command(after_help = "\
 Examples:
   actionbook browser start
-  actionbook browser start --set-session-id research
-  actionbook browser start --set-session-id research --open-url https://google.com
+  actionbook browser start --session research
+  actionbook browser start --session research --open-url https://google.com
   actionbook browser start --headless --profile scraper
   actionbook browser start --mode cloud --cdp-endpoint wss://browser.example.com/ws
 
+--session: get-or-create — reuses an existing session with the given ID, or creates one if not found.
+--set-session-id: always creates — fails if the ID is already in use.
 Reuse: if a session with the same profile already exists, it is reused.
 The returned session_id and tab_id are used to address all subsequent commands.")]
 pub struct Cmd {
@@ -48,7 +50,11 @@ pub struct Cmd {
     /// Headers for CDP endpoint (KEY:VALUE), may be repeated
     #[arg(long)]
     pub header: Vec<String>,
-    /// Specify a semantic session ID
+    /// Session ID (get-or-create: reuse if exists, create with this ID if not)
+    #[arg(long, conflicts_with = "set_session_id")]
+    #[serde(default)]
+    pub session: Option<String>,
+    /// Specify a semantic session ID (always creates, fails if ID exists)
     #[arg(long)]
     pub set_session_id: Option<String>,
     /// Enable stealth/anti-detection mode (default: true). Use --no-stealth to disable.
@@ -121,6 +127,49 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return e,
     };
 
+    // ── Get-or-create by session ID (all modes) ──
+    // --session: reuse existing session if found, otherwise create with that ID.
+    if let Some(ref sid) = cmd.session {
+        let reg = registry.lock().await;
+        if let Some(existing) = reg.get(sid) {
+            match existing.status {
+                SessionState::Running => {
+                    let target = ReuseTarget {
+                        session_id: existing.id.as_str().to_string(),
+                        first_tab_id: existing
+                            .tabs
+                            .first()
+                            .map(|tab| tab.id.0.clone())
+                            .unwrap_or_default(),
+                        first_native_id: existing
+                            .tabs
+                            .first()
+                            .map(|tab| tab.native_id.clone())
+                            .unwrap_or_default(),
+                        cdp: existing.cdp.clone(),
+                        cdp_port: existing.cdp_port,
+                    };
+                    drop(reg);
+                    return reuse_running_session(cmd, registry, target).await;
+                }
+                SessionState::Starting => {
+                    return ActionResult::fatal_with_hint(
+                        "SESSION_STARTING",
+                        format!("session '{}' is starting, please wait", sid),
+                        "retry after a few seconds or use browser status to check",
+                    );
+                }
+                SessionState::Closed => {
+                    // Closed session — fall through to create a new one with this ID
+                }
+            }
+        }
+        // Session not found or closed — fall through to create with this ID
+    }
+
+    // Effective set_id: --session (get-or-create) falls back to --set-session-id (force-create)
+    let effective_set_id = cmd.session.as_deref().or(cmd.set_session_id.as_deref());
+
     // ── Cloud mode ──────────────────────────────────────────────────
     if mode == Mode::Cloud {
         return execute_cloud(
@@ -134,7 +183,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         .await;
     }
 
-    // ── Local / Extension mode (unchanged) ──────────────────────────
+    // ── Local / Extension mode ──────────────────────────────────────
 
     if cdp_endpoint.is_some() && mode != Mode::Local {
         return ActionResult::fatal(
@@ -147,7 +196,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         let mut reg = registry.lock().await;
 
         if cdp_endpoint.is_none()
-            && cmd.set_session_id.is_none()
+            && effective_set_id.is_none()
             && mode == Mode::Local
             && let Some(existing) = reg.find_local_session_by_profile(profile_name, mode)
         {
@@ -178,7 +227,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             }
         } else {
             match reg.reserve_session_start(
-                cmd.set_session_id.as_deref(),
+                effective_set_id,
                 cmd.profile.as_deref(),
                 profile_name,
                 mode,
@@ -655,10 +704,11 @@ async fn execute_cloud(
     }
 
     // ── Reserve placeholder ──
+    let effective_set_id = cmd.session.as_deref().or(cmd.set_session_id.as_deref());
     let session_id = {
         let mut reg = registry.lock().await;
         match reg.reserve_session_start(
-            cmd.set_session_id.as_deref(),
+            effective_set_id,
             cmd.profile.as_deref(),
             profile_name,
             Mode::Cloud,

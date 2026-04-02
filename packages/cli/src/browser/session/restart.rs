@@ -95,6 +95,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         open_url,
         cdp_endpoint,
         header: headers,
+        session: None,
         set_session_id: Some(cmd.session.clone()),
         stealth,
     };

@@ -24,7 +24,7 @@ pub struct Cmd {
     #[arg(long)]
     pub api_key: Option<String>,
 
-    /// Browser configuration (local|extension)
+    /// Browser configuration (local|cloud)
     #[arg(long)]
     pub browser: Option<String>,
 
@@ -103,10 +103,15 @@ pub async fn execute(cmd: &Cmd, json: bool) -> Result<(), CliError> {
                 } else {
                     "visible"
                 };
-                format!("isolated ({browser_name}, {headless_label})")
+                format!("local ({browser_name}, {headless_label})")
             }
-            Mode::Extension => "extension".to_string(),
-            Mode::Cloud => "unsupported".to_string(),
+            Mode::Cloud => config
+                .browser
+                .cdp_endpoint
+                .as_deref()
+                .map(|endpoint| format!("cloud ({endpoint})"))
+                .unwrap_or_else(|| "cloud (endpoint not configured)".to_string()),
+            Mode::Extension => "coming soon".to_string(),
         };
 
         println!("  {bar}  Configuration summary:");
@@ -227,10 +232,10 @@ fn parse_browser_flag(value: Option<&str>) -> Result<Option<Mode>, CliError> {
     };
 
     match value.trim().to_ascii_lowercase().as_str() {
-        "isolated" | "local" => Ok(Some(Mode::Local)),
-        "extension" => Ok(Some(Mode::Extension)),
+        "local" => Ok(Some(Mode::Local)),
+        "cloud" => Ok(Some(Mode::Cloud)),
         other => Err(CliError::InvalidArgument(format!(
-            "invalid --browser value '{other}': expected isolated|local|extension"
+            "invalid --browser value '{other}': expected local|cloud"
         ))),
     }
 }
@@ -275,7 +280,15 @@ fn print_completion(json: bool, config: &ConfigFile) {
                 "status": "complete",
                 "config_path": config::config_path().display().to_string(),
                 "browser_mode": format!("{}", config.browser.mode),
-                "browser": config.browser.executable_path.as_deref().unwrap_or("built-in"),
+                "browser": match config.browser.mode {
+                    Mode::Local => config.browser.executable_path.as_deref().unwrap_or("built-in"),
+                    Mode::Cloud => config
+                        .browser
+                        .cdp_endpoint
+                        .as_deref()
+                        .unwrap_or("endpoint not configured"),
+                    Mode::Extension => "coming soon",
+                },
                 "headless": config.browser.headless,
             })
         );
@@ -306,10 +319,15 @@ fn print_completion(json: bool, config: &ConfigFile) {
             } else {
                 "visible"
             };
-            format!("isolated ({name}, {headless_str})")
+            format!("local ({name}, {headless_str})")
         }
-        Mode::Extension => "extension".to_string(),
-        Mode::Cloud => "unsupported".to_string(),
+        Mode::Cloud => config
+            .browser
+            .cdp_endpoint
+            .as_deref()
+            .map(|endpoint| format!("cloud ({endpoint})"))
+            .unwrap_or_else(|| "cloud (endpoint not configured)".to_string()),
+        Mode::Extension => "coming soon".to_string(),
     };
 
     println!();
@@ -364,24 +382,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_browser_flag_accepts_aliases() {
+    fn parse_browser_flag_accepts_supported_values() {
         assert_eq!(
             parse_browser_flag(Some("local")).unwrap(),
             Some(Mode::Local)
         );
         assert_eq!(
-            parse_browser_flag(Some("isolated")).unwrap(),
-            Some(Mode::Local)
-        );
-        assert_eq!(
-            parse_browser_flag(Some("extension")).unwrap(),
-            Some(Mode::Extension)
+            parse_browser_flag(Some("cloud")).unwrap(),
+            Some(Mode::Cloud)
         );
     }
 
     #[test]
     fn parse_browser_flag_rejects_unknown() {
         let err = parse_browser_flag(Some("invalid")).expect_err("should reject");
+        assert_eq!(err.error_code(), "INVALID_ARGUMENT");
+    }
+
+    #[test]
+    fn parse_browser_flag_rejects_isolated() {
+        let err = parse_browser_flag(Some("isolated")).expect_err("should reject");
+        assert_eq!(err.error_code(), "INVALID_ARGUMENT");
+    }
+
+    #[test]
+    fn parse_browser_flag_rejects_extension() {
+        let err = parse_browser_flag(Some("extension")).expect_err("should reject");
         assert_eq!(err.error_code(), "INVALID_ARGUMENT");
     }
 

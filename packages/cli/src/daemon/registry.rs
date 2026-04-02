@@ -130,7 +130,7 @@ impl SessionEntry {
             return Err(ActionResult::fatal_with_hint(
                 "TAB_ID_CONFLICT",
                 format!("tab ID '{}' already exists in this session", custom_id),
-                "choose a different --set-tab-id or omit it for auto-assignment",
+                "choose a different --tab (--set-tab-id) value or omit it for auto-assignment",
             ));
         }
         self.tabs.push(TabEntry {

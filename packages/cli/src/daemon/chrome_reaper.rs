@@ -5,13 +5,38 @@
 //! helpers instead of inlining `child.kill()` / `child.wait()`.
 
 use std::process::Child;
+use std::time::{Duration, Instant};
 
-/// Kill and reap a Chrome child process. Sends SIGKILL to the child
-/// process, then waits for it to exit so we don't leave zombies.
+/// Gracefully terminate and reap a Chrome child process.
+///
+/// Sends SIGTERM first so Chrome can flush Preferences (window placement,
+/// cookies, etc.), then waits up to 3 seconds for exit. Falls back to
+/// SIGKILL if the process is still alive.
 ///
 /// This is intentionally synchronous — callers in async contexts should
 /// wrap it in `spawn_blocking(...).await`.
 pub fn kill_and_reap(child: &mut Child) {
+    let pid = child.id() as i32;
+
+    // Send SIGTERM for graceful shutdown.
+    unsafe extern "C" {
+        safe fn kill(pid: i32, sig: i32) -> i32;
+    }
+    let _ = kill(pid, 15); // SIGTERM
+
+    // Wait up to 3s for Chrome to exit gracefully.
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return, // exited
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            _ => break, // timed out or error
+        }
+    }
+
+    // Still alive — force kill.
     let _ = child.kill();
     let _ = child.wait();
 }

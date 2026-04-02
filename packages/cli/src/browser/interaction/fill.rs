@@ -109,11 +109,8 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                     if let Err(e) = ctx.scroll_into_view(node_id).await {
                         return e;
                     }
-                    if let Err(e) = ctx
-                        .execute_on_element("DOM.focus", json!({ "nodeId": node_id }))
-                        .await
-                    {
-                        return cdp_error_to_result(e, "CDP_ERROR");
+                    if let Err(e) = ctx.focus_element(node_id).await {
+                        return e;
                     }
                     match ctx.resolve_object_id(node_id).await {
                         Ok(oid) => oid,

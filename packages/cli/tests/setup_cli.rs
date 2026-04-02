@@ -19,7 +19,7 @@ fn setup_json_non_interactive_writes_config_without_daemon_side_effects() {
             "--api-key",
             "sk-test",
             "--browser",
-            "isolated",
+            "local",
         ])
         .output()
         .expect("run setup");
@@ -36,6 +36,39 @@ fn setup_json_non_interactive_writes_config_without_daemon_side_effects() {
     assert!(config.contains("api_key = \"sk-test\""));
     assert!(config.contains("[browser]"));
     assert!(config.contains("mode = \"local\""));
+
+    assert!(
+        !home.join("daemon.sock").exists(),
+        "setup should not go through the daemon"
+    );
+    assert!(
+        !home.join("daemon.pid").exists(),
+        "setup should not spawn a daemon process"
+    );
+}
+
+#[test]
+fn setup_json_non_interactive_cloud_mode_writes_config_without_daemon_side_effects() {
+    let tmp = tempfile::tempdir().expect("tmpdir");
+    let home = tmp.path().join("actionbook-home");
+
+    let output = Command::cargo_bin("actionbook")
+        .expect("binary exists")
+        .env("ACTIONBOOK_HOME", &home)
+        .args(["--json", "setup", "--non-interactive", "--browser", "cloud"])
+        .output()
+        .expect("run setup");
+
+    assert!(
+        output.status.success(),
+        "expected cloud setup success\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let config = read_config(&home);
+    assert!(config.contains("[browser]"));
+    assert!(config.contains("mode = \"cloud\""));
 
     assert!(
         !home.join("daemon.sock").exists(),
@@ -127,7 +160,7 @@ fn setup_reset_recreates_default_config() {
             "--api-key",
             "sk-test",
             "--browser",
-            "extension",
+            "cloud",
         ])
         .output()
         .expect("seed config");
@@ -194,16 +227,79 @@ fn setup_invalid_browser_value_exits_non_zero() {
 }
 
 #[test]
-fn setup_non_interactive_existing_cloud_config_returns_migration_hint() {
+fn setup_isolated_browser_value_exits_non_zero() {
+    let tmp = tempfile::tempdir().expect("tmpdir");
+    let home = tmp.path().join("actionbook-home");
+
+    let output = Command::cargo_bin("actionbook")
+        .expect("binary exists")
+        .env("ACTIONBOOK_HOME", &home)
+        .args([
+            "--json",
+            "setup",
+            "--non-interactive",
+            "--browser",
+            "isolated",
+        ])
+        .output()
+        .expect("run setup");
+
+    assert!(
+        !output.status.success(),
+        "expected isolated --browser to fail\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("invalid --browser value 'isolated'"),
+        "stderr should explain that isolated is no longer a valid browser value"
+    );
+}
+
+#[test]
+fn setup_extension_browser_value_exits_non_zero() {
+    let tmp = tempfile::tempdir().expect("tmpdir");
+    let home = tmp.path().join("actionbook-home");
+
+    let output = Command::cargo_bin("actionbook")
+        .expect("binary exists")
+        .env("ACTIONBOOK_HOME", &home)
+        .args([
+            "--json",
+            "setup",
+            "--non-interactive",
+            "--browser",
+            "extension",
+        ])
+        .output()
+        .expect("run setup");
+
+    assert!(
+        !output.status.success(),
+        "expected extension --browser to fail\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("invalid --browser value 'extension'"),
+        "stderr should explain that extension is no longer a valid setup browser value"
+    );
+}
+
+#[test]
+fn setup_non_interactive_existing_cloud_config_is_preserved() {
     let tmp = tempfile::tempdir().expect("tmpdir");
     let home = tmp.path().join("actionbook-home");
     std::fs::create_dir_all(&home).expect("create actionbook home");
     std::fs::write(
         home.join("config.toml"),
-        r#"[browser]
+        r#"version = 1
+
+[browser]
 mode = "cloud"
 headless = false
 profile_name = "actionbook"
+cdp_endpoint = "wss://browser.example.com"
 "#,
     )
     .expect("seed cloud config");
@@ -216,26 +312,25 @@ profile_name = "actionbook"
         .expect("run setup");
 
     assert!(
-        !output.status.success(),
-        "expected existing cloud config to fail\nstdout:\n{}\nstderr:\n{}",
+        output.status.success(),
+        "expected existing cloud config to succeed\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),
     );
-    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("browser.mode='cloud'"),
-        "stderr should mention the unsupported cloud mode"
+        read_config(&home).contains("mode = \"cloud\""),
+        "setup should preserve the supported cloud mode"
     );
     assert!(
-        stderr.contains("actionbook setup --reset"),
-        "stderr should include the migration hint"
+        read_config(&home).contains("cdp_endpoint = \"wss://browser.example.com\""),
+        "setup should preserve the configured cloud endpoint"
     );
     assert!(
         !home.join("daemon.sock").exists(),
-        "setup should not go through the daemon on config migration failure"
+        "setup should not go through the daemon on cloud config rerun"
     );
     assert!(
         !home.join("daemon.pid").exists(),
-        "setup should not spawn a daemon process on config migration failure"
+        "setup should not spawn a daemon process on cloud config rerun"
     );
 }

@@ -14,9 +14,9 @@ use crate::output::ResponseContext;
 Examples:
   actionbook browser new-tab https://example.com --session my-session
   actionbook browser open https://github.com --session my-session
-  actionbook browser new-tab https://example.com --session s0 --set-tab-id inbox
+  actionbook browser new-tab https://example.com --session s0 --tab inbox
 
-The new tab is assigned the next available ID (t2, t3, ...) unless --set-tab-id is provided.
+The new tab is assigned the next available ID (t2, t3, ...) unless --tab / --set-tab-id is provided.
 Use the returned tab_id to address this tab in subsequent commands.")]
 pub struct Cmd {
     /// URL to open
@@ -26,7 +26,7 @@ pub struct Cmd {
     #[serde(rename = "session_id")]
     pub session: String,
     /// Set a custom tab ID instead of auto-assigning
-    #[arg(long)]
+    #[arg(long, visible_alias = "tab")]
     pub set_tab_id: Option<String>,
     /// Open in new window
     #[arg(long)]

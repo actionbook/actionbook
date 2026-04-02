@@ -1510,8 +1510,7 @@ mod tests {
     // ── 17. test_attach_stealth_failure_does_not_block ───────────────
 
     /// Stealth injection errors (Page.enable, addScriptToEvaluateOnNewDocument,
-    /// setUserAgentOverride, setDeviceMetricsOverride) must NOT cause attach()
-    /// to fail — they are best-effort.
+    /// setUserAgentOverride) must NOT cause attach() to fail — they are best-effort.
     #[tokio::test]
     async fn test_attach_stealth_failure_does_not_block() {
         let (url, mut conns) = mock_ws_server().await;
@@ -1565,15 +1564,6 @@ mod tests {
         send_json(
             &mut writer,
             json!({"id": msg["id"], "error": {"code": -32000, "message": "ua failed"}}),
-        )
-        .await;
-
-        // 7. setDeviceMetricsOverride FAILS
-        let msg = read_json(&mut reader).await;
-        assert_eq!(msg["method"], "Emulation.setDeviceMetricsOverride");
-        send_json(
-            &mut writer,
-            json!({"id": msg["id"], "error": {"code": -32000, "message": "metrics failed"}}),
         )
         .await;
 

@@ -1899,6 +1899,97 @@ fn daemon_missing_version_file_triggers_restart() {
     let _ = env.headless(&["browser", "close", "--session", "no-ver-restarted"], 10);
 }
 
+// ===========================================================================
+// --session flag: get-or-create semantics
+// ===========================================================================
+
+/// `browser start --session sid` creates a new session with the given ID
+/// when no session with that ID exists.
+#[test]
+fn lifecycle_session_flag_creates_when_not_exists() {
+    if skip() {
+        return;
+    }
+    let (sid, prof) = unique_session("sflag");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            &prof,
+            "--session",
+            &sid,
+        ],
+        30,
+    );
+    assert_success(&out, "start with --session creates new");
+    let _guard = SessionGuard::new(&sid);
+    let v = parse_json(&out);
+    assert_eq!(
+        v["data"]["session"]["session_id"], sid,
+        "session_id must match the provided --session value"
+    );
+    assert_eq!(
+        v["data"]["reused"], false,
+        "new session should not be marked as reused"
+    );
+}
+
+/// `browser start --session sid` reuses an existing running session with that ID.
+#[test]
+fn lifecycle_session_flag_reuses_when_exists() {
+    if skip() {
+        return;
+    }
+    let (sid, prof) = unique_session("sflagreuse");
+
+    // First start creates the session
+    let out = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            &prof,
+            "--session",
+            &sid,
+        ],
+        30,
+    );
+    assert_success(&out, "first start with --session");
+    let _guard = SessionGuard::new(&sid);
+
+    // Second start with same --session should reuse
+    let out2 = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--session",
+            &sid,
+        ],
+        30,
+    );
+    assert_success(&out2, "second start with --session should reuse");
+    let v2 = parse_json(&out2);
+    assert_eq!(
+        v2["data"]["session"]["session_id"], sid,
+        "reused session must have same session_id"
+    );
+    assert_eq!(
+        v2["data"]["reused"], true,
+        "second start should be marked as reused"
+    );
+}
+
 fn find_chrome_pids_for_dir(profiles_dir: &std::path::Path) -> Vec<u32> {
     let pattern = format!("--user-data-dir={}", profiles_dir.display());
     let output = std::process::Command::new("pgrep")

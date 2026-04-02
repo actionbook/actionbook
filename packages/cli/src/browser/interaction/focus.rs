@@ -92,16 +92,15 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         return cdp_error_to_result(e, "CDP_ERROR");
     }
 
-    // Focus the element via DOM.focus (CDP-level focus)
-    if let Err(e) = ctx
-        .execute_on_element("DOM.focus", json!({ "nodeId": node_id }))
-        .await
-    {
-        return cdp_error_to_result(e, "CDP_ERROR");
+    // Focus the element.  DOM.focus works for native focusable elements;
+    // for contenteditable divs etc., focus_element falls back to JS .focus().
+    if let Err(e) = ctx.focus_element(node_id).await {
+        return e;
     }
 
     // Also call .focus() via JS to durably update document.activeElement in headless Chrome.
     // DOM.focus alone does not reliably update activeElement in headless environments.
+    // (focus_element may have already done this as a fallback, but the redundant call is harmless.)
     let resolve = ctx
         .execute_on_element("DOM.resolveNode", json!({ "nodeId": node_id }))
         .await;

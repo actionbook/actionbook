@@ -127,10 +127,10 @@ fn cdp_key(key: &str, has_modifiers: bool) -> String {
 }
 
 /// CDP key definition: physical code, virtual key code, and text generated.
-struct KeyDef {
-    code: String,
-    key_code: u32,
-    text: Option<String>,
+pub(crate) struct KeyDef {
+    pub code: String,
+    pub key_code: u32,
+    pub text: Option<String>,
 }
 
 /// Map a key name to its full CDP definition (code, keyCode, text).
@@ -139,7 +139,7 @@ struct KeyDef {
 /// to trigger native browser behaviours (form submit on Enter, focus switch on
 /// Tab, etc.).  Without these the DOM event fires but the browser action does
 /// not.
-fn key_definition(key: &str) -> Option<KeyDef> {
+pub(crate) fn key_definition(key: &str) -> Option<KeyDef> {
     match key {
         "Enter" => Some(KeyDef {
             code: "Enter".into(),
