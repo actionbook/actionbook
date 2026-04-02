@@ -319,7 +319,7 @@ Global flags:
   --json          Output as JSON envelope
   --timeout <ms>  Set command timeout
 
-Quick start (search Airbnb for a room in SF):
+Quick start:
   actionbook search \"find a room next week in SF on airbnb\" --domain airbnb.com
   actionbook get \"airbnb.com:/:default\"
   actionbook browser start --set-session-id s1
