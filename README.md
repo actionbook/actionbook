@@ -47,7 +47,7 @@ so your agent operates any website instantly. One tab or dozens, concurrently.
 
 See how Actionbook enables an agent to complete an Airbnb search task 10x faster.
 
-https://github.com/user-attachments/assets/9f896fe7-296a-44b3-8592-931a099612de
+https://github.com/user-attachments/assets/6bf4aa80-b1cc-4278-a248-37e3b38f0579
 
 ## Quick Start
 
