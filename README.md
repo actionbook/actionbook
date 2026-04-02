@@ -65,6 +65,25 @@ The Rust-based CLI uses your existing system browser (Chrome, Brave, Edge, Arc, 
 
 ## Quick Start
 
+```bash
+actionbook browser start
+
+# Open tabs
+actionbook browser open https://stripe.com --session s1
+actionbook browser open https://linear.app --session s1
+actionbook browser open https://vercel.com --session s1
+
+# Operate all tabs concurrently
+actionbook browser snapshot --session s1 --tab t1 &
+actionbook browser snapshot --session s1 --tab t2 &
+actionbook browser snapshot --session s1 --tab t3 &
+
+# Interact with each tab using refs from its snapshot
+actionbook browser click @e5 --session s1 --tab t1
+actionbook browser fill @e3 "hello" --session s1 --tab t2
+actionbook browser click @e8 --session s1 --tab t3
+```
+
 When working with any AI coding assistant (Claude Code, Cursor, etc.), add this to your prompt:
 
 ```
