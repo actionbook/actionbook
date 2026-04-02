@@ -11,8 +11,6 @@
 //! - `snap_json_meta_truncated_false` (meta.truncated not emitted by stub)
 //! - `snap_text_output` (content not formatted; [ref=eN] labels absent)
 //! - `snap_text_no_extra_prefix` (stub may emit raw JSON, not text content)
-//! - `snap_interactive_flag_reduces_nodes` (--interactive flag not wired)
-//! - `snap_compact_flag_reduces_nodes` (--compact flag not wired)
 //! - `snap_depth_flag_limits_nodes` (--depth flag not wired)
 //! - `snap_selector_flag_limits_subtree` (--selector flag not wired)
 //!
@@ -370,110 +368,6 @@ fn snap_text_no_extra_prefix() {
 // ===========================================================================
 
 #[test]
-fn snap_interactive_flag_reduces_nodes() {
-    if skip() {
-        return;
-    }
-    let (sid, tid) = start_session(URL_A);
-    let _guard = SessionGuard::new(&sid);
-
-    // Full snapshot
-    let out_full = headless_json(
-        &["browser", "snapshot", "--session", &sid, "--tab", &tid],
-        30,
-    );
-    assert_success(&out_full, "snapshot full");
-    let v_full = parse_json(&out_full);
-    let full_count = v_full["data"]["stats"]["node_count"].as_u64().unwrap_or(0);
-
-    // Interactive-only snapshot
-    let out_interactive = headless_json(
-        &[
-            "browser",
-            "snapshot",
-            "--session",
-            &sid,
-            "--tab",
-            &tid,
-            "--interactive",
-        ],
-        30,
-    );
-    assert_success(&out_interactive, "snapshot interactive");
-    let v_interactive = parse_json(&out_interactive);
-    assert_snapshot_data(&v_interactive);
-
-    let interactive_count = v_interactive["data"]["stats"]["node_count"]
-        .as_u64()
-        .unwrap_or(0);
-
-    // Interactive mode must return fewer or equal nodes than full snapshot
-    assert!(
-        interactive_count <= full_count,
-        "interactive snapshot must have <= nodes than full snapshot: {interactive_count} > {full_count}"
-    );
-
-    // All nodes in interactive snapshot must be interactive
-    // (node_count should equal interactive_count)
-    let interactive_interactive_count = v_interactive["data"]["stats"]["interactive_count"]
-        .as_u64()
-        .unwrap_or(0);
-    assert_eq!(
-        interactive_count, interactive_interactive_count,
-        "in --interactive mode, node_count must equal interactive_count"
-    );
-
-    close_session(&sid);
-}
-
-#[test]
-fn snap_compact_flag_reduces_nodes() {
-    if skip() {
-        return;
-    }
-    let (sid, tid) = start_session(URL_A);
-    let _guard = SessionGuard::new(&sid);
-
-    // Full snapshot
-    let out_full = headless_json(
-        &["browser", "snapshot", "--session", &sid, "--tab", &tid],
-        30,
-    );
-    assert_success(&out_full, "snapshot full");
-    let v_full = parse_json(&out_full);
-    let full_count = v_full["data"]["stats"]["node_count"].as_u64().unwrap_or(0);
-
-    // Compact snapshot
-    let out_compact = headless_json(
-        &[
-            "browser",
-            "snapshot",
-            "--session",
-            &sid,
-            "--tab",
-            &tid,
-            "--compact",
-        ],
-        30,
-    );
-    assert_success(&out_compact, "snapshot compact");
-    let v_compact = parse_json(&out_compact);
-    assert_snapshot_data(&v_compact);
-
-    let compact_count = v_compact["data"]["stats"]["node_count"]
-        .as_u64()
-        .unwrap_or(0);
-
-    // Compact must remove empty structural nodes — fewer or equal nodes
-    assert!(
-        compact_count <= full_count,
-        "--compact snapshot must have <= nodes than full: {compact_count} > {full_count}"
-    );
-
-    close_session(&sid);
-}
-
-#[test]
 fn snap_depth_flag_limits_nodes() {
     if skip() {
         return;
@@ -691,160 +585,8 @@ fn snap_json_nodes_have_required_fields() {
     close_session(&sid);
 }
 
-#[test]
-fn snap_interactive_compact_combined() {
-    if skip() {
-        return;
-    }
-    let (sid, tid) = start_session(URL_A);
-    let _guard = SessionGuard::new(&sid);
-
-    // Full snapshot for baseline
-    let out_full = headless_json(
-        &["browser", "snapshot", "--session", &sid, "--tab", &tid],
-        30,
-    );
-    assert_success(&out_full, "snapshot full");
-    let v_full = parse_json(&out_full);
-    let full_count = v_full["data"]["stats"]["node_count"].as_u64().unwrap_or(0);
-
-    // Combined --interactive --compact
-    let out_combined = headless_json(
-        &[
-            "browser",
-            "snapshot",
-            "--session",
-            &sid,
-            "--tab",
-            &tid,
-            "--interactive",
-            "--compact",
-        ],
-        30,
-    );
-    assert_success(&out_combined, "snapshot interactive+compact");
-    let v_combined = parse_json(&out_combined);
-    assert_snapshot_data(&v_combined);
-
-    let combined_count = v_combined["data"]["stats"]["node_count"]
-        .as_u64()
-        .unwrap_or(0);
-
-    // Combined must be <= either filter alone, and <= full
-    assert!(
-        combined_count <= full_count,
-        "--interactive --compact must return <= full: {combined_count} > {full_count}"
-    );
-
-    // All nodes must be interactive
-    let interactive_count = v_combined["data"]["stats"]["interactive_count"]
-        .as_u64()
-        .unwrap_or(0);
-    assert_eq!(
-        combined_count, interactive_count,
-        "combined mode: node_count must equal interactive_count"
-    );
-
-    close_session(&sid);
-}
-
-// ===========================================================================
-// Group 3c: snapshot — --cursor flag (cursor-interactive detection)
-// ===========================================================================
-
-#[test]
-fn snap_cursor_flag_increases_refs() {
-    if skip() {
-        return;
-    }
-    let (sid, tid) = start_session(URL_A);
-    let _guard = SessionGuard::new(&sid);
-
-    // Default snapshot
-    let out_default = headless_json(
-        &["browser", "snapshot", "--session", &sid, "--tab", &tid],
-        30,
-    );
-    assert_success(&out_default, "snapshot default");
-    let v_default = parse_json(&out_default);
-    let default_count = v_default["data"]["stats"]["node_count"]
-        .as_u64()
-        .unwrap_or(0);
-
-    // With --cursor: should detect additional cursor-interactive elements
-    let out_cursor = headless_json(
-        &[
-            "browser",
-            "snapshot",
-            "--session",
-            &sid,
-            "--tab",
-            &tid,
-            "--cursor",
-        ],
-        30,
-    );
-    assert_success(&out_cursor, "snapshot cursor");
-    let v_cursor = parse_json(&out_cursor);
-    let cursor_count = v_cursor["data"]["stats"]["node_count"]
-        .as_u64()
-        .unwrap_or(0);
-
-    // --cursor must return >= refs than default (adds cursor-interactive on top)
-    assert!(
-        cursor_count >= default_count,
-        "--cursor must return >= refs than default: {cursor_count} < {default_count}"
-    );
-
-    close_session(&sid);
-}
-
-#[test]
-fn snap_cursor_content_has_clickable() {
-    if skip() {
-        return;
-    }
-    let (sid, tid) = start_session(&url_cursor_fixture());
-    let _guard = SessionGuard::new(&sid);
-
-    let out = headless_json(
-        &[
-            "browser",
-            "snapshot",
-            "--session",
-            &sid,
-            "--tab",
-            &tid,
-            "--cursor",
-        ],
-        30,
-    );
-    assert_success(&out, "snapshot cursor content");
-    let v = parse_json(&out);
-
-    let generic_count = v["data"]["nodes"]
-        .as_array()
-        .map(|nodes| {
-            nodes
-                .iter()
-                .filter(|node| node["role"].as_str() == Some("generic"))
-                .count()
-        })
-        .unwrap_or(0);
-    assert!(
-        v["data"]["stats"]["interactive_count"]
-            .as_u64()
-            .unwrap_or(0)
-            >= 3,
-        "cursor fixture should surface 3 interactive cursor nodes in stats"
-    );
-    assert!(
-        generic_count >= 3,
-        "cursor fixture should surface the clickable divs as generic nodes"
-    );
-
-    close_session(&sid);
-}
+// (removed: snap_interactive_compact_combined, snap_cursor_flag_increases_refs,
+//  snap_cursor_content_has_clickable — flags removed, cursor always on)
 
 // ===========================================================================
 // Group 4: snapshot — Error Paths (§3.1)
@@ -998,15 +740,12 @@ fn snap_missing_tab_arg() {
 }
 
 // ===========================================================================
-// Group 6: snapshot — --cursor default on (§10.1)
+// Group 6: snapshot — cursor detection always on (§10.1)
 // ===========================================================================
 
-/// Verify that the default `browser snapshot` (no flags) includes cursor-interactive
-/// elements. Uses a deterministic local fixture with a known `cursor:pointer` div,
-/// an `onclick` div, and a `tabindex` div — elements that only appear when cursor
-/// detection is active.
-///
-/// **Expected to FAIL until #212 implementation lands** (cursor default = true).
+/// Verify that `browser snapshot` includes cursor-interactive elements.
+/// Uses a deterministic local fixture with a known `cursor:pointer` div,
+/// an `onclick` div, and a `tabindex` div — elements detected via cursor detection.
 #[test]
 fn snap_cursor_on_by_default() {
     if skip() {

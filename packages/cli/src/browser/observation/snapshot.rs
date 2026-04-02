@@ -11,25 +11,20 @@ use crate::output::ResponseContext;
 
 use super::snapshot_transform::{self, CursorInfo, SnapshotOptions};
 
-fn cursor_default() -> bool {
-    true
-}
-
 /// Capture accessibility snapshot
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
 #[command(after_help = "\
 Examples:
   actionbook browser snapshot --session s1 --tab t1
-  actionbook browser snapshot -i --session s1 --tab t1
-  actionbook browser snapshot -i -c --session s1 --tab t1
-  actionbook browser snapshot -i --depth 3 --session s1 --tab t1
+  actionbook browser snapshot --depth 3 --session s1 --tab t1
   actionbook browser snapshot --selector \"#main\" --session s1 --tab t1
 
-Flags: -i (interactive only), -c (compact), --cursor (cursor-interactive on by default).
 Elements are labeled with refs (e.g. @e1, @e2). Use the @eN syntax to target
 elements in other commands: click @e5, fill @e7 \"text\", hover @e3.
 Refs are stable across snapshots — if the DOM node stays the same, the ref
-stays the same. This lets agents chain commands without re-snapshotting after every step.")]
+stays the same. This lets agents chain commands without re-snapshotting after every step.
+
+Output includes a 'path' field pointing to the saved snapshot file.")]
 pub struct Cmd {
     /// Session ID
     #[arg(long)]
@@ -39,18 +34,6 @@ pub struct Cmd {
     #[arg(long)]
     #[serde(rename = "tab_id")]
     pub tab: String,
-    /// Include only interactive elements
-    #[arg(long, short = 'i', default_value_t = false)]
-    #[serde(default)]
-    pub interactive: bool,
-    /// Compact output, remove empty structural nodes
-    #[arg(long, short = 'c', default_value_t = false)]
-    #[serde(default)]
-    pub compact: bool,
-    /// Include cursor-interactive custom elements (cursor:pointer, onclick, tabindex) — enabled by default
-    #[arg(long, default_value_t = true)]
-    #[serde(default = "cursor_default")]
-    pub cursor: bool,
     /// Limit maximum tree depth
     #[arg(long, short = 'd')]
     #[serde(default)]
@@ -136,24 +119,18 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     let options = SnapshotOptions {
-        interactive: cmd.interactive,
-        compact: cmd.compact,
         depth: cmd.depth.map(|d| d as usize),
         selector: cmd.selector.clone(),
     };
 
     // Parse and transform the AX tree
-    // Detect cursor-interactive elements if --cursor flag set
-    let (cursor_elements, cursor_warning) = if cmd.cursor {
-        match detect_cursor_elements(&cdp, &target_id).await {
-            Ok(map) => (Some(map), None),
-            Err(e) => (
-                None,
-                Some(format!("cursor detection failed: {e}, proceeding without")),
-            ),
-        }
-    } else {
-        (None, None)
+    // Always detect cursor-interactive elements
+    let (cursor_elements, cursor_warning) = match detect_cursor_elements(&cdp, &target_id).await {
+        Ok(map) => (Some(map), None),
+        Err(e) => (
+            None,
+            Some(format!("cursor detection failed: {e}, proceeding without")),
+        ),
     };
 
     let mut nodes = snapshot_transform::parse_ax_tree(

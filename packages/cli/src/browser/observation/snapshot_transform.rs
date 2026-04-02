@@ -38,10 +38,6 @@ pub struct AXNode {
 /// Options that control snapshot output.
 #[derive(Debug, Clone, Default)]
 pub struct SnapshotOptions {
-    /// Include only interactive nodes
-    pub interactive: bool,
-    /// Remove empty structural nodes
-    pub compact: bool,
     /// Maximum tree depth (None = unlimited)
     pub depth: Option<usize>,
     /// CSS selector to limit subtree (None = whole page)
@@ -316,12 +312,6 @@ pub fn parse_ax_tree(
         let is_cursor = cursor_info.is_some();
         let is_interactive = is_interactive_role(&role) || is_cursor;
 
-        // Interactive filter: skip non-interactive self but render children
-        if options.interactive && !is_interactive {
-            render_children(depth, result, ref_cache);
-            return;
-        }
-
         // Extract value (handles string, number, bool)
         let value = extract_ax_string(&node["value"]);
 
@@ -401,14 +391,6 @@ pub fn parse_ax_tree(
             cursor_elements,
             frame_id,
         );
-    }
-
-    // Apply compact: compact_tree_nodes first (preserves ancestor chains for
-    // ref/value nodes), then remove_empty_leaves (cleans remaining structural leaves).
-    // Order matters: removing leaves first can break ancestor chain depth detection.
-    if options.compact {
-        result = compact_tree_nodes(&result);
-        result = remove_empty_leaves(result);
     }
 
     result
@@ -1064,45 +1046,6 @@ mod tests {
             None,
         );
         assert!(nodes.is_empty());
-    }
-
-    #[test]
-    fn test_parse_ax_tree_interactive_filter() {
-        let response = serde_json::json!({
-            "result": {
-                "nodes": [
-                    { "nodeId": "1", "role": {"value": "button"}, "name": {"value": "Submit"} },
-                    { "nodeId": "2", "role": {"value": "heading"}, "name": {"value": "Title"} },
-                    { "nodeId": "3", "role": {"value": "link"}, "name": {"value": "Home"} },
-                ]
-            }
-        });
-        let opts = SnapshotOptions {
-            interactive: true,
-            ..Default::default()
-        };
-        let nodes = parse_ax_tree(&response, &opts, &mut RefCache::new(), None, None, None);
-        assert_eq!(nodes.len(), 2);
-        assert!(nodes.iter().all(|n| n.interactive));
-    }
-
-    #[test]
-    fn test_parse_ax_tree_compact_filter() {
-        let response = serde_json::json!({
-            "result": {
-                "nodes": [
-                    { "nodeId": "1", "role": {"value": "generic"}, "name": {"value": ""} },
-                    { "nodeId": "2", "role": {"value": "button"}, "name": {"value": "OK"} },
-                ]
-            }
-        });
-        let opts = SnapshotOptions {
-            compact: true,
-            ..Default::default()
-        };
-        let nodes = parse_ax_tree(&response, &opts, &mut RefCache::new(), None, None, None);
-        assert_eq!(nodes.len(), 1);
-        assert_eq!(nodes[0].role, "button");
     }
 
     #[test]
