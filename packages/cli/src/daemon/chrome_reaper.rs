@@ -16,27 +16,29 @@ use std::time::{Duration, Instant};
 /// This is intentionally synchronous — callers in async contexts should
 /// wrap it in `spawn_blocking(...).await`.
 pub fn kill_and_reap(child: &mut Child) {
-    let pid = child.id() as i32;
+    // Send SIGTERM for graceful shutdown (Unix only).
+    #[cfg(unix)]
+    {
+        let pid = child.id() as i32;
+        unsafe extern "C" {
+            safe fn kill(pid: i32, sig: i32) -> i32;
+        }
+        let _ = kill(pid, 15); // SIGTERM
 
-    // Send SIGTERM for graceful shutdown.
-    unsafe extern "C" {
-        safe fn kill(pid: i32, sig: i32) -> i32;
-    }
-    let _ = kill(pid, 15); // SIGTERM
-
-    // Wait up to 3s for Chrome to exit gracefully.
-    let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => return, // exited
-            Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(50));
+        // Wait up to 3s for Chrome to exit gracefully.
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => return, // exited
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                _ => break, // timed out or error
             }
-            _ => break, // timed out or error
         }
     }
 
-    // Still alive — force kill.
+    // Force kill (fallback on Unix, primary on Windows).
     let _ = child.kill();
     let _ = child.wait();
 }
@@ -60,7 +62,7 @@ pub fn kill_and_reap_option(child: &mut Option<Child>) {
 
 // ─── Tests ──────────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::process::Command;

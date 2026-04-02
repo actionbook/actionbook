@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+#[cfg(unix)]
 use tokio::net::UnixStream;
 
 use crate::action::Action;
@@ -10,11 +11,18 @@ use crate::utils::wire;
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
+#[cfg(unix)]
 pub struct DaemonClient {
     reader: tokio::io::ReadHalf<UnixStream>,
     writer: tokio::io::WriteHalf<UnixStream>,
 }
 
+#[cfg(not(unix))]
+pub struct DaemonClient {
+    _private: (),
+}
+
+#[cfg(unix)]
 impl DaemonClient {
     /// Connect to the daemon, auto-starting it if needed.
     pub async fn connect() -> Result<Self, CliError> {
@@ -89,6 +97,21 @@ impl DaemonClient {
     }
 }
 
+#[cfg(not(unix))]
+impl DaemonClient {
+    pub async fn connect() -> Result<Self, CliError> {
+        Err(CliError::Internal(
+            "daemon is not supported on this platform".to_string(),
+        ))
+    }
+
+    pub async fn send_action(&mut self, _action: &Action) -> Result<ActionResult, CliError> {
+        Err(CliError::Internal(
+            "daemon is not supported on this platform".to_string(),
+        ))
+    }
+}
+
 /// Check if the running daemon's version matches the CLI binary exactly.
 /// Missing or empty version file → `false` (old daemon without version support).
 fn versions_match(version_path: &std::path::Path) -> bool {
@@ -100,6 +123,7 @@ fn versions_match(version_path: &std::path::Path) -> bool {
 }
 
 /// Stop the running daemon and start a fresh one with the current binary.
+#[cfg(unix)]
 async fn restart_daemon() -> Result<(), CliError> {
     let Some(pid) = server::read_daemon_pid().filter(|&p| p > 0) else {
         // No valid PID — cannot signal old daemon. If flock is still held,
@@ -149,6 +173,7 @@ async fn restart_daemon() -> Result<(), CliError> {
 }
 
 /// Wait for daemon to be ready and connect (up to 10 seconds).
+#[cfg(unix)]
 async fn wait_for_daemon(
     path: &std::path::Path,
     ready_path: &std::path::Path,
@@ -169,6 +194,7 @@ async fn wait_for_daemon(
     Err(CliError::DaemonNotRunning)
 }
 
+#[cfg(unix)]
 fn cleanup_stale_files() {
     let base = server::socket_path();
     std::fs::remove_file(&base).ok(); // daemon.sock
@@ -176,6 +202,7 @@ fn cleanup_stale_files() {
     std::fs::remove_file(base.with_extension("version")).ok();
 }
 
+#[cfg(unix)]
 fn auto_start_daemon() -> Result<(), CliError> {
     let exe = std::env::current_exe().map_err(|e| CliError::Internal(e.to_string()))?;
 

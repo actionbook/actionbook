@@ -1,6 +1,7 @@
 use std::fs::OpenOptions;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+#[cfg(unix)]
 use tokio::net::UnixListener;
 use tracing::{error, info, warn};
 
@@ -45,6 +46,7 @@ pub fn version_path() -> PathBuf {
 /// holds it and is alive. This is more reliable than PID + `kill(pid, 0)` because
 /// the kernel releases the lock automatically when the process exits (even on
 /// SIGKILL or `panic = "abort"`), and it avoids cross-user EPERM issues.
+#[cfg(unix)]
 pub fn is_daemon_running() -> bool {
     let pid_file = pid_path();
     let Ok(file) = OpenOptions::new().read(true).write(true).open(&pid_file) else {
@@ -60,6 +62,11 @@ pub fn is_daemon_running() -> bool {
     }
 }
 
+#[cfg(not(unix))]
+pub fn is_daemon_running() -> bool {
+    false
+}
+
 /// Read daemon PID from file.
 pub fn read_daemon_pid() -> Option<i32> {
     let pid_file = pid_path();
@@ -71,6 +78,7 @@ pub fn read_daemon_pid() -> Option<i32> {
 /// Send SIGTERM to a process.
 /// Returns `true` if signal was delivered, `false` if process doesn't exist (ESRCH).
 /// Panics on EPERM (wrong user) — caller should validate PID ownership.
+#[cfg(unix)]
 pub fn send_sigterm(pid: i32) -> bool {
     unsafe extern "C" {
         safe fn kill(pid: i32, sig: i32) -> i32;
@@ -82,9 +90,15 @@ pub fn send_sigterm(pid: i32) -> bool {
     std::io::Error::last_os_error().raw_os_error() != Some(3)
 }
 
+#[cfg(not(unix))]
+pub fn send_sigterm(_pid: i32) -> bool {
+    false
+}
+
 /// Check if a specific process is still alive (kill -0).
 /// Returns `true` if the process exists (including EPERM — the process is
 /// alive but we cannot signal it).  Only ESRCH means definitely dead.
+#[cfg(unix)]
 pub fn is_pid_alive(pid: i32) -> bool {
     unsafe extern "C" {
         safe fn kill(pid: i32, sig: i32) -> i32;
@@ -96,11 +110,17 @@ pub fn is_pid_alive(pid: i32) -> bool {
     std::io::Error::last_os_error().raw_os_error() == Some(1) // EPERM = 1
 }
 
+#[cfg(not(unix))]
+pub fn is_pid_alive(_pid: i32) -> bool {
+    false
+}
+
 /// Try to acquire an exclusive non-blocking file lock.
 ///
 /// Uses `flock(fd, LOCK_EX | LOCK_NB)`. Returns `true` if the lock was acquired.
 /// The lock is held as long as the file descriptor remains open; the kernel
 /// releases it automatically when the fd is closed or the process exits.
+#[cfg(unix)]
 fn try_lock_exclusive(file: &std::fs::File) -> bool {
     unsafe extern "C" {
         safe fn flock(fd: i32, operation: i32) -> i32;
@@ -154,6 +174,7 @@ fn housekeeping_interval() -> Duration {
 }
 
 /// Run the daemon server (blocking).
+#[cfg(unix)]
 pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
     info!(
         "daemon starting (pid={}, version={})",
@@ -339,6 +360,12 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(not(unix))]
+pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
+    Err("daemon is not supported on Windows".into())
+}
+
+#[cfg(unix)]
 async fn handle_connection(
     stream: tokio::net::UnixStream,
     registry: &SharedRegistry,
@@ -384,7 +411,7 @@ async fn handle_connection(
 
 // ─── Unit Tests ──────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
