@@ -6658,7 +6658,7 @@ fn install_contenteditable_fixture(session_id: &str, tab_id: &str) {
     <style>
       #ab-ce-editor {
         position: fixed;
-        top: 500px;
+        top: 200px;
         left: 40px;
         width: 300px;
         height: 60px;

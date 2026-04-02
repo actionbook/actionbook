@@ -4,6 +4,7 @@ use serde_json::json;
 
 use crate::action_result::ActionResult;
 use crate::browser::element::{ClickTarget, TabContext, parse_target};
+use crate::browser::interaction::press::key_definition;
 use crate::browser::navigation;
 use crate::daemon::cdp_session::cdp_error_to_result;
 use crate::daemon::registry::SharedRegistry;
@@ -168,14 +169,60 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         )
         .await;
 
-    // Use Input.insertText which routes via CDP session (unlike
-    // Input.dispatchKeyEvent which always targets the active tab).
-    if let Err(e) = ctx
+    // Chrome routes Input.dispatchKeyEvent to the active (foreground) tab,
+    // ignoring the CDP sessionId.  Activate our target tab first so key
+    // events reach the right page.  Matches Playwright's Page.bringToFront().
+    let _ = ctx
         .cdp
-        .execute_on_tab(&ctx.target_id, "Input.insertText", json!({ "text": text }))
-        .await
-    {
-        return cdp_error_to_result(e, "CDP_ERROR");
+        .execute_browser(
+            "Target.activateTarget",
+            json!({ "targetId": ctx.target_id }),
+        )
+        .await;
+
+    // Type each character with full CDP key definitions so Chrome triggers
+    // native text insertion on both <input> and contenteditable elements.
+    for ch in text.chars() {
+        let key = ch.to_string();
+        let def = key_definition(&key);
+
+        let mut key_down = json!({
+            "type": "keyDown",
+            "key": key,
+            "text": key,
+            "unmodifiedText": key,
+        });
+        if let Some(ref d) = def {
+            key_down["code"] = json!(d.code);
+            key_down["windowsVirtualKeyCode"] = json!(d.key_code);
+            key_down["nativeVirtualKeyCode"] = json!(d.key_code);
+        }
+
+        if let Err(e) = ctx
+            .cdp
+            .execute_on_tab(&ctx.target_id, "Input.dispatchKeyEvent", key_down)
+            .await
+        {
+            return cdp_error_to_result(e, "CDP_ERROR");
+        }
+
+        let mut key_up = json!({
+            "type": "keyUp",
+            "key": key,
+        });
+        if let Some(ref d) = def {
+            key_up["code"] = json!(d.code);
+            key_up["windowsVirtualKeyCode"] = json!(d.key_code);
+            key_up["nativeVirtualKeyCode"] = json!(d.key_code);
+        }
+
+        if let Err(e) = ctx
+            .cdp
+            .execute_on_tab(&ctx.target_id, "Input.dispatchKeyEvent", key_up)
+            .await
+        {
+            return cdp_error_to_result(e, "CDP_ERROR");
+        }
     }
 
     let url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
@@ -211,7 +258,23 @@ async fn is_contenteditable(ctx: &TabContext, node_id: i64) -> bool {
 }
 
 /// Click at coordinates to focus the element at that position.
+/// Sends mouseMoved first to establish hover state (required by headless Chrome).
 async fn dispatch_mouse_click(ctx: &TabContext, x: f64, y: f64) -> Result<(), ActionResult> {
+    ctx.cdp
+        .execute_on_tab(
+            &ctx.target_id,
+            "Input.dispatchMouseEvent",
+            json!({
+                "type": "mouseMoved",
+                "x": x,
+                "y": y,
+                "button": "none",
+                "buttons": 0,
+            }),
+        )
+        .await
+        .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+
     for event_type in &["mousePressed", "mouseReleased"] {
         ctx.cdp
             .execute_on_tab(
