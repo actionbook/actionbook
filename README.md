@@ -11,9 +11,9 @@
 
 **Browser Action Engine for AI Agents**
 <br />
-Actionbook provides up-to-date action manuals and DOM structure,
+Actionbook provides up-to-date action manuals built for the modern web,
 <br />
-so your agent operates any website instantly without guessing.
+so your agent operates any website instantly. One tab or dozens, concurrently.
 
 [Website](https://actionbook.dev) · [GitHub](https://github.com/actionbook/actionbook) · [X](https://x.com/ActionbookHQ) · [Discord](https://actionbook.dev/discord)
 
