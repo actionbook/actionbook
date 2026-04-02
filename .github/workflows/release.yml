@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
@@ -135,8 +136,12 @@ jobs:
             NPM_VER=$(npm view "${PKG_NAME}" version 2>/dev/null || echo "0.0.0")
 
             if [ "$LOCAL_VER" != "$NPM_VER" ]; then
+              TAG_FLAG=""
+              if [[ "$LOCAL_VER" == *-alpha* ]]; then
+                TAG_FLAG="--tag alpha"
+              fi
               echo "Publishing ${PKG_NAME}@${LOCAL_VER} (npm has ${NPM_VER})..."
-              (cd "${PKG_DIR}" && pnpm publish --access public --provenance --no-git-checks)
+              (cd "${PKG_DIR}" && pnpm publish --access public --provenance --no-git-checks $TAG_FLAG)
               PUBLISHED_LIST="${PUBLISHED_LIST}- **${PKG_NAME}** \`${LOCAL_VER}\`\n"
             else
               echo "Skipping ${PKG_NAME}@${LOCAL_VER} (already published)"
@@ -444,8 +449,12 @@ jobs:
             LOCAL_VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('${pkg_dir}/package.json','utf8')).version)")
             NPM_VER=$(npm view "${pkg_name}" version 2>/dev/null || echo "0.0.0")
             if [ "$LOCAL_VER" != "$NPM_VER" ]; then
+              TAG_FLAG=""
+              if [[ "$LOCAL_VER" == *-alpha* ]]; then
+                TAG_FLAG="--tag alpha"
+              fi
               echo "Publishing ${pkg_name}@${LOCAL_VER} (npm has ${NPM_VER})..."
-              (cd "${pkg_dir}" && npm publish --access public --provenance)
+              (cd "${pkg_dir}" && npm publish --access public --provenance $TAG_FLAG)
             else
               echo "Skipping ${pkg_name}@${LOCAL_VER} (already published)"
             fi
@@ -473,8 +482,12 @@ jobs:
           LOCAL_VER="${{ steps.version.outputs.version }}"
           NPM_VER=$(npm view @actionbookdev/cli version 2>/dev/null || echo "0.0.0")
           if [ "$LOCAL_VER" != "$NPM_VER" ]; then
+            TAG_FLAG=""
+            if [[ "$LOCAL_VER" == *-alpha* ]]; then
+              TAG_FLAG="--tag alpha"
+            fi
             echo "Publishing @actionbookdev/cli@${LOCAL_VER} (npm has ${NPM_VER})..."
-            (cd packages/cli && npm publish --access public --provenance)
+            (cd packages/cli && npm publish --access public --provenance $TAG_FLAG)
           else
             echo "Skipping @actionbookdev/cli@${LOCAL_VER} (already published)"
           fi
