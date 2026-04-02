@@ -349,6 +349,25 @@ async fn dispatch_click(
         _ => 1, // left
     };
 
+    // Move mouse to the target coordinates first to establish pointer hover state.
+    // SPA frameworks (React Router, Vue Router, Next.js) attach click listeners
+    // that only fire after the browser has registered a hover via mouseMoved.
+    // Without this, Chrome does not synthesise the click event correctly and the
+    // SPA router's navigation handler never triggers. Matches Playwright behaviour.
+    cdp.execute_on_tab(
+        target_id,
+        "Input.dispatchMouseEvent",
+        json!({
+            "type": "mouseMoved",
+            "x": x,
+            "y": y,
+            "button": "none",
+            "buttons": 0,
+        }),
+    )
+    .await
+    .map_err(|e| cdp_error_to_result(e, "CDP_ERROR"))?;
+
     for click_count in 1..=count {
         cdp.execute_on_tab(
             target_id,
