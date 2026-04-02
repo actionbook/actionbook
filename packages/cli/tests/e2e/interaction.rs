@@ -6635,3 +6635,131 @@ fn click_offscreen_avoids_sticky_header() {
 
     close_session(&sid);
 }
+
+// ========================================================================
+// Group: SPA navigation — mouseMoved hover state required for SPA routers
+// ========================================================================
+
+/// `browser click` on a SPA-style link must trigger the router's `click` listener
+/// and change the URL. Without a prior `mouseMoved` event, Chrome does not
+/// synthesise the `click` event correctly, so SPA routers (React Router /
+/// Vue Router / Next.js) never fire their navigation handler.
+///
+/// The fixture injects an `<a>` whose click handler calls `history.pushState`
+/// (simulating SPA client-side routing) instead of a real browser navigation.
+/// This makes the test fully deterministic without requiring network access.
+#[test]
+fn click_spa_navigation() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = {
+        let (s, profile) = unique_session("s");
+        let out = headless_json(
+            &[
+                "browser",
+                "start",
+                "--mode",
+                "local",
+                "--headless",
+                "--set-session-id",
+                &s,
+                "--profile",
+                &profile,
+                "--open-url",
+                "about:blank",
+            ],
+            30,
+        );
+        assert_success(&out, "start session for spa test");
+        let v = parse_json(&out);
+        let sid = v["data"]["session"]["session_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let tid = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
+        (sid, tid)
+    };
+    let _guard = SessionGuard::new(&sid);
+
+    // Inject a SPA-style fixture: an <a> whose click listener prevents the
+    // default browser navigation and calls history.pushState instead, exactly
+    // as React Router / Vue Router / Next.js do.
+    let setup_js = r#"
+document.title = 'SPA Nav Fixture';
+const link = document.createElement('a');
+link.id = 'spa-link';
+link.href = '/spa-destination';
+link.textContent = 'Navigate';
+link.style.cssText = 'display:block;width:200px;height:40px;background:#ccc;position:fixed;top:100px;left:100px;';
+link.addEventListener('click', function(e) {
+  e.preventDefault();
+  history.pushState({}, 'SPA Destination', '/spa-destination');
+  window.__spa_navigated = true;
+});
+document.body.appendChild(link);
+void(0)
+"#;
+    let eval_out = headless_json(
+        &[
+            "browser",
+            "eval",
+            setup_js,
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&eval_out, "inject spa fixture");
+
+    // Click the SPA link.
+    let out = headless_json(
+        &[
+            "browser",
+            "click",
+            "#spa-link",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "click spa link");
+    let v = parse_json(&out);
+
+    // The SPA router must have fired: URL changed to /spa-destination.
+    assert_eq!(
+        v["data"]["changed"]["url_changed"], true,
+        "url_changed must be true after SPA click"
+    );
+    assert!(
+        v["data"]["post_url"]
+            .as_str()
+            .unwrap_or("")
+            .contains("spa-destination"),
+        "post_url must contain spa-destination, got: {}",
+        v["data"]["post_url"]
+    );
+
+    // Confirm the JS handler actually ran (belt-and-suspenders check).
+    let navigated = headless_json(
+        &[
+            "browser",
+            "eval",
+            "window.__spa_navigated === true",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&navigated, "check spa_navigated flag");
+    let nv = parse_json(&navigated);
+    assert_eq!(nv["data"]["value"], true, "__spa_navigated must be true");
+
+    close_session(&sid);
+}
