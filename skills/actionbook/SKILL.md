@@ -16,11 +16,11 @@ Activate when the user:
 
 ## How It Works
 
-Actionbook provides **up-to-date action manuals** built for the modern web — virtual DOMs, SPAs, streaming components, dynamic content. Action manuals tell agents exactly what to do on a page, eliminating the need to parse and guess at every step.
+Actionbook provides **up-to-date action manuals** for the modern web. Action manuals tell agents exactly what to do on a page — no parsing, no guessing.
 
 **Why this matters:**
 - **10x faster** — action manuals provide selectors and page structure upfront. No snapshot-per-step loop needed.
-- **Accurate** — built for virtual DOMs, SPAs, and streaming components. Handles dropdowns, date pickers, and dynamic content reliably.
+- **Accurate** — handles SPAs, streaming components, dropdowns, date pickers, and dynamic content reliably.
 - **Concurrent** — stateless architecture with explicit `--session`/`--tab`. Operate dozens of tabs in parallel.
 
 The workflow:
@@ -69,7 +69,7 @@ If `--domain` or `--url` is known, always add them — they narrow results and i
 actionbook get "arxiv.org:/search/advanced:default"
 ```
 
-**Returns** a structured document with page URL, overview, function summary, and DOM structure with inline CSS selectors. Extract selectors from the structure summary for use with browser commands.
+**Returns** a structured action manual with page URL, overview, function summary, and element selectors. Use the selectors from the action manual in browser commands.
 
 ## Step 2: Browser Automation
 
@@ -95,7 +95,7 @@ actionbook browser wait navigation --session s1 --tab t1   # Wait for page load
 
 `snapshot` labels every element with a ref (e.g. `@e3`, `@e7`). Use these refs as selectors in any command — they are the recommended way to target elements.
 
-Refs are **stable across snapshots** — if the DOM node stays the same, the ref stays the same. This lets you chain multiple commands without re-snapshotting after every step.
+Refs are **stable across snapshots** — if the element stays the same, the ref stays the same. This lets you chain multiple commands without re-snapshotting after every step.
 
 ### Command categories
 
