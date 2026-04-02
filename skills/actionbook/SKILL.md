@@ -1,6 +1,6 @@
 ---
 name: actionbook
-description: Activate when the user needs to interact with any website — browser automation, web scraping, screenshots, form filling, UI testing, monitoring, or building AI agents. Provides pre-verified page actions with step-by-step instructions and tested selectors.
+description: Browser action engine for AI agents. Provides up-to-date action manuals for the modern web so your agent operates any website instantly — one tab or dozens, concurrently.
 ---
 
 ## When to Use This Skill
@@ -12,16 +12,22 @@ Activate when the user:
 - Wants to take a screenshot of a web page or monitor changes
 - Builds browser-based AI agents, web scrapers, or E2E tests for external websites
 - Automates repetitive web tasks (data entry, form submission, content posting)
+- Needs to operate multiple websites or tabs concurrently
 
 ## How It Works
 
-Actionbook is a library of **pre-verified page interaction data** paired with a **browser automation CLI**.
+Actionbook provides **up-to-date action manuals** built for the modern web — virtual DOMs, SPAs, streaming components, dynamic content. Action manuals tell agents exactly what to do on a page, eliminating the need to parse and guess at every step.
 
-The general workflow is:
-1. **Search** for pre-verified actions for the target website
+**Why this matters:**
+- **10x faster** — action manuals provide selectors and page structure upfront. No snapshot-per-step loop needed.
+- **Accurate** — built for virtual DOMs, SPAs, and streaming components. Handles dropdowns, date pickers, and dynamic content reliably.
+- **Concurrent** — stateless architecture with explicit `--session`/`--tab`. Operate dozens of tabs in parallel.
+
+The workflow:
+1. **Search** for action manuals for the target website
 2. **Get** the action details (selectors, page structure)
 3. **Start** a browser session
-4. **Automate** using the selectors from step 2 or from live snapshots
+4. **Automate** using selectors from the action manual or from live snapshots
 
 Run `actionbook <command> --help` for full usage and examples of any command.
 
