@@ -1,5 +1,5 @@
 ---
-"@actionbookdev/cli": major
+"@actionbookdev/cli": patch
 ---
 
 Actionbook v1.0.0 — Browser Engine for AI Agents
