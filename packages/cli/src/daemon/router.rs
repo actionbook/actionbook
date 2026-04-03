@@ -58,6 +58,7 @@ pub async fn route(action: &Action, registry: &SharedRegistry) -> ActionResult {
         Action::WaitCondition(cmd) => browser::wait::condition::execute(cmd, registry).await,
         Action::Eval(cmd) => browser::interaction::eval::execute(cmd, registry).await,
         Action::Click(cmd) => browser::interaction::click::execute(cmd, registry).await,
+        Action::MultiClick(cmd) => browser::interaction::multi_click::execute(cmd, registry).await,
         Action::Hover(cmd) => browser::interaction::hover::execute(cmd, registry).await,
         Action::Focus(cmd) => browser::interaction::focus::execute(cmd, registry).await,
         Action::Press(cmd) => browser::interaction::press::execute(cmd, registry).await,

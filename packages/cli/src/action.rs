@@ -68,6 +68,7 @@ pub enum Action {
     // ── Interaction ────────────────────────────────────────────
     Eval(interaction::eval::Cmd),
     Click(interaction::click::Cmd),
+    MultiClick(interaction::multi_click::Cmd),
     Hover(interaction::hover::Cmd),
     Focus(interaction::focus::Cmd),
     Press(interaction::press::Cmd),
@@ -160,6 +161,7 @@ impl Action {
             // Interaction
             Action::Eval(c) => st!(c),
             Action::Click(c) => st!(c),
+            Action::MultiClick(c) => st!(c),
             Action::Hover(c) => st!(c),
             Action::Focus(c) => st!(c),
             Action::Press(c) => st!(c),
@@ -224,6 +226,7 @@ impl Action {
             Action::WaitCondition(_) => wait::condition::COMMAND_NAME,
             Action::Eval(_) => interaction::eval::COMMAND_NAME,
             Action::Click(_) => interaction::click::COMMAND_NAME,
+            Action::MultiClick(_) => interaction::multi_click::COMMAND_NAME,
             Action::Hover(_) => interaction::hover::COMMAND_NAME,
             Action::Focus(_) => interaction::focus::COMMAND_NAME,
             Action::Press(_) => interaction::press::COMMAND_NAME,

@@ -237,6 +237,8 @@ Examples:
     Eval(interaction::eval::Cmd),
     /// Click an element
     Click(interaction::click::Cmd),
+    /// Click multiple elements in sequence
+    MultiClick(interaction::multi_click::Cmd),
     /// Hover over an element
     Hover(interaction::hover::Cmd),
     /// Focus an element
@@ -439,6 +441,7 @@ impl BrowserCommands {
             Self::Screenshot(cmd) => Action::Screenshot(cmd.clone()),
             Self::Eval(cmd) => Action::Eval(cmd.clone()),
             Self::Click(cmd) => Action::Click(cmd.clone()),
+            Self::MultiClick(cmd) => Action::MultiClick(cmd.clone()),
             Self::Hover(cmd) => Action::Hover(cmd.clone()),
             Self::Focus(cmd) => Action::Focus(cmd.clone()),
             Self::Press(cmd) => Action::Press(cmd.clone()),
@@ -511,6 +514,7 @@ impl BrowserCommands {
             Self::Screenshot(_) => observation::screenshot::COMMAND_NAME,
             Self::Eval(_) => interaction::eval::COMMAND_NAME,
             Self::Click(_) => interaction::click::COMMAND_NAME,
+            Self::MultiClick(_) => interaction::multi_click::COMMAND_NAME,
             Self::Hover(_) => interaction::hover::COMMAND_NAME,
             Self::Focus(_) => interaction::focus::COMMAND_NAME,
             Self::Press(_) => interaction::press::COMMAND_NAME,
@@ -600,6 +604,7 @@ impl BrowserCommands {
                 result,
             ),
             Self::Click(cmd) => interaction::click::context(cmd, result),
+            Self::MultiClick(cmd) => interaction::multi_click::context(cmd, result),
             Self::Hover(cmd) => interaction::hover::context(cmd, result),
             Self::Focus(cmd) => interaction::focus::context(cmd, result),
             Self::Press(cmd) => interaction::press::context(cmd, result),

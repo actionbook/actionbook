@@ -196,6 +196,7 @@ pub fn format_text(
                     | "browser forward"
                     | "browser reload"
                     | "browser click"
+                    | "browser multi-click"
                     | "browser hover"
                     | "browser focus"
                     | "browser press"
@@ -394,6 +395,23 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 data.pointer("/target/coordinates").and_then(|v| v.as_str())
             {
                 lines.push(format!("target: {coords}"));
+            }
+        }
+        "browser multi-click" => {
+            if let Some(total) = data.get("total").and_then(|v| v.as_u64()) {
+                let clicked = data.get("clicked").and_then(|v| v.as_u64()).unwrap_or(0);
+                lines.push(format!("clicked: {clicked}/{total}"));
+            }
+            if let Some(results) = data.get("results").and_then(|v| v.as_array()) {
+                for r in results {
+                    if let Some(sel) = r.pointer("/target/selector").and_then(|v| v.as_str()) {
+                        lines.push(format!("  target: {sel}"));
+                    } else if let Some(coords) =
+                        r.pointer("/target/coordinates").and_then(|v| v.as_str())
+                    {
+                        lines.push(format!("  target: {coords}"));
+                    }
+                }
             }
         }
         "browser hover" | "browser focus" => {

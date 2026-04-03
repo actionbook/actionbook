@@ -335,7 +335,7 @@ async fn open_in_new_tab(
 }
 
 /// Dispatch CDP mouse events for click(s).
-async fn dispatch_click(
+pub async fn dispatch_click(
     cdp: &CdpSession,
     target_id: &str,
     x: f64,

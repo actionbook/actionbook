@@ -1,5 +1,6 @@
 pub mod click;
 pub mod cursor_position;
+pub mod multi_click;
 pub mod drag;
 pub mod eval;
 pub mod fill;
