@@ -970,6 +970,87 @@ mod tests {
         );
     }
 
+    // ── render_yaml ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_render_yaml_nested_tree_with_refs_urls_and_cursor_attrs() {
+        let mut home = make_node("e8", "link", "Home", true, 1);
+        home.url = "https://example.com/".to_string();
+
+        let search = make_node("e9", "combobox", "Search", true, 2);
+
+        let mut clear = make_node("e10", "image", "clear", true, 2);
+        clear.cursor_info = Some(CursorInfo {
+            kind: "clickable".to_string(),
+            hints: vec!["cursor:pointer".to_string(), "onclick".to_string()],
+        });
+
+        let list_item = make_node("", "listitem", "One", false, 2);
+
+        let nodes = vec![
+            make_node("", "generic", "", false, 0),
+            home,
+            make_node("", "generic", "", false, 1),
+            search,
+            clear,
+            make_node("", "list", "", false, 1),
+            list_item,
+        ];
+
+        let content = render_yaml(&nodes);
+        let expected = r#"- generic:
+  - link "Home" [ref=e8]:
+    - /url: https://example.com/
+  - generic:
+    - combobox "Search" [ref=e9]
+    - image "clear" [ref=e10] [cursor=pointer]
+  - list:
+    - listitem: One"#;
+
+        assert_eq!(content, expected);
+    }
+
+    #[test]
+    fn test_render_yaml_uses_two_space_indentation_per_level() {
+        let nodes = vec![
+            make_node("", "generic", "", false, 0),
+            make_node("e1", "button", "Top", true, 1),
+            make_node("", "generic", "", false, 1),
+            make_node("e2", "button", "Nested", true, 2),
+        ];
+
+        let content = render_yaml(&nodes);
+        let lines: Vec<&str> = content.lines().collect();
+
+        assert_eq!(lines[0], "- generic:");
+        assert!(lines[1].starts_with("  - "), "depth 1 should use 2 spaces");
+        assert!(lines[2].starts_with("  - "), "depth 1 should use 2 spaces");
+        assert!(lines[3].starts_with("    - "), "depth 2 should use 4 spaces");
+    }
+
+    #[test]
+    fn test_render_yaml_uses_inline_text_for_leaf_nodes() {
+        let nodes = vec![make_node("", "listitem", "Inline text", false, 0)];
+        let content = render_yaml(&nodes);
+        assert_eq!(content, "- listitem: Inline text");
+    }
+
+    #[test]
+    fn test_render_yaml_escapes_special_chars_in_names() {
+        let nodes = vec![make_node(
+            "e1",
+            "button",
+            "Say \"hi\"\nthen \\ go",
+            true,
+            0,
+        )];
+        let content = render_yaml(&nodes);
+        assert_eq!(
+            content,
+            r#"- button "Say \"hi\"\nthen \\ go" [ref=e1]"#
+        );
+    }
+
     // NOTE: build_stats tests removed — stats are computed inline in build_output.
 
     // ── build_output ─────────────────────────────────────────────────
