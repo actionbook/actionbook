@@ -147,6 +147,83 @@ pub fn render_content(nodes: &[AXNode]) -> String {
     lines.join("\n")
 }
 
+/// Render a flat node list to a Playwright-style YAML DSL string.
+///
+/// Format rules:
+/// - Container nodes (have children or URL): `- role "name" [ref=eN]:`
+/// - Leaf with ref: `- role "name" [ref=eN]`
+/// - Leaf without ref, has name and value: `- role "name": value`
+/// - Leaf without ref, has name only: `- role: name`
+/// - URL renders as a child line: `- /url: <url>`
+/// - `[cursor=pointer]` added when cursor_info contains "cursor:pointer" hint
+/// - Quotes and newlines in names are escaped
+pub fn render_yaml(nodes: &[AXNode]) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    for (i, node) in nodes.iter().enumerate() {
+        let indent = "  ".repeat(node.depth);
+        let escaped_name: String = node
+            .name
+            .chars()
+            .flat_map(|c| match c {
+                '\\' => vec!['\\', '\\'],
+                '"' => vec!['\\', '"'],
+                '\n' => vec!['\\', 'n'],
+                '\r' => vec!['\\', 'r'],
+                c if c.is_control() => vec![],
+                c => vec![c],
+            })
+            .collect();
+
+        let has_tree_children = nodes.get(i + 1).map_or(false, |n| n.depth > node.depth);
+        let has_url = !node.url.is_empty();
+        let is_container = has_tree_children || has_url;
+
+        let has_cursor_pointer = node
+            .cursor_info
+            .as_ref()
+            .map_or(false, |ci| ci.hints.iter().any(|h| h == "cursor:pointer"));
+
+        let line = if is_container {
+            let mut s = format!("{indent}- {}", node.role);
+            if !escaped_name.is_empty() {
+                s.push_str(&format!(" \"{}\"", escaped_name));
+            }
+            if !node.ref_id.is_empty() {
+                s.push_str(&format!(" [ref={}]", node.ref_id));
+            }
+            if has_cursor_pointer {
+                s.push_str(" [cursor=pointer]");
+            }
+            s.push(':');
+            s
+        } else if !node.ref_id.is_empty() {
+            let mut s = format!("{indent}- {}", node.role);
+            if !escaped_name.is_empty() {
+                s.push_str(&format!(" \"{}\"", escaped_name));
+            }
+            s.push_str(&format!(" [ref={}]", node.ref_id));
+            if has_cursor_pointer {
+                s.push_str(" [cursor=pointer]");
+            }
+            s
+        } else if !escaped_name.is_empty() && !node.value.is_empty() {
+            format!("{indent}- {} \"{}\": {}", node.role, escaped_name, node.value)
+        } else if !escaped_name.is_empty() {
+            format!("{indent}- {}: {}", node.role, node.name)
+        } else {
+            format!("{indent}- {}", node.role)
+        };
+
+        lines.push(line);
+
+        if has_url {
+            let child_indent = "  ".repeat(node.depth + 1);
+            lines.push(format!("{child_indent}- /url: {}", node.url));
+        }
+    }
+    lines.join("\n")
+}
+
 /// Extract a string from a CDP AXValue `{"type":"...","value":"..."}`.
 /// Handles string, integer, float, and boolean value types.
 fn extract_ax_string(ax_value: &Value) -> String {
@@ -417,7 +494,7 @@ pub fn parse_ax_tree(
 /// Build the full SnapshotOutput from a flat node list.
 /// `data.nodes` only contains nodes that have a ref (interactive + named content).
 pub fn build_output(nodes: Vec<AXNode>) -> SnapshotOutput {
-    let content = render_content(&nodes);
+    let content = render_yaml(&nodes);
     // Stats count all nodes with refs
     let ref_nodes: Vec<&AXNode> = nodes.iter().filter(|n| !n.ref_id.is_empty()).collect();
     let node_count = ref_nodes.len();

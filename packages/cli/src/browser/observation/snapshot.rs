@@ -209,7 +209,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    let snapshot_path = session_data_dir.join(format!("snapshot_{ts}.txt"));
+    let snapshot_path = session_data_dir.join(format!("snapshot_{ts}.yaml"));
     let snapshot_path_str = snapshot_path.to_string_lossy().to_string();
 
     if let Err(e) = std::fs::write(&snapshot_path, &output.content) {
