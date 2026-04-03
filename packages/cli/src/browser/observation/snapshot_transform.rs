@@ -1029,10 +1029,54 @@ mod tests {
     }
 
     #[test]
+    fn test_render_yaml_empty_tree_returns_empty_string() {
+        assert!(render_yaml(&[]).is_empty());
+    }
+
+    #[test]
+    fn test_render_yaml_named_container_with_children_uses_block_form() {
+        let nodes = vec![
+            make_node("", "generic", "Filters", false, 0),
+            make_node("e1", "button", "Apply", true, 1),
+        ];
+        let content = render_yaml(&nodes);
+        assert_eq!(content, "- generic \"Filters\":\n  - button \"Apply\" [ref=e1]");
+    }
+
+    #[test]
     fn test_render_yaml_uses_inline_text_for_leaf_nodes() {
         let nodes = vec![make_node("", "listitem", "Inline text", false, 0)];
         let content = render_yaml(&nodes);
         assert_eq!(content, "- listitem: Inline text");
+    }
+
+    #[test]
+    fn test_render_yaml_renders_textbox_value_inline() {
+        let nodes = vec![make_node_with_value(
+            "",
+            "textbox",
+            "Search",
+            "current value",
+            true,
+            0,
+        )];
+        let content = render_yaml(&nodes);
+        assert_eq!(content, "- textbox \"Search\": current value");
+    }
+
+    #[test]
+    fn test_render_yaml_ignores_non_pointer_cursor_hints() {
+        let mut node = make_node("e1", "image", "clear", true, 0);
+        node.cursor_info = Some(CursorInfo {
+            kind: "clickable".to_string(),
+            hints: vec![
+                "cursor:pointer".to_string(),
+                "onclick".to_string(),
+                "tabindex".to_string(),
+            ],
+        });
+        let content = render_yaml(&[node]);
+        assert_eq!(content, "- image \"clear\" [ref=e1] [cursor=pointer]");
     }
 
     #[test]
