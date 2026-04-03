@@ -178,6 +178,19 @@ pub fn render_yaml(nodes: &[AXNode]) -> String {
         let has_url = !node.url.is_empty();
         let is_container = has_tree_children || has_url;
 
+        let escaped_value: String = node
+            .value
+            .chars()
+            .flat_map(|c| match c {
+                '\\' => vec!['\\', '\\'],
+                '"' => vec!['\\', '"'],
+                '\n' => vec!['\\', 'n'],
+                '\r' => vec!['\\', 'r'],
+                c if c.is_control() => vec![],
+                c => vec![c],
+            })
+            .collect();
+
         let has_cursor_pointer = node
             .cursor_info
             .as_ref()
@@ -205,20 +218,11 @@ pub fn render_yaml(nodes: &[AXNode]) -> String {
             if has_cursor_pointer {
                 s.push_str(" [cursor=pointer]");
             }
+            if !escaped_value.is_empty() {
+                s.push_str(&format!(": {}", escaped_value));
+            }
             s
-        } else if !escaped_name.is_empty() && !node.value.is_empty() {
-            let escaped_value: String = node
-                .value
-                .chars()
-                .flat_map(|c| match c {
-                    '\\' => vec!['\\', '\\'],
-                    '"' => vec!['\\', '"'],
-                    '\n' => vec!['\\', 'n'],
-                    '\r' => vec!['\\', 'r'],
-                    c if c.is_control() => vec![],
-                    c => vec![c],
-                })
-                .collect();
+        } else if !escaped_name.is_empty() && !escaped_value.is_empty() {
             format!("{indent}- {} \"{}\": {}", node.role, escaped_name, escaped_value)
         } else if !escaped_name.is_empty() {
             format!("{indent}- {}: {}", node.role, escaped_name)
@@ -1182,6 +1186,13 @@ mod tests {
             content,
             r#"- button "Say \"hi\"\nthen \\ go" [ref=e1]"#
         );
+    }
+
+    #[test]
+    fn test_render_yaml_renders_value_inline_when_ref_present() {
+        let nodes = vec![make_node_with_value("e5", "textbox", "Search", "hello world", true, 0)];
+        let content = render_yaml(&nodes);
+        assert_eq!(content, "- textbox \"Search\" [ref=e5]: hello world");
     }
 
     // NOTE: build_stats tests removed — stats are computed inline in build_output.
