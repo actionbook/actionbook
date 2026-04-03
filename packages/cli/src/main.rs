@@ -309,8 +309,6 @@ No \"current tab\" — run commands on any session/tab in parallel.
 Usage: actionbook <command> [options]
 
 Commands:
-  search     Search for action manuals by keyword
-  get        Get complete action details by area ID
   browser    Control browser sessions, tabs, and page interactions
   setup      Configure actionbook
   help       Show this help
@@ -321,8 +319,6 @@ Global flags:
   --timeout <ms>  Set command timeout
 
 Quick start:
-  actionbook search \"find a room next week in SF on airbnb\" --domain airbnb.com
-  actionbook get \"airbnb.com:/:default\"
   actionbook browser start --set-session-id s1
   actionbook browser goto https://airbnb.com --session s1 --tab t1
   actionbook browser snapshot --session s1 --tab t1
