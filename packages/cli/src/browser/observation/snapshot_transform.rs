@@ -1174,23 +1174,21 @@ mod tests {
 
     #[test]
     fn test_render_yaml_escapes_special_chars_in_names() {
-        let nodes = vec![make_node(
-            "e1",
-            "button",
-            "Say \"hi\"\nthen \\ go",
-            true,
-            0,
-        )];
+        let nodes = vec![make_node("e1", "button", "Say \"hi\"\nthen \\ go", true, 0)];
         let content = render_yaml(&nodes);
-        assert_eq!(
-            content,
-            r#"- button "Say \"hi\"\nthen \\ go" [ref=e1]"#
-        );
+        assert_eq!(content, r#"- button "Say \"hi\"\nthen \\ go" [ref=e1]"#);
     }
 
     #[test]
     fn test_render_yaml_renders_value_inline_when_ref_present() {
-        let nodes = vec![make_node_with_value("e5", "textbox", "Search", "hello world", true, 0)];
+        let nodes = vec![make_node_with_value(
+            "e5",
+            "textbox",
+            "Search",
+            "hello world",
+            true,
+            0,
+        )];
         let content = render_yaml(&nodes);
         assert_eq!(content, "- textbox \"Search\" [ref=e5]: hello world");
     }
