@@ -468,34 +468,40 @@ async fn dispatch_click(
 
 /// Wait for JS to settle after a click, then fetch url + title + focus in one evaluate.
 ///
-/// Polls at 50ms intervals until the URL stabilises or the timeout is reached,
-/// then reads all post-click state in a single Runtime.evaluate round-trip.
-/// This avoids separate get_tab_url / get_tab_title / get_active_element calls
-/// and ensures the evaluate runs after the JS main thread finishes its work.
+/// Strategy:
+///   1. sleep(50ms) — give the browser time to start processing the click event
+///   2. One Runtime.evaluate (blocks until JS main thread is free)
+///      - URL unchanged → DOM-only interaction (expand/toggle), return immediately (~100ms total)
+///      - URL changed   → navigation started, poll until URL stabilises (max 2s)
 async fn wait_and_get_post_state(
     cdp: &CdpSession,
     target_id: &str,
     pre_url: &str,
 ) -> (String, String, String) {
+    // Give the browser time to start processing the click event.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let state = get_full_tab_state(cdp, target_id).await;
+
+    // URL unchanged → DOM-only interaction, no navigation pending.
+    // The evaluate above already waited for the JS main thread to finish.
+    if pre_url.is_empty() || state.0 == pre_url {
+        return state;
+    }
+
+    // URL changed → navigation in progress; poll until the URL stabilises.
     const POLL_INTERVAL: Duration = Duration::from_millis(50);
     const TIMEOUT: Duration = Duration::from_millis(2000);
-
     let deadline = tokio::time::Instant::now() + TIMEOUT;
-    // Brief initial pause so the browser starts processing the click.
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    let mut current = state;
 
-    // Poll for URL change (early exit on navigation).
     loop {
-        let state = get_full_tab_state(cdp, target_id).await;
-        // URL changed — navigation happened, return immediately.
-        if !pre_url.is_empty() && state.0 != pre_url {
-            return state;
-        }
-        // Timeout — JS has had enough time to settle, return current state.
-        if tokio::time::Instant::now() >= deadline {
-            return state;
-        }
         tokio::time::sleep(POLL_INTERVAL).await;
+        let next = get_full_tab_state(cdp, target_id).await;
+        if next.0 == current.0 || tokio::time::Instant::now() >= deadline {
+            return next;
+        }
+        current = next;
     }
 }
 
