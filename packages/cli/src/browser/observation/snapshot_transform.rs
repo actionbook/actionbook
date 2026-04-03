@@ -223,7 +223,10 @@ pub fn render_yaml(nodes: &[AXNode]) -> String {
             }
             s
         } else if !escaped_name.is_empty() && !escaped_value.is_empty() {
-            format!("{indent}- {} \"{}\": {}", node.role, escaped_name, escaped_value)
+            format!(
+                "{indent}- {} \"{}\": {}",
+                node.role, escaped_name, escaped_value
+            )
         } else if !escaped_name.is_empty() {
             format!("{indent}- {}: {}", node.role, escaped_name)
         } else {
@@ -1118,7 +1121,10 @@ mod tests {
         assert_eq!(lines[0], "- generic:");
         assert!(lines[1].starts_with("  - "), "depth 1 should use 2 spaces");
         assert!(lines[2].starts_with("  - "), "depth 1 should use 2 spaces");
-        assert!(lines[3].starts_with("    - "), "depth 2 should use 4 spaces");
+        assert!(
+            lines[3].starts_with("    - "),
+            "depth 2 should use 4 spaces"
+        );
     }
 
     #[test]
@@ -1133,7 +1139,10 @@ mod tests {
             make_node("e1", "button", "Apply", true, 1),
         ];
         let content = render_yaml(&nodes);
-        assert_eq!(content, "- generic \"Filters\":\n  - button \"Apply\" [ref=e1]");
+        assert_eq!(
+            content,
+            "- generic \"Filters\":\n  - button \"Apply\" [ref=e1]"
+        );
     }
 
     #[test]
@@ -1817,8 +1826,13 @@ mod tests {
         assert!(
             output
                 .content
-                .contains("- link \"Docs\" [ref=e1] url=https://example.com/docs"),
-            "link elements should render their URL inline in snapshot output: {}",
+                .contains("- link \"Docs\" [ref=e1]:"),
+            "link elements should render as YAML container with ref: {}",
+            output.content
+        );
+        assert!(
+            output.content.contains("- /url: https://example.com/docs"),
+            "link URL should render as YAML /url child property: {}",
             output.content
         );
     }
