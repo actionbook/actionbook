@@ -1824,9 +1824,7 @@ mod tests {
         let output = build_output(nodes);
 
         assert!(
-            output
-                .content
-                .contains("- link \"Docs\" [ref=e1]:"),
+            output.content.contains("- link \"Docs\" [ref=e1]:"),
             "link elements should render as YAML container with ref: {}",
             output.content
         );
