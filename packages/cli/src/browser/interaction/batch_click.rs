@@ -22,9 +22,9 @@ fn default_count() -> u32 {
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
 #[command(after_help = "\
 Examples:
-  actionbook browser multi-click \"#cookie-banner\" \"#accept\" --session s1 --tab t1
-  actionbook browser multi-click @e3 @e7 @e12 --session s1 --tab t1
-  actionbook browser multi-click \".step-1\" \".step-2\" \".step-3\" --session s1 --tab t1
+  actionbook browser batch-click \"#cookie-banner\" \"#accept\" --session s1 --tab t1
+  actionbook browser batch-click @e3 @e7 @e12 --session s1 --tab t1
+  actionbook browser batch-click \".step-1\" \".step-2\" \".step-3\" --session s1 --tab t1
 
 Clicks each selector in order. Stops on the first failure.
 Accepts CSS selectors, XPath, snapshot refs (@eN), or x,y coordinates.")]
@@ -54,7 +54,7 @@ pub struct Cmd {
     pub delay: u64,
 }
 
-pub const COMMAND_NAME: &str = "browser multi-click";
+pub const COMMAND_NAME: &str = "browser batch-click";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result
@@ -132,19 +132,18 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 Err(e) => {
                     // Record partial results up to the failure
                     let mut data = json!({
-                        "action": "multi-click",
+                        "action": "batch-click",
                         "total": total,
                         "clicked": i,
                         "results": results,
                         "failed_at": { "index": i, "selector": raw_selector },
                     });
                     if let ActionResult::Fatal { code, message, .. } = &e {
-                        data["failed_at"]["error"] =
-                            json!({ "code": code, "message": message });
+                        data["failed_at"]["error"] = json!({ "code": code, "message": message });
                     }
                     add_post_state(&ctx, &mut data).await;
                     return ActionResult::fatal_with_details(
-                        "MULTI_CLICK_PARTIAL",
+                        "BATCH_CLICK_PARTIAL",
                         format!(
                             "failed at selector {} of {}: '{}'",
                             i + 1,
@@ -159,11 +158,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         };
 
         // Dispatch click
-        if let Err(e) = dispatch_click(&ctx.cdp, &ctx.target_id, x, y, &cmd.button, cmd.count)
-            .await
+        if let Err(e) = dispatch_click(&ctx.cdp, &ctx.target_id, x, y, &cmd.button, cmd.count).await
         {
             let mut data = json!({
-                "action": "multi-click",
+                "action": "batch-click",
                 "total": total,
                 "clicked": i,
                 "results": results,
@@ -174,7 +172,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             }
             add_post_state(&ctx, &mut data).await;
             return ActionResult::fatal_with_details(
-                "MULTI_CLICK_PARTIAL",
+                "BATCH_CLICK_PARTIAL",
                 format!(
                     "click failed at selector {} of {}: '{}'",
                     i + 1,
@@ -218,7 +216,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let focus_changed = pre_focus != post_focus;
 
     ActionResult::ok(json!({
-        "action": "multi-click",
+        "action": "batch-click",
         "total": total,
         "clicked": total,
         "results": results,

@@ -238,7 +238,7 @@ Examples:
     /// Click an element
     Click(interaction::click::Cmd),
     /// Click multiple elements in sequence
-    MultiClick(interaction::multi_click::Cmd),
+    BatchClick(interaction::batch_click::Cmd),
     /// Hover over an element
     Hover(interaction::hover::Cmd),
     /// Focus an element
@@ -441,7 +441,7 @@ impl BrowserCommands {
             Self::Screenshot(cmd) => Action::Screenshot(cmd.clone()),
             Self::Eval(cmd) => Action::Eval(cmd.clone()),
             Self::Click(cmd) => Action::Click(cmd.clone()),
-            Self::MultiClick(cmd) => Action::MultiClick(cmd.clone()),
+            Self::BatchClick(cmd) => Action::BatchClick(cmd.clone()),
             Self::Hover(cmd) => Action::Hover(cmd.clone()),
             Self::Focus(cmd) => Action::Focus(cmd.clone()),
             Self::Press(cmd) => Action::Press(cmd.clone()),
@@ -514,7 +514,7 @@ impl BrowserCommands {
             Self::Screenshot(_) => observation::screenshot::COMMAND_NAME,
             Self::Eval(_) => interaction::eval::COMMAND_NAME,
             Self::Click(_) => interaction::click::COMMAND_NAME,
-            Self::MultiClick(_) => interaction::multi_click::COMMAND_NAME,
+            Self::BatchClick(_) => interaction::batch_click::COMMAND_NAME,
             Self::Hover(_) => interaction::hover::COMMAND_NAME,
             Self::Focus(_) => interaction::focus::COMMAND_NAME,
             Self::Press(_) => interaction::press::COMMAND_NAME,
@@ -604,7 +604,7 @@ impl BrowserCommands {
                 result,
             ),
             Self::Click(cmd) => interaction::click::context(cmd, result),
-            Self::MultiClick(cmd) => interaction::multi_click::context(cmd, result),
+            Self::BatchClick(cmd) => interaction::batch_click::context(cmd, result),
             Self::Hover(cmd) => interaction::hover::context(cmd, result),
             Self::Focus(cmd) => interaction::focus::context(cmd, result),
             Self::Press(cmd) => interaction::press::context(cmd, result),
@@ -958,11 +958,11 @@ mod tests {
     }
 
     #[test]
-    fn try_parse_from_accepts_browser_multi_click_command() {
+    fn try_parse_from_accepts_browser_batch_click_command() {
         let cli = Cli::try_parse_from([
             "actionbook",
             "browser",
-            "multi-click",
+            "batch-click",
             "#btn-1",
             "#btn-2",
             "#btn-3",
@@ -972,15 +972,15 @@ mod tests {
             "tab-1",
         ]);
 
-        assert!(cli.is_ok(), "browser multi-click command should parse");
+        assert!(cli.is_ok(), "browser batch-click command should parse");
     }
 
     #[test]
-    fn try_parse_from_rejects_browser_multi_click_without_selectors() {
+    fn try_parse_from_rejects_browser_batch_click_without_selectors() {
         let cli = Cli::try_parse_from([
             "actionbook",
             "browser",
-            "multi-click",
+            "batch-click",
             "--session",
             "session-1",
             "--tab",
@@ -989,16 +989,16 @@ mod tests {
 
         assert!(
             cli.is_err(),
-            "browser multi-click should require at least one selector"
+            "browser batch-click should require at least one selector"
         );
     }
 
     #[test]
-    fn try_parse_from_accepts_browser_multi_click_with_delay() {
+    fn try_parse_from_accepts_browser_batch_click_with_delay() {
         let cli = Cli::try_parse_from([
             "actionbook",
             "browser",
-            "multi-click",
+            "batch-click",
             "#a",
             "#b",
             "--delay",
@@ -1009,10 +1009,7 @@ mod tests {
             "tab-1",
         ]);
 
-        assert!(
-            cli.is_ok(),
-            "browser multi-click with --delay should parse"
-        );
+        assert!(cli.is_ok(), "browser batch-click with --delay should parse");
     }
 
     #[test]
