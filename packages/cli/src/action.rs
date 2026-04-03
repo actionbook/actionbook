@@ -25,6 +25,7 @@ pub enum Action {
     Reload(navigation::reload::Cmd),
 
     // ── Observation ────────────────────────────────────────────
+    BatchSnapshot(observation::batch_snapshot::Cmd),
     Snapshot(observation::snapshot::Cmd),
     Screenshot(observation::screenshot::Cmd),
     Title(observation::title::Cmd),
@@ -117,6 +118,7 @@ impl Action {
             Action::Reload(c) => st!(c),
 
             // Observation
+            Action::BatchSnapshot(c) => c.session.clone(),
             Action::Snapshot(c) => st!(c),
             Action::Screenshot(c) => st!(c),
             Action::Title(c) => st!(c),
@@ -189,6 +191,7 @@ impl Action {
             Action::Back(_) => navigation::back::COMMAND_NAME,
             Action::Forward(_) => navigation::forward::COMMAND_NAME,
             Action::Reload(_) => navigation::reload::COMMAND_NAME,
+            Action::BatchSnapshot(_) => observation::batch_snapshot::COMMAND_NAME,
             Action::Snapshot(_) => observation::snapshot::COMMAND_NAME,
             Action::Screenshot(_) => observation::screenshot::COMMAND_NAME,
             Action::Title(_) => observation::title::COMMAND_NAME,

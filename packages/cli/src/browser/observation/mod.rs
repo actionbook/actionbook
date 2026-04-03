@@ -1,5 +1,6 @@
 pub mod attr;
 pub mod attrs;
+pub mod batch_snapshot;
 pub mod r#box;
 pub mod describe;
 pub mod html;
