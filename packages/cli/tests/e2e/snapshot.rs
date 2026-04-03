@@ -79,6 +79,10 @@ fn assert_snapshot_data(v: &serde_json::Value) {
         !data["path"].as_str().unwrap_or("").is_empty(),
         "data.path must not be empty"
     );
+    assert!(
+        data["path"].as_str().unwrap_or("").ends_with(".yaml"),
+        "data.path must point to a .yaml snapshot artifact"
+    );
     assert!(data["nodes"].is_array(), "data.nodes must be an array");
     assert!(
         !data["nodes"].as_array().unwrap().is_empty(),
@@ -121,17 +125,29 @@ fn snapshot_path(v: &serde_json::Value) -> &str {
 
 fn snapshot_content(v: &serde_json::Value) -> String {
     let path = snapshot_path(v);
+    assert!(
+        path.ends_with(".yaml"),
+        "snapshot path must use .yaml extension: {path}"
+    );
     std::fs::read_to_string(path).unwrap_or_else(|e| {
         panic!("snapshot path should be readable: {path} ({e})");
     })
 }
 
-/// Assert saved snapshot file contains [ref=eN] labels.
-fn assert_content_has_refs(v: &serde_json::Value) {
+/// Assert saved snapshot file uses the YAML DSL shape and contains refs.
+fn assert_content_is_yaml_snapshot(v: &serde_json::Value) {
     let content = snapshot_content(v);
     assert!(
         content.contains("[ref="),
         "snapshot file must contain [ref=eN] labels, got: {content:.100}"
+    );
+    assert!(
+        !content.contains(" url="),
+        "snapshot file must not use the legacy inline `url=` text format: {content:.200}"
+    );
+    assert!(
+        content.lines().any(|line| line.ends_with(':')),
+        "snapshot file must contain at least one YAML-style container line ending with ':': {content:.200}"
     );
 }
 
@@ -241,7 +257,7 @@ fn snap_json_data_fields() {
 
     // §10.1 data contract
     assert_snapshot_data(&v);
-    assert_content_has_refs(&v);
+    assert_content_is_yaml_snapshot(&v);
 
     // §10.1 strict: data must only contain {format, path, nodes, stats}
     // No internal fields (__ctx_*, snapshot, etc.) should leak into public data
