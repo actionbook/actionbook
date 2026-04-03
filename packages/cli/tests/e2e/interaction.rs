@@ -84,6 +84,54 @@ fn assert_click_success(
     assert_meta(v);
 }
 
+fn assert_multi_click_success(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    expected_selectors: &[&str],
+) {
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser multi-click");
+    assert!(v["error"].is_null(), "error must be null on success");
+
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "multi-click");
+    assert_eq!(data["total"], expected_selectors.len());
+    assert_eq!(data["clicked"], expected_selectors.len());
+    assert!(
+        data["results"].is_array(),
+        "data.results must be an array on success"
+    );
+    let results = data["results"].as_array().expect("results array");
+    assert_eq!(results.len(), expected_selectors.len());
+    for (idx, selector) in expected_selectors.iter().enumerate() {
+        assert_eq!(results[idx]["index"], idx);
+        assert_eq!(results[idx]["target"]["selector"], *selector);
+        assert!(
+            results[idx]["x"].is_number(),
+            "result x must be numeric for selector {selector}"
+        );
+        assert!(
+            results[idx]["y"].is_number(),
+            "result y must be numeric for selector {selector}"
+        );
+    }
+    assert!(
+        data["changed"]["url_changed"].is_boolean(),
+        "data.changed.url_changed must be a boolean"
+    );
+    assert!(
+        data["changed"]["focus_changed"].is_boolean(),
+        "data.changed.focus_changed must be a boolean"
+    );
+
+    assert_meta(v);
+}
+
 fn assert_type_success(
     v: &serde_json::Value,
     session_id: &str,
@@ -6950,7 +6998,11 @@ fn install_multi_click_fixture(session_id: &str, tab_id: &str) {
   return 'ok';
 })()
 "#;
-    eval_value(session_id, tab_id, expression);
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(
+        value, "ok",
+        "multi-click fixture should install successfully"
+    );
 }
 
 #[test]
@@ -6979,39 +7031,79 @@ fn multi_click_sequential_json() {
     assert_success(&out, "multi-click json");
     let v = parse_json(&out);
 
-    assert_eq!(v["ok"], true);
-    assert_eq!(v["command"], "browser multi-click");
-    assert!(v["error"].is_null(), "error must be null on success");
-    assert!(v["context"].is_object(), "context must be present");
-    assert_eq!(v["context"]["session_id"], sid.as_str());
-    assert_eq!(v["context"]["tab_id"], tid.as_str());
-
-    let data = &v["data"];
-    assert_eq!(data["action"], "multi-click");
-    assert_eq!(data["total"], 3);
-    assert_eq!(data["clicked"], 3);
-    assert!(data["results"].is_array(), "results must be an array");
-    assert_eq!(data["results"].as_array().unwrap().len(), 3);
-    assert_eq!(data["results"][0]["target"]["selector"], "#ab-mc-btn-a");
-    assert_eq!(data["results"][1]["target"]["selector"], "#ab-mc-btn-b");
-    assert_eq!(data["results"][2]["target"]["selector"], "#ab-mc-btn-c");
-    assert!(
-        data["changed"]["url_changed"].is_boolean(),
-        "data.changed.url_changed must be a boolean"
-    );
-    assert!(
-        data["changed"]["focus_changed"].is_boolean(),
-        "data.changed.focus_changed must be a boolean"
-    );
-    assert_meta(&v);
-
-    // Verify clicks happened in order
-    let order = eval_value(
+    assert_multi_click_success(
+        &v,
         &sid,
         &tid,
-        "JSON.stringify(window.__ab_multi_click_order)",
+        &["#ab-mc-btn-a", "#ab-mc-btn-b", "#ab-mc-btn-c"],
     );
-    assert_eq!(order, r#"["A","B","C"]"#, "clicks must happen in order A→B→C");
+
+    // Verify clicks happened in order
+    let order = eval_value(&sid, &tid, "JSON.stringify(window.__ab_multi_click_order)");
+    assert_eq!(
+        order, r#"["A","B","C"]"#,
+        "clicks must happen in order A→B→C"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn multi_click_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_multi_click_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "multi-click",
+            "#ab-mc-btn-a",
+            "#ab-mc-btn-b",
+            "#ab-mc-btn-c",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "multi-click text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains(&format!("[{sid} {tid}]")),
+        "header must contain [session_id tab_id]: got {text}"
+    );
+    assert!(
+        text.contains("ok browser multi-click"),
+        "must contain ok browser multi-click"
+    );
+    assert!(
+        text.contains("clicked: 3/3"),
+        "must contain clicked summary"
+    );
+    assert!(
+        text.contains("target: #ab-mc-btn-a"),
+        "must contain first target line"
+    );
+    assert!(
+        text.contains("target: #ab-mc-btn-b"),
+        "must contain second target line"
+    );
+    assert!(
+        text.contains("target: #ab-mc-btn-c"),
+        "must contain third target line"
+    );
+
+    let order = eval_value(&sid, &tid, "JSON.stringify(window.__ab_multi_click_order)");
+    assert_eq!(
+        order, r#"["A","B","C"]"#,
+        "clicks must happen in order A→B→C"
+    );
 
     close_session(&sid);
 }
@@ -7025,7 +7117,6 @@ fn multi_click_partial_failure_json() {
     let _guard = SessionGuard::new(&sid);
     install_multi_click_fixture(&sid, &tid);
 
-    // Second selector doesn't exist — should fail after first click succeeds
     let out = headless_json(
         &[
             "browser",
@@ -7040,10 +7131,17 @@ fn multi_click_partial_failure_json() {
         ],
         15,
     );
+    assert_failure(&out, "multi-click partial json");
     let v = parse_json(&out);
 
-    assert_eq!(v["ok"], false, "must fail on missing selector");
-    assert_eq!(v["error"]["code"], "MULTI_CLICK_PARTIAL");
+    assert_eq!(v["command"], "browser multi-click");
+    assert_error_envelope(&v, "MULTI_CLICK_PARTIAL");
+    assert!(
+        v["context"].is_object(),
+        "context must be present on partial failure"
+    );
+    assert_eq!(v["context"]["session_id"], sid.as_str());
+    assert_eq!(v["context"]["tab_id"], tid.as_str());
     assert!(
         v["error"]["message"]
             .as_str()
@@ -7054,7 +7152,10 @@ fn multi_click_partial_failure_json() {
 
     let details = &v["error"]["details"];
     assert_eq!(details["total"], 3);
-    assert_eq!(details["clicked"], 1, "only first click should have succeeded");
+    assert_eq!(
+        details["clicked"], 1,
+        "only first click should have succeeded"
+    );
     assert!(details["results"].is_array(), "results must be an array");
     assert_eq!(
         details["results"].as_array().unwrap().len(),
@@ -7066,12 +7167,174 @@ fn multi_click_partial_failure_json() {
     assert_eq!(details["failed_at"]["selector"], "#ab-mc-nonexistent");
 
     // Verify only first click happened
-    let order = eval_value(
-        &sid,
-        &tid,
-        "JSON.stringify(window.__ab_multi_click_order)",
-    );
+    let order = eval_value(&sid, &tid, "JSON.stringify(window.__ab_multi_click_order)");
     assert_eq!(order, r#"["A"]"#, "only first click should have fired");
+
+    close_session(&sid);
+}
+
+#[test]
+fn multi_click_partial_failure_text() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_multi_click_fixture(&sid, &tid);
+
+    let out = headless(
+        &[
+            "browser",
+            "multi-click",
+            "#ab-mc-btn-a",
+            "#ab-mc-nonexistent",
+            "#ab-mc-btn-c",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "multi-click partial text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains("error MULTI_CLICK_PARTIAL:"),
+        "must contain multi-click partial error code: got {text}"
+    );
+    assert!(
+        text.contains("2 of 3"),
+        "must mention which selector failed: got {text}"
+    );
+
+    let order = eval_value(&sid, &tid, "JSON.stringify(window.__ab_multi_click_order)");
+    assert_eq!(order, r#"["A"]"#, "only first click should have fired");
+
+    close_session(&sid);
+}
+
+#[test]
+fn multi_click_session_not_found_json() {
+    if skip() {
+        return;
+    }
+
+    let out = headless_json(
+        &[
+            "browser",
+            "multi-click",
+            "#ab-mc-btn-a",
+            "#ab-mc-btn-b",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "multi-click nonexistent session json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser multi-click");
+    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert!(
+        v["context"].is_null(),
+        "context must be null when session not found"
+    );
+}
+
+#[test]
+fn multi_click_session_not_found_text() {
+    if skip() {
+        return;
+    }
+
+    let out = headless(
+        &[
+            "browser",
+            "multi-click",
+            "#ab-mc-btn-a",
+            "#ab-mc-btn-b",
+            "--session",
+            "nonexistent-sid",
+            "--tab",
+            "any-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "multi-click nonexistent session text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains("error SESSION_NOT_FOUND:"),
+        "must contain SESSION_NOT_FOUND error: got {text}"
+    );
+}
+
+#[test]
+fn multi_click_tab_not_found_json() {
+    if skip() {
+        return;
+    }
+
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "multi-click",
+            "#ab-mc-btn-a",
+            "#ab-mc-btn-b",
+            "--session",
+            &sid,
+            "--tab",
+            "missing-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "multi-click missing tab json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser multi-click");
+    assert_error_envelope(&v, "TAB_NOT_FOUND");
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], sid.as_str());
+    assert_eq!(v["context"]["tab_id"], "missing-tab");
+
+    close_session(&sid);
+}
+
+#[test]
+fn multi_click_tab_not_found_text() {
+    if skip() {
+        return;
+    }
+
+    let (sid, _tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless(
+        &[
+            "browser",
+            "multi-click",
+            "#ab-mc-btn-a",
+            "#ab-mc-btn-b",
+            "--session",
+            &sid,
+            "--tab",
+            "missing-tab",
+        ],
+        10,
+    );
+    assert_failure(&out, "multi-click missing tab text");
+    let text = stdout_str(&out);
+
+    assert!(
+        text.contains("error TAB_NOT_FOUND:"),
+        "must contain TAB_NOT_FOUND error: got {text}"
+    );
 
     close_session(&sid);
 }
