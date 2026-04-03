@@ -6905,3 +6905,173 @@ void(0)
 
     close_session(&sid);
 }
+
+// ── Multi-click tests ────────────────────────────────────────────────
+
+fn install_multi_click_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-multi-click-fixture');
+  if (existing) existing.remove();
+
+  window.__ab_multi_click_order = [];
+
+  const root = document.createElement('div');
+  root.id = 'ab-multi-click-fixture';
+  root.innerHTML = `
+    <style>
+      #ab-mc-btn-a, #ab-mc-btn-b, #ab-mc-btn-c {
+        position: fixed;
+        left: 40px;
+        width: 180px;
+        height: 36px;
+        z-index: 2147483647;
+      }
+      #ab-mc-btn-a { top: 40px; }
+      #ab-mc-btn-b { top: 100px; }
+      #ab-mc-btn-c { top: 160px; }
+    </style>
+    <button id="ab-mc-btn-a">A</button>
+    <button id="ab-mc-btn-b">B</button>
+    <button id="ab-mc-btn-c">C</button>
+  `;
+  document.body.appendChild(root);
+
+  document.getElementById('ab-mc-btn-a').addEventListener('click', () => {
+    window.__ab_multi_click_order.push('A');
+  });
+  document.getElementById('ab-mc-btn-b').addEventListener('click', () => {
+    window.__ab_multi_click_order.push('B');
+  });
+  document.getElementById('ab-mc-btn-c').addEventListener('click', () => {
+    window.__ab_multi_click_order.push('C');
+  });
+
+  return 'ok';
+})()
+"#;
+    eval_value(session_id, tab_id, expression);
+}
+
+#[test]
+fn multi_click_sequential_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_multi_click_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "multi-click",
+            "#ab-mc-btn-a",
+            "#ab-mc-btn-b",
+            "#ab-mc-btn-c",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "multi-click json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser multi-click");
+    assert!(v["error"].is_null(), "error must be null on success");
+    assert!(v["context"].is_object(), "context must be present");
+    assert_eq!(v["context"]["session_id"], sid.as_str());
+    assert_eq!(v["context"]["tab_id"], tid.as_str());
+
+    let data = &v["data"];
+    assert_eq!(data["action"], "multi-click");
+    assert_eq!(data["total"], 3);
+    assert_eq!(data["clicked"], 3);
+    assert!(data["results"].is_array(), "results must be an array");
+    assert_eq!(data["results"].as_array().unwrap().len(), 3);
+    assert_eq!(data["results"][0]["target"]["selector"], "#ab-mc-btn-a");
+    assert_eq!(data["results"][1]["target"]["selector"], "#ab-mc-btn-b");
+    assert_eq!(data["results"][2]["target"]["selector"], "#ab-mc-btn-c");
+    assert!(
+        data["changed"]["url_changed"].is_boolean(),
+        "data.changed.url_changed must be a boolean"
+    );
+    assert!(
+        data["changed"]["focus_changed"].is_boolean(),
+        "data.changed.focus_changed must be a boolean"
+    );
+    assert_meta(&v);
+
+    // Verify clicks happened in order
+    let order = eval_value(
+        &sid,
+        &tid,
+        "JSON.stringify(window.__ab_multi_click_order)",
+    );
+    assert_eq!(order, r#"["A","B","C"]"#, "clicks must happen in order A→B→C");
+
+    close_session(&sid);
+}
+
+#[test]
+fn multi_click_partial_failure_json() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_multi_click_fixture(&sid, &tid);
+
+    // Second selector doesn't exist — should fail after first click succeeds
+    let out = headless_json(
+        &[
+            "browser",
+            "multi-click",
+            "#ab-mc-btn-a",
+            "#ab-mc-nonexistent",
+            "#ab-mc-btn-c",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    let v = parse_json(&out);
+
+    assert_eq!(v["ok"], false, "must fail on missing selector");
+    assert_eq!(v["error"]["code"], "MULTI_CLICK_PARTIAL");
+    assert!(
+        v["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("2 of 3"),
+        "message should mention which selector failed"
+    );
+
+    let details = &v["error"]["details"];
+    assert_eq!(details["total"], 3);
+    assert_eq!(details["clicked"], 1, "only first click should have succeeded");
+    assert!(details["results"].is_array(), "results must be an array");
+    assert_eq!(
+        details["results"].as_array().unwrap().len(),
+        1,
+        "one successful result before failure"
+    );
+    assert_eq!(details["results"][0]["target"]["selector"], "#ab-mc-btn-a");
+    assert_eq!(details["failed_at"]["index"], 1);
+    assert_eq!(details["failed_at"]["selector"], "#ab-mc-nonexistent");
+
+    // Verify only first click happened
+    let order = eval_value(
+        &sid,
+        &tid,
+        "JSON.stringify(window.__ab_multi_click_order)",
+    );
+    assert_eq!(order, r#"["A"]"#, "only first click should have fired");
+
+    close_session(&sid);
+}
