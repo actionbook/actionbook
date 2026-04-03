@@ -433,7 +433,7 @@ async fn wait_for_navigation(cdp: &CdpSession, target_id: &str, pre_url: &str) -
 }
 
 /// Snapshot of the active element for focus-change detection.
-async fn get_active_element_id(cdp: &CdpSession, target_id: &str) -> String {
+pub(super) async fn get_active_element_id(cdp: &CdpSession, target_id: &str) -> String {
     cdp.execute_on_tab(
         target_id,
         "Runtime.evaluate",

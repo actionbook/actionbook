@@ -958,6 +958,64 @@ mod tests {
     }
 
     #[test]
+    fn try_parse_from_accepts_browser_multi_click_command() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "multi-click",
+            "#btn-1",
+            "#btn-2",
+            "#btn-3",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser multi-click command should parse");
+    }
+
+    #[test]
+    fn try_parse_from_rejects_browser_multi_click_without_selectors() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "multi-click",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(
+            cli.is_err(),
+            "browser multi-click should require at least one selector"
+        );
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_multi_click_with_delay() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "multi-click",
+            "#a",
+            "#b",
+            "--delay",
+            "200",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(
+            cli.is_ok(),
+            "browser multi-click with --delay should parse"
+        );
+    }
+
+    #[test]
     fn try_parse_from_parses_html_without_selector() {
         let cli = Cli::try_parse_from([
             "actionbook",

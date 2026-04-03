@@ -8,7 +8,7 @@ use crate::browser::navigation;
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
-use super::click::dispatch_click;
+use super::click::{dispatch_click, get_active_element_id};
 
 fn default_button() -> String {
     "left".to_string()
@@ -118,6 +118,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     let pre_url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
+    let pre_focus = get_active_element_id(&ctx.cdp, &ctx.target_id).await;
 
     let mut results: Vec<serde_json::Value> = Vec::with_capacity(targets.len());
     let total = targets.len();
@@ -212,7 +213,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Post state
     let post_url = navigation::get_tab_url(&ctx.cdp, &ctx.target_id).await;
     let post_title = navigation::get_tab_title(&ctx.cdp, &ctx.target_id).await;
+    let post_focus = get_active_element_id(&ctx.cdp, &ctx.target_id).await;
     let url_changed = !pre_url.is_empty() && pre_url != post_url;
+    let focus_changed = pre_focus != post_focus;
 
     ActionResult::ok(json!({
         "action": "multi-click",
@@ -221,6 +224,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         "results": results,
         "changed": {
             "url_changed": url_changed,
+            "focus_changed": focus_changed,
         },
         "post_url": post_url,
         "post_title": post_title,
