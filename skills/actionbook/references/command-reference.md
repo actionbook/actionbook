@@ -14,26 +14,6 @@ Selectors accept CSS, XPath, or snapshot refs (`@eN` from `snapshot` output).
 --timeout <ms>    Command timeout in milliseconds
 ```
 
-## Action Search & Retrieval
-
-```bash
-actionbook search "<query>"                       # Search for action manuals by keyword
-actionbook search "<query>" --domain site.com     # Filter by domain
-actionbook search "<query>" --url <url>           # Filter by specific URL
-actionbook search "<query>" -p 2                  # Page 2 (default: 1)
-actionbook search "<query>" -s 20                 # 20 results per page (default: 10, max: 100)
-actionbook search "<query>" --domain site.com --url <url> -p 1 -s 5  # Combined
-
-actionbook get "<area_id>"                        # Get complete action details by area ID
-# area_id format: "site.com:/path:area_name"
-# Examples:
-#   actionbook get "airbnb.com:/:default"
-#   actionbook get "github.com:/login:form"
-#   actionbook get "arxiv.org:/search/advanced:default"
-```
-
-`search` returns area IDs with descriptions and relevance scores. Use the area_id with `get` to fetch full details including CSS/XPath selectors, element types, and allowed methods.
-
 ## Session
 
 ```bash

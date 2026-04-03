@@ -42,15 +42,6 @@ pub struct Cli {
 #[command(disable_help_subcommand = true)]
 pub enum Commands {
     /// Search for action manuals by keyword
-    #[command(after_help = "\
-Examples:
-  actionbook search \"airbnb search listings\"
-  actionbook search \"github login form\" --domain github.com
-  actionbook search \"arxiv advanced search\" --url https://arxiv.org/search/advanced
-  actionbook search \"linkedin job apply\" -p 2 -s 20
-
-Pack the full intent into the query — site + task + object + details.
-Returns area IDs for use with `actionbook get`.")]
     Search {
         /// Search keyword (e.g., "airbnb search", "google login")
         query: String,
@@ -73,14 +64,6 @@ Returns area IDs for use with `actionbook get`.")]
     },
 
     /// Get complete action details by area ID
-    #[command(after_help = "\
-Examples:
-  actionbook get \"airbnb.com:/:default\"
-  actionbook get \"github.com:/login:form\"
-  actionbook get \"arxiv.org:/search/advanced:default\"
-
-Returns page overview, function summary, and DOM structure with inline
-CSS selectors. Use the area_id from `actionbook search` results.")]
     Get {
         /// Area ID (e.g., "airbnb.com:/:default")
         area_id: String,

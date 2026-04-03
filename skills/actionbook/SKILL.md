@@ -24,54 +24,14 @@ Actionbook provides **up-to-date action manuals** for the modern web. Action man
 - **Concurrent** — stateless architecture with explicit `--session`/`--tab`. Operate dozens of tabs in parallel.
 
 The workflow:
-1. **Search** for action manuals for the target website
-2. **Get** the action details (selectors, page structure)
-3. **Start** a browser session
-4. **Automate** using selectors from the action manual or from live snapshots
+1. **Start** a browser session
+2. **Navigate** to the target page
+3. **Snapshot** to get the page structure with element refs
+4. **Automate** using refs from the snapshot
 
 Run `actionbook <command> --help` for full usage and examples of any command.
 
-## Step 1: Search and Get
-
-### search — Find actions by task description
-
-```bash
-actionbook search "<query>"                      # Search by task intent
-actionbook search "<query>" --domain site.com    # Filter by domain
-actionbook search "<query>" --url <url>          # Filter by URL
-```
-
-**Returns** area IDs with descriptions and relevance scores. Use the area_id with `actionbook get` to fetch full details.
-
-### Constructing an effective search query
-
-The `query` string is the **primary signal** for finding the right action. Pack it with the user's full intent — not just a site name or a vague keyword.
-
-**Include in the query:**
-1. **Target site** — the website name or domain
-2. **Task verb** — what the user wants to do (search, book, post, filter, login, compose, etc.)
-3. **Object / context** — what they're acting on (listings, messages, flights, repositories, etc.)
-4. **Specific details** — any constraints, filters, or parameters the user mentioned
-
-**Rule of thumb:** Rewrite the user's request as a single descriptive sentence and use that as the query.
-
-| User says | Bad query | Good query |
-|-----------|-----------|------------|
-| "Book an Airbnb in Tokyo for next week" | `"airbnb"` | `"airbnb search listings Tokyo dates check-in check-out guests"` |
-| "Search arXiv for recent NLP papers" | `"arxiv search"` | `"arxiv advanced search papers NLP natural language processing recent"` |
-| "Send a LinkedIn connection request" | `"linkedin"` | `"linkedin send connection request invite someone"` |
-
-If `--domain` or `--url` is known, always add them — they narrow results and improve precision.
-
-### get — Retrieve full action details by ID
-
-```bash
-actionbook get "arxiv.org:/search/advanced:default"
-```
-
-**Returns** a structured action manual with page URL, overview, function summary, and element selectors. Use the selectors from the action manual in browser commands.
-
-## Step 2: Browser Automation
+## Browser Automation
 
 Every browser command is **stateless** — pass `--session` and `--tab` explicitly. No "current tab" — you can run commands on any session/tab in parallel.
 
@@ -121,13 +81,6 @@ Full command reference: [command-reference.md](references/command-reference.md)
 User request: "Find a room next week in SF on Airbnb"
 
 ```bash
-# 1. Search for pre-verified actions
-actionbook search "find a room next week in SF on airbnb" --domain airbnb.com
-
-# 2. Get action details with selectors
-actionbook get "airbnb.com:/:default"
-
-# 3. Automate
 actionbook browser start --set-session-id s1
 actionbook browser goto "https://airbnb.com" --session s1 --tab t1
 actionbook browser snapshot --session s1 --tab t1
@@ -136,15 +89,9 @@ actionbook browser click @e7 --session s1 --tab t1
 actionbook browser wait navigation --session s1 --tab t1
 ```
 
-## Fallback: Live Snapshots
+## Selectors
 
-Actionbook stores page data captured at indexing time. Websites evolve, so selectors may become outdated.
-
-When a selector from `actionbook get` fails at runtime, use `actionbook browser snapshot` — it provides the **live page structure** with current refs. Use refs from the snapshot output to retry the interaction.
-
-If `actionbook search` returns no results for a page, use `snapshot` as the primary source.
-
-Selectors should come from `actionbook get` or `actionbook browser snapshot` — not from prior knowledge or memory.
+Selectors should come from `actionbook browser snapshot` — not from prior knowledge or memory. Always snapshot first to get current refs, then use those refs to interact with the page.
 
 ## Login Page Handling
 
@@ -153,7 +100,7 @@ When you hit a login/auth wall (sign-in page, password prompt, MFA/OTP, CAPTCHA,
 1. **Pause automation and keep the current browser session open** (same tab/profile/cookies).
 2. **Ask the user to complete login manually** in that same browser window.
 3. After user confirms login is done, **continue in the same session**.
-4. If the post-login page is a different type, run `actionbook search` + `actionbook get` for that new page before continuing.
+4. If the post-login page is different, run `actionbook browser snapshot` to get the new page structure before continuing.
 
 Do not switch tools just because a login page appears.
 
