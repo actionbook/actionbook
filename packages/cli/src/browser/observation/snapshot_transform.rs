@@ -174,7 +174,7 @@ pub fn render_yaml(nodes: &[AXNode]) -> String {
             })
             .collect();
 
-        let has_tree_children = nodes.get(i + 1).map_or(false, |n| n.depth > node.depth);
+        let has_tree_children = nodes.get(i + 1).is_some_and(|n| n.depth > node.depth);
         let has_url = !node.url.is_empty();
         let is_container = has_tree_children || has_url;
 
@@ -194,7 +194,7 @@ pub fn render_yaml(nodes: &[AXNode]) -> String {
         let has_cursor_pointer = node
             .cursor_info
             .as_ref()
-            .map_or(false, |ci| ci.hints.iter().any(|h| h == "cursor:pointer"));
+            .is_some_and(|ci| ci.hints.iter().any(|h| h == "cursor:pointer"));
 
         let line = if is_container {
             let mut s = format!("{indent}- {}", node.role);
