@@ -207,9 +207,21 @@ pub fn render_yaml(nodes: &[AXNode]) -> String {
             }
             s
         } else if !escaped_name.is_empty() && !node.value.is_empty() {
-            format!("{indent}- {} \"{}\": {}", node.role, escaped_name, node.value)
+            let escaped_value: String = node
+                .value
+                .chars()
+                .flat_map(|c| match c {
+                    '\\' => vec!['\\', '\\'],
+                    '"' => vec!['\\', '"'],
+                    '\n' => vec!['\\', 'n'],
+                    '\r' => vec!['\\', 'r'],
+                    c if c.is_control() => vec![],
+                    c => vec![c],
+                })
+                .collect();
+            format!("{indent}- {} \"{}\": {}", node.role, escaped_name, escaped_value)
         } else if !escaped_name.is_empty() {
-            format!("{indent}- {}: {}", node.role, node.name)
+            format!("{indent}- {}: {}", node.role, escaped_name)
         } else {
             format!("{indent}- {}", node.role)
         };
