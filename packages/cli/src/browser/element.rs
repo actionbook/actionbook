@@ -124,6 +124,21 @@ impl TabContext {
         Ok((node_id, x, y))
     }
 
+    /// Like `resolve_center` but skips `scrollIntoView` (no JS main-thread call).
+    /// Use for batch operations where elements are already in the DOM and the
+    /// caller doesn't need them scrolled into the viewport.
+    pub async fn resolve_center_no_scroll(
+        &mut self,
+        selector: &str,
+    ) -> Result<(i64, f64, f64), ActionResult> {
+        let node_id = self.resolve_node(selector).await?;
+        let frame_id = self.resolved_frame_id.as_deref();
+        let (x, y) =
+            get_element_center_for_frame(&self.cdp, &self.target_id, node_id, selector, frame_id)
+                .await?;
+        Ok((node_id, x, y))
+    }
+
     /// Get the centre `(x, y)` of an already-resolved element **without scrolling**.
     ///
     /// Use after a prior `resolve_center` / `resolve_node` when you need

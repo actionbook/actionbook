@@ -164,6 +164,33 @@ async fn execute_single_click(
     ))
 }
 
+/// Fast click: resolve + dispatch only, no scrollIntoView or pre/post state detection.
+/// Uses DOM-engine-only CDP calls to avoid blocking on the JS main thread.
+/// Used by batch-click where per-click state tracking is unnecessary.
+pub(crate) async fn execute_fast_click(
+    selector: &str,
+    ctx: &mut TabContext,
+) -> Result<(), ActionResult> {
+    let target = parse_target(selector)?;
+
+    let (x, y) = match &target {
+        ClickTarget::Coordinates(cx, cy) => (*cx, *cy),
+        ClickTarget::Selector(sel) => {
+            let (_node_id, cx, cy) = ctx.resolve_center_no_scroll(sel).await?;
+            (cx, cy)
+        }
+    };
+
+    dispatch_click(&ctx.cdp, &ctx.target_id, x, y, "left", 1).await?;
+
+    {
+        let mut reg = ctx.registry().lock().await;
+        reg.set_cursor_position(ctx.session_id(), ctx.tab_id(), x, y);
+    }
+
+    Ok(())
+}
+
 // ── Execute ────────────────────────────────────────────────────────
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
