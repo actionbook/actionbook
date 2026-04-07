@@ -120,10 +120,8 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             Ok(tab) => opened_tabs.push(tab),
             Err(err) => {
                 failures.push(failure_json(raw_url, &err));
-                if matches!(
-                    err,
-                    ActionResult::Fatal { ref code, .. } if code == "SESSION_NOT_FOUND"
-                ) {
+                if is_session_not_found(&err) {
+                    append_skipped_failures(&cmd.urls, index + 1, &err, &mut failures);
                     break;
                 }
             }
@@ -310,6 +308,26 @@ async fn open_one_tab(
     }))
 }
 
+fn is_session_not_found(result: &ActionResult) -> bool {
+    matches!(
+        result,
+        ActionResult::Fatal { code, .. } if code == "SESSION_NOT_FOUND"
+    )
+}
+
+fn append_skipped_failures(
+    urls: &[String],
+    start_index: usize,
+    result: &ActionResult,
+    failures: &mut Vec<serde_json::Value>,
+) {
+    failures.extend(
+        urls.iter()
+            .skip(start_index)
+            .map(|url| failure_json(url, result)),
+    );
+}
+
 fn failure_json(url: &str, result: &ActionResult) -> serde_json::Value {
     match result {
         ActionResult::Fatal { code, message, .. } => json!({
@@ -332,5 +350,35 @@ fn failure_json(url: &str, result: &ActionResult) -> serde_json::Value {
             "code": "INTERNAL_ERROR",
             "message": "unexpected success while recording failure",
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn append_skipped_failures_records_remaining_urls() {
+        let urls = vec![
+            "https://b.com".to_string(),
+            "https://c.com".to_string(),
+            "javascript:alert(1)".to_string(),
+        ];
+        let err = ActionResult::fatal(
+            "SESSION_NOT_FOUND",
+            "session 's0' was closed during tab creation",
+        );
+        let mut failures = vec![failure_json(&urls[0], &err)];
+
+        append_skipped_failures(&urls, 1, &err, &mut failures);
+
+        assert_eq!(failures.len(), 3);
+        assert_eq!(failures[1]["url"], json!("https://c.com"));
+        assert_eq!(failures[1]["code"], json!("SESSION_NOT_FOUND"));
+        assert_eq!(failures[2]["url"], json!("javascript:alert(1)"));
+        assert_eq!(
+            failures[2]["message"],
+            json!("session 's0' was closed during tab creation")
+        );
     }
 }
