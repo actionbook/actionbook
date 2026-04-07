@@ -1,5 +1,11 @@
 # @actionbookdev/cli
 
+## 1.1.0
+
+### Minor Changes
+
+- [#483](https://github.com/actionbook/actionbook/pull/483) [`4d46f8d`](https://github.com/actionbook/actionbook/commit/4d46f8d38f63a5ccc3f901db2733b3ec76e1c297) Thanks [@4bmis](https://github.com/4bmis)! - support create multi tabs in one shot
+
 ## 1.0.2
 
 ### Patch Changes
