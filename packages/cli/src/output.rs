@@ -169,9 +169,10 @@ pub fn format_text(
     result: &ActionResult,
 ) -> String {
     let mut lines = Vec::new();
+    let suppress_header = command == "browser new-tab" && is_batch_new_tab_result(result);
 
     // Header
-    if let Some(ctx) = context {
+    if !suppress_header && let Some(ctx) = context {
         if let Some(ref tab_id) = ctx.tab_id {
             if let Some(ref url) = ctx.url {
                 lines.push(format!("[{} {}] {}", ctx.session_id, tab_id, url));
@@ -227,14 +228,25 @@ pub fn format_text(
             );
 
             if is_action {
-                lines.push(format!("ok {command}"));
+                let suppress_ok = command == "browser new-tab" && is_batch_new_tab_data(data);
+                if !suppress_ok {
+                    lines.push(format!("ok {command}"));
+                }
             }
 
             // Emit key-value fields from data
             format_data_fields(command, data, &mut lines);
         }
         ActionResult::Fatal { code, message, .. } => {
-            lines.push(format!("error {code}: {message}"));
+            if command == "browser new-tab" && code == "PARTIAL_FAILURE" {
+                if let Some(details) = result_details(result) {
+                    format_new_tab_partial_failure(details, &mut lines);
+                } else {
+                    lines.push(format!("error {code}: {message}"));
+                }
+            } else {
+                lines.push(format!("error {code}: {message}"));
+            }
         }
         ActionResult::Retryable { reason, .. } => {
             lines.push(format!("error RETRYABLE: {reason}"));
@@ -337,7 +349,9 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
             }
         }
         "browser new-tab" => {
-            if let Some(title) = data
+            if is_batch_new_tab_data(data) {
+                format_new_tab_batch_success(data, lines);
+            } else if let Some(title) = data
                 .get("tab")
                 .and_then(|t| t.get("title"))
                 .and_then(|v| v.as_str())
@@ -788,6 +802,111 @@ fn text_scalar(value: &Value) -> String {
     }
 }
 
+fn is_batch_new_tab_result(result: &ActionResult) -> bool {
+    match result {
+        ActionResult::Ok { data } => is_batch_new_tab_data(data),
+        ActionResult::Fatal { code, details, .. } => {
+            code == "PARTIAL_FAILURE"
+                && details
+                    .as_ref()
+                    .and_then(|d| d.get("requested_urls"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0)
+                    > 1
+        }
+        _ => false,
+    }
+}
+
+fn is_batch_new_tab_data(data: &Value) -> bool {
+    data.get("requested_urls")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0)
+        > 1
+}
+
+fn result_details(result: &ActionResult) -> Option<&Value> {
+    match result {
+        ActionResult::Fatal {
+            details: Some(details),
+            ..
+        } => Some(details),
+        _ => None,
+    }
+}
+
+fn format_new_tab_batch_success(data: &Value, lines: &mut Vec<String>) {
+    let requested = data
+        .get("requested_urls")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let opened = data
+        .get("opened_tabs")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let session_id = data
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
+
+    lines.push(format!(
+        "{opened}/{requested} tabs opened in session {session_id}"
+    ));
+    format_new_tab_opened_tabs(data.get("tabs"), Some(session_id), lines);
+}
+
+fn format_new_tab_partial_failure(details: &Value, lines: &mut Vec<String>) {
+    let requested = details
+        .get("requested_urls")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let opened = details
+        .get("opened_tabs")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let session_id = details
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
+
+    lines.push(format!(
+        "{opened}/{requested} tabs opened in session {session_id}"
+    ));
+    format_new_tab_opened_tabs(details.get("tabs"), Some(session_id), lines);
+
+    if let Some(failures) = details.get("failures").and_then(|v| v.as_array()) {
+        for failure in failures {
+            let url = failure.get("url").and_then(|v| v.as_str()).unwrap_or("?");
+            let code = failure
+                .get("code")
+                .and_then(|v| v.as_str())
+                .unwrap_or("ERROR");
+            let message = failure
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown failure");
+            lines.push(format!("[failed] {url} - {code}: {message}"));
+        }
+    }
+}
+
+fn format_new_tab_opened_tabs(
+    tabs: Option<&Value>,
+    session_id: Option<&str>,
+    lines: &mut Vec<String>,
+) {
+    if let Some(tabs) = tabs.and_then(|v| v.as_array()) {
+        for tab in tabs {
+            let tab_id = tab.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?");
+            let url = tab.get("url").and_then(|v| v.as_str()).unwrap_or("");
+            match session_id {
+                Some(session_id) => lines.push(format!("[{session_id} {tab_id}] {url}")),
+                None => lines.push(format!("[{tab_id}] {url}")),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ResponseContext, format_text};
@@ -824,5 +943,72 @@ mod tests {
         let text = format_text("browser eval", &context, &result);
 
         assert_eq!(text, "[s1 t2] https://example.com/page\n4");
+    }
+
+    #[test]
+    fn browser_new_tab_batch_text_renders_summary_without_action_header() {
+        let context = Some(ResponseContext {
+            session_id: "s0".to_string(),
+            tab_id: None,
+            window_id: None,
+            url: None,
+            title: None,
+        });
+        let result = ActionResult::ok(json!({
+            "session_id": "s0",
+            "requested_urls": 2,
+            "opened_tabs": 2,
+            "failed_urls": 0,
+            "tabs": [
+                { "tab_id": "t2", "url": "https://a.com" },
+                { "tab_id": "t3", "url": "https://b.com" }
+            ]
+        }));
+
+        let text = format_text("browser new-tab", &context, &result);
+
+        assert_eq!(
+            text,
+            "2/2 tabs opened in session s0\n[s0 t2] https://a.com\n[s0 t3] https://b.com"
+        );
+    }
+
+    #[test]
+    fn browser_new_tab_partial_failure_text_renders_opened_and_failed_urls() {
+        let context = Some(ResponseContext {
+            session_id: "s0".to_string(),
+            tab_id: None,
+            window_id: None,
+            url: None,
+            title: None,
+        });
+        let result = ActionResult::fatal_with_details(
+            "PARTIAL_FAILURE",
+            "opened 1 of 2 tabs",
+            "",
+            json!({
+                "session_id": "s0",
+                "requested_urls": 2,
+                "opened_tabs": 1,
+                "failed_urls": 1,
+                "tabs": [
+                    { "tab_id": "t2", "url": "https://a.com" }
+                ],
+                "failures": [
+                    {
+                        "url": "javascript:alert(1)",
+                        "code": "INVALID_ARGUMENT",
+                        "message": "dangerous URL protocol blocked: javascript:alert(1)"
+                    }
+                ]
+            }),
+        );
+
+        let text = format_text("browser new-tab", &context, &result);
+
+        assert_eq!(
+            text,
+            "1/2 tabs opened in session s0\n[s0 t2] https://a.com\n[failed] javascript:alert(1) - INVALID_ARGUMENT: dangerous URL protocol blocked: javascript:alert(1)"
+        );
     }
 }

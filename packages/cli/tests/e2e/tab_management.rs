@@ -6,10 +6,10 @@
 //! Uses local HTTP server from harness — no external network dependency.
 
 use crate::harness::{
-    SessionGuard, assert_context_object, assert_error_envelope, assert_failure, assert_meta,
-    assert_native_tab_id, assert_success, assert_tab_id, headless, headless_json, new_tab_json,
-    parse_json, skip, start_named_session, start_session, stdout_str, unique_session, url_a, url_b,
-    url_c,
+    SessionGuard, assert_context_object, assert_context_with_session, assert_error_envelope,
+    assert_failure, assert_meta, assert_native_tab_id, assert_success, assert_tab_id, headless,
+    headless_json, new_tab_json, parse_json, skip, start_named_session, start_session, stdout_str,
+    unique_session, url_a, url_b, url_c,
 };
 
 // ===========================================================================
@@ -205,6 +205,188 @@ fn tab_new_tab_alias_open_json() {
     assert_eq!(v["data"]["created"], true);
     assert_eq!(v["data"]["new_window"], false);
     assert_meta(&v);
+}
+
+#[test]
+fn tab_new_tab_multiple_urls_json() {
+    if skip() {
+        return;
+    }
+    let (sid, _t1) = start_session(&url_a());
+    let _guard = SessionGuard::new(&sid);
+
+    let url_b = url_b();
+    let url_c = url_c();
+    let out = headless_json(
+        &["browser", "new-tab", &url_b, &url_c, "--session", &sid],
+        30,
+    );
+    assert_success(&out, "new-tab multiple urls json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "browser new-tab");
+    assert_context_with_session(&v, &sid);
+    assert!(v["context"]["tab_id"].is_null());
+    assert_eq!(v["data"]["requested_urls"], serde_json::json!(2));
+    assert_eq!(v["data"]["opened_tabs"], serde_json::json!(2));
+    assert_eq!(v["data"]["failed_urls"], serde_json::json!(0));
+
+    let tabs = v["data"]["tabs"].as_array().expect("tabs array");
+    assert_eq!(tabs.len(), 2);
+    for tab in tabs {
+        assert_tab_id(&tab["tab_id"]);
+        assert_native_tab_id(&tab["native_tab_id"]);
+        assert!(tab["url"].is_string());
+    }
+}
+
+#[test]
+fn tab_new_tab_multiple_urls_text() {
+    if skip() {
+        return;
+    }
+    let (sid, _t1) = start_session(&url_a());
+    let _guard = SessionGuard::new(&sid);
+
+    let url_b = url_b();
+    let url_c = url_c();
+    let out = headless(
+        &["browser", "new-tab", &url_b, &url_c, "--session", &sid],
+        30,
+    );
+    assert_success(&out, "new-tab multiple urls text");
+    let text = stdout_str(&out);
+    assert!(text.contains(&format!("2/2 tabs opened in session {sid}")));
+    assert!(text.contains(&format!("[{sid} t2]")));
+    assert!(text.contains(&format!("[{sid} t3]")));
+}
+
+#[test]
+fn tab_new_tab_multiple_urls_with_tab_aliases_json() {
+    if skip() {
+        return;
+    }
+    let (sid, _t1) = start_session(&url_a());
+    let _guard = SessionGuard::new(&sid);
+
+    let url_b = url_b();
+    let url_c = url_c();
+    let out = headless_json(
+        &[
+            "browser",
+            "new-tab",
+            &url_b,
+            &url_c,
+            "--session",
+            &sid,
+            "--tab",
+            "inbox",
+            "--tab",
+            "docs",
+        ],
+        30,
+    );
+    assert_success(&out, "new-tab multiple urls with tab aliases json");
+    let v = parse_json(&out);
+
+    let tabs = v["data"]["tabs"].as_array().expect("tabs array");
+    assert_eq!(tabs.len(), 2);
+    assert_eq!(tabs[0]["tab_id"], serde_json::json!("inbox"));
+    assert_eq!(tabs[1]["tab_id"], serde_json::json!("docs"));
+}
+
+#[test]
+fn tab_new_tab_multiple_urls_with_tab_alias_count_mismatch_json() {
+    if skip() {
+        return;
+    }
+    let (sid, _t1) = start_session(&url_a());
+    let _guard = SessionGuard::new(&sid);
+
+    let url_b = url_b();
+    let url_c = url_c();
+    let out = headless_json(
+        &[
+            "browser",
+            "new-tab",
+            &url_b,
+            &url_c,
+            "--session",
+            &sid,
+            "--tab",
+            "inbox",
+        ],
+        30,
+    );
+    assert_failure(&out, "new-tab multiple urls tab alias count mismatch");
+    let v = parse_json(&out);
+    assert_eq!(v["error"]["code"], "INVALID_ARGUMENT");
+}
+
+#[test]
+fn tab_new_tab_multiple_urls_partial_failure_json() {
+    if skip() {
+        return;
+    }
+    let (sid, _t1) = start_session(&url_a());
+    let _guard = SessionGuard::new(&sid);
+
+    let url_b = url_b();
+    let out = headless_json(
+        &[
+            "browser",
+            "new-tab",
+            &url_b,
+            "javascript:alert(1)",
+            "--session",
+            &sid,
+        ],
+        30,
+    );
+    assert_failure(&out, "new-tab multiple urls partial failure json");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser new-tab");
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["error"]["code"], "PARTIAL_FAILURE");
+    assert_context_with_session(&v, &sid);
+    assert_eq!(
+        v["error"]["details"]["requested_urls"],
+        serde_json::json!(2)
+    );
+    assert_eq!(v["error"]["details"]["opened_tabs"], serde_json::json!(1));
+    assert_eq!(v["error"]["details"]["failed_urls"], serde_json::json!(1));
+    assert_eq!(
+        v["error"]["details"]["failures"][0]["code"],
+        serde_json::json!("INVALID_ARGUMENT")
+    );
+}
+
+#[test]
+fn tab_new_tab_multiple_urls_partial_failure_text() {
+    if skip() {
+        return;
+    }
+    let (sid, _t1) = start_session(&url_a());
+    let _guard = SessionGuard::new(&sid);
+
+    let url_b = url_b();
+    let out = headless(
+        &[
+            "browser",
+            "new-tab",
+            &url_b,
+            "javascript:alert(1)",
+            "--session",
+            &sid,
+        ],
+        30,
+    );
+    assert_failure(&out, "new-tab multiple urls partial failure text");
+    let text = stdout_str(&out);
+    assert!(text.contains(&format!("1/2 tabs opened in session {sid}")));
+    assert!(text.contains("[failed] javascript:alert(1) - INVALID_ARGUMENT:"));
 }
 
 // ===========================================================================

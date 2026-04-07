@@ -690,7 +690,7 @@ https://google.com
 
 ---
 
-### 8.2 `actionbook browser new-tab <url> --session <SID>`
+### 8.2 `actionbook browser new-tab <url>... --session <SID>`
 
 > Addressing level: **Session**
 > command: `browser new-tab`
@@ -702,10 +702,11 @@ Open a new tab in the specified session.
 
 | Parameter | Type | Required | Description |
 |------|------|------|------|
-| `<url>` | string | Yes | URL to open |
+| `<url>` | string[] | Yes | One or more URLs to open |
 | `--session <SID>` | string | Yes | Session ID |
 | `--new-window` | bool | No | Open in a new window |
 | `--window <WID>` | string | No | Open in a specified window |
+| `--tab <TID>` / `--set-tab-id <TID>` | string | No | Set a custom tab ID. When opening multiple URLs, repeat once per URL in order. |
 
 **JSON `data`:**
 
@@ -728,6 +729,10 @@ Open a new tab in the specified session.
 ok browser new-tab
 title: Example Domain
 ```
+
+When multiple URLs are provided, the command opens them in order. If any URL
+fails, the command exits non-zero and reports both the opened tabs and the
+failed URLs.
 
 ---
 
