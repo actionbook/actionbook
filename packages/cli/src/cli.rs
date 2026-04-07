@@ -1079,7 +1079,61 @@ mod tests {
             Some(Commands::Browser {
                 command: BrowserCommands::NewTab(cmd),
             }) => {
-                assert_eq!(cmd.set_tab_id.as_deref(), Some("inbox"));
+                assert_eq!(cmd.urls, vec!["https://example.com"]);
+                assert_eq!(cmd.set_tab_id, vec!["inbox"]);
+            }
+            other => panic!("expected browser new-tab command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_new_tab_multiple_urls() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "new-tab",
+            "https://a.com",
+            "https://b.com",
+            "--session",
+            "s1",
+        ])
+        .expect("browser new-tab multiple URLs should parse");
+
+        match cli.command {
+            Some(Commands::Browser {
+                command: BrowserCommands::NewTab(cmd),
+            }) => {
+                assert_eq!(cmd.urls, vec!["https://a.com", "https://b.com"]);
+                assert_eq!(cmd.session, "s1");
+                assert!(cmd.set_tab_id.is_empty());
+            }
+            other => panic!("expected browser new-tab command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_new_tab_multiple_tab_aliases() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "new-tab",
+            "https://a.com",
+            "https://b.com",
+            "--session",
+            "s1",
+            "--tab",
+            "inbox",
+            "--tab",
+            "docs",
+        ])
+        .expect("browser new-tab repeated --tab should parse");
+
+        match cli.command {
+            Some(Commands::Browser {
+                command: BrowserCommands::NewTab(cmd),
+            }) => {
+                assert_eq!(cmd.urls, vec!["https://a.com", "https://b.com"]);
+                assert_eq!(cmd.set_tab_id, vec!["inbox", "docs"]);
             }
             other => panic!("expected browser new-tab command, got {other:?}"),
         }

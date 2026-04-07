@@ -353,7 +353,7 @@ Session:
 
 Tab:
   list-tabs           --session      List tabs in a session
-  new-tab <url>       --session      Open a new tab (alias: open)
+  new-tab <url>...    --session      Open one or more tabs (alias: open)
   close-tab           --session --tab  Close a tab
 
 Navigation:

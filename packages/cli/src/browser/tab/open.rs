@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::daemon::cdp::ensure_scheme_or_fatal;
-use crate::daemon::cdp_session::cdp_error_to_result;
+use crate::daemon::cdp::{ensure_scheme, ensure_scheme_or_fatal};
+use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result};
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
@@ -13,21 +13,25 @@ use crate::output::ResponseContext;
 #[command(after_help = "\
 Examples:
   actionbook browser new-tab https://example.com --session my-session
+  actionbook browser new-tab https://a.com https://b.com --session my-session
+  actionbook browser new-tab https://a.com https://b.com --session s0 --tab inbox --tab docs
   actionbook browser open https://github.com --session my-session
   actionbook browser new-tab https://example.com --session s0 --tab inbox
 
 The new tab is assigned the next available ID (t2, t3, ...) unless --tab / --set-tab-id is provided.
+When opening multiple URLs, repeat --tab once per URL in the same order.
 Use the returned tab_id to address this tab in subsequent commands.")]
 pub struct Cmd {
-    /// URL to open
-    pub url: String,
+    /// URL(s) to open
+    #[arg(required = true, num_args = 1..)]
+    pub urls: Vec<String>,
     /// Session ID
     #[arg(long)]
     #[serde(rename = "session_id")]
     pub session: String,
     /// Set a custom tab ID instead of auto-assigning
     #[arg(long, visible_alias = "tab")]
-    pub set_tab_id: Option<String>,
+    pub set_tab_id: Vec<String>,
     /// Open in new window
     #[arg(long)]
     pub new_window: bool,
@@ -39,87 +43,227 @@ pub struct Cmd {
 pub const COMMAND_NAME: &str = "browser new-tab";
 
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
-    if let ActionResult::Ok { data } = result {
-        Some(ResponseContext {
+    match result {
+        ActionResult::Ok { data } if cmd.urls.len() == 1 => Some(ResponseContext {
             session_id: cmd.session.clone(),
             tab_id: data["tab"]["tab_id"].as_str().map(|s| s.to_string()),
             window_id: None,
             url: data["tab"]["url"].as_str().map(|s| s.to_string()),
             title: data["tab"]["title"].as_str().map(|s| s.to_string()),
-        })
-    } else {
-        None
+        }),
+        ActionResult::Ok { .. } => Some(ResponseContext {
+            session_id: cmd.session.clone(),
+            tab_id: None,
+            window_id: None,
+            url: None,
+            title: None,
+        }),
+        ActionResult::Fatal { code, .. } if code == "PARTIAL_FAILURE" => Some(ResponseContext {
+            session_id: cmd.session.clone(),
+            tab_id: None,
+            window_id: None,
+            url: None,
+            title: None,
+        }),
+        _ => None,
     }
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let final_url = match ensure_scheme_or_fatal(&cmd.url) {
+    if cmd.urls.len() == 1 {
+        return execute_single(cmd, registry).await;
+    }
+
+    if !cmd.set_tab_id.is_empty() && cmd.set_tab_id.len() != cmd.urls.len() {
+        return ActionResult::fatal_with_hint(
+            "INVALID_ARGUMENT",
+            format!(
+                "got {} tab IDs for {} URLs",
+                cmd.set_tab_id.len(),
+                cmd.urls.len()
+            ),
+            "repeat --tab once per URL, or omit --tab to auto-assign IDs",
+        );
+    }
+
+    let (cdp, stealth_ua) = match session_cdp(&cmd.session, registry).await {
+        Ok(parts) => parts,
+        Err(err) => return err,
+    };
+
+    let mut opened_tabs = Vec::new();
+    let mut failures = Vec::new();
+
+    for (index, raw_url) in cmd.urls.iter().enumerate() {
+        let final_url = match ensure_scheme(raw_url) {
+            Ok(url) => url,
+            Err(err) => {
+                failures.push(json!({
+                    "url": raw_url,
+                    "code": "INVALID_ARGUMENT",
+                    "message": err.to_string(),
+                }));
+                continue;
+            }
+        };
+
+        match open_one_tab(
+            &cmd.session,
+            &cdp,
+            stealth_ua.as_deref(),
+            registry,
+            &final_url,
+            cmd.set_tab_id.get(index).map(String::as_str),
+        )
+        .await
+        {
+            Ok(tab) => opened_tabs.push(tab),
+            Err(err) => {
+                failures.push(failure_json(raw_url, &err));
+                if matches!(
+                    err,
+                    ActionResult::Fatal { ref code, .. } if code == "SESSION_NOT_FOUND"
+                ) {
+                    break;
+                }
+            }
+        }
+    }
+
+    if failures.is_empty() {
+        let opened_count = opened_tabs.len();
+        return ActionResult::ok(json!({
+            "session_id": cmd.session,
+            "tabs": opened_tabs,
+            "requested_urls": cmd.urls.len(),
+            "opened_tabs": opened_count,
+            "failed_urls": 0,
+            "created": true,
+            "new_window": cmd.new_window,
+        }));
+    }
+
+    let opened_count = opened_tabs.len();
+    let failed_count = failures.len();
+    ActionResult::fatal_with_details(
+        "PARTIAL_FAILURE",
+        format!("opened {opened_count} of {} tabs", cmd.urls.len()),
+        "inspect error.details.failures for URLs that did not open",
+        json!({
+            "session_id": cmd.session,
+            "requested_urls": cmd.urls.len(),
+            "opened_tabs": opened_count,
+            "failed_urls": failed_count,
+            "tabs": opened_tabs,
+            "failures": failures,
+            "new_window": cmd.new_window,
+        }),
+    )
+}
+
+async fn execute_single(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
+    if cmd.set_tab_id.len() > 1 {
+        return ActionResult::fatal_with_hint(
+            "INVALID_ARGUMENT",
+            format!("got {} tab IDs for 1 URL", cmd.set_tab_id.len()),
+            "pass a single --tab value, or omit it to auto-assign the tab ID",
+        );
+    }
+
+    let final_url = match ensure_scheme_or_fatal(&cmd.urls[0]) {
         Ok(u) => u,
         Err(e) => return e,
     };
 
-    // Get CdpSession and stealth_ua from registry
-    let (cdp, stealth_ua) = {
-        let reg = registry.lock().await;
-        match reg.get(&cmd.session) {
-            Some(e) => match e.cdp.clone() {
-                Some(c) => (c, e.stealth_ua.clone()),
-                None => {
-                    return ActionResult::fatal_with_hint(
-                        "INTERNAL_ERROR",
-                        format!("no CDP connection for session '{}'", cmd.session),
-                        "try restarting the session",
-                    );
-                }
-            },
-            None => {
-                return ActionResult::fatal_with_hint(
-                    "SESSION_NOT_FOUND",
-                    format!("session '{}' not found", cmd.session),
-                    "run `actionbook browser list-sessions` to see available sessions",
-                );
-            }
-        }
+    let (cdp, stealth_ua) = match session_cdp(&cmd.session, registry).await {
+        Ok(parts) => parts,
+        Err(err) => return err,
     };
 
-    // Create tab via CDP Target.createTarget (works for both local and cloud)
+    match open_one_tab(
+        &cmd.session,
+        &cdp,
+        stealth_ua.as_deref(),
+        registry,
+        &final_url,
+        cmd.set_tab_id.first().map(String::as_str),
+    )
+    .await
+    {
+        Ok(tab) => ActionResult::ok(json!({
+            "tab": tab,
+            "created": true,
+            "new_window": cmd.new_window,
+        })),
+        Err(err) => err,
+    }
+}
+
+async fn session_cdp(
+    session_id: &str,
+    registry: &SharedRegistry,
+) -> Result<(CdpSession, Option<String>), ActionResult> {
+    let reg = registry.lock().await;
+    match reg.get(session_id) {
+        Some(entry) => match entry.cdp.clone() {
+            Some(cdp) => Ok((cdp, entry.stealth_ua.clone())),
+            None => Err(ActionResult::fatal_with_hint(
+                "INTERNAL_ERROR",
+                format!("no CDP connection for session '{session_id}'"),
+                "try restarting the session",
+            )),
+        },
+        None => Err(ActionResult::fatal_with_hint(
+            "SESSION_NOT_FOUND",
+            format!("session '{session_id}' not found"),
+            "run `actionbook browser list-sessions` to see available sessions",
+        )),
+    }
+}
+
+async fn open_one_tab(
+    session_id: &str,
+    cdp: &CdpSession,
+    stealth_ua: Option<&str>,
+    registry: &SharedRegistry,
+    final_url: &str,
+    custom_tab_id: Option<&str>,
+) -> Result<serde_json::Value, ActionResult> {
     let resp = match cdp
         .execute_browser("Target.createTarget", json!({ "url": final_url }))
         .await
     {
         Ok(r) => r,
-        Err(e) => return cdp_error_to_result(e, "CDP_ERROR"),
+        Err(e) => return Err(cdp_error_to_result(e, "CDP_ERROR")),
     };
     let target_id = match resp.pointer("/result/targetId").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
         None => {
-            return ActionResult::fatal(
+            return Err(ActionResult::fatal(
                 "CDP_ERROR",
                 format!("Target.createTarget did not return targetId: {}", resp),
-            );
+            ));
         }
     };
 
     // Attach before registering — rollback on failure.
-    // Pass stealth_ua so new tabs get the same stealth injection as the initial tab.
-    if let Err(e) = cdp.attach(&target_id, stealth_ua.as_deref()).await {
+    if let Err(e) = cdp.attach(&target_id, stealth_ua).await {
         // Rollback: close the target we just created
         let _ = cdp
             .execute_browser("Target.closeTarget", json!({ "targetId": target_id }))
             .await;
-        return cdp_error_to_result(e, "CDP_ERROR");
+        return Err(cdp_error_to_result(e, "CDP_ERROR"));
     }
 
-    // Register the new tab and capture the assigned short ID
     let short_tab_id = {
         let mut reg = registry.lock().await;
-        match reg.get_mut(&cmd.session) {
-            Some(e) => {
-                if let Some(custom_id) = &cmd.set_tab_id {
-                    match e.push_tab_with_id(
-                        custom_id.clone(),
+        match reg.get_mut(session_id) {
+            Some(entry) => {
+                if let Some(custom_id) = custom_tab_id {
+                    match entry.push_tab_with_id(
+                        custom_id.to_string(),
                         target_id.clone(),
-                        final_url.clone(),
+                        final_url.to_string(),
                         String::new(),
                     ) {
                         Ok(id) => id,
@@ -132,12 +276,16 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                                     json!({ "targetId": target_id }),
                                 )
                                 .await;
-                            return err_result;
+                            return Err(err_result);
                         }
                     }
                 } else {
-                    e.push_tab(target_id.clone(), final_url.clone(), String::new());
-                    e.tabs.last().map(|t| t.id.0.clone()).unwrap_or_default()
+                    entry.push_tab(target_id.clone(), final_url.to_string(), String::new());
+                    entry
+                        .tabs
+                        .last()
+                        .map(|t| t.id.0.clone())
+                        .unwrap_or_default()
                 }
             }
             None => {
@@ -146,22 +294,43 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 let _ = cdp
                     .execute_browser("Target.closeTarget", json!({ "targetId": target_id }))
                     .await;
-                return ActionResult::fatal(
+                return Err(ActionResult::fatal(
                     "SESSION_NOT_FOUND",
-                    format!("session '{}' was closed during tab creation", cmd.session),
-                );
+                    format!("session '{session_id}' was closed during tab creation"),
+                ));
             }
         }
     };
 
-    ActionResult::ok(json!({
-        "tab": {
-            "tab_id": short_tab_id,
-            "native_tab_id": target_id,
-            "url": final_url,
-            "title": "",
-        },
-        "created": true,
-        "new_window": cmd.new_window,
+    Ok(json!({
+        "tab_id": short_tab_id,
+        "native_tab_id": target_id,
+        "url": final_url,
+        "title": "",
     }))
+}
+
+fn failure_json(url: &str, result: &ActionResult) -> serde_json::Value {
+    match result {
+        ActionResult::Fatal { code, message, .. } => json!({
+            "url": url,
+            "code": code,
+            "message": message,
+        }),
+        ActionResult::Retryable { reason, .. } => json!({
+            "url": url,
+            "code": "RETRYABLE",
+            "message": reason,
+        }),
+        ActionResult::UserAction { action, .. } => json!({
+            "url": url,
+            "code": "USER_ACTION",
+            "message": action,
+        }),
+        ActionResult::Ok { .. } => json!({
+            "url": url,
+            "code": "INTERNAL_ERROR",
+            "message": "unexpected success while recording failure",
+        }),
+    }
 }
