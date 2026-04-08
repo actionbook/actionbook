@@ -459,9 +459,18 @@ Create or attach to a session. The session_id can be specified via `--set-sessio
 | `--headless` | bool | No | Whether to use headless mode |
 | `--profile` | string | No | Profile to use for the session |
 | `--open-url` | string | No | Navigate to this URL when opening the browser |
-| `--cdp-endpoint` | string | No | Connect to an existing CDP endpoint (does not launch a new browser) |
+| `--cdp-endpoint` | string | No | Connect to an existing CDP endpoint (does not launch a new browser). In cloud mode, omitting this provisions a browser automatically via Driver.dev |
 | `--header <KEY:VALUE>` | string | No | Only effective with `--cdp-endpoint`, passes headers when connecting |
 | `--set-session-id` | string | No | Specify a semantic session ID |
+
+**Cloud mode:**
+
+When `--mode cloud` is used without `--cdp-endpoint`, a browser is provisioned automatically via [Driver.dev](https://driver.dev). This requires an API key configured via:
+
+- Environment variable: `ACTIONBOOK_DRIVER_API_KEY`
+- Config file (`~/.actionbook/config.toml`): `driver_api_key` under `[browser]`
+
+The remote browser is automatically stopped when the session is closed or restarted. When `--cdp-endpoint` is provided, Driver.dev is bypassed and the endpoint is used directly.
 
 **JSON `data`:**
 

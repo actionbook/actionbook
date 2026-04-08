@@ -34,7 +34,7 @@ pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Extract everything from registry then release the lock before slow I/O.
-    let (closed_tabs, cdp, chrome_process, profile_to_clean) = {
+    let (closed_tabs, cdp, chrome_process, profile_to_clean, driver_session_id) = {
         let mut reg = registry.lock().await;
         let mut entry = match reg.remove(&cmd.session) {
             Some(e) => e,
@@ -58,8 +58,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 None
             };
 
+        let driver_sid = entry.driver_session_id.take();
         reg.clear_session_ref_caches(&cmd.session);
-        (tabs, entry.cdp.take(), entry.chrome_process.take(), profile)
+        (tabs, entry.cdp.take(), entry.chrome_process.take(), profile, driver_sid)
     };
     // Registry lock released here — slow I/O below won't block other sessions.
 
@@ -67,6 +68,13 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     if let Some(cdp) = cdp {
         cdp.clear_iframe_sessions().await;
         cdp.close().await;
+    }
+
+    // Stop Driver.dev remote session (best-effort).
+    if let Some(ref driver_sid) = driver_session_id {
+        if let Ok(api_key) = crate::config::resolve_driver_api_key() {
+            crate::browser::provider::driver::stop_session(&api_key, driver_sid).await;
+        }
     }
 
     if let Some(child) = chrome_process {

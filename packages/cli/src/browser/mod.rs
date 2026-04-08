@@ -3,6 +3,7 @@ pub mod element;
 pub mod interaction;
 pub mod navigation;
 pub mod observation;
+pub mod provider;
 pub mod session;
 pub mod stealth;
 pub mod storage;

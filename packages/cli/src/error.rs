@@ -53,6 +53,8 @@ pub enum CliError {
     VersionMismatch { cli: String, daemon: String },
     #[error("api error: {0}")]
     ApiError(String),
+    #[error("driver.dev error: {0}")]
+    DriverApiError(String),
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -85,6 +87,7 @@ impl CliError {
             CliError::CloudConnectionLost(_) => "CLOUD_CONNECTION_LOST",
             CliError::VersionMismatch { .. } => "VERSION_MISMATCH",
             CliError::ApiError(_) => "API_ERROR",
+            CliError::DriverApiError(_) => "DRIVER_API_ERROR",
             CliError::Internal(_) => "INTERNAL_ERROR",
         }
     }

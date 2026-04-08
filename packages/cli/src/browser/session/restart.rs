@@ -46,7 +46,7 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let (mode, headless, stealth, profile, open_url, cdp_endpoint, headers, cdp, chrome_process);
+    let (mode, headless, stealth, profile, open_url, cdp_endpoint, headers, cdp, chrome_process, driver_session_id);
     {
         let mut reg = registry.lock().await;
         let mut entry = match reg.remove(&cmd.session) {
@@ -72,6 +72,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             .collect::<Vec<_>>();
         cdp = entry.cdp.take();
         chrome_process = entry.chrome_process.take();
+        driver_session_id = entry.driver_session_id.take();
 
         reg.clear_session_ref_caches(&cmd.session);
     }
@@ -80,6 +81,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     if let Some(cdp) = cdp {
         cdp.clear_iframe_sessions().await;
         cdp.close().await;
+    }
+    // Stop old Driver.dev session — a fresh one will be provisioned by start.
+    if let Some(ref driver_sid) = driver_session_id {
+        if let Ok(api_key) = crate::config::resolve_driver_api_key() {
+            crate::browser::provider::driver::stop_session(&api_key, driver_sid).await;
+        }
     }
     if let Some(child) = chrome_process {
         crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
@@ -93,7 +100,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         profile: Some(profile),
         executable_path: None,
         open_url,
-        cdp_endpoint,
+        // If the old session was provisioned by Driver.dev, clear the endpoint
+        // so execute() provisions a fresh one rather than reconnecting to a stopped URL.
+        cdp_endpoint: if driver_session_id.is_some() { None } else { cdp_endpoint },
         header: headers,
         session: None,
         set_session_id: Some(cmd.session.clone()),

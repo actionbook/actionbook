@@ -22,7 +22,12 @@ Examples:
   actionbook browser start --session research
   actionbook browser start --session research --open-url https://google.com
   actionbook browser start --headless --profile scraper
+  actionbook browser start --mode cloud
   actionbook browser start --mode cloud --cdp-endpoint wss://browser.example.com/ws
+
+Cloud mode: when --cdp-endpoint is omitted, a browser is provisioned automatically via Driver.dev.
+Requires ACTIONBOOK_DRIVER_API_KEY env var or driver_api_key in ~/.actionbook/config.toml.
+When --cdp-endpoint is provided, connects directly to that endpoint (no Driver.dev account needed).
 
 --session: get-or-create — reuses an existing session with the given ID, or creates one if not found.
 --set-session-id: always creates — fails if the ID is already in use.
@@ -112,14 +117,32 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         );
     }
 
-    // Cloud mode requires --cdp-endpoint
-    if mode == Mode::Cloud && cdp_endpoint.is_none() {
-        return ActionResult::fatal_with_hint(
-            "MISSING_CDP_ENDPOINT",
-            "--mode cloud requires --cdp-endpoint",
-            "provide a cloud browser endpoint, e.g. --cdp-endpoint wss://...",
-        );
-    }
+    // Cloud mode without --cdp-endpoint: provision via Driver.dev
+    let driver_session: Option<crate::browser::provider::driver::DriverSession> =
+        if mode == Mode::Cloud && cdp_endpoint.is_none() {
+            let api_key = match config::resolve_driver_api_key() {
+                Ok(k) => k,
+                Err(e) => {
+                    return ActionResult::fatal_with_hint(
+                        e.error_code(),
+                        e.to_string(),
+                        "set ACTIONBOOK_DRIVER_API_KEY or provide --cdp-endpoint",
+                    );
+                }
+            };
+            match crate::browser::provider::driver::create_session(&api_key).await {
+                Ok(ds) => Some(ds),
+                Err(e) => {
+                    return ActionResult::fatal_with_hint(
+                        e.error_code(),
+                        e.to_string(),
+                        "check your Driver.dev API key and account balance at https://app.driver.dev",
+                    );
+                }
+            }
+        } else {
+            None
+        };
 
     // Parse headers from "KEY:VALUE" strings
     let headers = match parse_headers(&cmd.header) {
@@ -172,13 +195,19 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // ── Cloud mode ──────────────────────────────────────────────────
     if mode == Mode::Cloud {
+        let (effective_endpoint, driver_sid) = if let Some(ref ds) = driver_session {
+            (ds.cdp_url.as_str(), Some(ds.session_id.as_str()))
+        } else {
+            (cdp_endpoint.unwrap(), None)
+        };
         return execute_cloud(
             cmd,
             registry,
-            cdp_endpoint.unwrap(),
+            effective_endpoint,
             &headers,
             profile_name,
             headless,
+            driver_sid,
         )
         .await;
     }
@@ -655,6 +684,7 @@ async fn execute_cloud(
     headers: &[(String, String)],
     profile_name: &str,
     headless: bool,
+    driver_session_id: Option<&str>,
 ) -> ActionResult {
     let ws_url = match ensure_scheme_or_fatal(cdp_endpoint) {
         Ok(u) => u,
@@ -814,6 +844,7 @@ async fn execute_cloud(
     entry.cdp = Some(cdp);
     entry.cdp_endpoint = Some(cdp_endpoint.to_string());
     entry.headers = headers.to_vec();
+    entry.driver_session_id = driver_session_id.map(|s| s.to_string());
 
     // Create per-session data directory for artifacts (snapshots, etc.)
     let session_data_dir = config::session_data_dir(session_id.as_str());

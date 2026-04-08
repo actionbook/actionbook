@@ -62,6 +62,8 @@ pub struct SessionEntry {
     pub cdp_endpoint: Option<String>,
     /// Custom headers for cloud CDP connections (e.g. auth tokens).
     pub headers: Vec<(String, String)>,
+    /// Driver.dev remote session ID — used to stop the remote browser on close.
+    pub driver_session_id: Option<String>,
     /// Counter for assigning short tab IDs (t1, t2, ...).
     pub next_tab_id: u32,
 }
@@ -97,6 +99,7 @@ impl SessionEntry {
             cdp: None,
             cdp_endpoint: None,
             headers: Vec::new(),
+            driver_session_id: None,
             next_tab_id: 1,
         }
     }

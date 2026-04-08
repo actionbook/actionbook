@@ -47,6 +47,8 @@ pub(crate) struct BrowserConfig {
     pub(crate) executable_path: Option<String>,
     #[serde(alias = "cdp-endpoint", alias = "cdp_endpoint")]
     pub(crate) cdp_endpoint: Option<String>,
+    /// Driver.dev API key for cloud browser provisioning.
+    pub(crate) driver_api_key: Option<String>,
 }
 
 impl Default for BrowserConfig {
@@ -57,6 +59,7 @@ impl Default for BrowserConfig {
             profile_name: default_profile_name(),
             executable_path: None,
             cdp_endpoint: None,
+            driver_api_key: None,
         }
     }
 }
@@ -246,6 +249,21 @@ fn parse_env_mode(name: &str) -> Result<Option<Mode>, CliError> {
     Mode::from_str(&value)
         .map(Some)
         .map_err(|e| CliError::InvalidArgument(format!("{name}: {e}")))
+}
+
+/// Resolve Driver.dev API key from env var or config file.
+pub fn resolve_driver_api_key() -> Result<String, CliError> {
+    if let Some(key) = read_trimmed_env("ACTIONBOOK_DRIVER_API_KEY") {
+        return Ok(key);
+    }
+    let config = load_config()?;
+    config.browser.driver_api_key.ok_or_else(|| {
+        CliError::InvalidArgument(
+            "Driver.dev API key required for cloud mode without --cdp-endpoint. \
+             Set ACTIONBOOK_DRIVER_API_KEY or add driver_api_key under [browser] in ~/.actionbook/config.toml"
+                .to_string(),
+        )
+    })
 }
 
 fn normalize_optional(value: Option<String>) -> Option<String> {
