@@ -99,10 +99,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         // Extension mode: detach debugger. The extension doesn't own the
         // browser so we can't force-close user tabs — only release the
         // debugger attachment.
-        if let Err(e) = cdp
-            .execute_browser("Extension.detachTab", json!({}))
-            .await
-        {
+        if let Err(e) = cdp.execute_browser("Extension.detachTab", json!({})).await {
             tracing::warn!("extension: failed to detach tab: {e}");
         }
     } else {

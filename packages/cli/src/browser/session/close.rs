@@ -74,15 +74,13 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Extension mode: detach debugger before tearing down the CDP connection.
     // Extension mode doesn't own the browser — we only release the debugger,
     // leaving tabs open for the user.
-    if mode == Mode::Extension {
-        if let Some(ref cdp) = cdp {
-            if let Err(e) = cdp
-                .execute_browser("Extension.detachTab", serde_json::json!({}))
-                .await
-            {
-                tracing::warn!("extension: failed to detach: {e}");
-            }
-        }
+    if mode == Mode::Extension
+        && let Some(ref cdp) = cdp
+        && let Err(e) = cdp
+            .execute_browser("Extension.detachTab", serde_json::json!({}))
+            .await
+    {
+        tracing::warn!("extension: failed to detach: {e}");
     }
 
     // Close CDP session AFTER extension cleanup is complete.

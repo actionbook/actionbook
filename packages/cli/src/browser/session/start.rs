@@ -954,10 +954,7 @@ async fn execute_extension(
             Ok(resp) => {
                 let result = &resp["result"];
                 let tab_id = result["tabId"].as_i64().unwrap_or(0).to_string();
-                let tab_url = result["url"]
-                    .as_str()
-                    .unwrap_or(&final_url)
-                    .to_string();
+                let tab_url = result["url"].as_str().unwrap_or(&final_url).to_string();
                 let title = result["title"].as_str().unwrap_or("").to_string();
                 vec![(tab_id, tab_url, title)]
             }

@@ -21,8 +21,8 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, mpsc};
-use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::http::StatusCode;
 use tracing::{error, info, warn};
 
 // ─── Constants ──────────────────────────────────────────────────────────
@@ -302,10 +302,10 @@ async fn handle_extension(
                 let text_str = text.to_string();
                 let mut s = state.lock().await;
                 s.touch();
-                if let Some(ref cdp_tx) = s.cdp_tx {
-                    if cdp_tx.send(text_str).is_err() {
-                        warn!("bridge: failed to forward extension message to CDP client");
-                    }
+                if let Some(ref cdp_tx) = s.cdp_tx
+                    && cdp_tx.send(text_str).is_err()
+                {
+                    warn!("bridge: failed to forward extension message to CDP client");
                 }
                 // If no CDP client, message is dropped (events before session start).
             }
@@ -331,14 +331,22 @@ async fn handle_extension(
 // ─── CDP Client Handler (daemon CdpSession) ─────────────────────────────
 
 async fn handle_cdp_client(
-    write: futures_util::stream::SplitSink<
-        tokio_tungstenite::WebSocketStream<TcpStream>,
-        Message,
-    >,
+    write: futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
     mut read: futures_util::stream::SplitStream<tokio_tungstenite::WebSocketStream<TcpStream>>,
     first_message: String,
     state: SharedBridgeState,
 ) {
+    // Reject if another CDP client is already connected. The bridge is a 1:1
+    // relay — allowing a second client would silently steal extension responses
+    // from the first session, causing it to stall/timeout.
+    {
+        let s = state.lock().await;
+        if s.cdp_tx.as_ref().is_some_and(|tx| !tx.is_closed()) {
+            warn!("bridge: rejected CDP client — another session is already connected");
+            return;
+        }
+    }
+
     // Create channel for sending messages TO this CDP client WS.
     let (cdp_tx, mut cdp_rx) = mpsc::unbounded_channel::<String>();
 
@@ -352,10 +360,10 @@ async fn handle_cdp_client(
     {
         let mut s = state.lock().await;
         s.touch();
-        if let Some(ref ext_tx) = s.extension_tx {
-            if ext_tx.send(first_message).is_err() {
-                warn!("bridge: failed to forward first CDP message to extension");
-            }
+        if let Some(ref ext_tx) = s.extension_tx
+            && ext_tx.send(first_message).is_err()
+        {
+            warn!("bridge: failed to forward first CDP message to extension");
         }
     }
 
@@ -378,10 +386,10 @@ async fn handle_cdp_client(
                 let text_str = text.to_string();
                 let mut s = state.lock().await;
                 s.touch();
-                if let Some(ref ext_tx) = s.extension_tx {
-                    if ext_tx.send(text_str).is_err() {
-                        warn!("bridge: failed to forward CDP message to extension");
-                    }
+                if let Some(ref ext_tx) = s.extension_tx
+                    && ext_tx.send(text_str).is_err()
+                {
+                    warn!("bridge: failed to forward CDP message to extension");
                 }
             }
             Ok(Message::Close(_)) => break,
