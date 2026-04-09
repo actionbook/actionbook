@@ -6,6 +6,7 @@ use crate::action_result::ActionResult;
 use crate::daemon::cdp_session::cdp_error_to_result;
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
+use crate::types::Mode;
 
 /// Close a tab
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
@@ -54,7 +55,7 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let (cdp, native_id);
+    let (cdp, native_id, mode);
 
     {
         let reg = registry.lock().await;
@@ -80,6 +81,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             }
         };
         native_id = tab.native_id.clone();
+        mode = entry.mode;
 
         cdp = match entry.cdp.clone() {
             Some(c) => c,
@@ -93,32 +95,47 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         };
     }
 
-    // Detach from the persistent CDP session before closing
-    let _ = cdp.detach(&native_id).await;
-
-    // Close via CDP Target.closeTarget (works for both local and cloud)
-    match cdp
-        .execute_browser("Target.closeTarget", json!({ "targetId": native_id }))
-        .await
-    {
-        Ok(resp) => {
-            // Check result.success boolean
-            let success = resp
-                .pointer("/result/success")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true);
-            if !success {
-                tracing::warn!(
-                    "Target.closeTarget returned success=false for {}",
-                    native_id
-                );
+    if mode == Mode::Extension {
+        // Extension mode: close tab via Extension.closeTab (which also detaches debugger).
+        if let Ok(tab_id) = native_id.parse::<i64>() {
+            match cdp
+                .execute_browser("Extension.closeTab", json!({ "tabId": tab_id }))
+                .await
+            {
+                Ok(_) => {}
+                Err(e) => {
+                    let msg = e.to_string();
+                    if !msg.contains("not found") && !msg.contains("No tab") {
+                        return cdp_error_to_result(e, "CDP_ERROR");
+                    }
+                }
             }
         }
-        Err(e) => {
-            // Idempotent: if target is already gone, treat as success
-            let msg = e.to_string();
-            if !msg.contains("not found") && !msg.contains("No target") {
-                return cdp_error_to_result(e, "CDP_ERROR");
+    } else {
+        // Local/Cloud mode: detach then close via CDP Target.closeTarget.
+        let _ = cdp.detach(&native_id).await;
+
+        match cdp
+            .execute_browser("Target.closeTarget", json!({ "targetId": native_id }))
+            .await
+        {
+            Ok(resp) => {
+                let success = resp
+                    .pointer("/result/success")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                if !success {
+                    tracing::warn!(
+                        "Target.closeTarget returned success=false for {}",
+                        native_id
+                    );
+                }
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                if !msg.contains("not found") && !msg.contains("No target") {
+                    return cdp_error_to_result(e, "CDP_ERROR");
+                }
             }
         }
     }
