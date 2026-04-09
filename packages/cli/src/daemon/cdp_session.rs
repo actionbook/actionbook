@@ -260,6 +260,21 @@ impl CdpSession {
         // (real users have 1366x768, 2560x1440, 3440x1440, etc.).
     }
 
+    /// Register a tab for extension mode (no CDP flat-session handshake needed).
+    ///
+    /// The extension bridge relays CDP commands to a single attached tab and
+    /// ignores the `sessionId` field entirely.  We insert an empty-string
+    /// session ID so that `execute_on_tab` can look it up and the resulting
+    /// WS message simply omits `sessionId` (because `execute()` only adds it
+    /// when `Some`).  Actually we store `""` but `execute_on_tab` passes
+    /// `Some("")` which adds `"sessionId":""` — the bridge ignores it.
+    pub async fn register_extension_tab(&self, native_id: &str) {
+        self.tab_sessions
+            .lock()
+            .await
+            .insert(native_id.to_string(), String::new());
+    }
+
     /// Detach from a CDP target (tab).
     pub async fn detach(&self, target_id: &str) -> Result<(), CliError> {
         let session_id = self

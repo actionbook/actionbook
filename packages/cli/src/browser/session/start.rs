@@ -920,51 +920,18 @@ async fn execute_extension(
         }
     };
 
-    // Discover tabs via CDP (relayed through extension).
-    let tabs = match discover_tabs_via_cdp(&cdp).await {
-        Ok(t) => t,
-        Err(e) => {
-            return fail_reserved_start(
-                registry,
-                &session_id,
-                "CDP_ERROR",
-                format!("failed to discover tabs via extension: {e}"),
-            )
-            .await;
-        }
-    };
+    // Extension-specific tab discovery via Extension.listTabs / Extension.attachTab.
+    //
+    // Unlike local/cloud mode (which use CDP Target.getTargets), the extension
+    // bridge requires an Extension.attachTab call before any CDP command can be
+    // relayed.  We use the Extension.* custom methods to list, create, and attach
+    // tabs, then register them in CdpSession so subsequent execute_on_tab works.
 
-    // Zero-tab fallback.
-    let tabs = if tabs.is_empty() {
-        let open_url = cmd.open_url.as_deref().unwrap_or("about:blank");
-        match create_tab_via_cdp(&cdp, open_url).await {
-            Ok(tab) => vec![tab],
-            Err(e) => {
-                return fail_reserved_start(
-                    registry,
-                    &session_id,
-                    "CDP_ERROR",
-                    format!("failed to create initial tab: {e}"),
-                )
-                .await;
-            }
-        }
-    } else {
-        tabs
-    };
+    let open_url = cmd.open_url.as_deref();
 
-    // Attach all tabs.
-    for (native_id, ..) in &tabs {
-        if let Err(e) = cdp.attach(native_id, None).await {
-            tracing::warn!("extension: failed to attach tab {native_id}: {e}");
-        }
-    }
-
-    // Navigate first tab if open_url provided.
-    if let Some(url) = &cmd.open_url
-        && !tabs.is_empty()
-        && tabs[0].1 != *url
-    {
+    // If open_url provided, create (or reuse) a tab via Extension.createTab
+    // which auto-attaches the debugger.  Otherwise attach the active tab.
+    let tabs: Vec<(String, String, String)> = if let Some(url) = open_url {
         let final_url = match ensure_scheme_or_fatal(url) {
             Ok(u) => u,
             Err(e) => {
@@ -972,13 +939,59 @@ async fn execute_extension(
                 return e;
             }
         };
-        let first_native = &tabs[0].0;
-        if let Err(e) = cdp
-            .execute_on_tab(first_native, "Page.navigate", json!({ "url": final_url }))
+        match cdp
+            .execute_browser("Extension.createTab", json!({ "url": final_url }))
             .await
         {
-            tracing::warn!("extension: navigate on start failed: {e}");
+            Ok(resp) => {
+                let result = &resp["result"];
+                let tab_id = result["tabId"].as_i64().unwrap_or(0).to_string();
+                let tab_url = result["url"]
+                    .as_str()
+                    .unwrap_or(&final_url)
+                    .to_string();
+                let title = result["title"].as_str().unwrap_or("").to_string();
+                vec![(tab_id, tab_url, title)]
+            }
+            Err(e) => {
+                return fail_reserved_start(
+                    registry,
+                    &session_id,
+                    "CDP_ERROR",
+                    format!("failed to create tab via extension: {e}"),
+                )
+                .await;
+            }
         }
+    } else {
+        // No open_url — attach the current active tab.
+        match cdp
+            .execute_browser("Extension.attachActiveTab", json!({}))
+            .await
+        {
+            Ok(resp) => {
+                let result = &resp["result"];
+                let tab_id = result["tabId"].as_i64().unwrap_or(0).to_string();
+                let tab_url = result["url"].as_str().unwrap_or("about:blank").to_string();
+                let title = result["title"].as_str().unwrap_or("").to_string();
+                vec![(tab_id, tab_url, title)]
+            }
+            Err(e) => {
+                return fail_reserved_start(
+                    registry,
+                    &session_id,
+                    "CDP_ERROR",
+                    format!("failed to attach active tab via extension: {e}"),
+                )
+                .await;
+            }
+        }
+    };
+
+    // Register extension tabs in CdpSession so execute_on_tab works.
+    // Extension bridge ignores sessionId, so an empty string is fine.
+    for (native_id, ..) in &tabs {
+        cdp.register_extension_tab(native_id).await;
     }
 
     let first_native_id = tabs.first().map(|t| t.0.clone()).unwrap_or_default();
