@@ -516,28 +516,6 @@ async function handleExtensionCommand(id, method, params) {
       return { id, result: { detached: true } };
     }
 
-    case "Extension.closeTab": {
-      const tabId = params.tabId;
-      if (!tabId || typeof tabId !== "number") {
-        return { id, error: { code: -32602, message: "Missing or invalid tabId" } };
-      }
-      // Detach debugger first if this is the attached tab
-      if (attachedTabId === tabId) {
-        try {
-          await chrome.debugger.detach({ tabId });
-        } catch (_) {
-          // Ignore — tab may already be closing
-        }
-        attachedTabId = null;
-      }
-      try {
-        await chrome.tabs.remove(tabId);
-        return { id, result: { closed: true, tabId } };
-      } catch (err) {
-        return { id, error: { code: -32000, message: `Failed to close tab ${tabId}: ${err.message}` } };
-      }
-    }
-
     case "Extension.status": {
       return {
         id,

@@ -35,7 +35,7 @@ pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Extract everything from registry then release the lock before slow I/O.
-    let (closed_tabs, cdp, chrome_process, profile_to_clean, mode, tab_native_ids) = {
+    let (closed_tabs, cdp, chrome_process, profile_to_clean, mode) = {
         let mut reg = registry.lock().await;
         let mut entry = match reg.remove(&cmd.session) {
             Some(e) => e,
@@ -49,7 +49,6 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         };
         let tabs = entry.tabs_count();
         let entry_mode = entry.mode;
-        let native_ids: Vec<String> = entry.tabs.iter().map(|t| t.native_id.clone()).collect();
 
         // Only delete non-default profile directories for local sessions.
         // The default profile ("actionbook") is long-lived and preserves
@@ -68,34 +67,25 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             entry.chrome_process.take(),
             profile,
             entry_mode,
-            native_ids,
         )
     };
     // Registry lock released here — slow I/O below won't block other sessions.
 
-    // Extension mode: close tabs and detach debugger via Extension API
-    // before tearing down the CDP connection.
+    // Extension mode: detach debugger before tearing down the CDP connection.
+    // Extension mode doesn't own the browser — we only release the debugger,
+    // leaving tabs open for the user.
     if mode == Mode::Extension {
         if let Some(ref cdp) = cdp {
-            for native_id in &tab_native_ids {
-                if let Ok(tab_id) = native_id.parse::<i64>() {
-                    let _ = cdp
-                        .execute_browser(
-                            "Extension.closeTab",
-                            serde_json::json!({ "tabId": tab_id }),
-                        )
-                        .await;
-                }
-            }
-            // Detach debugger as fallback (closeTab already detaches if needed,
-            // but this covers edge cases where tab IDs are stale).
-            let _ = cdp
+            if let Err(e) = cdp
                 .execute_browser("Extension.detachTab", serde_json::json!({}))
-                .await;
+                .await
+            {
+                tracing::warn!("extension: failed to detach: {e}");
+            }
         }
     }
 
-    // Close CDP session (shuts down background tasks, frees cloud connection slot).
+    // Close CDP session AFTER extension cleanup is complete.
     if let Some(cdp) = cdp {
         cdp.clear_iframe_sessions().await;
         cdp.close().await;

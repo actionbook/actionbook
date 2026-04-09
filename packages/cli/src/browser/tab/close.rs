@@ -96,20 +96,14 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
 
     if mode == Mode::Extension {
-        // Extension mode: close tab via Extension.closeTab (which also detaches debugger).
-        if let Ok(tab_id) = native_id.parse::<i64>() {
-            match cdp
-                .execute_browser("Extension.closeTab", json!({ "tabId": tab_id }))
-                .await
-            {
-                Ok(_) => {}
-                Err(e) => {
-                    let msg = e.to_string();
-                    if !msg.contains("not found") && !msg.contains("No tab") {
-                        return cdp_error_to_result(e, "CDP_ERROR");
-                    }
-                }
-            }
+        // Extension mode: detach debugger. The extension doesn't own the
+        // browser so we can't force-close user tabs — only release the
+        // debugger attachment.
+        if let Err(e) = cdp
+            .execute_browser("Extension.detachTab", json!({}))
+            .await
+        {
+            tracing::warn!("extension: failed to detach tab: {e}");
         }
     } else {
         // Local/Cloud mode: detach then close via CDP Target.closeTarget.
