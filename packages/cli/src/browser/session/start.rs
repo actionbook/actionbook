@@ -100,7 +100,11 @@ pub fn context(_cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let mode = cmd.mode.unwrap_or(Mode::Local);
+    let mode = cmd.mode.unwrap_or_else(|| {
+        config::load_config()
+            .map(|c| c.browser.mode)
+            .unwrap_or(Mode::Local)
+    });
     let headless = cmd.headless.unwrap_or(false);
     let profile_name = cmd.profile.as_deref().unwrap_or(DEFAULT_PROFILE);
     let cdp_endpoint = cmd.cdp_endpoint.as_deref();
