@@ -144,6 +144,7 @@ async fn handle_connection(stream: TcpStream, state: SharedBridgeState) {
 
     let ws = match tokio_tungstenite::accept_hdr_async(
         stream,
+        #[allow(clippy::result_large_err)] // accept_hdr_async requires this exact signature
         move |req: &tokio_tungstenite::tungstenite::http::Request<()>,
               resp: tokio_tungstenite::tungstenite::http::Response<()>|
               -> std::result::Result<
