@@ -183,7 +183,18 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         .await;
     }
 
-    // ── Local / Extension mode ──────────────────────────────────────
+    // ── Extension mode ─────────────────────────────────────────────
+    if mode == Mode::Extension {
+        if cdp_endpoint.is_some() {
+            return ActionResult::fatal(
+                "INVALID_ARGUMENT",
+                "--cdp-endpoint is not supported with --mode extension".to_string(),
+            );
+        }
+        return execute_extension(cmd, registry, profile_name, headless).await;
+    }
+
+    // ── Local mode ─────────────────────────────────────────────────
 
     if cdp_endpoint.is_some() && mode != Mode::Local {
         return ActionResult::fatal(
@@ -832,6 +843,189 @@ async fn execute_cloud(
             "status": "running",
             "headless": headless,
             "cdp_endpoint": redact_endpoint(cdp_endpoint),
+        },
+        "tab": {
+            "tab_id": first_short_id,
+            "native_tab_id": first_native_id,
+            "url": first_url,
+            "title": first_title,
+        },
+        "reused": false,
+    }))
+}
+
+// ── Extension mode ────────────────────────────────────────────────────
+
+/// Execute extension-mode session start.
+///
+/// Connects to the extension bridge WS, which transparently relays CDP
+/// commands to the Chrome extension. Reuses the same CDP flow as cloud mode.
+async fn execute_extension(
+    cmd: &Cmd,
+    registry: &SharedRegistry,
+    profile_name: &str,
+    headless: bool,
+) -> ActionResult {
+    use crate::daemon::bridge::BRIDGE_PORT;
+
+    // Check bridge state from registry.
+    let bridge_ws_url = {
+        let reg = registry.lock().await;
+        let Some(bridge_state) = reg.bridge_state() else {
+            return ActionResult::fatal_with_hint(
+                "BRIDGE_NOT_RUNNING",
+                "extension bridge is not running",
+                "the daemon failed to start the bridge — check if port 19222 is in use",
+            );
+        };
+        let bs = bridge_state.lock().await;
+        if !bs.is_extension_connected() {
+            return ActionResult::fatal_with_hint(
+                "EXTENSION_NOT_CONNECTED",
+                "no Chrome extension is connected to the bridge",
+                "open Chrome with the Actionbook extension installed and ensure it is active",
+            );
+        }
+        format!("ws://127.0.0.1:{BRIDGE_PORT}")
+    };
+
+    // Reserve a session placeholder.
+    let effective_set_id = cmd.session.as_deref().or(cmd.set_session_id.as_deref());
+    let session_id = {
+        let mut reg = registry.lock().await;
+        match reg.reserve_session_start(
+            effective_set_id,
+            cmd.profile.as_deref(),
+            profile_name,
+            Mode::Extension,
+            headless,
+            cmd.stealth,
+        ) {
+            Ok(sid) => sid,
+            Err(e) => return ActionResult::fatal(e.error_code(), e.to_string()),
+        }
+    };
+
+    // Connect CdpSession to bridge (transparent relay to extension).
+    let cdp = match CdpSession::connect(&bridge_ws_url).await {
+        Ok(c) => c,
+        Err(e) => {
+            return fail_reserved_start(
+                registry,
+                &session_id,
+                "CDP_CONNECTION_FAILED",
+                format!("failed to connect to extension bridge: {e}"),
+            )
+            .await;
+        }
+    };
+
+    // Discover tabs via CDP (relayed through extension).
+    let tabs = match discover_tabs_via_cdp(&cdp).await {
+        Ok(t) => t,
+        Err(e) => {
+            return fail_reserved_start(
+                registry,
+                &session_id,
+                "CDP_ERROR",
+                format!("failed to discover tabs via extension: {e}"),
+            )
+            .await;
+        }
+    };
+
+    // Zero-tab fallback.
+    let tabs = if tabs.is_empty() {
+        let open_url = cmd.open_url.as_deref().unwrap_or("about:blank");
+        match create_tab_via_cdp(&cdp, open_url).await {
+            Ok(tab) => vec![tab],
+            Err(e) => {
+                return fail_reserved_start(
+                    registry,
+                    &session_id,
+                    "CDP_ERROR",
+                    format!("failed to create initial tab: {e}"),
+                )
+                .await;
+            }
+        }
+    } else {
+        tabs
+    };
+
+    // Attach all tabs.
+    for (native_id, ..) in &tabs {
+        if let Err(e) = cdp.attach(native_id, None).await {
+            tracing::warn!("extension: failed to attach tab {native_id}: {e}");
+        }
+    }
+
+    // Navigate first tab if open_url provided.
+    if let Some(url) = &cmd.open_url
+        && !tabs.is_empty()
+        && tabs[0].1 != *url
+    {
+        let final_url = match ensure_scheme_or_fatal(url) {
+            Ok(u) => u,
+            Err(e) => {
+                registry.lock().await.remove(session_id.as_str());
+                return e;
+            }
+        };
+        let first_native = &tabs[0].0;
+        if let Err(e) = cdp
+            .execute_on_tab(first_native, "Page.navigate", json!({ "url": final_url }))
+            .await
+        {
+            tracing::warn!("extension: navigate on start failed: {e}");
+        }
+    }
+
+    let first_native_id = tabs.first().map(|t| t.0.clone()).unwrap_or_default();
+    let first_url = tabs
+        .first()
+        .map(|t| t.1.clone())
+        .unwrap_or_else(|| "about:blank".to_string());
+    let first_title = tabs.first().map(|t| t.2.clone()).unwrap_or_default();
+
+    // Finalize registry entry.
+    let mut reg = registry.lock().await;
+    let Some(entry) = reg.get_mut(session_id.as_str()) else {
+        return ActionResult::fatal(
+            "SESSION_NOT_FOUND",
+            format!(
+                "session '{}' was closed during startup",
+                session_id.as_str()
+            ),
+        );
+    };
+    entry.mode = Mode::Extension;
+    entry.headless = headless;
+    entry.profile = profile_name.to_string();
+    entry.status = SessionState::Running;
+    entry.cdp_port = None;
+    entry.ws_url = bridge_ws_url.clone();
+    for (native_id, url, title) in tabs {
+        entry.push_tab(native_id, url, title);
+    }
+    entry.chrome_process = None;
+    entry.cdp = Some(cdp);
+
+    let session_data_dir = config::session_data_dir(session_id.as_str());
+    std::fs::create_dir_all(&session_data_dir).ok();
+
+    let first_short_id = entry
+        .tabs
+        .first()
+        .map(|t| t.id.0.clone())
+        .unwrap_or_default();
+
+    ActionResult::ok(json!({
+        "session": {
+            "session_id": session_id.as_str(),
+            "mode": "extension",
+            "status": "running",
+            "headless": headless,
         },
         "tab": {
             "tab_id": first_short_id,

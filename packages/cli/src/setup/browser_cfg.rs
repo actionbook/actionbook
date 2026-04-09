@@ -30,8 +30,28 @@ pub(crate) async fn configure_browser(
     match mode {
         Mode::Local => configure_local(json, env, config),
         Mode::Cloud => configure_cloud(json, config),
-        Mode::Extension => Err(unsupported_setup_mode_error("extension")),
+        Mode::Extension => configure_extension(json, config),
     }
+}
+
+fn configure_extension(json: bool, config: &mut ConfigFile) -> Result<(), CliError> {
+    config.browser.executable_path = None;
+    config.browser.headless = false;
+    config.browser.cdp_endpoint = None;
+
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "step": "browser",
+                "mode": "extension",
+            })
+        );
+    } else {
+        println!("  - Browser mode: extension");
+    }
+
+    Ok(())
 }
 
 fn configure_cloud(json: bool, config: &mut ConfigFile) -> Result<(), CliError> {
@@ -61,25 +81,20 @@ fn cloud_display_label(config: &ConfigFile) -> String {
     }
 }
 
-fn unsupported_setup_mode_error(mode: &str) -> CliError {
-    CliError::InvalidArgument(format!(
-        "setup does not currently allow browser.mode='{mode}'; use 'local' or 'cloud'"
-    ))
-}
-
-fn print_extension_coming_soon_hint() {
-    println!("  - extension  Coming soon");
-}
-
 fn browser_mode_options() -> Vec<String> {
     vec![
         "local      Launch a dedicated browser".to_string(),
         "cloud      Connect to a remote CDP browser".to_string(),
+        "extension  Connect via Chrome extension".to_string(),
     ]
 }
 
 fn browser_mode_default(current_mode: Mode) -> usize {
-    if current_mode == Mode::Cloud { 1 } else { 0 }
+    match current_mode {
+        Mode::Cloud => 1,
+        Mode::Extension => 2,
+        _ => 0,
+    }
 }
 
 fn apply_existing_browser_mode(
@@ -126,7 +141,20 @@ fn apply_existing_browser_mode(
             }
         }
         Mode::Extension => {
-            return Err(unsupported_setup_mode_error("extension"));
+            config.browser.executable_path = None;
+            config.browser.headless = false;
+            config.browser.cdp_endpoint = None;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "step": "browser",
+                        "mode": "extension",
+                    })
+                );
+            } else {
+                println!("  - Browser mode: extension");
+            }
         }
     }
 
@@ -135,7 +163,6 @@ fn apply_existing_browser_mode(
 
 /// Interactive prompt to select browser mode.
 fn select_browser_mode(current_mode: Mode) -> Result<Mode, CliError> {
-    print_extension_coming_soon_hint();
     let options = browser_mode_options();
 
     let default = browser_mode_default(current_mode);
@@ -146,10 +173,11 @@ fn select_browser_mode(current_mode: Mode) -> Result<Mode, CliError> {
         .interact()
         .map_err(|e| CliError::Internal(format!("Prompt failed: {e}")))?;
 
-    Ok(if selection == 0 {
-        Mode::Local
-    } else {
-        Mode::Cloud
+    Ok(match selection {
+        0 => Mode::Local,
+        1 => Mode::Cloud,
+        2 => Mode::Extension,
+        _ => Mode::Local,
     })
 }
 
@@ -271,7 +299,9 @@ fn apply_browser_mode(
             config.browser.headless = false;
         }
         Mode::Extension => {
-            return Err(unsupported_setup_mode_error("extension"));
+            config.browser.executable_path = None;
+            config.browser.headless = false;
+            config.browser.cdp_endpoint = None;
         }
     }
 
@@ -290,7 +320,7 @@ fn apply_browser_mode(
         let mode_label = match mode {
             Mode::Local => "local".to_string(),
             Mode::Cloud => cloud_display_label(config),
-            Mode::Extension => unreachable!("extension is rejected for setup"),
+            Mode::Extension => "extension".to_string(),
         };
         println!("  - Browser mode: {mode_label}");
     }
@@ -436,34 +466,32 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_existing_extension_mode_returns_hint() {
+    fn test_apply_existing_extension_mode_succeeds() {
         let env = make_env_with_browsers(vec![]);
         let mut config = ConfigFile::default();
         config.browser.mode = Mode::Extension;
 
-        let err = apply_existing_browser_mode(false, &env, &mut config)
-            .expect_err("extension should fail");
-
-        assert_eq!(err.error_code(), "INVALID_ARGUMENT");
-        assert_eq!(
-            err.to_string(),
-            "invalid argument: setup does not currently allow browser.mode='extension'; use 'local' or 'cloud'"
-        );
+        let result = apply_existing_browser_mode(false, &env, &mut config);
+        assert!(result.is_ok());
+        assert_eq!(config.browser.mode, Mode::Extension);
+        assert!(config.browser.executable_path.is_none());
+        assert!(config.browser.cdp_endpoint.is_none());
     }
 
     #[test]
-    fn test_browser_mode_options_include_local_and_cloud_only() {
+    fn test_browser_mode_options_include_all_modes() {
         let options = browser_mode_options();
-        assert_eq!(options.len(), 2);
+        assert_eq!(options.len(), 3);
         assert!(options[0].starts_with("local"));
         assert!(options[1].starts_with("cloud"));
+        assert!(options[2].starts_with("extension"));
     }
 
     #[test]
-    fn test_browser_mode_default_prefers_cloud_when_configured() {
+    fn test_browser_mode_default_prefers_configured() {
         assert_eq!(browser_mode_default(Mode::Cloud), 1);
         assert_eq!(browser_mode_default(Mode::Local), 0);
-        assert_eq!(browser_mode_default(Mode::Extension), 0);
+        assert_eq!(browser_mode_default(Mode::Extension), 2);
     }
 
     #[test]

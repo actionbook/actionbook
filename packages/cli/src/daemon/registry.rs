@@ -6,6 +6,7 @@ use tokio::sync::Mutex;
 
 use crate::action_result::ActionResult;
 use crate::browser::observation::snapshot_transform::RefCache;
+use crate::daemon::bridge::SharedBridgeState;
 use crate::daemon::cdp_session::CdpSession;
 use crate::error::CliError;
 use crate::types::{Mode, SessionId, TabId};
@@ -150,6 +151,8 @@ pub struct SessionRegistry {
     ref_caches: HashMap<String, RefCache>,
     /// Last known cursor position per tab. Key: "session_id\0tab_id"
     cursor_positions: HashMap<String, (f64, f64)>,
+    /// Extension bridge state (set by daemon on startup, `None` if bridge unavailable).
+    bridge_state: Option<SharedBridgeState>,
 }
 
 impl Default for SessionRegistry {
@@ -164,7 +167,18 @@ impl SessionRegistry {
             sessions: HashMap::new(),
             ref_caches: HashMap::new(),
             cursor_positions: HashMap::new(),
+            bridge_state: None,
         }
+    }
+
+    /// Set the extension bridge state handle.
+    pub fn set_bridge_state(&mut self, state: SharedBridgeState) {
+        self.bridge_state = Some(state);
+    }
+
+    /// Get a reference to the bridge state (if bridge is running).
+    pub fn bridge_state(&self) -> Option<&SharedBridgeState> {
+        self.bridge_state.as_ref()
     }
 
     fn has_active_session_id(&self, session_id: &str) -> bool {

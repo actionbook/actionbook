@@ -252,6 +252,11 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
 
     let registry = new_shared_registry();
 
+    // Spawn extension bridge (non-fatal: daemon works without it).
+    if let Some(bridge_state) = super::bridge::spawn_bridge().await {
+        registry.lock().await.set_bridge_state(bridge_state);
+    }
+
     // Handle SIGINT, SIGTERM, and SIGHUP (terminal close).
     #[cfg(unix)]
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;

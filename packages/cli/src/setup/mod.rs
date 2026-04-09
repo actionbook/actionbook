@@ -24,7 +24,7 @@ pub struct Cmd {
     #[arg(long)]
     pub api_key: Option<String>,
 
-    /// Browser configuration (local|cloud)
+    /// Browser configuration (local|cloud|extension)
     #[arg(long)]
     pub browser: Option<String>,
 
@@ -111,7 +111,7 @@ pub async fn execute(cmd: &Cmd, json: bool) -> Result<(), CliError> {
                 .as_deref()
                 .map(|endpoint| format!("cloud ({endpoint})"))
                 .unwrap_or_else(|| "cloud (endpoint not configured)".to_string()),
-            Mode::Extension => "coming soon".to_string(),
+            Mode::Extension => "extension".to_string(),
         };
 
         println!("  {bar}  Configuration summary:");
@@ -234,8 +234,9 @@ fn parse_browser_flag(value: Option<&str>) -> Result<Option<Mode>, CliError> {
     match value.trim().to_ascii_lowercase().as_str() {
         "local" => Ok(Some(Mode::Local)),
         "cloud" => Ok(Some(Mode::Cloud)),
+        "extension" => Ok(Some(Mode::Extension)),
         other => Err(CliError::InvalidArgument(format!(
-            "invalid --browser value '{other}': expected local|cloud"
+            "invalid --browser value '{other}': expected local|cloud|extension"
         ))),
     }
 }
@@ -287,7 +288,7 @@ fn print_completion(json: bool, config: &ConfigFile) {
                         .cdp_endpoint
                         .as_deref()
                         .unwrap_or("endpoint not configured"),
-                    Mode::Extension => "coming soon",
+                    Mode::Extension => "extension (bridge)",
                 },
                 "headless": config.browser.headless,
             })
@@ -327,7 +328,7 @@ fn print_completion(json: bool, config: &ConfigFile) {
             .as_deref()
             .map(|endpoint| format!("cloud ({endpoint})"))
             .unwrap_or_else(|| "cloud (endpoint not configured)".to_string()),
-        Mode::Extension => "coming soon".to_string(),
+        Mode::Extension => "extension".to_string(),
     };
 
     println!();
@@ -406,9 +407,11 @@ mod tests {
     }
 
     #[test]
-    fn parse_browser_flag_rejects_extension() {
-        let err = parse_browser_flag(Some("extension")).expect_err("should reject");
-        assert_eq!(err.error_code(), "INVALID_ARGUMENT");
+    fn parse_browser_flag_accepts_extension() {
+        assert_eq!(
+            parse_browser_flag(Some("extension")).unwrap(),
+            Some(Mode::Extension)
+        );
     }
 
     #[test]

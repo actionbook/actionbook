@@ -257,7 +257,7 @@ fn setup_isolated_browser_value_exits_non_zero() {
 }
 
 #[test]
-fn setup_extension_browser_value_exits_non_zero() {
+fn setup_extension_browser_value_succeeds() {
     let tmp = tempfile::tempdir().expect("tmpdir");
     let home = tmp.path().join("actionbook-home");
 
@@ -275,14 +275,15 @@ fn setup_extension_browser_value_exits_non_zero() {
         .expect("run setup");
 
     assert!(
-        !output.status.success(),
-        "expected extension --browser to fail\nstdout:\n{}\nstderr:\n{}",
+        output.status.success(),
+        "expected extension --browser to succeed\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),
     );
+    let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("invalid --browser value 'extension'"),
-        "stderr should explain that extension is no longer a valid setup browser value"
+        stdout.contains("\"mode\":\"extension\""),
+        "stdout should contain extension mode"
     );
 }
 
