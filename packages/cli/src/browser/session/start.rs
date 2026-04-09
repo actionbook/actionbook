@@ -200,10 +200,14 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // ── Local mode ─────────────────────────────────────────────────
 
-    if cdp_endpoint.is_some() && mode != Mode::Local {
-        return ActionResult::fatal(
-            "INVALID_ARGUMENT",
-            "cdp-endpoint requires --mode local".to_string(),
+    // Guard: only Local mode should reach here. Cloud and Extension return
+    // earlier; if a new mode is added but not handled, fail explicitly rather
+    // than silently launching a local Chrome.
+    if mode != Mode::Local {
+        return ActionResult::fatal_with_hint(
+            "UNSUPPORTED_MODE",
+            format!("mode '{mode:?}' is not supported by this daemon version"),
+            "upgrade the CLI binary and restart the daemon",
         );
     }
 
