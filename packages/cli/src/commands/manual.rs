@@ -106,6 +106,7 @@ struct ResponseInfo {
 #[derive(Deserialize)]
 struct ActionDetail {
     site: String,
+    #[allow(dead_code)]
     group: String,
     action: String,
     method: String,
