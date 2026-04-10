@@ -491,7 +491,6 @@ fn format_action_detail(data: &ActionDetail) -> String {
     let mut output = String::new();
     output.push_str(&format!("  === {}\n\n", data.action));
     output.push_str(&format!("  site:      {}\n", data.site));
-    output.push_str(&format!("  group:     {}\n", data.group));
     if is_graphql {
         output.push_str(&format!("  type:      {}\n", data.method));
         output.push_str(&format!("  field:     {}\n", data.path));
@@ -818,7 +817,6 @@ mod tests {
         let output = format_action_detail(&data);
         assert!(output.contains("=== create_page"));
         assert!(output.contains("site:      notion"));
-        assert!(output.contains("group:     pages"));
         assert!(output.contains("method:    POST"));
         assert!(output.contains("path:      /v1/pages"));
         assert!(output.contains("base_url:  https://api.notion.com"));
@@ -862,7 +860,6 @@ mod tests {
         let output = format_action_detail(&data);
         assert!(output.contains("=== customer"));
         assert!(output.contains("site:      shopify"));
-        assert!(output.contains("group:     queries"));
         assert!(output.contains("type:      QUERY"));
         assert!(output.contains("field:     customer"));
         assert!(output.contains("## Arguments"));
