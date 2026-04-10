@@ -695,6 +695,76 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 lines.push(format!("path: {path}"));
             }
         }
+        "browser network requests" => {
+            if data
+                .get("cleared")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
+                let count = data.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
+                lines.push(format!("cleared: {count} requests"));
+            } else {
+                let requests = data.get("requests").and_then(|v| v.as_array());
+                let filtered = requests.map(|r| r.len()).unwrap_or(0);
+                let total = data.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+                if filtered == total as usize {
+                    let label = if filtered == 1 { "request" } else { "requests" };
+                    lines.push(format!("{filtered} {label}"));
+                } else {
+                    lines.push(format!("{filtered} requests (of {total} total)"));
+                }
+                if let Some(requests) = requests {
+                    for req in requests {
+                        let method = req.get("method").and_then(|v| v.as_str()).unwrap_or("-");
+                        let status = req
+                            .get("status")
+                            .map(|v| {
+                                if v.is_null() {
+                                    "pending".to_string()
+                                } else {
+                                    v.to_string()
+                                }
+                            })
+                            .unwrap_or_else(|| "pending".to_string());
+                        let url = req.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                        let rtype = req
+                            .get("resource_type")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        lines.push(format!("  {method} {status} {url} [{rtype}]"));
+                    }
+                }
+            }
+        }
+        "browser network request" => {
+            if let Some(req) = data.get("request") {
+                let method = req.get("method").and_then(|v| v.as_str()).unwrap_or("-");
+                let status = req
+                    .get("status")
+                    .map(|v| {
+                        if v.is_null() {
+                            "pending".to_string()
+                        } else {
+                            v.to_string()
+                        }
+                    })
+                    .unwrap_or_else(|| "pending".to_string());
+                let url = req.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                let rtype = req
+                    .get("resource_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                lines.push(format!("{method} {status} {url} [{rtype}]"));
+                if let Some(body) = req.get("response_body").and_then(|v| v.as_str()) {
+                    let preview = if body.len() > 200 {
+                        format!("{}...", &body[..200])
+                    } else {
+                        body.to_string()
+                    };
+                    lines.push(format!("body: {preview}"));
+                }
+            }
+        }
         "browser logs console" | "browser logs errors" => {
             // §10.12-§10.13: N log(s) then level timestamp source text per item
             if let Some(items) = data.get("items").and_then(|v| v.as_array()) {

@@ -186,6 +186,11 @@ Examples:
         #[command(subcommand)]
         command: LogsCommands,
     },
+    /// Observe network requests
+    Network {
+        #[command(subcommand)]
+        command: NetworkCommands,
+    },
     /// Take screenshot
     #[command(after_help = "\
 Examples:
@@ -272,6 +277,15 @@ pub enum LogsCommands {
     Console(observation::logs_console::Cmd),
     /// Get error logs (window error events + unhandled rejections)
     Errors(observation::logs_errors::Cmd),
+}
+
+#[derive(Subcommand, Debug)]
+#[command(disable_help_subcommand = true)]
+pub enum NetworkCommands {
+    /// List tracked network requests for a tab
+    Requests(observation::network_requests::Cmd),
+    /// Get detail for a single network request (including response body)
+    Request(observation::network_request_detail::Cmd),
 }
 
 #[derive(Subcommand, Debug)]
@@ -422,6 +436,10 @@ impl BrowserCommands {
                 LogsCommands::Console(cmd) => Action::LogsConsole(cmd.clone()),
                 LogsCommands::Errors(cmd) => Action::LogsErrors(cmd.clone()),
             },
+            Self::Network { command } => match command {
+                NetworkCommands::Requests(cmd) => Action::NetworkRequests(cmd.clone()),
+                NetworkCommands::Request(cmd) => Action::NetworkRequestDetail(cmd.clone()),
+            },
             Self::Wait { command } => match command {
                 WaitCommands::Element(cmd) => Action::WaitElement(cmd.clone()),
                 WaitCommands::Navigation(cmd) => Action::WaitNavigation(cmd.clone()),
@@ -497,6 +515,10 @@ impl BrowserCommands {
                 LogsCommands::Console(_) => observation::logs_console::COMMAND_NAME,
                 LogsCommands::Errors(_) => observation::logs_errors::COMMAND_NAME,
             },
+            Self::Network { command } => match command {
+                NetworkCommands::Requests(_) => observation::network_requests::COMMAND_NAME,
+                NetworkCommands::Request(_) => observation::network_request_detail::COMMAND_NAME,
+            },
             Self::Wait { command } => match command {
                 WaitCommands::Element(_) => wait::element::COMMAND_NAME,
                 WaitCommands::Navigation(_) => wait::navigation::COMMAND_NAME,
@@ -568,6 +590,14 @@ impl BrowserCommands {
             Self::Logs { command } => match command {
                 LogsCommands::Console(cmd) => observation::logs_console::context(cmd, result),
                 LogsCommands::Errors(cmd) => observation::logs_errors::context(cmd, result),
+            },
+            Self::Network { command } => match command {
+                NetworkCommands::Requests(cmd) => {
+                    observation::network_requests::context(cmd, result)
+                }
+                NetworkCommands::Request(cmd) => {
+                    observation::network_request_detail::context(cmd, result)
+                }
             },
             Self::Wait { command } => match command {
                 WaitCommands::Element(cmd) => wait::element::context(cmd, result),

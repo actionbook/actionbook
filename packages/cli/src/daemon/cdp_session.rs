@@ -4,7 +4,7 @@
 //! tabs via CDP flat sessions (Target.attachToTarget + sessionId). Concurrent
 //! requests are multiplexed using incrementing message IDs.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -32,6 +32,195 @@ type IframeSessions = Arc<Mutex<HashMap<String, String>>>;
 /// Iframe session IDs that need DOM.enable + Accessibility.enable before use.
 /// Populated by reader_loop; drained by callers (e.g. snapshot handler).
 type PendingIframeEnables = Arc<Mutex<Vec<String>>>;
+
+pub const MAX_TRACKED_REQUESTS: usize = 500;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackedRequest {
+    pub request_id: String,
+    pub url: String,
+    pub method: String,
+    pub resource_type: String,
+    pub timestamp_ms: u64,
+    pub status: Option<u16>,
+    pub mime_type: Option<String>,
+    pub request_headers: HashMap<String, String>,
+    pub post_data: Option<String>,
+    pub response_headers: HashMap<String, String>,
+    /// Only populated by `network_request_detail` — not stored in the ring buffer.
+    pub response_body: Option<String>,
+}
+
+type TabNetRequests = Arc<Mutex<HashMap<String, VecDeque<TrackedRequest>>>>;
+
+#[derive(Debug, Clone, Default)]
+pub struct NetworkRequestsFilter {
+    pub url_substring: Option<String>,
+    pub resource_types: Option<String>,
+    pub method: Option<String>,
+    pub status: Option<String>,
+}
+
+fn normalize_headers(headers: Option<&Value>) -> HashMap<String, String> {
+    let Some(obj) = headers.and_then(|v| v.as_object()) else {
+        return HashMap::new();
+    };
+    obj.iter()
+        .filter_map(|(k, v)| v.as_str().map(|s| (k.to_lowercase(), s.to_string())))
+        .collect()
+}
+
+fn record_request_will_be_sent(requests: &mut VecDeque<TrackedRequest>, params: &Value) {
+    let request_id = params
+        .get("requestId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if request_id.is_empty() {
+        return;
+    }
+    let req = params.get("request");
+    let url = req
+        .and_then(|r| r.get("url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let method = req
+        .and_then(|r| r.get("method"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("GET")
+        .to_string();
+    let resource_type = params
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Other")
+        .to_string();
+    // CDP timestamp is seconds since epoch (float); convert to ms.
+    let timestamp_ms = params
+        .get("timestamp")
+        .and_then(|v| v.as_f64())
+        .map(|t| (t * 1000.0) as u64)
+        .unwrap_or(0);
+    let request_headers = normalize_headers(req.and_then(|r| r.get("headers")));
+    let post_data = req
+        .and_then(|r| r.get("postData"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    if requests.len() >= MAX_TRACKED_REQUESTS {
+        requests.pop_front();
+    }
+    requests.push_back(TrackedRequest {
+        request_id: request_id.to_string(),
+        url,
+        method,
+        resource_type,
+        timestamp_ms,
+        status: None,
+        mime_type: None,
+        request_headers,
+        post_data,
+        response_headers: HashMap::new(),
+        response_body: None,
+    });
+}
+
+fn record_response_received(requests: &mut VecDeque<TrackedRequest>, params: &Value) {
+    let request_id = params
+        .get("requestId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if request_id.is_empty() {
+        return;
+    }
+    let response = params.get("response");
+    let status = response
+        .and_then(|r| r.get("status"))
+        .and_then(|v| v.as_u64())
+        .map(|s| s as u16);
+    let mime_type = response
+        .and_then(|r| r.get("mimeType"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let response_headers = normalize_headers(response.and_then(|r| r.get("headers")));
+
+    if let Some(req) = requests
+        .iter_mut()
+        .rev()
+        .find(|r| r.request_id == request_id)
+    {
+        req.status = status;
+        req.mime_type = mime_type;
+        req.response_headers = response_headers;
+    }
+}
+
+fn matches_status_filter(status: Option<u16>, filter: &str) -> bool {
+    let Some(s) = status else { return false };
+    // Range: "400-499"
+    if let Some((lo, hi)) = filter.split_once('-')
+        && let (Ok(lo), Ok(hi)) = (lo.parse::<u16>(), hi.parse::<u16>()) {
+            return s >= lo && s <= hi;
+        }
+    // Class: "2xx", "4xx", etc.
+    if filter.len() == 3 && filter.ends_with("xx")
+        && let Some(prefix) = filter.chars().next().and_then(|c| c.to_digit(10)) {
+            return (s / 100) as u32 == prefix;
+        }
+    // Exact: "200"
+    if let Ok(code) = filter.parse::<u16>() {
+        return s == code;
+    }
+    false
+}
+
+fn filter_tracked_requests(
+    requests: &VecDeque<TrackedRequest>,
+    filter: &NetworkRequestsFilter,
+) -> Vec<TrackedRequest> {
+    requests
+        .iter()
+        .filter(|req| {
+            if let Some(ref sub) = filter.url_substring
+                && !req.url.contains(sub.as_str()) {
+                    return false;
+                }
+            if let Some(ref types) = filter.resource_types {
+                let types_lower: Vec<String> =
+                    types.split(',').map(|t| t.trim().to_lowercase()).collect();
+                if !types_lower.contains(&req.resource_type.to_lowercase()) {
+                    return false;
+                }
+            }
+            if let Some(ref method) = filter.method
+                && req.method.to_lowercase() != method.to_lowercase() {
+                    return false;
+                }
+            if let Some(ref status) = filter.status
+                && !matches_status_filter(req.status, status) {
+                    return false;
+                }
+            true
+        })
+        .cloned()
+        .collect()
+}
+
+fn clear_tracked_requests(requests: &mut VecDeque<TrackedRequest>) -> usize {
+    let count = requests.len();
+    requests.clear();
+    count
+}
+
+fn tracked_request_detail(
+    requests: &VecDeque<TrackedRequest>,
+    request_id: &str,
+) -> Option<TrackedRequest> {
+    requests
+        .iter()
+        .rev()
+        .find(|r| r.request_id == request_id)
+        .cloned()
+}
 
 /// Persistent CDP connection for a single browser session.
 ///
@@ -62,6 +251,9 @@ pub struct CdpSession {
     /// Iframe session IDs queued for domain enabling (DOM + Accessibility).
     /// reader_loop pushes here; callers drain before querying iframe AX trees.
     pending_iframe_enables: PendingIframeEnables,
+    /// Per-tab ring buffer of tracked network requests, keyed by CDP session ID.
+    /// Populated by reader_loop from Network events; capacity capped at MAX_TRACKED_REQUESTS.
+    tab_net_requests: TabNetRequests,
 }
 
 impl CdpSession {
@@ -103,6 +295,7 @@ impl CdpSession {
         let pending_iframe_enables: PendingIframeEnables = Arc::new(Mutex::new(Vec::new()));
         let tab_sessions: Arc<Mutex<HashMap<String, String>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let tab_net_requests: TabNetRequests = Arc::new(Mutex::new(HashMap::new()));
 
         tokio::spawn(Self::writer_loop(ws_writer, writer_rx));
         tokio::spawn(Self::reader_loop(
@@ -113,6 +306,7 @@ impl CdpSession {
             iframe_sessions.clone(),
             pending_iframe_enables.clone(),
             tab_sessions.clone(),
+            tab_net_requests.clone(),
         ));
 
         Ok(CdpSession {
@@ -124,6 +318,7 @@ impl CdpSession {
             tab_net_pending,
             iframe_sessions,
             pending_iframe_enables,
+            tab_net_requests,
         })
     }
 
@@ -294,6 +489,9 @@ impl CdpSession {
         // Clean up the pending counter for this session.
         self.tab_net_pending.lock().await.remove(&session_id);
 
+        // Clean up tracked network requests for this session.
+        self.tab_net_requests.lock().await.remove(&session_id);
+
         // Clean up all event subscriptions for this session.
         self.unsubscribe_all(&session_id).await;
 
@@ -360,6 +558,51 @@ impl CdpSession {
         } else {
             0
         }
+    }
+
+    /// Return all tracked network requests for a tab's CDP session, applying optional filters.
+    pub async fn network_requests(
+        &self,
+        cdp_session_id: &str,
+        filter: &NetworkRequestsFilter,
+    ) -> Vec<TrackedRequest> {
+        let tnr = self.tab_net_requests.lock().await;
+        if let Some(requests) = tnr.get(cdp_session_id) {
+            filter_tracked_requests(requests, filter)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Return total count of tracked requests for a session (unfiltered).
+    pub async fn network_requests_total(&self, cdp_session_id: &str) -> usize {
+        self.tab_net_requests
+            .lock()
+            .await
+            .get(cdp_session_id)
+            .map(|q| q.len())
+            .unwrap_or(0)
+    }
+
+    /// Clear all tracked network requests for a tab's CDP session. Returns cleared count.
+    pub async fn clear_network_requests(&self, cdp_session_id: &str) -> usize {
+        let mut tnr = self.tab_net_requests.lock().await;
+        if let Some(requests) = tnr.get_mut(cdp_session_id) {
+            clear_tracked_requests(requests)
+        } else {
+            0
+        }
+    }
+
+    /// Return the detail entry for a single network request by request_id.
+    pub async fn network_request_detail(
+        &self,
+        cdp_session_id: &str,
+        request_id: &str,
+    ) -> Option<TrackedRequest> {
+        let tnr = self.tab_net_requests.lock().await;
+        tnr.get(cdp_session_id)
+            .and_then(|requests| tracked_request_detail(requests, request_id))
     }
 
     /// Subscribe to a CDP event for a specific flat-session.
@@ -493,6 +736,7 @@ impl CdpSession {
         iframe_sessions: IframeSessions,
         pending_iframe_enables: PendingIframeEnables,
         _tab_sessions: Arc<Mutex<HashMap<String, String>>>,
+        tab_net_requests: TabNetRequests,
     ) where
         S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
     {
@@ -590,6 +834,20 @@ impl CdpSession {
                                 tp.entry(session_id.to_string())
                                     .or_default()
                                     .insert(req_id.to_string(), std::time::Instant::now());
+                            }
+                            // Track request in ring buffer (all types, including skipped ones).
+                            if let Some(params) = params {
+                                let mut tnr = tab_net_requests.lock().await;
+                                let requests = tnr.entry(session_id.to_string()).or_default();
+                                record_request_will_be_sent(requests, params);
+                            }
+                        }
+                        "Network.responseReceived" => {
+                            if let Some(params) = resp.get("params") {
+                                let mut tnr = tab_net_requests.lock().await;
+                                if let Some(requests) = tnr.get_mut(session_id) {
+                                    record_response_received(requests, params);
+                                }
                             }
                         }
                         "Network.loadingFinished" | "Network.loadingFailed" => {
@@ -1698,5 +1956,365 @@ mod tests {
         .await;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(cdp.network_pending("S_CACHE").await, 0);
+    }
+
+    fn sample_request(
+        request_id: &str,
+        url: &str,
+        method: &str,
+        resource_type: &str,
+        status: Option<u16>,
+    ) -> TrackedRequest {
+        let mut request_headers = HashMap::new();
+        request_headers.insert("accept".to_string(), "application/json".to_string());
+
+        let mut response_headers = HashMap::new();
+        response_headers.insert("content-type".to_string(), "application/json".to_string());
+        response_headers.insert("x-ab-fixture".to_string(), "api-data".to_string());
+
+        TrackedRequest {
+            request_id: request_id.to_string(),
+            url: url.to_string(),
+            method: method.to_string(),
+            resource_type: resource_type.to_string(),
+            timestamp_ms: 1_712_793_600_000,
+            status,
+            mime_type: Some("application/json".to_string()),
+            request_headers,
+            response_headers,
+            response_body: Some(r#"{"ok":true}"#.to_string()),
+        }
+    }
+
+    #[test]
+    fn test_tracked_request_storage_updates_status_headers_and_mime() {
+        let mut requests = VecDeque::new();
+
+        record_request_will_be_sent(
+            &mut requests,
+            &json!({
+                "requestId": "req-1",
+                "type": "Fetch",
+                "timestamp": 1712793600.0,
+                "request": {
+                    "url": "http://127.0.0.1/api/data?source=fetch",
+                    "method": "GET",
+                    "headers": { "accept": "application/json" }
+                }
+            }),
+        );
+        record_response_received(
+            &mut requests,
+            &json!({
+                "requestId": "req-1",
+                "type": "Fetch",
+                "response": {
+                    "url": "http://127.0.0.1/api/data?source=fetch",
+                    "status": 200,
+                    "mimeType": "application/json",
+                    "headers": {
+                        "content-type": "application/json",
+                        "x-ab-fixture": "api-data"
+                    }
+                }
+            }),
+        );
+
+        let req = tracked_request_detail(&requests, "req-1").expect("request stored");
+        assert_eq!(req.url, "http://127.0.0.1/api/data?source=fetch");
+        assert_eq!(req.method, "GET");
+        assert_eq!(req.resource_type, "Fetch");
+        assert_eq!(req.status, Some(200));
+        assert_eq!(req.mime_type.as_deref(), Some("application/json"));
+        assert_eq!(
+            req.response_headers.get("x-ab-fixture").map(String::as_str),
+            Some("api-data")
+        );
+    }
+
+    #[test]
+    fn test_tracked_request_fifo_eviction_drops_oldest_after_500() {
+        let mut requests = VecDeque::new();
+
+        for idx in 0..(MAX_TRACKED_REQUESTS + 1) {
+            record_request_will_be_sent(
+                &mut requests,
+                &json!({
+                    "requestId": format!("req-{idx}"),
+                    "type": "XHR",
+                    "timestamp": 1712793600.0 + idx as f64,
+                    "request": {
+                        "url": format!("http://127.0.0.1/api/data?i={idx}"),
+                        "method": "GET",
+                        "headers": {}
+                    }
+                }),
+            );
+        }
+
+        assert_eq!(requests.len(), MAX_TRACKED_REQUESTS);
+        assert!(tracked_request_detail(&requests, "req-0").is_none());
+        assert!(tracked_request_detail(&requests, "req-500").is_some());
+    }
+
+    #[test]
+    fn test_filter_tracked_requests_by_url_substring() {
+        let requests = VecDeque::from([
+            sample_request(
+                "req-1",
+                "http://127.0.0.1/page-a",
+                "GET",
+                "Document",
+                Some(200),
+            ),
+            sample_request(
+                "req-2",
+                "http://127.0.0.1/api/data?source=fetch",
+                "GET",
+                "Fetch",
+                Some(200),
+            ),
+        ]);
+
+        let filtered = filter_tracked_requests(
+            &requests,
+            &NetworkRequestsFilter {
+                url_substring: Some("/api/data".to_string()),
+                ..NetworkRequestsFilter::default()
+            },
+        );
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].request_id, "req-2");
+    }
+
+    #[test]
+    fn test_filter_tracked_requests_by_resource_type_case_insensitive_csv() {
+        let requests = VecDeque::from([
+            sample_request(
+                "req-1",
+                "http://127.0.0.1/page-a",
+                "GET",
+                "Document",
+                Some(200),
+            ),
+            sample_request(
+                "req-2",
+                "http://127.0.0.1/api/data?source=fetch",
+                "GET",
+                "Fetch",
+                Some(200),
+            ),
+            sample_request(
+                "req-3",
+                "http://127.0.0.1/api/data?source=xhr",
+                "POST",
+                "XHR",
+                Some(201),
+            ),
+        ]);
+
+        let filtered = filter_tracked_requests(
+            &requests,
+            &NetworkRequestsFilter {
+                resource_types: Some("xhr,fetch".to_string()),
+                ..NetworkRequestsFilter::default()
+            },
+        );
+
+        assert_eq!(filtered.len(), 2);
+        assert!(
+            filtered
+                .iter()
+                .all(|req| { req.resource_type == "Fetch" || req.resource_type == "XHR" })
+        );
+    }
+
+    #[test]
+    fn test_filter_tracked_requests_by_method_case_insensitive() {
+        let requests = VecDeque::from([
+            sample_request(
+                "req-1",
+                "http://127.0.0.1/page-a",
+                "GET",
+                "Document",
+                Some(200),
+            ),
+            sample_request(
+                "req-2",
+                "http://127.0.0.1/api/data?source=xhr",
+                "POST",
+                "XHR",
+                Some(201),
+            ),
+        ]);
+
+        let filtered = filter_tracked_requests(
+            &requests,
+            &NetworkRequestsFilter {
+                method: Some("post".to_string()),
+                ..NetworkRequestsFilter::default()
+            },
+        );
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].request_id, "req-2");
+    }
+
+    #[test]
+    fn test_filter_tracked_requests_by_status_exact_class_and_range() {
+        let requests = VecDeque::from([
+            sample_request(
+                "req-1",
+                "http://127.0.0.1/page-a",
+                "GET",
+                "Document",
+                Some(200),
+            ),
+            sample_request(
+                "req-2",
+                "http://127.0.0.1/api/data?source=create",
+                "POST",
+                "XHR",
+                Some(201),
+            ),
+            sample_request(
+                "req-3",
+                "http://127.0.0.1/api/data?source=error",
+                "GET",
+                "Fetch",
+                Some(404),
+            ),
+        ]);
+
+        let exact = filter_tracked_requests(
+            &requests,
+            &NetworkRequestsFilter {
+                status: Some("200".to_string()),
+                ..NetworkRequestsFilter::default()
+            },
+        );
+        let class = filter_tracked_requests(
+            &requests,
+            &NetworkRequestsFilter {
+                status: Some("2xx".to_string()),
+                ..NetworkRequestsFilter::default()
+            },
+        );
+        let range = filter_tracked_requests(
+            &requests,
+            &NetworkRequestsFilter {
+                status: Some("400-499".to_string()),
+                ..NetworkRequestsFilter::default()
+            },
+        );
+
+        assert_eq!(
+            exact
+                .iter()
+                .map(|r| r.request_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["req-1"]
+        );
+        assert_eq!(
+            class
+                .iter()
+                .map(|r| r.request_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["req-1", "req-2"]
+        );
+        assert_eq!(
+            range
+                .iter()
+                .map(|r| r.request_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["req-3"]
+        );
+    }
+
+    #[test]
+    fn test_filter_tracked_requests_with_combined_filters() {
+        let requests = VecDeque::from([
+            sample_request(
+                "req-1",
+                "http://127.0.0.1/api/data?source=fetch",
+                "GET",
+                "Fetch",
+                Some(200),
+            ),
+            sample_request(
+                "req-2",
+                "http://127.0.0.1/api/data?source=xhr",
+                "POST",
+                "XHR",
+                Some(201),
+            ),
+            sample_request(
+                "req-3",
+                "http://127.0.0.1/asset.js",
+                "GET",
+                "Script",
+                Some(200),
+            ),
+        ]);
+
+        let filtered = filter_tracked_requests(
+            &requests,
+            &NetworkRequestsFilter {
+                url_substring: Some("/api/data".to_string()),
+                resource_types: Some("xhr".to_string()),
+                method: Some("POST".to_string()),
+                status: Some("2xx".to_string()),
+            },
+        );
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].request_id, "req-2");
+    }
+
+    #[test]
+    fn test_clear_tracked_requests_resets_list() {
+        let mut requests = VecDeque::from([
+            sample_request(
+                "req-1",
+                "http://127.0.0.1/page-a",
+                "GET",
+                "Document",
+                Some(200),
+            ),
+            sample_request(
+                "req-2",
+                "http://127.0.0.1/api/data?source=fetch",
+                "GET",
+                "Fetch",
+                Some(200),
+            ),
+        ]);
+
+        let cleared = clear_tracked_requests(&mut requests);
+        assert_eq!(cleared, 2);
+        assert!(requests.is_empty());
+    }
+
+    #[test]
+    fn test_tracked_request_detail_returns_headers_and_response_body() {
+        let requests = VecDeque::from([sample_request(
+            "req-9",
+            "http://127.0.0.1/api/data?source=fetch",
+            "GET",
+            "Fetch",
+            Some(200),
+        )]);
+
+        let req = tracked_request_detail(&requests, "req-9").expect("detail entry");
+        assert_eq!(
+            req.request_headers.get("accept").map(String::as_str),
+            Some("application/json")
+        );
+        assert_eq!(
+            req.response_headers.get("content-type").map(String::as_str),
+            Some("application/json")
+        );
+        assert_eq!(req.response_body.as_deref(), Some(r#"{"ok":true}"#));
     }
 }

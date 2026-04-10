@@ -46,6 +46,8 @@ pub enum Action {
     Pdf(observation::pdf::Cmd),
     LogsConsole(observation::logs_console::Cmd),
     LogsErrors(observation::logs_errors::Cmd),
+    NetworkRequests(observation::network_requests::Cmd),
+    NetworkRequestDetail(observation::network_request_detail::Cmd),
 
     // ── Cookies ────────────────────────────────────────────────
     CookiesList(cookies::list::Cmd),
@@ -141,6 +143,8 @@ impl Action {
             Action::Pdf(c) => st!(c),
             Action::LogsConsole(c) => st!(c),
             Action::LogsErrors(c) => st!(c),
+            Action::NetworkRequests(c) => st!(c),
+            Action::NetworkRequestDetail(c) => st!(c),
 
             // Cookies (session-level, no tab)
             Action::CookiesList(c) => s_only!(c),
@@ -216,6 +220,8 @@ impl Action {
             Action::Pdf(_) => observation::pdf::COMMAND_NAME,
             Action::LogsConsole(_) => observation::logs_console::COMMAND_NAME,
             Action::LogsErrors(_) => observation::logs_errors::COMMAND_NAME,
+            Action::NetworkRequests(_) => observation::network_requests::COMMAND_NAME,
+            Action::NetworkRequestDetail(_) => observation::network_request_detail::COMMAND_NAME,
             Action::CookiesList(_) => cookies::list::COMMAND_NAME,
             Action::CookiesGet(_) => cookies::get::COMMAND_NAME,
             Action::CookiesSet(_) => cookies::set::COMMAND_NAME,
