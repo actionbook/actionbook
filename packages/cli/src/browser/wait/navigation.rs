@@ -73,6 +73,7 @@ impl NavigationDetector {
         match signal {
             NavigationSignal::FrameNavigated => {
                 self.frame_navigated_seen = true;
+                self.loading_seen = false; // fresh loading cycle required for the new page
                 false
             }
             NavigationSignal::Poll { ready_state, .. } => {
@@ -83,13 +84,6 @@ impl NavigationDetector {
                 self.frame_navigated_seen || self.loading_seen
             }
         }
-    }
-
-    /// Reset the in-watch state when a new navigation begins, so that a fresh
-    /// loading cycle is required before the next accept.
-    fn reset_on_navigation(&mut self) {
-        self.frame_navigated_seen = true; // navigation signal noted
-        self.loading_seen = false;
     }
 }
 
@@ -198,7 +192,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 }
                 // A new navigation started — reset stability tracking.
                 stable_since = None;
-                detector.reset_on_navigation();
+                detector.observe(NavigationSignal::FrameNavigated);
             }
 
             // Path B: polling fallback.
@@ -355,8 +349,8 @@ mod tests {
             url: "http://127.0.0.1/redirect-delayed".to_string(),
             ready_state: "complete".to_string(),
         }));
-        // JS redirect fires → frameNavigated resets state.
-        detector.reset_on_navigation();
+        // JS redirect fires → frameNavigated event.
+        assert!(!detector.observe(NavigationSignal::FrameNavigated));
         // Final page loading.
         assert!(!detector.observe(NavigationSignal::Poll {
             url: "http://127.0.0.1/page-b".to_string(),
