@@ -112,6 +112,22 @@ fn record_request_will_be_sent(requests: &mut VecDeque<TrackedRequest>, params: 
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
+    // For redirect chains, CDP reuses the same requestId. Update in-place
+    // so the list shows the final URL and users can always inspect by ID.
+    if let Some(existing) = requests.iter_mut().find(|r| r.request_id == request_id) {
+        existing.url = url;
+        existing.method = method;
+        existing.resource_type = resource_type;
+        existing.timestamp_ms = timestamp_ms;
+        existing.request_headers = request_headers;
+        existing.post_data = post_data;
+        existing.status = None;
+        existing.mime_type = None;
+        existing.response_headers = HashMap::new();
+        existing.response_body = None;
+        return;
+    }
+
     if requests.len() >= MAX_TRACKED_REQUESTS {
         requests.pop_front();
     }

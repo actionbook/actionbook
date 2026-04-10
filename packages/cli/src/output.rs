@@ -717,6 +717,10 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
                 if let Some(requests) = requests {
                     for req in requests {
+                        let id = req
+                            .get("request_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("-");
                         let method = req.get("method").and_then(|v| v.as_str()).unwrap_or("-");
                         let status = req
                             .get("status")
@@ -733,7 +737,7 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                             .get("resource_type")
                             .and_then(|v| v.as_str())
                             .unwrap_or("");
-                        lines.push(format!("  {method} {status} {url} [{rtype}]"));
+                        lines.push(format!("  {id} {method} {status} {url} [{rtype}]"));
                     }
                 }
             }
