@@ -12,8 +12,20 @@ use crate::output::ResponseContext;
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const POLL_INTERVAL_MS: u64 = 100;
-const READY_STATE_JS: &str =
-    "(function(){ return { url: location.href, ready_state: document.readyState }; })()";
+
+/// Pages that finished loading within this many ms are treated as "recently
+/// navigated" even when no CDP frameNavigated event was observed.  Covers the
+/// fast-redirect race where navigation completes before wait-navigation starts.
+const RECENTLY_LOADED_GRACE_MS: i64 = 3_000;
+
+/// JS expression that returns the current URL, readyState, and how many ms
+/// ago the page's load event fired (null if load has not yet finished or the
+/// timing API is unavailable).
+const READY_STATE_JS: &str = "(function(){
+    var t = window.performance && window.performance.timing;
+    var loadAge = (t && t.loadEventEnd > 0) ? (Date.now() - t.loadEventEnd) : null;
+    return { url: location.href, ready_state: document.readyState, load_age_ms: loadAge };
+})()";
 
 /// Wait for a navigation to complete
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
@@ -39,7 +51,13 @@ pub const COMMAND_NAME: &str = "browser wait navigation";
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum NavigationSignal {
     FrameNavigated,
-    Poll { url: String, ready_state: String },
+    Poll {
+        url: String,
+        ready_state: String,
+        /// Milliseconds since the page's load event fired.  None when the
+        /// timing API is unavailable or the page hasn't loaded yet.
+        load_age_ms: Option<i64>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,8 +65,9 @@ struct NavigationDetector {
     initial_url: String,
     frame_navigated_seen: bool,
     /// Set when we observe a poll with readyState != "complete", meaning the
-    /// page is mid-load. This lets us accept the subsequent "complete" as a
-    /// navigation signal even when the URL hasn't changed (already-navigated case).
+    /// page is mid-load.  This lets us accept the subsequent "complete" as a
+    /// navigation signal even when the URL hasn't changed (already-navigated
+    /// case where we caught the page mid-transition).
     loading_seen: bool,
 }
 
@@ -61,7 +80,7 @@ impl NavigationDetector {
         }
     }
 
-    /// Feed a signal into the detector. Returns true when navigation is done
+    /// Feed a signal into the detector.  Returns true when navigation is done
     /// (a navigation event occurred and the page has fully loaded).
     fn observe(&mut self, signal: NavigationSignal) -> bool {
         match signal {
@@ -69,14 +88,28 @@ impl NavigationDetector {
                 self.frame_navigated_seen = true;
                 false
             }
-            NavigationSignal::Poll { url, ready_state } => {
+            NavigationSignal::Poll {
+                url,
+                ready_state,
+                load_age_ms,
+            } => {
                 if ready_state != "complete" {
                     self.loading_seen = true;
                     return false;
                 }
-                // readyState == "complete": accept if any navigation signal was seen,
-                // or the URL has already moved away from the initial URL.
-                self.frame_navigated_seen || self.loading_seen || url != self.initial_url
+                // readyState == "complete": accept if any of:
+                // 1. A frameNavigated CDP event arrived.
+                // 2. We saw the page mid-load (loading_seen).
+                // 3. URL moved away from the initial snapshot.
+                // 4. The page finished loading very recently — covers the
+                //    fast-redirect race where navigation completed before
+                //    wait-navigation started and no CDP event was observed.
+                let recently_loaded =
+                    load_age_ms.is_some_and(|age| age >= 0 && age <= RECENTLY_LOADED_GRACE_MS);
+                self.frame_navigated_seen
+                    || self.loading_seen
+                    || url != self.initial_url
+                    || recently_loaded
             }
         }
     }
@@ -213,10 +246,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                         .and_then(|r| r.as_str())
                         .unwrap_or("")
                         .to_string();
+                    let load_age_ms = rv.get("load_age_ms").and_then(|v| v.as_i64());
 
                     if detector.observe(NavigationSignal::Poll {
                         url: current_url.clone(),
                         ready_state: ready_state.clone(),
+                        load_age_ms,
                     }) {
                         let title = nav_helpers::get_tab_title(&cdp, &target_id).await;
                         let elapsed_ms = start.elapsed().as_millis() as u64;
@@ -253,10 +288,12 @@ mod tests {
         assert!(!detector.observe(NavigationSignal::Poll {
             url: "http://127.0.0.1/final".to_string(),
             ready_state: "loading".to_string(),
+            load_age_ms: None,
         }));
         assert!(detector.observe(NavigationSignal::Poll {
             url: "http://127.0.0.1/final".to_string(),
             ready_state: "complete".to_string(),
+            load_age_ms: None,
         }));
     }
 
@@ -268,10 +305,12 @@ mod tests {
         assert!(!detector.observe(NavigationSignal::Poll {
             url: "http://127.0.0.1/page-b".to_string(),
             ready_state: "interactive".to_string(),
+            load_age_ms: None,
         }));
         assert!(detector.observe(NavigationSignal::Poll {
             url: "http://127.0.0.1/page-b".to_string(),
             ready_state: "complete".to_string(),
+            load_age_ms: None,
         }));
     }
 
@@ -279,9 +318,26 @@ mod tests {
     fn navigation_detector_rejects_complete_poll_without_any_navigation_signal() {
         let mut detector = NavigationDetector::new("http://127.0.0.1/page-a".to_string());
 
+        // Old load (5 seconds ago) with same URL and no navigation signal → must NOT succeed.
         assert!(!detector.observe(NavigationSignal::Poll {
             url: "http://127.0.0.1/page-a".to_string(),
             ready_state: "complete".to_string(),
+            load_age_ms: Some(5_000),
+        }));
+    }
+
+    #[test]
+    fn navigation_detector_accepts_recently_loaded_page_covering_fast_redirect() {
+        let mut detector = NavigationDetector::new("http://127.0.0.1/final".to_string());
+
+        // Navigation completed 50 ms before wait-navigation started, so the
+        // first poll already shows "complete" at the final URL.  The load-age
+        // heuristic must fire here because no frameNavigated event or loading
+        // state was observed.
+        assert!(detector.observe(NavigationSignal::Poll {
+            url: "http://127.0.0.1/final".to_string(),
+            ready_state: "complete".to_string(),
+            load_age_ms: Some(50),
         }));
     }
 }
