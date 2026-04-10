@@ -34,6 +34,37 @@ pub struct Cmd {
 
 pub const COMMAND_NAME: &str = "browser wait navigation";
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NavigationSignal {
+    FrameNavigated,
+    Poll {
+        url: String,
+        ready_state: String,
+    },
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NavigationDetector {
+    initial_url: String,
+    frame_navigated_seen: bool,
+}
+
+#[allow(dead_code)]
+impl NavigationDetector {
+    fn new(initial_url: String) -> Self {
+        Self {
+            initial_url,
+            frame_navigated_seen: false,
+        }
+    }
+
+    fn observe(&mut self, _signal: NavigationSignal) -> bool {
+        todo!("implemented in Phase 2")
+    }
+}
+
 pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
     if let ActionResult::Fatal { code, .. } = result
         && code == "SESSION_NOT_FOUND"
@@ -141,5 +172,49 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }
 
         tokio::time::sleep(Duration::from_millis(POLL_INTERVAL_MS)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn navigation_detector_accepts_already_navigated_final_url_once_load_completes() {
+        let mut detector = NavigationDetector::new("http://127.0.0.1/final".to_string());
+
+        assert!(!detector.observe(NavigationSignal::Poll {
+            url: "http://127.0.0.1/final".to_string(),
+            ready_state: "loading".to_string(),
+        }));
+        assert!(detector.observe(NavigationSignal::Poll {
+            url: "http://127.0.0.1/final".to_string(),
+            ready_state: "complete".to_string(),
+        }));
+    }
+
+    #[test]
+    fn navigation_detector_accepts_frame_navigated_event_then_complete_poll() {
+        let mut detector = NavigationDetector::new("http://127.0.0.1/page-a".to_string());
+
+        assert!(!detector.observe(NavigationSignal::FrameNavigated));
+        assert!(!detector.observe(NavigationSignal::Poll {
+            url: "http://127.0.0.1/page-b".to_string(),
+            ready_state: "interactive".to_string(),
+        }));
+        assert!(detector.observe(NavigationSignal::Poll {
+            url: "http://127.0.0.1/page-b".to_string(),
+            ready_state: "complete".to_string(),
+        }));
+    }
+
+    #[test]
+    fn navigation_detector_rejects_complete_poll_without_any_navigation_signal() {
+        let mut detector = NavigationDetector::new("http://127.0.0.1/page-a".to_string());
+
+        assert!(!detector.observe(NavigationSignal::Poll {
+            url: "http://127.0.0.1/page-a".to_string(),
+            ready_state: "complete".to_string(),
+        }));
     }
 }

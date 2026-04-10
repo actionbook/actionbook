@@ -203,6 +203,37 @@ fn handle_http(mut stream: std::net::TcpStream) {
         other => other.trim_start_matches('/'),
     };
 
+    if path == "/redirect-fast" {
+        let response = format!(
+            "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{}/page-b\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+            local_server().port
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    if path == "/redirect-delayed" {
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Redirect Delayed</title></head>
+<body>
+<h1>Redirect Delayed</h1>
+<script>
+setTimeout(() => {{
+  window.location.href = "http://127.0.0.1:{}/page-b";
+}}, 150);
+</script>
+</body></html>"#,
+            local_server().port
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
     // Cross-origin iframe parent: embeds child from a different port
     if path.starts_with("/iframe-xo-parent") {
         let xo_port = path
@@ -310,6 +341,16 @@ pub fn url_b() -> String {
 /// URL for page C (tertiary test page).
 pub fn url_c() -> String {
     format!("http://127.0.0.1:{}/page-c", local_server().port)
+}
+
+/// URL that immediately redirects to page B via HTTP 302.
+pub fn url_fast_redirect() -> String {
+    format!("http://127.0.0.1:{}/redirect-fast", local_server().port)
+}
+
+/// URL that redirects to page B after a short client-side delay.
+pub fn url_delayed_redirect() -> String {
+    format!("http://127.0.0.1:{}/redirect-delayed", local_server().port)
 }
 
 /// URL for a slow page used to verify CLI-level timeouts.

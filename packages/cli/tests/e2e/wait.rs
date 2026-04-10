@@ -2,7 +2,8 @@
 
 use crate::harness::{
     SessionGuard, assert_error_envelope, assert_failure, assert_meta, assert_success, headless,
-    headless_json, parse_json, skip, stdout_str, unique_session, url_a, url_b, wait_page_ready,
+    headless_json, parse_json, skip, stdout_str, unique_session, url_a, url_b,
+    url_delayed_redirect, url_fast_redirect, wait_page_ready,
 };
 
 const ELEMENT_SELECTOR: &str = "#loaded";
@@ -271,6 +272,155 @@ fn wait_navigation_json_happy_path() {
         v["data"]["observed_value"]
     );
     assert_eq!(v["data"]["observed_value"]["ready_state"], "complete");
+}
+
+#[test]
+fn wait_navigation_detects_fast_redirect_when_final_url_is_already_loaded() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let fast_redirect = url_fast_redirect();
+
+    let eval_out = headless_json(
+        &[
+            "browser",
+            "eval",
+            &format!(
+                "window.location.href = {}; void(0)",
+                serde_json::to_string(&fast_redirect).unwrap()
+            ),
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&eval_out, "trigger fast redirect");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "navigation",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "3000",
+        ],
+        10,
+    );
+    assert_success(&out, "wait navigation after fast redirect");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser wait navigation");
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["kind"], "navigation");
+    assert_eq!(v["data"]["satisfied"], true);
+    assert!(
+        v["data"]["observed_value"]["url"]
+            .as_str()
+            .unwrap_or("")
+            .contains("page-b"),
+        "observed_value.url must point at page-b: {}",
+        v["data"]["observed_value"]
+    );
+}
+
+#[test]
+fn wait_navigation_detects_delayed_redirect_via_real_page_navigation() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let delayed_redirect = url_delayed_redirect();
+
+    let eval_out = headless_json(
+        &[
+            "browser",
+            "eval",
+            &format!(
+                "window.location.href = {}; void(0)",
+                serde_json::to_string(&delayed_redirect).unwrap()
+            ),
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&eval_out, "trigger delayed redirect");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "navigation",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "5000",
+        ],
+        10,
+    );
+    assert_success(&out, "wait navigation after delayed redirect");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser wait navigation");
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["kind"], "navigation");
+    assert_eq!(v["data"]["satisfied"], true);
+    assert!(
+        v["data"]["observed_value"]["url"]
+            .as_str()
+            .unwrap_or("")
+            .contains("page-b"),
+        "observed_value.url must point at page-b: {}",
+        v["data"]["observed_value"]
+    );
+}
+
+#[test]
+fn wait_navigation_timeout_when_no_navigation_occurs() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "navigation",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "150",
+        ],
+        10,
+    );
+    assert_failure(&out, "wait navigation timeout");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser wait navigation");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "TIMEOUT");
+    assert_eq!(v["error"]["retryable"], true);
 }
 
 // Ignored: `wait network-idle` relies on the CDP Network.requestWillBeSent /
