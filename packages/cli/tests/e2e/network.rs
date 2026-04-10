@@ -27,7 +27,7 @@ fn wait_requests_done(session_id: &str, tab_id: &str) {
     assert_success(&out, "wait requests done");
 }
 
-fn request_items<'a>(value: &'a serde_json::Value) -> &'a [serde_json::Value] {
+fn request_items(value: &serde_json::Value) -> &[serde_json::Value] {
     value["data"]["requests"]
         .as_array()
         .map(Vec::as_slice)

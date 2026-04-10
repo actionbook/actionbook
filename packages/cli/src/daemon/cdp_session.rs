@@ -740,6 +740,7 @@ impl CdpSession {
     }
 
     /// Background task: read WS messages and route responses/events to callers.
+    #[allow(clippy::too_many_arguments)]
     async fn reader_loop<S>(
         mut reader: S,
         pending: PendingRequests,
