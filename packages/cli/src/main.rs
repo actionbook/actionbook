@@ -133,22 +133,8 @@ async fn run(mut cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 
     let command = cli.command.take().unwrap();
     match command {
-        Commands::Search {
-            query,
-            domain,
-            url,
-            page,
-            page_size,
-        } => {
-            actionbook_cli::commands::search::run(
-                &cli,
-                &query,
-                domain.as_deref(),
-                url.as_deref(),
-                page,
-                page_size,
-            )
-            .await?;
+        Commands::Search { keyword } => {
+            actionbook_cli::commands::search::run(&keyword, json_mode).await?;
         }
         Commands::Get { area_id } => {
             actionbook_cli::commands::get::run(&cli, &area_id).await?;

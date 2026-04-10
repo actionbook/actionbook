@@ -65,6 +65,12 @@ fn default_profile_name() -> String {
     DEFAULT_PROFILE.to_string()
 }
 
+/// Return the base URL for the Actionbook API.
+/// Reads `ACTIONBOOK_API_URL` from the environment; falls back to the production endpoint.
+pub fn api_base() -> String {
+    std::env::var("ACTIONBOOK_API_URL").unwrap_or_else(|_| "https://api.actionbook.dev".to_string())
+}
+
 pub fn actionbook_home() -> PathBuf {
     if let Ok(home) = std::env::var("ACTIONBOOK_HOME") {
         let trimmed = home.trim();

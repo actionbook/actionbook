@@ -43,24 +43,8 @@ pub struct Cli {
 pub enum Commands {
     /// Search for action manuals by keyword
     Search {
-        /// Search keyword (e.g., "airbnb search", "google login")
-        query: String,
-
-        /// Filter by domain (e.g., "airbnb.com")
-        #[arg(short, long)]
-        domain: Option<String>,
-
-        /// Filter by URL
-        #[arg(short, long)]
-        url: Option<String>,
-
-        /// Page number
-        #[arg(short, long, default_value = "1")]
-        page: u32,
-
-        /// Results per page (1-100)
-        #[arg(short = 's', long, default_value = "10")]
-        page_size: u32,
+        /// Search keyword
+        keyword: String,
     },
 
     /// Get complete action details by area ID
@@ -776,6 +760,34 @@ mod tests {
                 assert!(cmd.reset);
             }
             other => panic!("expected setup command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_search_query() {
+        let cli =
+            Cli::try_parse_from(["actionbook", "search", "query text"]).expect("parse search");
+
+        assert!(!cli.json);
+        match cli.command {
+            Some(Commands::Search { keyword }) => {
+                assert_eq!(keyword, "query text");
+            }
+            other => panic!("expected search command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_parse_from_parses_search_query_with_json_flag() {
+        let cli = Cli::try_parse_from(["actionbook", "search", "query", "--json"])
+            .expect("parse search --json");
+
+        assert!(cli.json);
+        match cli.command {
+            Some(Commands::Search { keyword }) => {
+                assert_eq!(keyword, "query");
+            }
+            other => panic!("expected search command, got {other:?}"),
         }
     }
 
