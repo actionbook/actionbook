@@ -4994,6 +4994,55 @@ fn eval_json_number() {
 }
 
 #[test]
+fn eval_json_promise() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    // Synchronous-resolve Promise
+    let out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "Promise.resolve(42)",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "eval json promise resolve");
+    let v = parse_json(&out);
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["value"], serde_json::json!(42));
+    assert_eq!(v["data"]["type"], "number");
+
+    // Async Promise with delay
+    let out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "new Promise(r => setTimeout(() => r('done'), 50))",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "eval json promise delayed");
+    let v = parse_json(&out);
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["value"], serde_json::json!("done"));
+    assert_eq!(v["data"]["type"], "string");
+
+    close_session(&sid);
+}
+
+#[test]
 fn eval_text() {
     if skip() {
         return;
