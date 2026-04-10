@@ -81,7 +81,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         .execute_on_tab(
             &target_id,
             "Runtime.evaluate",
-            json!({ "expression": cmd.expression, "returnByValue": true }),
+            json!({ "expression": cmd.expression, "returnByValue": true, "awaitPromise": true }),
         )
         .await
     {
