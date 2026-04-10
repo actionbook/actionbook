@@ -223,6 +223,8 @@ Examples:
     // ── Interaction ────────────────────────────────────────────
     /// Evaluate JavaScript
     Eval(interaction::eval::Cmd),
+    /// Send an HTTP request via the browser fetch API
+    Send(interaction::send::Cmd),
     /// Click an element
     Click(interaction::click::Cmd),
     /// Click multiple elements in sequence (batch)
@@ -443,6 +445,7 @@ impl BrowserCommands {
             },
             Self::Screenshot(cmd) => Action::Screenshot(cmd.clone()),
             Self::Eval(cmd) => Action::Eval(cmd.clone()),
+            Self::Send(cmd) => Action::BrowserSend(cmd.clone()),
             Self::Click(cmd) => Action::Click(cmd.clone()),
             Self::BatchClick(cmd) => Action::BatchClick(cmd.clone()),
             Self::Hover(cmd) => Action::Hover(cmd.clone()),
@@ -522,6 +525,7 @@ impl BrowserCommands {
             },
             Self::Screenshot(_) => observation::screenshot::COMMAND_NAME,
             Self::Eval(_) => interaction::eval::COMMAND_NAME,
+            Self::Send(_) => interaction::send::COMMAND_NAME,
             Self::Click(_) => interaction::click::COMMAND_NAME,
             Self::BatchClick(_) => interaction::batch_click::COMMAND_NAME,
             Self::Hover(_) => interaction::hover::COMMAND_NAME,
@@ -601,6 +605,7 @@ impl BrowserCommands {
                 WaitCommands::Condition(cmd) => wait::condition::context(cmd, result),
             },
             Self::Eval(cmd) => interaction::eval::context(cmd, result),
+            Self::Send(cmd) => interaction::send::context(cmd, result),
             Self::Back(a) => navigation::back::context(
                 &navigation::back::Cmd {
                     session: a.session.clone(),
