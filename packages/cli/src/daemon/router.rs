@@ -67,6 +67,7 @@ pub async fn route(action: &Action, registry: &SharedRegistry) -> ActionResult {
         Action::WaitNetworkIdle(cmd) => browser::wait::network_idle::execute(cmd, registry).await,
         Action::WaitCondition(cmd) => browser::wait::condition::execute(cmd, registry).await,
         Action::Eval(cmd) => browser::interaction::eval::execute(cmd, registry).await,
+        Action::BrowserSend(cmd) => browser::interaction::send::execute(cmd, registry).await,
         Action::Click(cmd) => browser::interaction::click::execute(cmd, registry).await,
         Action::BatchClick(cmd) => browser::interaction::batch_click::execute(cmd, registry).await,
         Action::Hover(cmd) => browser::interaction::hover::execute(cmd, registry).await,

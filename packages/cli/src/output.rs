@@ -229,6 +229,7 @@ pub fn format_text(
                     | "browser session-storage clear"
                     | "browser network requests"
                     | "browser network request"
+                    | "browser send"
             );
 
             if is_action {
@@ -816,6 +817,23 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
         "browser eval" => {
             if let Some(val) = data.get("value") {
                 lines.push(text_scalar(val));
+            }
+        }
+        "browser send" => {
+            let status = data.get("status").and_then(|v| v.as_u64()).unwrap_or(0);
+            let status_text = data
+                .get("statusText")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if status_text.is_empty() {
+                lines.push(format!("status: {status}"));
+            } else {
+                lines.push(format!("status: {status} {status_text}"));
+            }
+            if let Some(body) = data.get("body").and_then(|v| v.as_str())
+                && !body.is_empty()
+            {
+                lines.push(format!("body: {body}"));
             }
         }
         "browser cookies list" => {

@@ -415,6 +415,7 @@ Interaction:
   drag <source> <target>  --session --tab  Drag element to a target
   upload <selector> <file...>  --session --tab  Upload files to a file input
   eval <code>             --session --tab  Evaluate JavaScript
+  send <url>              --session --tab  Send HTTP request via browser fetch
   mouse-move <x,y>       --session --tab  Move mouse to coordinates
   cursor-position         --session --tab  Get current cursor position
   scroll <direction|edge|into-view>  --session --tab  Scroll page or container

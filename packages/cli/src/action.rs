@@ -71,6 +71,7 @@ pub enum Action {
 
     // ── Interaction ────────────────────────────────────────────
     Eval(interaction::eval::Cmd),
+    BrowserSend(interaction::send::Cmd),
     Click(interaction::click::Cmd),
     BatchClick(interaction::batch_click::Cmd),
     Hover(interaction::hover::Cmd),
@@ -168,6 +169,7 @@ impl Action {
 
             // Interaction
             Action::Eval(c) => st!(c),
+            Action::BrowserSend(c) => st!(c),
             Action::Click(c) => st!(c),
             Action::BatchClick(c) => st!(c),
             Action::Hover(c) => st!(c),
@@ -237,6 +239,7 @@ impl Action {
             Action::WaitNetworkIdle(_) => wait::network_idle::COMMAND_NAME,
             Action::WaitCondition(_) => wait::condition::COMMAND_NAME,
             Action::Eval(_) => interaction::eval::COMMAND_NAME,
+            Action::BrowserSend(_) => interaction::send::COMMAND_NAME,
             Action::Click(_) => interaction::click::COMMAND_NAME,
             Action::BatchClick(_) => interaction::batch_click::COMMAND_NAME,
             Action::Hover(_) => interaction::hover::COMMAND_NAME,
