@@ -309,6 +309,8 @@ Usage: actionbook <command> [options]
 
 Commands:
   browser    Control browser sessions, tabs, and page interactions
+  search     Search for action manuals by keyword
+  manual     Get detailed manual information for a site, group, or action
   setup      Configure actionbook
   help       Show this help
   --version  Show version

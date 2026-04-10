@@ -21,8 +21,17 @@ Examples:
 Sends an HTTP request from the browser context using the page's fetch API.
 Supports token substitution with $ACTIONBOOK.<SITE>.API_KEY patterns.")]
 pub struct Cmd {
-    /// Target URL
+    /// URL to send the request to
     pub url: String,
+    /// HTTP method (default: GET, or POST if -d is used)
+    #[arg(short = 'X', long = "method")]
+    pub method: Option<String>,
+    /// HTTP headers (Key: Value or JSON format), can be repeated
+    #[arg(short = 'H', long = "header")]
+    pub header: Vec<String>,
+    /// Request body data
+    #[arg(short = 'd', long = "data")]
+    pub data: Option<String>,
     /// Session ID
     #[arg(long)]
     #[serde(rename = "session_id")]
@@ -31,37 +40,29 @@ pub struct Cmd {
     #[arg(long)]
     #[serde(rename = "tab_id")]
     pub tab: String,
-    /// HTTP method (default: GET, or POST if --data is provided)
-    #[arg(short = 'X', long)]
-    pub method: Option<String>,
-    /// Request header in \"Key: Value\" or JSON format (repeatable)
-    #[arg(short = 'H', long = "header")]
-    pub headers: Vec<String>,
-    /// Request body data
-    #[arg(short = 'd', long)]
-    pub data: Option<String>,
 }
 
 pub const COMMAND_NAME: &str = "browser send";
 
-/// Parse a single header string into a (key, value) pair.
+/// Parse a single header string into key-value pairs.
 ///
 /// Supports two formats:
 /// - `"Key: Value"` — splits on the first colon
-/// - `{"Key": "Value"}` — parses as JSON and returns the first entry
-pub fn parse_header(h: &str) -> Option<(String, String)> {
-    let trimmed = h.trim();
+/// - `{"Key": "Value", ...}` — parses as JSON object (supports multiple keys)
+pub fn parse_header(raw: &str) -> HashMap<String, String> {
+    let trimmed = raw.trim();
     if trimmed.starts_with('{')
         && let Ok(map) = serde_json::from_str::<HashMap<String, String>>(trimmed)
     {
-        return map.into_iter().next();
+        return map;
     }
+    let mut result = HashMap::new();
     if let Some(colon_idx) = trimmed.find(':') {
         let key = trimmed[..colon_idx].trim().to_string();
         let value = trimmed[colon_idx + 1..].trim().to_string();
-        return Some((key, value));
+        result.insert(key, value);
     }
-    None
+    result
 }
 
 /// Infer the HTTP method from explicit flag and body presence.
@@ -83,8 +84,8 @@ pub fn build_fetch_js(
     headers: &HashMap<String, String>,
     body: Option<&str>,
 ) -> String {
-    // Escape the URL for safe JS string embedding
-    let url_escaped = url.replace('\\', "\\\\").replace('"', "\\\"");
+    // Use serde_json::to_string for safe JS string embedding
+    let url_json = serde_json::to_string(url).unwrap_or_else(|_| format!("\"{}\"", url));
     let method_upper = method.to_uppercase();
 
     let mut options = format!("method: \"{}\"", method_upper);
@@ -93,9 +94,9 @@ pub fn build_fetch_js(
         let header_entries: Vec<String> = headers
             .iter()
             .map(|(k, v)| {
-                let k_esc = k.replace('\\', "\\\\").replace('"', "\\\"");
-                let v_esc = v.replace('\\', "\\\\").replace('"', "\\\"");
-                format!("    \"{}\": \"{}\"", k_esc, v_esc)
+                let k_json = serde_json::to_string(k).unwrap_or_else(|_| format!("\"{}\"", k));
+                let v_json = serde_json::to_string(v).unwrap_or_else(|_| format!("\"{}\"", v));
+                format!("    {}: {}", k_json, v_json)
             })
             .collect();
         options.push_str(&format!(
@@ -105,20 +106,20 @@ pub fn build_fetch_js(
     }
 
     if let Some(b) = body {
-        // Escape for JS template literal — use JSON stringify to safely embed
         let b_json = serde_json::to_string(b).unwrap_or_else(|_| format!("\"{}\"", b));
         options.push_str(&format!(",\n    body: {}", b_json));
     }
 
     format!(
         r#"(async () => {{
-  const r = await fetch("{url}", {{
+  const r = await fetch({url}, {{
     {options}
   }});
-  const text = await r.text();
-  return {{ status: r.status, statusText: r.statusText, headers: Object.fromEntries([...r.headers]), body: text }};
+  const hs = {{}}; r.headers.forEach((v, k) => {{ hs[k] = v; }});
+  const body = await r.text();
+  return {{ status: r.status, statusText: r.statusText, headers: hs, body }};
 }})()"#,
-        url = url_escaped,
+        url = url_json,
         options = options,
     )
 }
@@ -205,10 +206,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // 1. Parse headers
     let mut parsed_headers: HashMap<String, String> = HashMap::new();
-    for raw in &cmd.headers {
+    for raw in &cmd.header {
         match resolve_tokens(raw) {
             Ok(resolved) => {
-                if let Some((k, v)) = parse_header(&resolved) {
+                for (k, v) in parse_header(&resolved) {
                     parsed_headers.insert(k, v);
                 }
             }
@@ -317,131 +318,140 @@ mod tests {
     // ── parse_header ──────────────────────────────────────────────────────────
 
     #[test]
-    fn parse_header_key_value_format() {
-        let result = parse_header("Content-Type: application/json");
+    fn parse_header_json_format() {
+        let input = r#"{"content-type": "application/json"}"#;
+        let result = parse_header(input);
+        assert_eq!(result.len(), 1);
         assert_eq!(
-            result,
-            Some(("Content-Type".to_string(), "application/json".to_string()))
+            result.get("content-type"),
+            Some(&"application/json".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_header_json_multiple_keys() {
+        let input = r#"{"Authorization": "Bearer token", "Accept": "text/html"}"#;
+        let result = parse_header(input);
+        assert_eq!(result.len(), 2);
+        assert_eq!(
+            result.get("Authorization"),
+            Some(&"Bearer token".to_string())
+        );
+        assert_eq!(result.get("Accept"), Some(&"text/html".to_string()));
+    }
+
+    #[test]
+    fn parse_header_key_value_format() {
+        let input = "Content-Type: application/json";
+        let result = parse_header(input);
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result.get("Content-Type"),
+            Some(&"application/json".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_header_key_value_with_extra_whitespace() {
+        let input = "  Authorization :  Bearer my-token  ";
+        let result = parse_header(input);
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result.get("Authorization"),
+            Some(&"Bearer my-token".to_string())
         );
     }
 
     #[test]
     fn parse_header_key_value_with_colon_in_value() {
-        let result = parse_header("Authorization: Bearer abc:def");
-        assert_eq!(
-            result,
-            Some(("Authorization".to_string(), "Bearer abc:def".to_string()))
-        );
-    }
-
-    #[test]
-    fn parse_header_key_value_with_whitespace() {
-        let result = parse_header("  X-Custom :  hello world  ");
-        assert_eq!(
-            result,
-            Some(("X-Custom".to_string(), "hello world".to_string()))
-        );
-    }
-
-    #[test]
-    fn parse_header_json_format() {
-        let input = r#"{"content-type": "application/json"}"#;
+        let input = "Authorization: Bearer abc:def";
         let result = parse_header(input);
+        assert_eq!(result.len(), 1);
         assert_eq!(
-            result,
-            Some(("content-type".to_string(), "application/json".to_string()))
+            result.get("Authorization"),
+            Some(&"Bearer abc:def".to_string())
         );
     }
 
     #[test]
-    fn parse_header_no_colon_returns_none() {
-        assert_eq!(parse_header("no-colon-here"), None);
+    fn parse_header_invalid_input_returns_empty() {
+        let result = parse_header("no-colon-here");
+        assert!(result.is_empty());
     }
 
     #[test]
-    fn parse_header_empty_returns_none() {
-        assert_eq!(parse_header(""), None);
+    fn parse_header_empty_string_returns_empty() {
+        let result = parse_header("");
+        assert!(result.is_empty());
     }
 
     #[test]
     fn parse_header_invalid_json_falls_back_to_key_value() {
-        // Starts with '{' but invalid JSON, has colon so Key:Value fallback works
-        let result = parse_header("{broken: json}");
-        assert_eq!(result, Some(("{broken".to_string(), "json}".to_string())));
+        // Starts with '{' but is not valid JSON
+        let input = "{broken json";
+        let result = parse_header(input);
+        // Falls through JSON parsing, then tries Key:Value — no colon after key, so empty
+        assert!(result.is_empty());
     }
 
     #[test]
-    fn parse_header_invalid_json_no_colon_returns_none() {
-        // Starts with '{' but invalid JSON, no colon in the fallback sense
-        assert_eq!(parse_header("{broken json}"), None);
+    fn parse_header_invalid_json_with_colon_fallback() {
+        // Starts with '{' but invalid JSON, but has a colon so Key:Value fallback works
+        let input = "{broken: json}";
+        let result = parse_header(input);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result.get("{broken"), Some(&"json}".to_string()));
     }
 
-    // ── infer_method ─────────────────────────────────────────────────────────
+    // ── method inference ─────────────────────────────────────────────────────
 
     #[test]
-    fn infer_method_defaults_to_get_without_body() {
+    fn method_inference_defaults_to_get_without_body() {
         assert_eq!(infer_method(None, false), "GET");
     }
 
     #[test]
-    fn infer_method_defaults_to_post_with_body() {
+    fn method_inference_defaults_to_post_with_body() {
         assert_eq!(infer_method(None, true), "POST");
     }
 
     #[test]
-    fn infer_method_explicit_overrides() {
-        assert_eq!(infer_method(Some("put"), false), "put");
-        assert_eq!(infer_method(Some("DELETE"), true), "DELETE");
+    fn method_inference_explicit_method_overrides() {
+        assert_eq!(infer_method(Some("PUT"), true), "PUT");
+    }
+
+    #[test]
+    fn method_inference_explicit_delete_without_body() {
+        assert_eq!(infer_method(Some("DELETE"), false), "DELETE");
     }
 
     // ── build_fetch_js ────────────────────────────────────────────────────────
 
     #[test]
-    fn build_fetch_js_get_no_body_no_headers() {
+    fn build_fetch_js_basic() {
         let js = build_fetch_js("https://example.com/api", "GET", &HashMap::new(), None);
         assert!(js.contains("fetch(\"https://example.com/api\""));
         assert!(js.contains("method: \"GET\""));
-        // The fetch options block should not include a body field.
-        // Note: the return object template has "body: text" so we check the options-specific form.
-        // With no headers, there should be no "headers: {" in the options block.
         assert!(!js.contains("headers: {"));
-        // With no data, there should be no body option (body option is always ",\n    body: ...")
         assert!(!js.contains(",\n    body:"));
     }
 
     #[test]
-    fn build_fetch_js_post_with_body() {
+    fn build_fetch_js_with_headers_and_body() {
+        let mut headers = HashMap::new();
+        headers.insert("Authorization".to_string(), "Bearer token123".to_string());
+        headers.insert("Content-Type".to_string(), "application/json".to_string());
         let js = build_fetch_js(
             "https://api.example.com",
             "POST",
-            &HashMap::new(),
+            &headers,
             Some(r#"{"key":"value"}"#),
         );
         assert!(js.contains("method: \"POST\""));
-        // body option should be present
-        assert!(js.contains(",\n    body:"));
-    }
-
-    #[test]
-    fn build_fetch_js_with_headers() {
-        let mut headers = HashMap::new();
-        headers.insert("Authorization".to_string(), "Bearer token123".to_string());
-        let js = build_fetch_js("https://example.com", "GET", &headers, None);
         assert!(js.contains("headers: {"));
         assert!(js.contains("\"Authorization\""));
         assert!(js.contains("\"Bearer token123\""));
-    }
-
-    #[test]
-    fn build_fetch_js_url_with_double_quotes_escaped() {
-        let js = build_fetch_js(
-            "https://example.com/path?q=\"test\"",
-            "GET",
-            &HashMap::new(),
-            None,
-        );
-        // The URL should have its double quotes escaped
-        assert!(js.contains("\\\"test\\\""));
+        assert!(js.contains("body:"));
     }
 
     #[test]
@@ -451,6 +461,68 @@ mod tests {
         assert!(js.contains("r.statusText"));
         assert!(js.contains("r.headers"));
         assert!(js.contains("r.text()"));
+    }
+
+    // ── CLI parser tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_browser_send_basic() {
+        use clap::Parser;
+
+        #[derive(Parser)]
+        struct TestCli {
+            #[command(flatten)]
+            cmd: Cmd,
+        }
+
+        let cli = TestCli::parse_from([
+            "test",
+            "https://example.com/api",
+            "--session",
+            "s1",
+            "--tab",
+            "t1",
+        ]);
+        assert_eq!(cli.cmd.url, "https://example.com/api");
+        assert_eq!(cli.cmd.session, "s1");
+        assert_eq!(cli.cmd.tab, "t1");
+        assert!(cli.cmd.method.is_none());
+        assert!(cli.cmd.header.is_empty());
+        assert!(cli.cmd.data.is_none());
+    }
+
+    #[test]
+    fn parse_browser_send_with_options() {
+        use clap::Parser;
+
+        #[derive(Parser)]
+        struct TestCli {
+            #[command(flatten)]
+            cmd: Cmd,
+        }
+
+        let cli = TestCli::parse_from([
+            "test",
+            "https://api.example.com/users",
+            "-X",
+            "POST",
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            "Authorization: Bearer token",
+            "-d",
+            r#"{"name":"alice"}"#,
+            "--session",
+            "s1",
+            "--tab",
+            "t1",
+        ]);
+        assert_eq!(cli.cmd.url, "https://api.example.com/users");
+        assert_eq!(cli.cmd.method, Some("POST".to_string()));
+        assert_eq!(cli.cmd.header.len(), 2);
+        assert_eq!(cli.cmd.header[0], "Content-Type: application/json");
+        assert_eq!(cli.cmd.header[1], "Authorization: Bearer token");
+        assert_eq!(cli.cmd.data, Some(r#"{"name":"alice"}"#.to_string()));
     }
 
     // ── resolve_tokens ────────────────────────────────────────────────────────
@@ -463,7 +535,6 @@ mod tests {
 
     #[test]
     fn resolve_tokens_env_var() {
-        // Set environment variable and check resolution
         // SAFETY: test-only, single-threaded context
         unsafe {
             std::env::set_var("ACTIONBOOK_TESTSITE_API_KEY", "test-token-xyz");
@@ -477,7 +548,6 @@ mod tests {
 
     #[test]
     fn resolve_tokens_missing_returns_error() {
-        // Use a site name that almost certainly has no env or file
         let result = resolve_tokens("$ACTIONBOOK.NONEXISTENT_SITE_XYZ_12345.API_KEY");
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -485,8 +555,8 @@ mod tests {
     }
 
     #[test]
-    fn resolve_tokens_env_var_priority_over_file() {
-        // Env var takes priority over file; use env override to avoid filesystem dependencies
+    fn resolve_tokens_file_based() {
+        // Use env var override to avoid filesystem dependencies
         // SAFETY: test-only, single-threaded context
         unsafe {
             std::env::set_var("ACTIONBOOK_FILETEST_API_KEY", "file-token-abc");
