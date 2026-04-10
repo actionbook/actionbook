@@ -234,6 +234,101 @@ setTimeout(() => {{
         return;
     }
 
+    if path.starts_with("/api/data") {
+        let source = path
+            .split("source=")
+            .nth(1)
+            .and_then(|value| value.split('&').next())
+            .unwrap_or("default");
+        let body = format!(r#"{{"ok":true,"source":"{source}"}}"#);
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-Ab-Fixture: api-data\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    if path == "/network-fixture.css" {
+        let body = "body { background: rgb(245, 248, 255); }";
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/css\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    if path == "/network-fixture.js" {
+        let body = "window.__ab_network_script_loaded = true;";
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/javascript\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    if path == "/network-load" {
+        let port = local_server().port;
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Network Load Fixture</title>
+<link rel="stylesheet" href="http://127.0.0.1:{port}/network-fixture.css">
+<script src="http://127.0.0.1:{port}/network-fixture.js" defer></script>
+</head>
+<body>
+<h1>Network Load Fixture</h1>
+<p id="network-load-status">ready</p>
+</body></html>"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    if path == "/network-xhr" {
+        let port = local_server().port;
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Network XHR Fixture</title></head>
+<body>
+<h1>Network XHR Fixture</h1>
+<script>
+window.__ab_requests_done = false;
+window.__ab_requests_error = null;
+Promise.all([
+  fetch("http://127.0.0.1:{port}/api/data?source=fetch").then(r => r.json()),
+  new Promise((resolve, reject) => {{
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", "http://127.0.0.1:{port}/api/data?source=xhr");
+    xhr.onload = () => resolve(xhr.responseText);
+    xhr.onerror = () => reject(new Error("xhr failed"));
+    xhr.send();
+  }})
+]).then(() => {{
+  window.__ab_requests_done = true;
+}}).catch(err => {{
+  window.__ab_requests_error = String(err);
+  window.__ab_requests_done = true;
+}});
+</script>
+</body></html>"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
     // Cross-origin iframe parent: embeds child from a different port
     if path.starts_with("/iframe-xo-parent") {
         let xo_port = path
@@ -366,6 +461,16 @@ pub fn url_iframe_parent() -> String {
 /// URL for cursor-interactive fixture (cursor:pointer, onclick, tabindex elements).
 pub fn url_cursor_fixture() -> String {
     format!("http://127.0.0.1:{}/cursor-fixture", local_server().port)
+}
+
+/// URL for a page that loads a document, stylesheet, and script.
+pub fn url_network_load() -> String {
+    format!("http://127.0.0.1:{}/network-load", local_server().port)
+}
+
+/// URL for a page that performs fetch + XHR requests and marks completion.
+pub fn url_network_xhr() -> String {
+    format!("http://127.0.0.1:{}/network-xhr", local_server().port)
 }
 
 // ── Cross-origin server (second port for OOPIF tests) ─────────────

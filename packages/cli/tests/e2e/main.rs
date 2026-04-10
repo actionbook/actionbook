@@ -22,6 +22,7 @@ mod inspect_point;
 mod interaction;
 mod logs;
 mod navigation;
+mod network;
 mod page_info;
 mod pdf;
 mod query;
