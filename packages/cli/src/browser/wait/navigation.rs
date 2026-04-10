@@ -19,11 +19,20 @@ const POLL_INTERVAL_MS: u64 = 100;
 const RECENTLY_LOADED_GRACE_MS: i64 = 3_000;
 
 /// JS expression that returns the current URL, readyState, and how many ms
-/// ago the page's load event fired (null if load has not yet finished or the
-/// timing API is unavailable).
+/// ago the page's load event fired.
+///
+/// `load_age_ms` is null when:
+///   - the page has no PerformanceNavigationTiming entry (e.g. `about:blank`), or
+///   - the timing API is unavailable, or
+///   - the page has not yet fired its load event.
+///
+/// This lets `recently_loaded` stay false for blank/synthetic pages that
+/// were never the target of a real navigation, avoiding false positives.
 const READY_STATE_JS: &str = "(function(){
     var t = window.performance && window.performance.timing;
-    var loadAge = (t && t.loadEventEnd > 0) ? (Date.now() - t.loadEventEnd) : null;
+    var navEntries = window.performance && window.performance.getEntriesByType('navigation');
+    var hasNavEntry = !!(navEntries && navEntries.length > 0);
+    var loadAge = (hasNavEntry && t && t.loadEventEnd > 0) ? (Date.now() - t.loadEventEnd) : null;
     return { url: location.href, ready_state: document.readyState, load_age_ms: loadAge };
 })()";
 
