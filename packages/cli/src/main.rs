@@ -136,6 +136,19 @@ async fn run(mut cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         Commands::Search { keyword } => {
             actionbook_cli::commands::search::run(&keyword, json_mode).await?;
         }
+        Commands::Manual {
+            site,
+            group,
+            action,
+        } => {
+            actionbook_cli::commands::manual::run(
+                site.as_deref(),
+                group.as_deref(),
+                action.as_deref(),
+                json_mode,
+            )
+            .await?;
+        }
         Commands::Get { area_id } => {
             actionbook_cli::commands::get::run(&cli, &area_id).await?;
         }

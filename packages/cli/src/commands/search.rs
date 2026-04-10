@@ -232,7 +232,7 @@ fn format_search_results(sites: &[SearchSite], query: &str) -> String {
     output
 }
 
-fn urlencoding(s: &str) -> String {
+pub(crate) fn urlencoding(s: &str) -> String {
     s.chars()
         .map(|c| match c {
             'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
