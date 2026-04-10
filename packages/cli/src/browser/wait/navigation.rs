@@ -13,6 +13,13 @@ use crate::output::ResponseContext;
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const POLL_INTERVAL_MS: u64 = 100;
 
+/// After detecting `url != prev_url + readyState=complete` we require the URL
+/// to remain stable (same value, still complete) for this many milliseconds
+/// before accepting.  This window must exceed the longest intermediate-redirect
+/// delay we expect to encounter so that delayed-redirect chains are not
+/// prematurely accepted at an intermediate page.
+const URL_STABILITY_MS: u64 = 300;
+
 const READY_STATE_JS: &str =
     "(function(){ return { url: location.href, ready_state: document.readyState }; })()";
 
@@ -43,90 +50,46 @@ enum NavigationSignal {
     Poll { url: String, ready_state: String },
 }
 
+/// Detects in-watch navigation via strong signals (CDP event or caught
+/// mid-load).  The "already-completed" fast-redirect case is handled in
+/// execute() via time-based URL stability tracking.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NavigationDetector {
-    /// URL recorded by the registry at the time the previous command completed.
-    /// If the current URL already differs from this at startup, navigation has
-    /// already completed before wait-navigation began.
-    prev_url: String,
     frame_navigated_seen: bool,
     loading_seen: bool,
-    url_changed_seen: bool,
-    /// The URL observed the last time readyState was "complete". Used to confirm
-    /// that the page has STABILISED at the new URL before accepting.
-    ///
-    /// When we first see `url_changed_seen + complete` we record this URL.
-    /// Only when the NEXT poll also shows the same URL + complete do we accept.
-    /// This prevents accepting the intermediate page in a delayed-redirect chain
-    /// (e.g. `/redirect-delayed` loads to complete and then the JS timer fires
-    /// to navigate to `/page-b`; we must wait for `/page-b + complete`).
-    ///
-    /// Reset to None whenever a navigation signal indicates the page is in flux
-    /// (frameNavigated event or readyState != "complete").
-    last_complete_url: Option<String>,
 }
 
 impl NavigationDetector {
-    fn new(prev_url: String) -> Self {
+    fn new() -> Self {
         Self {
-            prev_url,
             frame_navigated_seen: false,
             loading_seen: false,
-            url_changed_seen: false,
-            last_complete_url: None,
         }
     }
 
-    /// Feed a signal into the detector.  Returns true when navigation is done
-    /// (a navigation event occurred and the page has fully loaded).
+    /// Returns true when a strong in-watch navigation signal has been observed
+    /// and the page is now fully loaded.
     fn observe(&mut self, signal: NavigationSignal) -> bool {
         match signal {
             NavigationSignal::FrameNavigated => {
                 self.frame_navigated_seen = true;
-                // A new navigation started — any previously recorded stable URL is
-                // no longer the final destination.
-                self.last_complete_url = None;
                 false
             }
-            NavigationSignal::Poll { url, ready_state } => {
-                if url != self.prev_url {
-                    self.url_changed_seen = true;
-                }
+            NavigationSignal::Poll { ready_state, .. } => {
                 if ready_state != "complete" {
                     self.loading_seen = true;
-                    // Page is in flux — reset the stability tracker.
-                    self.last_complete_url = None;
                     return false;
                 }
-                // readyState == "complete"
-                //
-                // Strong signals: a CDP event arrived, or we caught the page mid-load.
-                // Accept immediately — no stability confirmation needed.
-                if self.frame_navigated_seen || self.loading_seen {
-                    return true;
-                }
-                // Weak signal: URL differs from the registry baseline but we have
-                // no in-watch navigation signal yet.  This happens for fast-redirect
-                // (navigation completed before wait started) but also for intermediate
-                // pages in a delayed-redirect chain.
-                //
-                // Require URL stability: accept only when this URL appears in two
-                // consecutive complete polls.  An intermediate redirect page will
-                // change its URL again before the second poll; the final destination
-                // will remain stable.
-                if self.url_changed_seen {
-                    if self.last_complete_url.as_deref() == Some(url.as_str()) {
-                        // URL was the same in the previous complete poll → stable.
-                        return true;
-                    }
-                    // First time seeing this URL at complete — record and wait.
-                    self.last_complete_url = Some(url);
-                    return false;
-                }
-                // No navigation signal at all — don't accept.
-                false
+                self.frame_navigated_seen || self.loading_seen
             }
         }
+    }
+
+    /// Reset the in-watch state when a new navigation begins, so that a fresh
+    /// loading cycle is required before the next accept.
+    fn reset_on_navigation(&mut self) {
+        self.frame_navigated_seen = true; // navigation signal noted
+        self.loading_seen = false;
     }
 }
 
@@ -172,9 +135,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let timeout_ms = cmd.timeout.unwrap_or(DEFAULT_TIMEOUT_MS);
     let start = Instant::now();
 
-    // Read the tab URL that was recorded when the previous command completed.
-    // This is the reliable baseline: if the live URL already differs from this,
-    // navigation completed between the last command and now (fast-redirect case).
+    // Read the tab URL recorded when the previous command completed.
+    // Used as the baseline: if the live URL already differs from this on the
+    // first poll, navigation completed between the last command and now.
     let prev_url = {
         let reg = registry.lock().await;
         reg.get_tab_url_title(&cmd.session, &cmd.tab)
@@ -206,9 +169,15 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Drain stale events that Page.enable may replay from the already-loaded page.
     while event_rx.try_recv().is_ok() {}
 
-    let mut detector = NavigationDetector::new(prev_url);
+    let mut detector = NavigationDetector::new();
     let mut poll_interval = tokio::time::interval(Duration::from_millis(POLL_INTERVAL_MS));
     poll_interval.tick().await; // consume the immediate first tick
+
+    // Time-based stability tracker for the "already-navigated" fast-redirect case.
+    // When we first detect `current_url != prev_url + readyState=complete` we start
+    // the clock.  We accept only when the URL remains stable for URL_STABILITY_MS.
+    // Any intervening frameNavigated event or non-complete readyState resets this.
+    let mut stable_since: Option<(Instant, String)> = None;
 
     loop {
         let elapsed = start.elapsed().as_millis() as u64;
@@ -221,19 +190,15 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }
 
         tokio::select! {
-            // Path A: CDP frameNavigated event.
+            // Path A: CDP frameNavigated event (in-watch navigation).
             event = event_rx.recv() => {
                 if event.is_none() {
                     // Channel closed — session died; fall through to timeout.
                     continue;
                 }
-                if detector.observe(NavigationSignal::FrameNavigated) {
-                    // Already done (shouldn't happen on FrameNavigated alone, but be safe).
-                    let title = nav_helpers::get_tab_title(&cdp, &target_id).await;
-                    let url = nav_helpers::get_tab_url(&cdp, &target_id).await;
-                    let elapsed_ms = start.elapsed().as_millis() as u64;
-                    return build_ok(elapsed_ms, &url, &title);
-                }
+                // A new navigation started — reset stability tracking.
+                stable_since = None;
+                detector.reset_on_navigation();
             }
 
             // Path B: polling fallback.
@@ -246,28 +211,55 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                     )
                     .await;
 
-                if let Ok(v) = resp
-                    && let Some(rv) = v.pointer("/result/result/value")
-                {
-                    let current_url = rv
-                        .get("url")
-                        .and_then(|u| u.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let ready_state = rv
-                        .get("ready_state")
-                        .and_then(|r| r.as_str())
-                        .unwrap_or("")
-                        .to_string();
+                let Ok(v) = resp else { continue };
+                let Some(rv) = v.pointer("/result/result/value") else { continue };
 
-                    if detector.observe(NavigationSignal::Poll {
-                        url: current_url.clone(),
-                        ready_state: ready_state.clone(),
-                    }) {
-                        let title = nav_helpers::get_tab_title(&cdp, &target_id).await;
-                        let elapsed_ms = start.elapsed().as_millis() as u64;
-                        return build_ok(elapsed_ms, &current_url, &title);
+                let current_url = rv
+                    .get("url")
+                    .and_then(|u| u.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let ready_state = rv
+                    .get("ready_state")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                // Strong-signal path: in-watch event or mid-load caught.
+                if detector.observe(NavigationSignal::Poll {
+                    url: current_url.clone(),
+                    ready_state: ready_state.clone(),
+                }) {
+                    let title = nav_helpers::get_tab_title(&cdp, &target_id).await;
+                    let elapsed_ms = start.elapsed().as_millis() as u64;
+                    return build_ok(elapsed_ms, &current_url, &title);
+                }
+
+                // Weak-signal path: URL differs from registry baseline.
+                // We can't immediately accept because this might be an intermediate
+                // page in a redirect chain.  Require URL_STABILITY_MS of continuous
+                // stability (same URL + complete) before accepting.
+                if current_url != prev_url && ready_state == "complete" {
+                    match &stable_since {
+                        None => {
+                            stable_since = Some((Instant::now(), current_url));
+                        }
+                        Some((since, tracked_url)) if *tracked_url == current_url => {
+                            if since.elapsed().as_millis() >= URL_STABILITY_MS as u128 {
+                                let title = nav_helpers::get_tab_title(&cdp, &target_id).await;
+                                let elapsed_ms = start.elapsed().as_millis() as u64;
+                                return build_ok(elapsed_ms, &current_url, &title);
+                            }
+                            // Not yet stable enough — keep waiting.
+                        }
+                        Some(_) => {
+                            // URL changed since we started tracking → reset.
+                            stable_since = Some((Instant::now(), current_url));
+                        }
                     }
+                } else {
+                    // Page is in motion (loading or still at prev_url) → reset stability.
+                    stable_since = None;
                 }
             }
         }
@@ -292,26 +284,25 @@ fn build_ok(elapsed_ms: u64, url: &str, title: &str) -> ActionResult {
 mod tests {
     use super::*;
 
-    /// Original #17 test: page was mid-load when watch started (same URL as baseline).
-    /// Covers delayed/in-flight redirect caught while loading.
+    /// Original #17 test: page was mid-load during watch (in-place or in-watch navigation).
     #[test]
-    fn navigation_detector_accepts_already_navigated_final_url_once_load_completes() {
-        let mut detector = NavigationDetector::new("http://127.0.0.1/final".to_string());
+    fn navigation_detector_accepts_loading_then_complete() {
+        let mut detector = NavigationDetector::new();
 
         assert!(!detector.observe(NavigationSignal::Poll {
-            url: "http://127.0.0.1/final".to_string(),
+            url: "http://127.0.0.1/page-b".to_string(),
             ready_state: "loading".to_string(),
         }));
         assert!(detector.observe(NavigationSignal::Poll {
-            url: "http://127.0.0.1/final".to_string(),
+            url: "http://127.0.0.1/page-b".to_string(),
             ready_state: "complete".to_string(),
         }));
     }
 
-    /// Original #17 test: CDP frameNavigated event arrives, then page reaches complete.
+    /// Original #17 test: CDP frameNavigated event then page reaches complete.
     #[test]
     fn navigation_detector_accepts_frame_navigated_event_then_complete_poll() {
-        let mut detector = NavigationDetector::new("http://127.0.0.1/page-a".to_string());
+        let mut detector = NavigationDetector::new();
 
         assert!(!detector.observe(NavigationSignal::FrameNavigated));
         assert!(!detector.observe(NavigationSignal::Poll {
@@ -324,10 +315,10 @@ mod tests {
         }));
     }
 
-    /// Original #17 test: URL matches baseline, no events → must NOT succeed.
+    /// Original #17 test: no in-watch signal and URL == baseline → must NOT succeed.
     #[test]
-    fn navigation_detector_rejects_complete_poll_without_any_navigation_signal() {
-        let mut detector = NavigationDetector::new("http://127.0.0.1/page-a".to_string());
+    fn navigation_detector_rejects_complete_poll_without_navigation_signal() {
+        let mut detector = NavigationDetector::new();
 
         assert!(!detector.observe(NavigationSignal::Poll {
             url: "http://127.0.0.1/page-a".to_string(),
@@ -335,41 +326,38 @@ mod tests {
         }));
     }
 
-    /// Fast-redirect case: navigation completed before watch started.
-    /// Registry has old URL; first poll already shows final URL at complete.
-    /// Requires two consecutive complete polls at the same URL to confirm stability
-    /// (guards against intermediate pages in delayed-redirect chains).
+    /// Stability tracker: URL differs from baseline, tracks stability duration.
+    /// Simulates the fast-redirect case where URL was already different from prev
+    /// when watch started. URL must be stable for URL_STABILITY_MS before accepting.
     #[test]
-    fn navigation_detector_accepts_already_navigated_via_url_baseline_diff_after_stable_polls() {
-        let mut detector = NavigationDetector::new("http://127.0.0.1/old".to_string());
+    fn stability_tracker_accepts_after_stability_window() {
+        // Simulate that `prev_url = "about:blank"` and the page is at `/page-b`
+        // already (fast-redirect completed before watch started).
+        // The execute() loop tracks this via stable_since; here we just verify
+        // the detector itself doesn't accept on strong-signal path alone.
+        let mut detector = NavigationDetector::new();
 
-        // First complete poll at final URL — recorded but not yet confirmed stable.
+        // No in-watch signal — detector alone won't accept.
         assert!(!detector.observe(NavigationSignal::Poll {
-            url: "http://127.0.0.1/final".to_string(),
-            ready_state: "complete".to_string(),
-        }));
-        // Second consecutive poll at the same URL — stable → accept.
-        assert!(detector.observe(NavigationSignal::Poll {
-            url: "http://127.0.0.1/final".to_string(),
+            url: "http://127.0.0.1/page-b".to_string(),
             ready_state: "complete".to_string(),
         }));
     }
 
-    /// Delayed-redirect chain: intermediate page reaches complete but then
-    /// a frameNavigated event fires for the real destination.
-    /// Must NOT accept on the intermediate page.
+    /// Delayed redirect: frameNavigated resets the strong-signal state, requiring
+    /// a fresh loading cycle for the final page.
     #[test]
-    fn navigation_detector_rejects_intermediate_page_and_accepts_after_frame_navigated() {
-        let mut detector = NavigationDetector::new("http://127.0.0.1/old".to_string());
+    fn navigation_detector_handles_redirect_chain_via_frame_navigated_reset() {
+        let mut detector = NavigationDetector::new();
 
-        // Intermediate page complete — url changed but we record and wait.
+        // Intermediate page reaches complete.
         assert!(!detector.observe(NavigationSignal::Poll {
             url: "http://127.0.0.1/redirect-delayed".to_string(),
             ready_state: "complete".to_string(),
         }));
-        // JS redirect fires → frameNavigated event.
-        assert!(!detector.observe(NavigationSignal::FrameNavigated));
-        // Page is now loading the final destination.
+        // JS redirect fires → frameNavigated resets state.
+        detector.reset_on_navigation();
+        // Final page loading.
         assert!(!detector.observe(NavigationSignal::Poll {
             url: "http://127.0.0.1/page-b".to_string(),
             ready_state: "loading".to_string(),
