@@ -36,7 +36,6 @@ pub struct Cmd {
 
 pub const COMMAND_NAME: &str = "browser wait navigation";
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum NavigationSignal {
     FrameNavigated,
@@ -201,27 +200,27 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                     )
                     .await;
 
-                if let Ok(v) = resp {
-                    if let Some(rv) = v.pointer("/result/result/value") {
-                        let current_url = rv
-                            .get("url")
-                            .and_then(|u| u.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let ready_state = rv
-                            .get("ready_state")
-                            .and_then(|r| r.as_str())
-                            .unwrap_or("")
-                            .to_string();
+                if let Ok(v) = resp
+                    && let Some(rv) = v.pointer("/result/result/value")
+                {
+                    let current_url = rv
+                        .get("url")
+                        .and_then(|u| u.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let ready_state = rv
+                        .get("ready_state")
+                        .and_then(|r| r.as_str())
+                        .unwrap_or("")
+                        .to_string();
 
-                        if detector.observe(NavigationSignal::Poll {
-                            url: current_url.clone(),
-                            ready_state: ready_state.clone(),
-                        }) {
-                            let title = nav_helpers::get_tab_title(&cdp, &target_id).await;
-                            let elapsed_ms = start.elapsed().as_millis() as u64;
-                            return build_ok(elapsed_ms, &current_url, &title);
-                        }
+                    if detector.observe(NavigationSignal::Poll {
+                        url: current_url.clone(),
+                        ready_state: ready_state.clone(),
+                    }) {
+                        let title = nav_helpers::get_tab_title(&cdp, &target_id).await;
+                        let elapsed_ms = start.elapsed().as_millis() as u64;
+                        return build_ok(elapsed_ms, &current_url, &title);
                     }
                 }
             }
