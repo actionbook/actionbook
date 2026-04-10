@@ -84,6 +84,12 @@ fn record_request_will_be_sent(requests: &mut VecDeque<TrackedRequest>, params: 
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    if url.starts_with("chrome://")
+        || url.starts_with("chrome-untrusted://")
+        || url.starts_with("chrome-extension://")
+    {
+        return;
+    }
     let method = req
         .and_then(|r| r.get("method"))
         .and_then(|v| v.as_str())
@@ -158,14 +164,17 @@ fn matches_status_filter(status: Option<u16>, filter: &str) -> bool {
     let Some(s) = status else { return false };
     // Range: "400-499"
     if let Some((lo, hi)) = filter.split_once('-')
-        && let (Ok(lo), Ok(hi)) = (lo.parse::<u16>(), hi.parse::<u16>()) {
-            return s >= lo && s <= hi;
-        }
+        && let (Ok(lo), Ok(hi)) = (lo.parse::<u16>(), hi.parse::<u16>())
+    {
+        return s >= lo && s <= hi;
+    }
     // Class: "2xx", "4xx", etc.
-    if filter.len() == 3 && filter.ends_with("xx")
-        && let Some(prefix) = filter.chars().next().and_then(|c| c.to_digit(10)) {
-            return (s / 100) as u32 == prefix;
-        }
+    if filter.len() == 3
+        && filter.ends_with("xx")
+        && let Some(prefix) = filter.chars().next().and_then(|c| c.to_digit(10))
+    {
+        return (s / 100) as u32 == prefix;
+    }
     // Exact: "200"
     if let Ok(code) = filter.parse::<u16>() {
         return s == code;
@@ -181,9 +190,10 @@ fn filter_tracked_requests(
         .iter()
         .filter(|req| {
             if let Some(ref sub) = filter.url_substring
-                && !req.url.contains(sub.as_str()) {
-                    return false;
-                }
+                && !req.url.contains(sub.as_str())
+            {
+                return false;
+            }
             if let Some(ref types) = filter.resource_types {
                 let types_lower: Vec<String> =
                     types.split(',').map(|t| t.trim().to_lowercase()).collect();
@@ -192,13 +202,15 @@ fn filter_tracked_requests(
                 }
             }
             if let Some(ref method) = filter.method
-                && req.method.to_lowercase() != method.to_lowercase() {
-                    return false;
-                }
+                && req.method.to_lowercase() != method.to_lowercase()
+            {
+                return false;
+            }
             if let Some(ref status) = filter.status
-                && !matches_status_filter(req.status, status) {
-                    return false;
-                }
+                && !matches_status_filter(req.status, status)
+            {
+                return false;
+            }
             true
         })
         .cloned()
@@ -1981,6 +1993,7 @@ mod tests {
             status,
             mime_type: Some("application/json".to_string()),
             request_headers,
+            post_data: None,
             response_headers,
             response_body: Some(r#"{"ok":true}"#.to_string()),
         }

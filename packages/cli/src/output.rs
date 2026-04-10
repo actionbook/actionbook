@@ -227,6 +227,8 @@ pub fn format_text(
                     | "browser session-storage set"
                     | "browser session-storage delete"
                     | "browser session-storage clear"
+                    | "browser network requests"
+                    | "browser network request"
             );
 
             if is_action {
