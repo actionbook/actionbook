@@ -41,12 +41,6 @@ async fn main() {
         let raw_args: Vec<String> = std::env::args().collect();
         let json_mode = raw_args.iter().any(|a| a == "--json");
 
-        // Intercept --version before positional dispatch so it doesn't fall through to help
-        if raw_args.iter().any(|a| a == "--version" || a == "-V") {
-            handle_version(json_mode);
-            return;
-        }
-
         // Collect non-flag args after the binary name, skipping --timeout's value
         let mut positional_args: Vec<&str> = Vec::new();
         let mut skip_next = false;
@@ -63,6 +57,15 @@ async fn main() {
                 continue;
             }
             positional_args.push(arg);
+        }
+
+        // Only handle --version at the top level (no subcommands).
+        // `actionbook --version` shows the version; `actionbook browser --version` does not.
+        if positional_args.is_empty()
+            && raw_args.iter().any(|a| a == "--version" || a == "-V")
+        {
+            handle_version(json_mode);
+            return;
         }
 
         match positional_args.as_slice() {

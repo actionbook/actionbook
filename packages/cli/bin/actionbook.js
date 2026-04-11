@@ -24,9 +24,7 @@ const PLATFORM_PACKAGES = {
 
 function main() {
   // Keep CLI version aligned with npm package version.
-  // Match --version/-V anywhere in args so that e.g. `actionbook browser --version`
-  // reports the same npm package version as `actionbook --version`.
-  if (isVersionFlag(process.argv.slice(2))) {
+  if (isVersionOnlyFlag(process.argv.slice(2))) {
     const pkgPath = path.join(__dirname, "..", "package.json");
     const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
     console.log(`actionbook ${pkg.version}`);
@@ -52,8 +50,8 @@ function main() {
   run(binaryPath);
 }
 
-function isVersionFlag(args) {
-  return args.some((a) => a === "--version" || a === "-V");
+function isVersionOnlyFlag(args) {
+  return args.length === 1 && (args[0] === "--version" || args[0] === "-V");
 }
 
 function getBinaryPath(platformKey) {
@@ -160,7 +158,7 @@ if (require.main === module) {
 
 module.exports = {
   main,
-  isVersionFlag,
+  isVersionOnlyFlag,
   getBinaryPath,
   resolvePackageDir,
   isLikelyMusl,
