@@ -88,11 +88,8 @@ fn session_status_works_over_tcp() {
 
     env.headless(&["browser", "start", "--set-session-id", "win-status"], 15);
 
-    let out = env.headless(
-        &["browser", "session-status", "--session", "win-status"],
-        10,
-    );
-    harness::assert_success(&out, "session-status over TCP");
+    let out = env.headless(&["browser", "status", "--session", "win-status"], 10);
+    harness::assert_success(&out, "status over TCP");
 
     env.headless(&["browser", "close", "--session", "win-status"], 10);
 }

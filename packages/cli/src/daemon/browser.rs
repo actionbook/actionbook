@@ -4,9 +4,10 @@ use std::time::Duration;
 
 use crate::error::CliError;
 
-/// Find Chrome executable on macOS/Linux.
+/// Find Chrome executable.
 pub fn find_chrome() -> Result<String, CliError> {
-    let candidates = [
+    #[cfg(not(windows))]
+    let candidates: &[&str] = &[
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         "/Applications/Chromium.app/Contents/MacOS/Chromium",
         "google-chrome",
@@ -14,14 +15,40 @@ pub fn find_chrome() -> Result<String, CliError> {
         "chromium",
         "chromium-browser",
     ];
-    for c in &candidates {
+    #[cfg(windows)]
+    let candidates: &[&str] = &[
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        "chrome.exe",
+        "chrome",
+    ];
+
+    // Check LOCALAPPDATA on Windows (per-user install).
+    #[cfg(windows)]
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        let path = format!(r"{local}\Google\Chrome\Application\chrome.exe");
+        if std::path::Path::new(&path).exists() {
+            return Ok(path);
+        }
+    }
+
+    for c in candidates {
         if std::path::Path::new(c).exists() {
             return Ok(c.to_string());
         }
-        if let Ok(output) = std::process::Command::new("which").arg(c).output()
+        #[cfg(not(windows))]
+        let which_cmd = "which";
+        #[cfg(windows)]
+        let which_cmd = "where";
+        if let Ok(output) = std::process::Command::new(which_cmd).arg(c).output()
             && output.status.success()
         {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let path = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string();
             if !path.is_empty() {
                 return Ok(path);
             }
