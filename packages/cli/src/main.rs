@@ -182,7 +182,14 @@ async fn handle_browser(
     let start = Instant::now();
     let command = match command {
         BrowserCommands::Start(cmd) => match config::resolve_start_command(cmd) {
-            Ok(cmd) => BrowserCommands::Start(cmd),
+            Ok(mut cmd) => {
+                // Forward provider env vars from the CLI client's process env
+                // to the daemon. The daemon's own env was frozen at spawn time
+                // and can't be relied on to match the user's current shell.
+                cmd.provider_env =
+                    actionbook_cli::browser::session::provider::collect_provider_env_from_process();
+                BrowserCommands::Start(cmd)
+            }
             Err(err) => {
                 let failed_command =
                     BrowserCommands::Start(actionbook_cli::browser::session::start::Cmd {
@@ -197,6 +204,7 @@ async fn handle_browser(
                         session: None,
                         set_session_id: None,
                         stealth: true,
+                        provider_env: Default::default(),
                     });
                 let result = ActionResult::fatal(err.error_code(), err.to_string());
                 let duration = start.elapsed();
@@ -212,6 +220,13 @@ async fn handle_browser(
                 std::process::exit(1);
             }
         },
+        BrowserCommands::Restart(mut cmd) => {
+            // Same env-forwarding rule applies to restart, since stateful
+            // providers re-mint their remote session and need fresh creds.
+            cmd.provider_env =
+                actionbook_cli::browser::session::provider::collect_provider_env_from_process();
+            BrowserCommands::Restart(cmd)
+        }
         other => other,
     };
 

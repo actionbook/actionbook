@@ -1,7 +1,8 @@
-use std::env;
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use reqwest::StatusCode;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -11,6 +12,34 @@ const HYPERBROWSER_API_BASE: &str = "https://api.hyperbrowser.ai";
 const BROWSERLESS_API_BASE: &str = "https://production-sfo.browserless.io";
 const BROWSER_USE_WS_BASE: &str = "wss://connect.browser-use.com";
 const DRIVER_DEV_WS_BASE: &str = "wss://cdp.driver.dev";
+
+/// Per-request snapshot of provider-related environment variables, forwarded
+/// from the CLI client process to the daemon. The daemon must NOT call
+/// `std::env::var` for provider config: its own environment is frozen at
+/// daemon-spawn time and almost never matches the user's current shell.
+pub type ProviderEnv = BTreeMap<String, String>;
+
+/// Env-var name prefixes considered "provider config". Used by the CLI client
+/// to filter `std::env::vars()` down to the values worth forwarding.
+pub const PROVIDER_ENV_PREFIXES: &[&str] = &[
+    "DRIVER_DEV_",
+    "HYPERBROWSER_",
+    "BROWSER_USE_",
+    "BROWSERLESS_",
+];
+
+/// Collect every env var on the current process whose name starts with one of
+/// the provider prefixes. Called from the CLI client (NOT the daemon) right
+/// before sending a Start/Restart action.
+pub fn collect_provider_env_from_process() -> ProviderEnv {
+    std::env::vars()
+        .filter(|(name, _)| {
+            PROVIDER_ENV_PREFIXES
+                .iter()
+                .any(|prefix| name.starts_with(prefix))
+        })
+        .collect()
+}
 
 /// HTTP request timeout for cloud provider control-plane API calls.
 /// Provider APIs occasionally hang; without an explicit timeout the daemon
@@ -51,10 +80,15 @@ fn map_provider_http_status(provider: &str, status: StatusCode, body: &str) -> C
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderSession {
     pub provider: String,
     pub session_id: String,
+    /// Snapshot of the provider env vars used to start this session. Carried
+    /// forward so close/restart can talk to the provider control plane even
+    /// when the user's current shell no longer has the keys exported.
+    #[serde(default)]
+    pub provider_env: ProviderEnv,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +118,7 @@ pub async fn connect_provider(
     profile_name: &str,
     _headless: bool,
     stealth: bool,
+    env: &ProviderEnv,
 ) -> Result<ProviderConnection, CliError> {
     let provider = normalize_provider_name(provider_name).ok_or_else(|| {
         CliError::InvalidArgument(format!(
@@ -92,16 +127,26 @@ pub async fn connect_provider(
         ))
     })?;
 
-    match provider {
-        "driver.dev" => connect_driver_dev(profile_name).await,
-        "hyperbrowser" => connect_hyperbrowser(profile_name).await,
-        "browseruse" => connect_browser_use(profile_name).await,
-        "browserless" => connect_browserless(stealth).await,
-        _ => Err(CliError::InvalidArgument(format!(
-            "unknown provider '{provider_name}'. Supported providers: {}",
-            supported_providers()
-        ))),
+    let mut connection = match provider {
+        "driver.dev" => connect_driver_dev(profile_name, env).await?,
+        "hyperbrowser" => connect_hyperbrowser(profile_name, env).await?,
+        "browseruse" => connect_browser_use(profile_name, env).await?,
+        "browserless" => connect_browserless(stealth, env).await?,
+        _ => {
+            return Err(CliError::InvalidArgument(format!(
+                "unknown provider '{provider_name}'. Supported providers: {}",
+                supported_providers()
+            )));
+        }
+    };
+
+    // Persist the env snapshot on the session descriptor so close/restart can
+    // talk to the provider's control plane later, even if the calling shell
+    // no longer has the keys exported.
+    if let Some(session) = connection.session.as_mut() {
+        session.provider_env = env.clone();
     }
+    Ok(connection)
 }
 
 pub async fn close_provider_session(session: &ProviderSession) {
@@ -121,10 +166,11 @@ pub async fn close_provider_session(session: &ProviderSession) {
             return;
         }
     };
+    let env = &session.provider_env;
     match session.provider.as_str() {
         "hyperbrowser" => {
-            if let Some(api_key) = read_trimmed_env("HYPERBROWSER_API_KEY") {
-                let api_base = read_trimmed_env("HYPERBROWSER_API_URL")
+            if let Some(api_key) = read_trimmed_env(env, "HYPERBROWSER_API_KEY") {
+                let api_base = read_trimmed_env(env, "HYPERBROWSER_API_URL")
                     .unwrap_or_else(|| HYPERBROWSER_API_BASE.to_string());
                 let _ = client
                     .put(format!(
@@ -135,6 +181,11 @@ pub async fn close_provider_session(session: &ProviderSession) {
                     .header("x-api-key", api_key)
                     .send()
                     .await;
+            } else {
+                tracing::warn!(
+                    "hyperbrowser cleanup skipped for session '{}': no API key in stored env",
+                    session.session_id
+                );
             }
         }
         "browserless" => {
@@ -145,18 +196,21 @@ pub async fn close_provider_session(session: &ProviderSession) {
     }
 }
 
-async fn connect_driver_dev(profile_name: &str) -> Result<ProviderConnection, CliError> {
-    let cdp_endpoint = if let Some(ws_url) = read_trimmed_env("DRIVER_DEV_WS_URL")
-        .or_else(|| read_trimmed_env("DRIVER_DEV_CDP_ENDPOINT"))
+async fn connect_driver_dev(
+    profile_name: &str,
+    env: &ProviderEnv,
+) -> Result<ProviderConnection, CliError> {
+    let cdp_endpoint = if let Some(ws_url) = read_trimmed_env(env, "DRIVER_DEV_WS_URL")
+        .or_else(|| read_trimmed_env(env, "DRIVER_DEV_CDP_ENDPOINT"))
     {
         ws_url
     } else {
-        let api_key = read_required_env("DRIVER_DEV_API_KEY")?;
-        let base = read_trimmed_env("DRIVER_DEV_WS_BASE_URL")
+        let api_key = read_required_env(env, "DRIVER_DEV_API_KEY")?;
+        let base = read_trimmed_env(env, "DRIVER_DEV_WS_BASE_URL")
             .unwrap_or_else(|| DRIVER_DEV_WS_BASE.to_string());
         let mut query = vec![("token", api_key)];
-        if let Some(profile) =
-            read_trimmed_env("DRIVER_DEV_PROFILE").or_else(|| non_default_profile(profile_name))
+        if let Some(profile) = read_trimmed_env(env, "DRIVER_DEV_PROFILE")
+            .or_else(|| non_default_profile(profile_name))
         {
             query.push(("profile", profile));
         }
@@ -171,14 +225,17 @@ async fn connect_driver_dev(profile_name: &str) -> Result<ProviderConnection, Cl
     })
 }
 
-async fn connect_hyperbrowser(profile_name: &str) -> Result<ProviderConnection, CliError> {
-    let api_key = read_required_env("HYPERBROWSER_API_KEY")?;
-    let api_base = read_trimmed_env("HYPERBROWSER_API_URL")
+async fn connect_hyperbrowser(
+    profile_name: &str,
+    env: &ProviderEnv,
+) -> Result<ProviderConnection, CliError> {
+    let api_key = read_required_env(env, "HYPERBROWSER_API_KEY")?;
+    let api_base = read_trimmed_env(env, "HYPERBROWSER_API_URL")
         .unwrap_or_else(|| HYPERBROWSER_API_BASE.to_string());
-    let use_proxy = parse_env_bool("HYPERBROWSER_USE_PROXY").unwrap_or(false);
-    let persist_changes = parse_env_bool("HYPERBROWSER_PERSIST_CHANGES").unwrap_or(true);
-    let profile_id =
-        read_trimmed_env("HYPERBROWSER_PROFILE_ID").or_else(|| non_default_profile(profile_name));
+    let use_proxy = parse_env_bool(env, "HYPERBROWSER_USE_PROXY").unwrap_or(false);
+    let persist_changes = parse_env_bool(env, "HYPERBROWSER_PERSIST_CHANGES").unwrap_or(true);
+    let profile_id = read_trimmed_env(env, "HYPERBROWSER_PROFILE_ID")
+        .or_else(|| non_default_profile(profile_name));
 
     let mut body = json!({ "useProxy": use_proxy });
     if let Some(profile_id) = profile_id {
@@ -236,31 +293,35 @@ async fn connect_hyperbrowser(profile_name: &str) -> Result<ProviderConnection, 
         session: Some(ProviderSession {
             provider: "hyperbrowser".to_string(),
             session_id,
+            provider_env: ProviderEnv::new(),
         }),
     })
 }
 
-async fn connect_browser_use(profile_name: &str) -> Result<ProviderConnection, CliError> {
-    let api_key = read_required_env("BROWSER_USE_API_KEY")?;
-    let base =
-        read_trimmed_env("BROWSER_USE_WS_URL").unwrap_or_else(|| BROWSER_USE_WS_BASE.to_string());
+async fn connect_browser_use(
+    profile_name: &str,
+    env: &ProviderEnv,
+) -> Result<ProviderConnection, CliError> {
+    let api_key = read_required_env(env, "BROWSER_USE_API_KEY")?;
+    let base = read_trimmed_env(env, "BROWSER_USE_WS_URL")
+        .unwrap_or_else(|| BROWSER_USE_WS_BASE.to_string());
 
     let mut query = vec![("apiKey", api_key)];
-    if let Some(value) = read_trimmed_env("BROWSER_USE_PROXY_COUNTRY_CODE") {
+    if let Some(value) = read_trimmed_env(env, "BROWSER_USE_PROXY_COUNTRY_CODE") {
         query.push(("proxyCountryCode", value));
     }
-    if let Some(value) =
-        read_trimmed_env("BROWSER_USE_PROFILE_ID").or_else(|| non_default_profile(profile_name))
+    if let Some(value) = read_trimmed_env(env, "BROWSER_USE_PROFILE_ID")
+        .or_else(|| non_default_profile(profile_name))
     {
         query.push(("profileId", value));
     }
-    if let Some(value) = read_trimmed_env("BROWSER_USE_TIMEOUT") {
+    if let Some(value) = read_trimmed_env(env, "BROWSER_USE_TIMEOUT") {
         query.push(("timeout", value));
     }
-    if let Some(value) = read_trimmed_env("BROWSER_USE_BROWSER_SCREEN_WIDTH") {
+    if let Some(value) = read_trimmed_env(env, "BROWSER_USE_BROWSER_SCREEN_WIDTH") {
         query.push(("browserScreenWidth", value));
     }
-    if let Some(value) = read_trimmed_env("BROWSER_USE_BROWSER_SCREEN_HEIGHT") {
+    if let Some(value) = read_trimmed_env(env, "BROWSER_USE_BROWSER_SCREEN_HEIGHT") {
         query.push(("browserScreenHeight", value));
     }
 
@@ -272,14 +333,17 @@ async fn connect_browser_use(profile_name: &str) -> Result<ProviderConnection, C
     })
 }
 
-async fn connect_browserless(stealth: bool) -> Result<ProviderConnection, CliError> {
-    let api_key = read_required_env("BROWSERLESS_API_KEY")?;
-    let api_base =
-        read_trimmed_env("BROWSERLESS_API_URL").unwrap_or_else(|| BROWSERLESS_API_BASE.to_string());
-    let browser_type =
-        read_trimmed_env("BROWSERLESS_BROWSER_TYPE").unwrap_or_else(|| "chromium".to_string());
-    let ttl = read_trimmed_env("BROWSERLESS_TTL").unwrap_or_else(|| "300000".to_string());
-    let use_stealth = parse_env_bool("BROWSERLESS_STEALTH").unwrap_or(stealth);
+async fn connect_browserless(
+    stealth: bool,
+    env: &ProviderEnv,
+) -> Result<ProviderConnection, CliError> {
+    let api_key = read_required_env(env, "BROWSERLESS_API_KEY")?;
+    let api_base = read_trimmed_env(env, "BROWSERLESS_API_URL")
+        .unwrap_or_else(|| BROWSERLESS_API_BASE.to_string());
+    let browser_type = read_trimmed_env(env, "BROWSERLESS_BROWSER_TYPE")
+        .unwrap_or_else(|| "chromium".to_string());
+    let ttl = read_trimmed_env(env, "BROWSERLESS_TTL").unwrap_or_else(|| "300000".to_string());
+    let use_stealth = parse_env_bool(env, "BROWSERLESS_STEALTH").unwrap_or(stealth);
 
     if !matches!(browser_type.as_str(), "chromium" | "chrome") {
         return Err(CliError::InvalidArgument(format!(
@@ -333,6 +397,7 @@ async fn connect_browserless(stealth: bool) -> Result<ProviderConnection, CliErr
         session: Some(ProviderSession {
             provider: "browserless".to_string(),
             session_id: stop_url,
+            provider_env: ProviderEnv::new(),
         }),
     })
 }
@@ -351,20 +416,19 @@ fn build_ws_url(base: &str, query: &[(&str, String)]) -> String {
     format!("{base}{separator}{query_string}")
 }
 
-fn read_trimmed_env(name: &str) -> Option<String> {
-    env::var(name)
-        .ok()
+fn read_trimmed_env(env: &ProviderEnv, name: &str) -> Option<String> {
+    env.get(name)
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
 }
 
-fn read_required_env(name: &str) -> Result<String, CliError> {
-    read_trimmed_env(name)
+fn read_required_env(env: &ProviderEnv, name: &str) -> Result<String, CliError> {
+    read_trimmed_env(env, name)
         .ok_or_else(|| CliError::InvalidArgument(format!("{name} environment variable is not set")))
 }
 
-fn parse_env_bool(name: &str) -> Option<bool> {
-    read_trimmed_env(name).and_then(|value| match value.to_ascii_lowercase().as_str() {
+fn parse_env_bool(env: &ProviderEnv, name: &str) -> Option<bool> {
+    read_trimmed_env(env, name).and_then(|value| match value.to_ascii_lowercase().as_str() {
         "1" | "true" | "yes" | "on" => Some(true),
         "0" | "false" | "no" | "off" => Some(false),
         _ => None,
@@ -447,5 +511,62 @@ mod tests {
             normalize_hyperbrowser_profile_id(raw).expect("uuid"),
             raw.to_string()
         );
+    }
+
+    fn env_with(entries: &[(&str, &str)]) -> ProviderEnv {
+        entries
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn read_trimmed_env_returns_value_from_map() {
+        let env = env_with(&[("DRIVER_DEV_API_KEY", "  key-1  ")]);
+        assert_eq!(
+            read_trimmed_env(&env, "DRIVER_DEV_API_KEY"),
+            Some("key-1".to_string())
+        );
+    }
+
+    #[test]
+    fn read_trimmed_env_treats_blank_as_missing() {
+        let env = env_with(&[("DRIVER_DEV_API_KEY", "   ")]);
+        assert_eq!(read_trimmed_env(&env, "DRIVER_DEV_API_KEY"), None);
+    }
+
+    #[test]
+    fn read_required_env_errors_when_missing() {
+        let env = ProviderEnv::new();
+        let err = read_required_env(&env, "DRIVER_DEV_API_KEY").unwrap_err();
+        assert!(matches!(err, CliError::InvalidArgument(_)));
+    }
+
+    #[test]
+    fn parse_env_bool_understands_truthy_values() {
+        let env = env_with(&[
+            ("HYPERBROWSER_USE_PROXY", "true"),
+            ("HYPERBROWSER_PERSIST_CHANGES", "0"),
+        ]);
+        assert_eq!(parse_env_bool(&env, "HYPERBROWSER_USE_PROXY"), Some(true));
+        assert_eq!(
+            parse_env_bool(&env, "HYPERBROWSER_PERSIST_CHANGES"),
+            Some(false)
+        );
+        assert_eq!(parse_env_bool(&env, "MISSING"), None);
+    }
+
+    #[test]
+    fn collect_provider_env_from_process_filters_by_prefix() {
+        // Smoke test: should never panic, should not include unrelated vars.
+        let env = collect_provider_env_from_process();
+        for name in env.keys() {
+            assert!(
+                PROVIDER_ENV_PREFIXES
+                    .iter()
+                    .any(|prefix| name.starts_with(prefix)),
+                "unexpected env var leaked into provider env: {name}"
+            );
+        }
     }
 }

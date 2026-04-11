@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
+use crate::browser::session::provider::ProviderEnv;
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
 
@@ -19,6 +20,11 @@ pub struct Cmd {
     #[arg(long)]
     #[serde(rename = "session_id")]
     pub session: String,
+    /// Provider env vars forwarded from the CLI client (see start::Cmd::provider_env).
+    /// Used for stateful provider restarts that need to mint a fresh session.
+    #[arg(skip)]
+    #[serde(default)]
+    pub provider_env: ProviderEnv,
 }
 
 pub const COMMAND_NAME: &str = "browser restart";
@@ -56,6 +62,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         provider,
         headers,
         provider_session,
+        saved_provider_env,
         cdp,
         chrome_process,
     );
@@ -84,6 +91,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             .map(|(k, v)| format!("{k}:{v}"))
             .collect::<Vec<_>>();
         provider_session = entry.provider_session.clone();
+        saved_provider_env = provider_session
+            .as_ref()
+            .map(|s| s.provider_env.clone());
         cdp = entry.cdp.take();
         chrome_process = entry.chrome_process.take();
 
@@ -142,6 +152,18 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             (cdp_endpoint, provider, headers)
         };
 
+    // Stateful restart needs provider env to mint a fresh remote session.
+    // Prefer the env the user supplied with the restart call (latest shell
+    // state) so credential rotation works; fall back to the snapshot we saved
+    // at start time so restarts from a different shell don't break.
+    let effective_provider_env = if !cmd.provider_env.is_empty() {
+        cmd.provider_env.clone()
+    } else if let Some(saved) = saved_provider_env {
+        saved
+    } else {
+        ProviderEnv::new()
+    };
+
     let start_cmd = super::start::Cmd {
         mode: Some(mode),
         // Restart preserves the session's effective runtime settings and
@@ -156,6 +178,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         session: None,
         set_session_id: Some(cmd.session.clone()),
         stealth,
+        provider_env: effective_provider_env,
     };
 
     let result = super::start::execute(&start_cmd, registry).await;

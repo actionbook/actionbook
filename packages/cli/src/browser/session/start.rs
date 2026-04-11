@@ -6,7 +6,7 @@ use serde_json::json;
 
 use crate::action_result::ActionResult;
 use crate::browser::session::provider::{
-    ProviderSession, connect_provider, normalize_provider_name, supported_providers,
+    ProviderEnv, ProviderSession, connect_provider, normalize_provider_name, supported_providers,
 };
 use crate::config;
 use crate::config::DEFAULT_PROFILE;
@@ -69,6 +69,15 @@ pub struct Cmd {
     #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
     #[serde(default = "default_stealth")]
     pub stealth: bool,
+    /// Snapshot of provider env vars forwarded from the CLI client to the
+    /// daemon (DRIVER_DEV_*, HYPERBROWSER_*, BROWSER_USE_*, BROWSERLESS_*).
+    /// The daemon must NOT read these from its own process env — its env was
+    /// frozen at daemon-spawn time and rarely matches the user's current shell.
+    /// This field is populated automatically in `main.rs` before the action is
+    /// sent over IPC, so callers do not need to set it.
+    #[arg(skip)]
+    #[serde(default)]
+    pub provider_env: ProviderEnv,
 }
 
 fn default_stealth() -> bool {
@@ -295,11 +304,18 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 drop(reg);
             }
 
-            let provider_connection =
-                match connect_provider(provider_name, profile_name, headless, cmd.stealth).await {
-                    Ok(connection) => connection,
-                    Err(err) => return ActionResult::fatal(err.error_code(), err.to_string()),
-                };
+            let provider_connection = match connect_provider(
+                provider_name,
+                profile_name,
+                headless,
+                cmd.stealth,
+                &cmd.provider_env,
+            )
+            .await
+            {
+                Ok(connection) => connection,
+                Err(err) => return ActionResult::fatal(err.error_code(), err.to_string()),
+            };
 
             let mut combined_headers = provider_connection.headers.clone();
             combined_headers.extend(headers.clone());

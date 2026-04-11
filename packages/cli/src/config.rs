@@ -382,6 +382,7 @@ mod tests {
             session: None,
             set_session_id: None,
             stealth: true,
+            provider_env: Default::default(),
         }
     }
 
