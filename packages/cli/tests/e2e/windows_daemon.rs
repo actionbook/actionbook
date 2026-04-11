@@ -12,7 +12,10 @@ use crate::harness;
 /// On Windows, the daemon must start using TCP localhost (no Unix sockets).
 /// Verify that a browser session can be created and destroyed.
 #[test]
-#[cfg_attr(not(windows), ignore = "Windows daemon transport tests only run on Windows")]
+#[cfg_attr(
+    not(windows),
+    ignore = "Windows daemon transport tests only run on Windows"
+)]
 fn daemon_starts_and_connects_on_windows() {
     if harness::skip() {
         return;
@@ -29,7 +32,10 @@ fn daemon_starts_and_connects_on_windows() {
 
 /// The daemon port file (`daemon.port`) must exist after starting a session on Windows.
 #[test]
-#[cfg_attr(not(windows), ignore = "Windows daemon transport tests only run on Windows")]
+#[cfg_attr(
+    not(windows),
+    ignore = "Windows daemon transport tests only run on Windows"
+)]
 fn daemon_port_file_exists_after_start() {
     if harness::skip() {
         return;
@@ -69,7 +75,10 @@ fn daemon_port_file_exists_after_start() {
 
 /// Verify that `browser session-status` works on Windows (round-trip IPC via TCP).
 #[test]
-#[cfg_attr(not(windows), ignore = "Windows daemon transport tests only run on Windows")]
+#[cfg_attr(
+    not(windows),
+    ignore = "Windows daemon transport tests only run on Windows"
+)]
 fn session_status_works_over_tcp() {
     if harness::skip() {
         return;
@@ -77,10 +86,7 @@ fn session_status_works_over_tcp() {
 
     let env = harness::SoloEnv::new();
 
-    env.headless(
-        &["browser", "start", "--set-session-id", "win-status"],
-        15,
-    );
+    env.headless(&["browser", "start", "--set-session-id", "win-status"], 15);
 
     let out = env.headless(
         &["browser", "session-status", "--session", "win-status"],
