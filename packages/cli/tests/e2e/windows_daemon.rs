@@ -49,7 +49,7 @@ fn daemon_port_file_exists_after_start() {
     );
     harness::assert_success(&out, "browser start");
 
-    let port_path = actionbook_cli::daemon::server::port_path();
+    let port_path = std::path::Path::new(&env.actionbook_home).join("daemon.port");
     assert!(
         port_path.exists(),
         "daemon.port file must exist after daemon start, path={}",
