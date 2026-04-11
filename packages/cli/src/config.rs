@@ -565,6 +565,7 @@ profile_name = "actionbook"
     /// Before the Windows fix this test fails (returns /tmp/.actionbook instead).
     #[test]
     fn test_actionbook_home_uses_userprofile_when_home_unset() {
+        let _lock = test_lock();
         let old_home = std::env::var("HOME").ok();
         let old_userprofile = std::env::var("USERPROFILE").ok();
         let old_ab_home = std::env::var("ACTIONBOOK_HOME").ok();
