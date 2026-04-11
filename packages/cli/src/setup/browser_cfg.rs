@@ -6,6 +6,25 @@ use crate::config::ConfigFile;
 use crate::error::CliError;
 use crate::types::Mode;
 
+/// Canonical Chrome Web Store listing for the Actionbook extension.
+const CHROME_WEB_STORE_URL: &str =
+    "https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo";
+
+/// GitHub Releases page (filtered to extension releases only) — used as
+/// the manual-install fallback when the Chrome Web Store install is unavailable
+/// (region blocked, offline, corporate policy). Users grab the latest
+/// `actionbook-extension-v*.zip`, unzip, and `chrome://extensions` -> Load unpacked.
+///
+/// Why the `?q="Chrome Extension"&expanded=true` query: this repo publishes
+/// three release families (`actionbook-cli-v*`, `actionbook-extension-v*`,
+/// `actionbook-dify-plugin-v*`) to the same Releases feed. A plain `/releases`
+/// URL buries the extension zip under dozens of CLI releases. Searching for
+/// the quoted phrase "Chrome Extension" matches the extension release titles,
+/// and `expanded=true` auto-expands the first match so assets are visible
+/// without clicking. `%22` is the URL-encoded double quote.
+const GITHUB_RELEASES_URL: &str =
+    "https://github.com/actionbook/actionbook/releases?q=%22Chrome+Extension%22&expanded=true";
+
 /// Configure browser mode (local vs cloud), executable, and headless preference.
 pub(crate) async fn configure_browser(
     json: bool,
@@ -34,6 +53,9 @@ pub(crate) async fn configure_browser(
     }
 }
 
+/// Configure extension mode: guide the user to install from Chrome Web Store,
+/// falling back to a manual GitHub Releases + Load-unpacked flow if the CWS
+/// install is unavailable (region-blocked, offline, corporate policy, etc.).
 fn configure_extension(json: bool, config: &mut ConfigFile) -> Result<(), CliError> {
     config.browser.executable_path = None;
     config.browser.headless = false;
@@ -45,13 +67,81 @@ fn configure_extension(json: bool, config: &mut ConfigFile) -> Result<(), CliErr
             serde_json::json!({
                 "step": "browser",
                 "mode": "extension",
+                "recommended_install_source": "chrome_web_store",
+                "web_store_url": CHROME_WEB_STORE_URL,
+                "fallback_install_source": "github_releases",
+                "github_releases_url": GITHUB_RELEASES_URL,
             })
         );
-    } else {
-        println!("  - Browser mode: extension");
+        return Ok(());
     }
 
-    Ok(())
+    println!("  - Browser mode: extension");
+    print_cws_guidance();
+
+    if select_yes_no("Installed from Chrome Web Store successfully?", true)? {
+        println!("  - Extension mode will use your Chrome extension directly.");
+        return Ok(());
+    }
+
+    // CWS unavailable — fall through to manual install from GitHub Releases.
+    print_github_releases_guidance();
+
+    if select_yes_no(
+        "Loaded the unpacked extension in Chrome successfully?",
+        true,
+    )? {
+        println!("  - Extension mode will use your manually-loaded Chrome extension.");
+        return Ok(());
+    }
+
+    Err(CliError::InvalidArgument(format!(
+        "Extension setup not completed. Install the Actionbook extension from one of:\n  \
+         - Chrome Web Store: {CHROME_WEB_STORE_URL}\n  \
+         - GitHub Releases:  {GITHUB_RELEASES_URL}\n\
+         and re-run `actionbook setup`. If you don't need your existing Chrome session, \
+         choose `local` or `cloud` mode instead."
+    )))
+}
+
+/// Print the Chrome Web Store install guidance (3 steps).
+fn print_cws_guidance() {
+    println!("  |");
+    println!("  |  Install the Actionbook extension from the Chrome Web Store:");
+    println!("  |    1. Open {CHROME_WEB_STORE_URL} in Chrome");
+    println!("  |    2. Click \"Add to Chrome\" -> \"Add extension\"");
+    println!("  |    3. Keep Chrome open and run `actionbook browser open https://example.com`");
+    println!("  |");
+}
+
+/// Print the GitHub Releases manual-install fallback (5 steps: download,
+/// unzip, open chrome://extensions, enable Developer mode, Load unpacked).
+fn print_github_releases_guidance() {
+    println!("  |");
+    println!("  |  Chrome Web Store unavailable? Install manually from GitHub Releases:");
+    println!("  |    1. Open {GITHUB_RELEASES_URL}");
+    println!("  |    2. Download the latest `actionbook-extension-v*.zip` asset");
+    println!("  |    3. Unzip to a local folder");
+    println!("  |    4. Open `chrome://extensions` in Chrome, enable Developer mode");
+    println!("  |    5. Click \"Load unpacked\" and select the unzipped folder");
+    println!("  |");
+}
+
+/// Visible yes/no picker. Uses `Select` instead of `Confirm` so it behaves
+/// consistently in terminals where `Confirm`'s raw-mode input is flaky.
+fn select_yes_no(prompt: &str, default_yes: bool) -> Result<bool, CliError> {
+    let options = ["yes", "no"];
+    let default = if default_yes { 0 } else { 1 };
+
+    let selection = Select::with_theme(&setup_theme())
+        .with_prompt(prompt)
+        .items(&options)
+        .default(default)
+        .report(false)
+        .interact()
+        .map_err(|e| CliError::Internal(format!("Prompt failed: {e}")))?;
+
+    Ok(selection == 0)
 }
 
 fn configure_cloud(json: bool, config: &mut ConfigFile) -> Result<(), CliError> {
@@ -150,10 +240,16 @@ fn apply_existing_browser_mode(
                     serde_json::json!({
                         "step": "browser",
                         "mode": "extension",
+                        "recommended_install_source": "chrome_web_store",
+                        "web_store_url": CHROME_WEB_STORE_URL,
+                        "fallback_install_source": "github_releases",
+                        "github_releases_url": GITHUB_RELEASES_URL,
                     })
                 );
             } else {
                 println!("  - Browser mode: extension");
+                println!("  |  Install extension from Chrome Web Store: {CHROME_WEB_STORE_URL}");
+                println!("  |  Or manual install from GitHub Releases: {GITHUB_RELEASES_URL}");
             }
         }
     }
@@ -306,16 +402,23 @@ fn apply_browser_mode(
     }
 
     if json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "step": "browser",
-                "mode": format!("{}", mode),
-                "executable": config.browser.executable_path,
-                "headless": config.browser.headless,
-                "cdp_endpoint": config.browser.cdp_endpoint,
-            })
-        );
+        let mut payload = serde_json::json!({
+            "step": "browser",
+            "mode": format!("{}", mode),
+            "executable": config.browser.executable_path,
+            "headless": config.browser.headless,
+            "cdp_endpoint": config.browser.cdp_endpoint,
+        });
+        if mode == Mode::Extension {
+            payload["recommended_install_source"] =
+                serde_json::Value::String("chrome_web_store".to_string());
+            payload["web_store_url"] = serde_json::Value::String(CHROME_WEB_STORE_URL.to_string());
+            payload["fallback_install_source"] =
+                serde_json::Value::String("github_releases".to_string());
+            payload["github_releases_url"] =
+                serde_json::Value::String(GITHUB_RELEASES_URL.to_string());
+        }
+        println!("{}", payload);
     } else {
         let mode_label = match mode {
             Mode::Local => "local".to_string(),
@@ -323,6 +426,10 @@ fn apply_browser_mode(
             Mode::Extension => "extension".to_string(),
         };
         println!("  - Browser mode: {mode_label}");
+        if mode == Mode::Extension {
+            println!("  |  Install extension from Chrome Web Store: {CHROME_WEB_STORE_URL}");
+            println!("  |  Or manual install from GitHub Releases: {GITHUB_RELEASES_URL}");
+        }
     }
 
     Ok(())
@@ -510,6 +617,38 @@ mod tests {
             choices[default],
             ExecutableChoice::Path("/custom/chrome".to_string())
         );
+    }
+
+    #[test]
+    fn test_chrome_web_store_url_is_canonical() {
+        assert!(CHROME_WEB_STORE_URL.starts_with("https://chromewebstore.google.com/detail/"));
+        assert!(CHROME_WEB_STORE_URL.contains("actionbook"));
+    }
+
+    #[test]
+    fn test_github_releases_url_is_extension_filtered() {
+        // The repo mixes CLI/extension/dify-plugin releases. The URL must
+        // filter to extension releases so users don't have to scroll past
+        // dozens of CLI releases to find the .zip.
+        assert!(
+            GITHUB_RELEASES_URL.starts_with("https://github.com/actionbook/actionbook/releases")
+        );
+        // Quoted phrase "Chrome Extension" (URL-encoded)
+        assert!(GITHUB_RELEASES_URL.contains("%22Chrome+Extension%22"));
+        assert!(GITHUB_RELEASES_URL.contains("expanded=true"));
+    }
+
+    #[test]
+    fn test_apply_extension_mode_records_web_store_hint_in_json() {
+        // The non-interactive --browser extension path must still guide users
+        // to the Chrome Web Store. This guards against silent regression.
+        let env = make_env_with_browsers(vec![]);
+        let mut config = ConfigFile::default();
+
+        let result = apply_browser_mode(true, &env, Mode::Extension, &mut config);
+        assert!(result.is_ok());
+        assert_eq!(config.browser.mode, Mode::Extension);
+        assert!(config.browser.executable_path.is_none());
     }
 
     #[test]

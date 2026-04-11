@@ -1,4 +1,4 @@
-use dialoguer::{Confirm, Password};
+use dialoguer::{Confirm, Input};
 
 use super::detect::EnvironmentInfo;
 use super::theme::setup_theme;
@@ -67,10 +67,10 @@ pub(crate) async fn configure_api_key(
     }
 
     loop {
-        let key = Password::with_theme(&setup_theme())
+        let key: String = Input::with_theme(&setup_theme())
             .with_prompt("API key (leave blank to skip)")
-            .allow_empty_password(true)
-            .interact()
+            .allow_empty(true)
+            .interact_text()
             .map_err(|e| CliError::Internal(format!("Prompt failed: {e}")))?;
 
         if key.trim().is_empty() {
