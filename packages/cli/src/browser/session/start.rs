@@ -694,7 +694,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             "mode": mode.to_string(),
             "status": "running",
             "headless": headless,
-            "cdp_endpoint": ws_url,
+            // Local CDP URLs don't carry secrets, but go through redact_endpoint
+            // for consistency with cloud paths so the rule is "all cdp_endpoint
+            // emissions are redacted, period."
+            "cdp_endpoint": redact_endpoint(&ws_url),
         },
         "tab": {
             "tab_id": first_short_id,
@@ -783,7 +786,10 @@ async fn reuse_running_session(
             "mode": entry.mode.to_string(),
             "status": entry.status.to_string(),
             "headless": entry.headless,
-            "cdp_endpoint": entry.ws_url,
+            // Cloud reuse: entry.ws_url contains the raw provider WSS URL,
+            // which embeds tokens (e.g. Hyperbrowser JWT) as query params.
+            // Always redact before emitting to stdout.
+            "cdp_endpoint": redact_endpoint(&entry.ws_url),
         },
         "tab": {
             "tab_id": target.first_tab_id,
