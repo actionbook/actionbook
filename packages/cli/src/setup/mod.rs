@@ -425,14 +425,10 @@ fn print_completion(json: bool, config: &ConfigFile, skills_result: &SkillsResul
         });
 
         if skills_result.action == SkillsAction::Failed {
-            payload["error"] =
-                serde_json::Value::String("Skills installation failed.".to_string());
+            payload["error"] = serde_json::Value::String("Skills installation failed.".to_string());
         }
 
-        println!(
-            "{}",
-            payload
-        );
+        println!("{}", payload);
         return;
     }
 

@@ -791,15 +791,27 @@ mod tests {
 
     #[test]
     fn try_parse_from_rejects_setup_target_with_api_key() {
-        let result =
-            Cli::try_parse_from(["actionbook", "setup", "--target", "codex", "--api-key", "sk"]);
+        let result = Cli::try_parse_from([
+            "actionbook",
+            "setup",
+            "--target",
+            "codex",
+            "--api-key",
+            "sk",
+        ]);
         assert!(result.is_err(), "expected clap to reject conflicting flags");
     }
 
     #[test]
     fn try_parse_from_rejects_setup_target_with_browser() {
-        let result =
-            Cli::try_parse_from(["actionbook", "setup", "--target", "codex", "--browser", "local"]);
+        let result = Cli::try_parse_from([
+            "actionbook",
+            "setup",
+            "--target",
+            "codex",
+            "--browser",
+            "local",
+        ]);
         assert!(result.is_err(), "expected clap to reject conflicting flags");
     }
 
