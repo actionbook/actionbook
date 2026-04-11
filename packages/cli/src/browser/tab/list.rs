@@ -66,10 +66,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Fetch live tab list — method depends on session mode.
     // Extension mode uses Extension.listTabs; local/cloud uses Target.getTargets.
     let live_pages: Vec<(String, String, String)> = if mode == Mode::Extension {
-        let resp = match cdp
-            .execute_browser("Extension.listTabs", json!({}))
-            .await
-        {
+        let resp = match cdp.execute_browser("Extension.listTabs", json!({})).await {
             Ok(r) => r,
             Err(e) => return cdp_error_to_result(e, "CDP_CONNECTION_FAILED"),
         };
@@ -318,11 +315,8 @@ mod tests {
         // Verify no Target.attachToTarget was sent — extension mode must use
         // register_extension_tab (in-memory only, no WS message).
         // Give a brief window for any stray messages to arrive.
-        let stray = tokio::time::timeout(
-            std::time::Duration::from_millis(100),
-            reader.next(),
-        )
-        .await;
+        let stray =
+            tokio::time::timeout(std::time::Duration::from_millis(100), reader.next()).await;
         assert!(
             stray.is_err(),
             "extension mode must not send Target.attachToTarget; got unexpected WS message"
