@@ -27,11 +27,12 @@ pub type ProviderEnv = BTreeMap<String, String>;
 /// to filter `std::env::vars()` down to the values worth forwarding.
 ///
 /// `DRIVER_` is intentionally broad: driver.dev's official docs use bare
-/// `DRIVER_API_KEY`, so we forward anything starting with `DRIVER_` to keep
-/// the official-name fallback working. The downside is that an unrelated tool
-/// using a `DRIVER_*` env var will leak its value into the daemon — acceptable
-/// because (a) the daemon is local to the user and (b) we never log these
-/// values, only forward them in the IPC payload.
+/// `DRIVER_API_KEY` (the auth credential), so we forward anything starting
+/// with `DRIVER_` to pick it up alongside the namespaced `DRIVER_DEV_*`
+/// tuning knobs. The downside is that an unrelated tool using a `DRIVER_*`
+/// env var will leak its value into the daemon — acceptable because (a) the
+/// daemon is local to the user and (b) we never log these values, only
+/// forward them in the IPC payload.
 pub const PROVIDER_ENV_PREFIXES: &[&str] = &["DRIVER_", "HYPERBROWSER_", "BROWSER_USE_"];
 
 /// Collect every env var on the current process whose name starts with one of
@@ -281,19 +282,13 @@ fn is_driver_dev_auth_failure(body: &str) -> bool {
     hit
 }
 
-/// Read the driver.dev API key. Accepts both the namespaced
-/// `DRIVER_DEV_API_KEY` (Actionbook convention) and `DRIVER_API_KEY` (driver.dev's
-/// own docs). The namespaced one takes precedence so env collisions with another
-/// "driver" tool are explicit.
+/// Read the driver.dev API key from `DRIVER_API_KEY`, matching driver.dev's
+/// official docs. Only this name is accepted — see PR #507 discussion for the
+/// decision to drop the `DRIVER_DEV_API_KEY` alias.
 fn read_driver_dev_api_key(env: &ProviderEnv) -> Result<String, CliError> {
-    read_trimmed_env(env, "DRIVER_DEV_API_KEY")
-        .or_else(|| read_trimmed_env(env, "DRIVER_API_KEY"))
-        .ok_or_else(|| {
-            CliError::InvalidArgument(
-                "DRIVER_DEV_API_KEY (or DRIVER_API_KEY) environment variable is not set"
-                    .to_string(),
-            )
-        })
+    read_trimmed_env(env, "DRIVER_API_KEY").ok_or_else(|| {
+        CliError::InvalidArgument("DRIVER_API_KEY environment variable is not set".to_string())
+    })
 }
 
 async fn connect_driver_dev(
@@ -400,7 +395,7 @@ async fn connect_driver_dev(
             session_id,
             // Snapshot the env so close/restart can talk to api.driver.dev
             // later even when the calling shell no longer has
-            // DRIVER_DEV_API_KEY exported.
+            // DRIVER_API_KEY exported.
             provider_env: env.clone(),
         }),
     })
@@ -726,23 +721,23 @@ mod tests {
 
     #[test]
     fn read_trimmed_env_returns_value_from_map() {
-        let env = env_with(&[("DRIVER_DEV_API_KEY", "  key-1  ")]);
+        let env = env_with(&[("DRIVER_API_KEY", "  key-1  ")]);
         assert_eq!(
-            read_trimmed_env(&env, "DRIVER_DEV_API_KEY"),
+            read_trimmed_env(&env, "DRIVER_API_KEY"),
             Some("key-1".to_string())
         );
     }
 
     #[test]
     fn read_trimmed_env_treats_blank_as_missing() {
-        let env = env_with(&[("DRIVER_DEV_API_KEY", "   ")]);
-        assert_eq!(read_trimmed_env(&env, "DRIVER_DEV_API_KEY"), None);
+        let env = env_with(&[("DRIVER_API_KEY", "   ")]);
+        assert_eq!(read_trimmed_env(&env, "DRIVER_API_KEY"), None);
     }
 
     #[test]
     fn read_required_env_errors_when_missing() {
         let env = ProviderEnv::new();
-        let err = read_required_env(&env, "DRIVER_DEV_API_KEY").unwrap_err();
+        let err = read_required_env(&env, "DRIVER_API_KEY").unwrap_err();
         assert!(matches!(err, CliError::InvalidArgument(_)));
     }
 
@@ -847,7 +842,7 @@ mod tests {
             session_id: "driver-s-1".to_string(),
             provider_env: env_with(&[
                 ("DRIVER_DEV_API_URL", &base_url),
-                ("DRIVER_DEV_API_KEY", "driver-key"),
+                ("DRIVER_API_KEY", "driver-key"),
             ]),
         };
 
@@ -931,23 +926,19 @@ mod tests {
     }
 
     #[test]
-    fn driver_dev_api_key_falls_back_to_official_name() {
-        // Actionbook uses DRIVER_DEV_API_KEY to namespace; driver.dev's docs
-        // use DRIVER_API_KEY. Accept both, with the namespaced one winning.
+    fn driver_dev_api_key_reads_from_driver_api_key() {
+        // Only the official-docs name is accepted — see PR #507 for the
+        // decision to drop the `DRIVER_DEV_API_KEY` alias.
         let env = env_with(&[("DRIVER_API_KEY", "official-name-key")]);
         assert_eq!(
-            read_driver_dev_api_key(&env).expect("falls back"),
+            read_driver_dev_api_key(&env).expect("reads the key"),
             "official-name-key"
         );
 
-        let env = env_with(&[
-            ("DRIVER_DEV_API_KEY", "namespaced"),
-            ("DRIVER_API_KEY", "official"),
-        ]);
-        assert_eq!(
-            read_driver_dev_api_key(&env).expect("namespaced wins"),
-            "namespaced"
-        );
+        // The retired namespaced name must NOT be honored: that would
+        // resurrect the silent fallback we just removed.
+        let env = env_with(&[("DRIVER_DEV_API_KEY", "stale")]);
+        assert!(read_driver_dev_api_key(&env).is_err());
 
         let env = ProviderEnv::new();
         assert!(read_driver_dev_api_key(&env).is_err());

@@ -123,7 +123,7 @@ impl CliError {
                     .to_string()
             }
             CliError::ApiUnauthorized(_) => {
-                "check the provider API key environment variable (e.g. HYPERBROWSER_API_KEY, DRIVER_DEV_API_KEY, BROWSER_USE_API_KEY) and rotate it if revoked"
+                "check the provider API key environment variable (e.g. HYPERBROWSER_API_KEY, DRIVER_API_KEY, BROWSER_USE_API_KEY) and rotate it if revoked"
                     .to_string()
             }
             CliError::ApiRateLimited(_) => {

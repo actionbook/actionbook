@@ -28,9 +28,9 @@ Examples:
   actionbook browser start --mode cloud --cdp-endpoint wss://browser.example.com/ws
 
 Cloud providers (-p / --provider):
-  driver          requires DRIVER_DEV_API_KEY (or DRIVER_API_KEY)   # driver.dev
-  hyperbrowser    requires HYPERBROWSER_API_KEY                     # hyperbrowser.ai
-  browseruse      requires BROWSER_USE_API_KEY                      # browser-use.com
+  driver          requires DRIVER_API_KEY          # driver.dev
+  hyperbrowser    requires HYPERBROWSER_API_KEY    # hyperbrowser.ai
+  browseruse      requires BROWSER_USE_API_KEY     # browser-use.com
 
   -p <name> implies --mode cloud and is mutually exclusive with
   --cdp-endpoint and --mode local/extension. The daemon reads each
@@ -92,7 +92,7 @@ pub struct Cmd {
     #[serde(default = "default_stealth")]
     pub stealth: bool,
     /// Snapshot of provider env vars forwarded from the CLI client to the
-    /// daemon (DRIVER_DEV_*, HYPERBROWSER_*, BROWSER_USE_*).
+    /// daemon (DRIVER_*, HYPERBROWSER_*, BROWSER_USE_*).
     /// The daemon must NOT read these from its own process env — its env was
     /// frozen at daemon-spawn time and rarely matches the user's current shell.
     /// This field is populated automatically in `main.rs` before the action is
@@ -120,8 +120,7 @@ fn default_stealth() -> bool {
 fn provider_value_parser() -> clap::builder::PossibleValuesParser {
     use clap::builder::PossibleValue;
     clap::builder::PossibleValuesParser::new([
-        PossibleValue::new("driver")
-            .help("driver.dev — requires DRIVER_DEV_API_KEY (or DRIVER_API_KEY)"),
+        PossibleValue::new("driver").help("driver.dev — requires DRIVER_API_KEY"),
         PossibleValue::new("hyperbrowser").help("hyperbrowser.ai — requires HYPERBROWSER_API_KEY"),
         PossibleValue::new("browseruse")
             .aliases(["browser-use"])
