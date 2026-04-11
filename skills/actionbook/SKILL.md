@@ -72,7 +72,9 @@ All commands support `--help` for full usage and examples.
 | Cookies | `cookies list`, `cookies get`, `cookies set`, `cookies delete`, `cookies clear` | `actionbook browser cookies list --help` |
 | Storage | `local-storage list\|get\|set\|delete\|clear`, `session-storage ...` | `actionbook browser local-storage get --help` |
 | Logs | `logs console`, `logs errors` | `actionbook browser logs console --help` |
+| Network | `network requests`, `network request <id>` | `actionbook browser network requests --help` |
 | Query | `query one\|all\|nth\|count` | `actionbook browser query --help` |
+| Batch | `batch-new-tab`, `batch-snapshot`, `batch-click` | `actionbook browser batch-new-tab --help` |
 
 Full command reference: [command-reference.md](references/command-reference.md)
 

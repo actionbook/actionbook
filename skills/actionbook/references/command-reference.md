@@ -192,6 +192,21 @@ actionbook browser logs errors --since err-3 --session s1 --tab t1
 actionbook browser logs errors --clear --session s1 --tab t1
 ```
 
+## Network
+
+```bash
+actionbook browser network requests --session s1 --tab t1                          # List all tracked requests
+actionbook browser network requests --filter /api/ --session s1 --tab t1           # Filter by URL substring
+actionbook browser network requests --type xhr,fetch --session s1 --tab t1         # Filter by resource type
+actionbook browser network requests --method POST --session s1 --tab t1            # Filter by HTTP method
+actionbook browser network requests --status 2xx --session s1 --tab t1             # Filter by status (200, 2xx, 400-499)
+actionbook browser network requests --clear --session s1 --tab t1                  # Clear request buffer
+
+actionbook browser network request 1234.1 --session s1 --tab t1                   # Get full request detail + response body
+```
+
+Requests are captured automatically per tab (500 cap ring buffer). Use `network requests` to list IDs, then `network request <id>` for detail including response body.
+
 ## Wait
 
 ```bash
@@ -236,12 +251,33 @@ actionbook browser session-storage get user_id --session s1 --tab t1
 actionbook browser session-storage set lang en --session s1 --tab t1
 ```
 
+## Batch
+
+Batch commands operate on multiple targets in one call for higher throughput.
+
+```bash
+# Open multiple tabs
+actionbook browser batch-new-tab --urls https://a.com https://b.com --session s1
+actionbook browser batch-new-tab --urls https://a.com https://b.com --tabs inbox settings --session s1
+
+# Snapshot multiple tabs
+actionbook browser batch-snapshot --tabs t1 t2 t3 --session s1
+
+# Click multiple elements sequentially
+actionbook browser batch-click @e5 @e6 @e7 --session s1 --tab t1
+```
+
+`batch-new-tab` (alias `batch-open`) opens each URL as a new tab. If `--tabs` is provided, its length must match `--urls`. `batch-click` stops on first failure and reports progress. `batch-snapshot` returns per-tab results (ok or error).
+
 ## Setup
 
 ```bash
-actionbook setup                              # Interactive configuration wizard
+actionbook setup                                    # Interactive configuration wizard
 actionbook setup --non-interactive --api-key <KEY>  # Non-interactive setup
-actionbook setup --reset                      # Reset configuration
+actionbook setup --reset                            # Reset configuration
+actionbook setup --target claude                    # Quick mode: install skills for an agent
+actionbook setup -t codex                           # Short flag
+# Targets: claude, codex, cursor, windsurf, antigravity, opencode, standalone, all
 ```
 
 ## Practical Examples
