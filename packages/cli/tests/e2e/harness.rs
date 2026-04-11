@@ -152,14 +152,14 @@ pub fn skip() -> bool {
 /// A lightweight local HTTP server for deterministic navigation tests.
 /// Eliminates external network dependency. Spawns a thread per connection
 /// to avoid blocking under parallel test load.
-struct LocalServer {
-    port: u16,
+pub struct LocalServer {
+    pub port: u16,
     _handle: std::thread::JoinHandle<()>,
 }
 
 static SERVER: OnceLock<LocalServer> = OnceLock::new();
 
-fn local_server() -> &'static LocalServer {
+pub fn local_server() -> &'static LocalServer {
     SERVER.get_or_init(|| {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind local server");
         let port = listener.local_addr().unwrap().port();
@@ -227,6 +227,84 @@ setTimeout(() => {{
         );
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    // ── Mock API for search/manual e2e tests ──────────────────────────
+
+    if path.starts_with("/api/search") {
+        let query = path
+            .split("q=")
+            .nth(1)
+            .and_then(|v| v.split('&').next())
+            .unwrap_or("");
+
+        let body = if query == "notfound" {
+            r#"{"success":true,"data":[]}"#.to_string()
+        } else {
+            r#"{"success":true,"data":[{"name":"example.com","description":"Example site","groups":[{"name":"users","actions":[{"name":"list_users","method":"GET","path":"/api/users","summary":"List all users"},{"name":"create_user","method":"POST","path":"/api/users","summary":"Create a new user"}]}]}]}"#.to_string()
+        };
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    if path.starts_with("/api/manual") {
+        let get_param = |name: &str| -> Option<String> {
+            path.split('?').nth(1).and_then(|qs| {
+                qs.split('&')
+                    .find(|p| p.starts_with(&format!("{name}=")))
+                    .map(|p| p.split('=').nth(1).unwrap_or("").to_string())
+            })
+        };
+        let site = get_param("site");
+        let group = get_param("group");
+        let action = get_param("action");
+
+        let body = match (site.as_deref(), group.as_deref(), action.as_deref()) {
+            (Some("notfound"), _, _) => {
+                let err = r#"{"success":false,"error":{"code":"NOT_FOUND","message":"Site \"notfound\" not found.","available":["example.com","github.com"]}}"#;
+                let response = format!(
+                    "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+                    err.len(),
+                    err
+                );
+                let _ = stream.write_all(response.as_bytes());
+                return;
+            }
+            // L1: site overview
+            (Some(_site), None, None) => {
+                r#"{"success":true,"data":{"name":"example.com","description":"Example API with base URL `https://api.example.com/v1`","authentication":{"type":"apiKey","name":"Authorization","in":"header"},"groups":[{"name":"users","base_url":null,"actions":[{"name":"list_users","summary":"List all users"},{"name":"create_user","summary":"Create a user"}]},{"name":"posts","base_url":null,"actions":["list_posts","create_post","delete_post"]}]}}"#.to_string()
+            }
+            // L2: group overview
+            (Some(_site), Some(_group), None) => {
+                r#"{"success":true,"data":{"group":"users","base_url":"https://api.example.com/v1","actions":[{"name":"list_users","method":"GET","path":"/users","base_url":null,"summary":"List all users"},{"name":"create_user","method":"POST","path":"/users","base_url":null,"summary":"Create a new user"}]}}"#.to_string()
+            }
+            // L3: action detail
+            (Some(_site), Some(_group), Some(_action)) => {
+                r#"{"success":true,"data":{"site":"example.com","group":"users","action":"list_users","method":"GET","path":"/users","base_url":"https://api.example.com/v1","description":"List all users with optional filtering","parameters":[{"name":"page","in":"query","type":"integer","required":false,"description":"Page number"},{"name":"limit","in":"query","type":"integer","required":false,"description":"Items per page"}],"requestBody":null,"responses":[{"status":"200","description":"Successful response","schema":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"name":{"type":"string"}}}}}],"authentication":{"type":"apiKey","name":"Authorization","in":"header"}}}"#.to_string()
+            }
+            _ => {
+                let err = r#"{"success":false,"error":{"code":"BAD_REQUEST","message":"Missing required parameter: site"}}"#;
+                let response = format!(
+                    "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+                    err.len(),
+                    err
+                );
+                let _ = stream.write_all(response.as_bytes());
+                return;
+            }
+        };
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
             body.len(),
             body
         );
@@ -421,6 +499,11 @@ Promise.all([
         body
     );
     let _ = stream.write_all(response.as_bytes());
+}
+
+/// Base URL for the mock API server (for search/manual e2e tests).
+pub fn api_base_url() -> String {
+    format!("http://127.0.0.1:{}", local_server().port)
 }
 
 /// URL for page A (primary test page).
