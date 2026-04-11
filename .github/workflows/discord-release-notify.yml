@@ -56,17 +56,14 @@ jobs:
 
           ## Install Now
 
-          **macOS / Linux**
-          ```
-          curl -fsSL https://actionbook.dev/install.sh | bash
-          ```
-          **Windows**
-          ```
-          irm https://actionbook.dev/install.ps1 | iex
-          ```
           **npm**
           ```
           npm install -g @actionbookdev/cli
+          ```
+
+          **Or ask your AI agent**
+          ```
+          Search GitHub for actionbook and install the Actionbook CLI for me
           ```
           INSTALL_EOF
           )
