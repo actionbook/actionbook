@@ -3,14 +3,13 @@ title: 'Integrate with OpenClaw'
 description: 'Set up Actionbook in OpenClaw from scratch'
 ---
 
-import InstallTabs from "/snippets/install-tabs.mdx";
-
-
 Use this guide to set up Actionbook in OpenClaw.
 
 ## Step 1: Install Actionbook CLI
 
-<InstallTabs />
+```bash
+npm install -g @actionbookdev/cli
+```
 
 ## Step 2: Run `actionbook setup`
 
@@ -26,14 +25,6 @@ Verify Actionbook is ready in OpenClaw:
 openclaw skills check
 ```
 
-Quick smoke test:
-
-```bash
-actionbook search "github repo stars" --domain github.com
-```
-
-You should see at least one result with an `ID`.
-
 ## Step 3: Disable OpenClaw built-in browser and set browser workflow to Actionbook
 
 Disable the built-in browser:
@@ -48,7 +39,6 @@ Then add this instruction to `~/.openclaw/workspace/TOOLS.md`:
 ## Browser automation preference
 - Use Actionbook CLI for all website/browser operations.
 - Do not use the built-in OpenClaw browser tool unless explicitly asked.
-- Follow: `actionbook search` -> `actionbook get` -> operate.
 ```
 
 Apply changes:
@@ -73,7 +63,7 @@ Visit github.com/actionbook/actionbook and tell me how many stars it has.
     icon="terminal"
     href="/guides/cli-and-skills"
   >
-    Learn the search -> get -> operate workflow
+    Learn the CLI and skills workflow
   </Card>
   <Card title="CLI Reference" icon="code" href="/api-reference/cli">
     Full command reference for Actionbook CLI
