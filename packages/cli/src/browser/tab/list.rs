@@ -184,9 +184,13 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         (result, to_attach)
     };
 
-    // Attach newly discovered tabs outside the registry lock
+    // Attach newly discovered tabs outside the registry lock.
+    // Extension mode uses register_extension_tab (no Target.attachToTarget);
+    // local/cloud mode uses the standard CDP attach.
     for native_id in &to_attach {
-        if let Err(e) = cdp.attach(native_id, None).await {
+        if mode == Mode::Extension {
+            cdp.register_extension_tab(native_id).await;
+        } else if let Err(e) = cdp.attach(native_id, None).await {
             tracing::warn!("failed to attach discovered tab {native_id}: {e}");
         }
     }
@@ -195,4 +199,140 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         "total_tabs": tabs.len(),
         "tabs": tabs,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::daemon::cdp_session::CdpSession;
+    use crate::daemon::registry::{self, SessionEntry, SessionState};
+    use crate::types::SessionId;
+    use futures_util::{SinkExt, StreamExt};
+    use std::net::SocketAddr;
+    use tokio::net::TcpListener;
+    use tokio_tungstenite::tungstenite::Message;
+
+    async fn mock_ws() -> (
+        String,
+        tokio::sync::mpsc::Receiver<(
+            futures_util::stream::SplitStream<
+                tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+            >,
+            futures_util::stream::SplitSink<
+                tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+                Message,
+            >,
+        )>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let url = format!("ws://127.0.0.1:{}", addr.port());
+        let (tx, rx) = tokio::sync::mpsc::channel(4);
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                let ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+                let (writer, reader) = ws.split();
+                if tx.send((reader, writer)).await.is_err() {
+                    break;
+                }
+            }
+        });
+        (url, rx)
+    }
+
+    #[tokio::test]
+    async fn extension_mode_uses_extension_list_tabs() {
+        let (url, mut conns) = mock_ws().await;
+        let cdp = CdpSession::connect(&url).await.unwrap();
+        let (mut reader, mut writer) = conns.recv().await.unwrap();
+
+        let registry = registry::new_shared_registry();
+        {
+            let mut reg = registry.lock().await;
+            let mut entry = SessionEntry::starting(
+                SessionId::new("s1").unwrap(),
+                Mode::Extension,
+                false,
+                false,
+                "default".to_string(),
+            );
+            entry.status = SessionState::Running;
+            entry.cdp = Some(cdp.clone());
+            reg.insert(entry);
+        }
+
+        let cmd = Cmd {
+            session: "s1".to_string(),
+        };
+
+        let handle = tokio::spawn({
+            let registry = registry.clone();
+            async move { execute(&cmd, &registry).await }
+        });
+
+        // Read the CDP request — must be Extension.listTabs, NOT Target.getTargets
+        let msg = loop {
+            let raw = reader.next().await.unwrap().unwrap();
+            if let Message::Text(t) = raw {
+                let v: serde_json::Value = serde_json::from_str(t.as_ref()).unwrap();
+                break v;
+            }
+        };
+        let id = msg["id"].as_u64().unwrap();
+        assert_eq!(
+            msg["method"], "Extension.listTabs",
+            "extension mode must call Extension.listTabs, not Target.getTargets"
+        );
+
+        // Reply with two tabs
+        writer
+            .send(Message::Text(
+                json!({
+                    "id": id,
+                    "result": {
+                        "tabs": [
+                            { "id": 100, "url": "https://a.com", "title": "Tab A", "active": true, "windowId": 1 },
+                            { "id": 200, "url": "https://b.com", "title": "Tab B", "active": false, "windowId": 1 },
+                        ]
+                    }
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+
+        let result = handle.await.unwrap();
+        let data = match &result {
+            ActionResult::Ok { data, .. } => data.clone(),
+            other => panic!("expected Ok, got {other:?}"),
+        };
+
+        assert_eq!(data["total_tabs"], 2);
+        let tabs = data["tabs"].as_array().unwrap();
+        assert_eq!(tabs[0]["url"], "https://a.com");
+        assert_eq!(tabs[0]["title"], "Tab A");
+        assert_eq!(tabs[1]["url"], "https://b.com");
+        assert_eq!(tabs[1]["title"], "Tab B");
+
+        // Verify no Target.attachToTarget was sent — extension mode must use
+        // register_extension_tab (in-memory only, no WS message).
+        // Give a brief window for any stray messages to arrive.
+        let stray = tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            reader.next(),
+        )
+        .await;
+        assert!(
+            stray.is_err(),
+            "extension mode must not send Target.attachToTarget; got unexpected WS message"
+        );
+
+        // Verify tabs were registered in the registry with short IDs
+        let reg = registry.lock().await;
+        let entry = reg.get("s1").unwrap();
+        assert_eq!(entry.tabs.len(), 2);
+        assert_eq!(entry.tabs[0].native_id, "100");
+        assert_eq!(entry.tabs[1].native_id, "200");
+    }
 }
