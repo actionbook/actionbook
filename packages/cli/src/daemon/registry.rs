@@ -26,10 +26,19 @@ pub struct TabEntry {
 pub enum SessionState {
     Starting,
     Running,
+    /// A `browser close` is in flight for this entry. Set atomically under the
+    /// registry lock at the start of `close::execute` so concurrent close calls
+    /// on the same session short-circuit instead of issuing a second provider
+    /// API stop (which races against the first stop's success).
+    Closing,
     Closed,
 }
 
 impl SessionState {
+    /// Active means "holds live resources that reuse/health checks can target."
+    /// `Closing` is intentionally NOT active: a session being torn down must
+    /// not be selected by reuse lookups mid-close, otherwise the agent could
+    /// attach to a handle that's about to disappear.
     pub fn is_active(self) -> bool {
         matches!(self, Self::Starting | Self::Running)
     }
@@ -40,6 +49,7 @@ impl fmt::Display for SessionState {
         match self {
             SessionState::Starting => write!(f, "starting"),
             SessionState::Running => write!(f, "running"),
+            SessionState::Closing => write!(f, "closing"),
             SessionState::Closed => write!(f, "closed"),
         }
     }
@@ -212,6 +222,12 @@ impl SessionRegistry {
         })
     }
 
+    /// Return an active cloud session that was launched via `--provider <name>` and
+    /// for the given profile. Only provider-minted sessions are eligible for reuse:
+    /// stateless WS-URL overrides (DRIVER_DEV_WS_URL / BROWSER_USE_WS_URL) are stored
+    /// with `provider = Some(...)` but `provider_session = None`, and must be
+    /// reconnected every time because their config comes from the current shell env.
+    /// Reusing them would silently ignore URL/credential changes between starts.
     pub fn find_cloud_session_by_provider(
         &self,
         provider: &str,
@@ -227,6 +243,9 @@ impl SessionRegistry {
                     .unwrap_or_default()
                     == normalized
                 && entry.profile == profile
+                // Stateless WS-URL override sessions carry no provider handle;
+                // force them to reconnect so env changes take effect.
+                && entry.provider_session.is_some()
         })
     }
 
@@ -733,5 +752,55 @@ mod tests {
             !alive,
             "Chrome process should be killed when SessionEntry is dropped"
         );
+    }
+
+    #[test]
+    fn find_cloud_session_by_provider_ignores_ws_url_overrides() {
+        // Stateless WS-URL overrides (DRIVER_DEV_WS_URL / BROWSER_USE_WS_URL)
+        // store `provider = Some(...)` so list/status UIs still show the tag,
+        // but MUST NOT be reused by `browser start -p <name>` — the user may
+        // have pointed the env var at a new endpoint or rotated a key, and
+        // silent reuse would keep attaching to the old remote browser.
+        let mut registry = SessionRegistry::new();
+        let mut entry = SessionEntry::starting(
+            SessionId::new("override-1").unwrap(),
+            Mode::Cloud,
+            false,
+            true,
+            "actionbook".to_string(),
+        );
+        entry.status = SessionState::Running;
+        entry.provider = Some("driver".to_string());
+        entry.provider_session = None; // ← override path leaves this unset
+        registry.insert(entry);
+
+        assert!(
+            registry
+                .find_cloud_session_by_provider("driver", "actionbook")
+                .is_none(),
+            "override sessions (no provider_session handle) must not be reused"
+        );
+
+        // Sanity: a provider-minted session with a handle does get reused.
+        let mut minted = SessionEntry::starting(
+            SessionId::new("minted-1").unwrap(),
+            Mode::Cloud,
+            false,
+            true,
+            "actionbook".to_string(),
+        );
+        minted.status = SessionState::Running;
+        minted.provider = Some("driver".to_string());
+        minted.provider_session = Some(ProviderSession {
+            provider: "driver".to_string(),
+            session_id: "remote-abc".to_string(),
+            provider_env: Default::default(),
+        });
+        registry.insert(minted);
+
+        let found = registry
+            .find_cloud_session_by_provider("driver", "actionbook")
+            .expect("provider-minted session should be reusable");
+        assert_eq!(found.id.as_str(), "minted-1");
     }
 }

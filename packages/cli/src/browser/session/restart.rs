@@ -82,9 +82,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         headless = entry.headless;
         stealth = entry.stealth;
         profile = entry.profile.clone();
-        // The registry's tab.url is captured at session-launch time and only
-        // refreshed by `list-tabs`. After a `goto`, the in-memory copy is
-        // stale. Worse, some cloud providers (driver) launch with a
+        // tab.url is refreshed on `goto` (see browser/navigation/goto.rs)
+        // and by `list-tabs`, so it reflects the most recent navigation.
+        // Some cloud providers (driver) launch with a
         // `data:text/html,<title>...` watermark page that the L3 security
         // check rejects on re-navigation. So:
         //   - If the saved URL is a dangerous scheme (`data:`, `javascript:`),
@@ -158,8 +158,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     //
     //   stateful provider (had_provider_session)
     //     → the old remote session is gone, so we MUST mint a new one. Pass
-    //       --provider through and clear cdp_endpoint/headers so
-    //       `start::execute` walks the provider connect path.
+    //       --provider through and clear cdp_endpoint so `start::execute`
+    //       walks the provider connect path. Keep the user-supplied headers
+    //       — provider helpers (`connect_driver_dev` etc.) only inject auth
+    //       on top, and callers that needed custom CDP headers for the
+    //       initial connect will still need them for the reconnect.
     //
     //   plain cloud (no provider)
     //     → unchanged: reuse cdp_endpoint + headers verbatim.
@@ -174,7 +177,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         if is_stateless_provider_reuse {
             (cdp_endpoint, None, headers)
         } else if had_provider_session {
-            (None, provider, vec![])
+            (None, provider, headers)
         } else {
             (cdp_endpoint, provider, headers)
         };

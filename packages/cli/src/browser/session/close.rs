@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::action_result::ActionResult;
-use crate::daemon::registry::SharedRegistry;
+use crate::daemon::registry::{SessionState, SharedRegistry};
 use crate::output::ResponseContext;
 use crate::types::Mode;
 
@@ -34,35 +34,18 @@ pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let provider_session = {
-        let reg = registry.lock().await;
-        match reg.get(&cmd.session) {
-            Some(entry) => entry.provider_session.clone(),
-            None => {
-                return ActionResult::fatal_with_hint(
-                    "SESSION_NOT_FOUND",
-                    format!("session '{}' not found", cmd.session),
-                    "run `actionbook browser list-sessions` to see available sessions",
-                );
-            }
-        }
-    };
-
-    if let Some(provider_session) = provider_session.as_ref()
-        && let Err(err) =
-            crate::browser::session::provider::close_provider_session(provider_session).await
-    {
-        return ActionResult::fatal_with_hint(
-            err.error_code(),
-            format!("failed to close provider session for '{}': {err}", cmd.session),
-            err.hint(),
-        );
-    }
-
-    // Extract everything from registry then release the lock before slow I/O.
-    let (closed_tabs, cdp, chrome_process, profile_to_clean, mode) = {
+    // ── Phase 1: reserve the close under the registry lock. ──
+    //
+    // Grab the provider handle (if any) AND flip the entry to `Closing`
+    // atomically. A second `browser close` call arriving while the first
+    // is still mid-flight (two agents racing, a retry timer firing on
+    // top of a slow provider PUT, etc.) must NOT issue its own provider
+    // stop — once the first call succeeds the remote session is gone,
+    // and the second stop would either 404 or kill a new session that
+    // reused the same provider ID.
+    let (provider_session, prior_status) = {
         let mut reg = registry.lock().await;
-        let mut entry = match reg.remove(&cmd.session) {
+        let entry = match reg.get_mut(&cmd.session) {
             Some(e) => e,
             None => {
                 return ActionResult::fatal_with_hint(
@@ -70,6 +53,60 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                     format!("session '{}' not found", cmd.session),
                     "run `actionbook browser list-sessions` to see available sessions",
                 );
+            }
+        };
+        if entry.status == SessionState::Closing {
+            return ActionResult::fatal_with_hint(
+                "SESSION_CLOSING",
+                format!("session '{}' is already closing", cmd.session),
+                "wait for the in-flight close to finish, then run `actionbook browser list-sessions`",
+            );
+        }
+        let handle = entry.provider_session.clone();
+        let prior = entry.status;
+        entry.status = SessionState::Closing;
+        (handle, prior)
+    };
+
+    // ── Phase 2: remote provider stop (slow, network-bound). ──
+    //
+    // No lock held here — other sessions can proceed concurrently, and
+    // the short-circuit above prevents duplicate stops on *this* session.
+    if let Some(provider_session) = provider_session.as_ref()
+        && let Err(err) =
+            crate::browser::session::provider::close_provider_session(provider_session).await
+    {
+        // Revert state so the caller can retry. Without this the entry
+        // would stay stuck in Closing forever on a transient network blip.
+        {
+            let mut reg = registry.lock().await;
+            if let Some(entry) = reg.get_mut(&cmd.session) {
+                entry.status = prior_status;
+            }
+        }
+        return ActionResult::fatal_with_hint(
+            err.error_code(),
+            format!("failed to close provider session for '{}': {err}", cmd.session),
+            err.hint(),
+        );
+    }
+
+    // ── Phase 3: local teardown under the registry lock. ──
+    // Extract everything from registry then release the lock before slow I/O.
+    let (closed_tabs, cdp, chrome_process, profile_to_clean, mode) = {
+        let mut reg = registry.lock().await;
+        let mut entry = match reg.remove(&cmd.session) {
+            Some(e) => e,
+            None => {
+                // Phase 1 set status=Closing, so this should be unreachable
+                // under normal operation — another path would have to forcibly
+                // evict the entry while we were in Phase 2. Treat it as success
+                // from the caller's perspective: the remote is already stopped.
+                return ActionResult::ok(json!({
+                    "session_id": cmd.session,
+                    "status": "closed",
+                    "closed_tabs": 0,
+                }));
             }
         };
         let tabs = entry.tabs_count();
@@ -160,6 +197,13 @@ mod tests {
     use crate::types::{Mode, SessionId};
 
     fn spawn_single_response_server(response: &'static str) -> (String, thread::JoinHandle<String>) {
+        spawn_single_response_server_with_delay(response, Duration::from_millis(0))
+    }
+
+    fn spawn_single_response_server_with_delay(
+        response: &'static str,
+        delay: Duration,
+    ) -> (String, thread::JoinHandle<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
         let addr = listener.local_addr().expect("mock server addr");
         let handle = thread::spawn(move || {
@@ -191,6 +235,9 @@ mod tests {
                 }
             }
 
+            if !delay.is_zero() {
+                thread::sleep(delay);
+            }
             stream
                 .write_all(response.as_bytes())
                 .expect("write response");
@@ -271,7 +318,90 @@ mod tests {
         assert!(request.to_ascii_lowercase().contains("content-length: 0"));
 
         let reg = registry.lock().await;
-        assert!(reg.get("hyp1").is_some(), "session should remain for retry");
+        let entry = reg.get("hyp1").expect("session should remain for retry");
+        assert_eq!(
+            entry.status,
+            SessionState::Running,
+            "state must be reverted to Running on failure so retries can proceed",
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_close_second_caller_short_circuits() {
+        // Two simultaneous `browser close s1` calls: only the first may
+        // issue a provider stop. The second must short-circuit with
+        // SESSION_CLOSING — no duplicate PUT, no race on provider teardown.
+        //
+        // Invariant: the mock server accepts exactly one connection. If
+        // the second caller reached the provider stop path it would
+        // block forever on connect (the listener is already drained),
+        // so we wrap it in a timeout to turn that into a test failure.
+        let (base_url, request_handle) = spawn_single_response_server_with_delay(
+            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n",
+            Duration::from_millis(400),
+        );
+        let registry = new_shared_registry();
+        insert_cloud_session(
+            &registry,
+            "hyp1",
+            make_provider_session(
+                "hyperbrowser",
+                "hb-session-1",
+                ProviderEnv::from([
+                    ("HYPERBROWSER_API_KEY".to_string(), "hb-key".to_string()),
+                    ("HYPERBROWSER_API_URL".to_string(), base_url.clone()),
+                ]),
+            ),
+        )
+        .await;
+
+        let reg_a = registry.clone();
+        let a_handle = tokio::spawn(async move {
+            execute(
+                &Cmd {
+                    session: "hyp1".to_string(),
+                },
+                &reg_a,
+            )
+            .await
+        });
+
+        // Give caller A time to mark the entry Closing and enter the
+        // slow provider PUT.
+        tokio::time::sleep(Duration::from_millis(75)).await;
+
+        let b_result = tokio::time::timeout(
+            Duration::from_secs(2),
+            execute(
+                &Cmd {
+                    session: "hyp1".to_string(),
+                },
+                &registry,
+            ),
+        )
+        .await
+        .expect("second caller must not block on provider stop");
+
+        match b_result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "SESSION_CLOSING"),
+            other => panic!("expected SESSION_CLOSING fatal, got {other:?}"),
+        }
+
+        let a_result = a_handle.await.expect("join A");
+        assert!(
+            matches!(a_result, ActionResult::Ok { .. }),
+            "caller A should succeed, got {a_result:?}",
+        );
+
+        // Exactly one provider stop hit the mock server.
+        let request = request_handle.join().expect("request join");
+        assert!(request.starts_with("PUT /api/session/hb-session-1/stop HTTP/1.1"));
+
+        let reg = registry.lock().await;
+        assert!(
+            reg.get("hyp1").is_none(),
+            "session should be removed after successful close",
+        );
     }
 
     #[tokio::test]

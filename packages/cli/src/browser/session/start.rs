@@ -219,6 +219,13 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                         "retry after a few seconds or use browser status to check",
                     );
                 }
+                SessionState::Closing => {
+                    return ActionResult::fatal_with_hint(
+                        "SESSION_CLOSING",
+                        format!("session '{}' is being closed, please wait", sid),
+                        "retry after a few seconds or use browser status to check",
+                    );
+                }
                 SessionState::Closed => {
                     // Closed session — fall through to create a new one with this ID
                 }
@@ -285,7 +292,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                                 "retry after a few seconds or use browser status to check",
                             );
                         }
-                        SessionState::Closed => None,
+                        // `find_cloud_session_by_provider` filters on
+                        // `is_active()`, which excludes both Closing and
+                        // Closed — these arms exist only to keep the match
+                        // exhaustive.
+                        SessionState::Closing | SessionState::Closed => None,
                     }
                 } else {
                     None
@@ -310,9 +321,27 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 tracing::info!(
                     "cloud provider session '{stale_session_id}' health check failed, reconnecting"
                 );
-                let mut reg = registry.lock().await;
-                reg.remove(&stale_session_id);
-                drop(reg);
+                // Take the stale entry out of the registry *and* best-effort
+                // close its remote provider session. A failed `Target.getTargets`
+                // can mean the remote is dead, but it can also mean the WS is
+                // wedged while the paid remote browser is still alive — without
+                // the explicit close, that's a billed orphan session, which is
+                // the exact leak this PR is trying to prevent elsewhere.
+                let stale_entry = {
+                    let mut reg = registry.lock().await;
+                    reg.remove(&stale_session_id)
+                };
+                if let Some(entry) = stale_entry
+                    && let Some(ps) = entry.provider_session.as_ref()
+                    && let Err(err) =
+                        crate::browser::session::provider::close_provider_session(ps).await
+                {
+                    tracing::warn!(
+                        "failed to clean up stale provider session '{}' for provider '{}': {err}",
+                        ps.session_id,
+                        ps.provider
+                    );
+                }
             }
 
             let provider_connection = match connect_provider(
@@ -412,7 +441,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                         "retry after a few seconds or use browser status to check",
                     );
                 }
-                SessionState::Closed => unreachable!("closed sessions are excluded from lookup"),
+                SessionState::Closing | SessionState::Closed => {
+                    unreachable!("inactive sessions are excluded from lookup via is_active()")
+                }
             }
         } else {
             match reg.reserve_session_start(
@@ -705,10 +736,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             "mode": mode.to_string(),
             "status": "running",
             "headless": headless,
-            // Local CDP URLs don't carry secrets, but go through redact_endpoint
-            // for consistency with cloud paths so the rule is "all cdp_endpoint
-            // emissions are redacted, period."
-            "cdp_endpoint": redact_endpoint(&ws_url),
+            // Local loopback CDP URLs must be emitted verbatim so the caller
+            // can actually connect (e.g. `chrome --remote-debugging-port` or
+            // DevTools). `endpoint_for_mode` skips redaction for non-cloud
+            // modes and keeps it for cloud.
+            "cdp_endpoint": endpoint_for_mode(mode, &ws_url),
         },
         "tab": {
             "tab_id": first_short_id,
@@ -797,10 +829,10 @@ async fn reuse_running_session(
             "mode": entry.mode.to_string(),
             "status": entry.status.to_string(),
             "headless": entry.headless,
-            // Cloud reuse: entry.ws_url contains the raw provider WSS URL,
-            // which embeds tokens (e.g. Hyperbrowser JWT) as query params.
-            // Always redact before emitting to stdout.
-            "cdp_endpoint": redact_endpoint(&entry.ws_url),
+            // Cloud ws_urls embed tokens (e.g. Hyperbrowser JWT) as query
+            // params and must be redacted; local loopback ws_urls must be
+            // emitted verbatim so the caller can actually attach.
+            "cdp_endpoint": endpoint_for_mode(entry.mode, &entry.ws_url),
         },
         "tab": {
             "tab_id": target.first_tab_id,
@@ -926,7 +958,9 @@ async fn execute_cloud(
                         "retry after a few seconds or use browser status to check",
                     );
                 }
-                SessionState::Closed => {}
+                // Closing / Closed are filtered by `find_cloud_session_by_endpoint`
+                // via `is_active()`; these arms only satisfy exhaustiveness.
+                SessionState::Closing | SessionState::Closed => {}
             }
         }
     }
@@ -1037,8 +1071,16 @@ async fn execute_cloud(
     let first_title = tabs.first().map(|t| t.2.clone()).unwrap_or_default();
 
     // ── Finalize registry entry ──
+    // Race window: the placeholder reserved at the top of this function can be
+    // removed by a concurrent `close`/`restart` while we were busy minting the
+    // remote session. In that case the local `provider_session` variable holds
+    // a handle the registry never got to see — no other caller will ever
+    // release it — so we must tear it down here before returning, otherwise
+    // the cloud browser leaks and keeps billing.
     let mut reg = registry.lock().await;
     let Some(entry) = reg.get_mut(session_id.as_str()) else {
+        drop(reg);
+        cleanup_provider_session_if_any(&provider_session).await;
         return ActionResult::fatal(
             "SESSION_NOT_FOUND",
             format!(
@@ -1432,6 +1474,24 @@ fn redact_query_string(query: &str) -> String {
         .join("&")
 }
 
+/// Emit a CDP endpoint for the given mode.
+///
+/// Local endpoints (`ws://127.0.0.1:PORT/devtools/browser/<uuid>`) carry no
+/// secrets: the UUID segment is just Chrome's internal target ID, and
+/// connecting still requires local loopback access. Running these through
+/// `redact_endpoint` turns them into `ws://127.0.0.1:PORT/devt***`, which is
+/// not actionable — the user can't attach to the truncated URL. So local
+/// sessions emit the verbatim ws_url and cloud sessions always go through
+/// redaction (provider WSS URLs embed API keys as query params and tokens
+/// as path segments).
+pub fn endpoint_for_mode(mode: Mode, endpoint: &str) -> String {
+    if mode == Mode::Cloud {
+        redact_endpoint(endpoint)
+    } else {
+        endpoint.to_string()
+    }
+}
+
 /// Redact a CDP endpoint for safe display.
 ///
 /// - Query parameters whose keys appear in `SECRET_QUERY_KEYS` are masked to
@@ -1518,6 +1578,32 @@ mod redact_tests {
         let url = "example.com/ws?token=secret";
         // No scheme — pass through unchanged (best-effort).
         assert_eq!(redact_endpoint(url), "example.com/ws?token=secret");
+    }
+
+    use super::endpoint_for_mode;
+    use crate::types::Mode;
+
+    #[test]
+    fn endpoint_for_mode_keeps_local_ws_verbatim() {
+        // A real local Chrome CDP URL has a long devtools/browser path that
+        // `redact_endpoint` would truncate to `/devt***`. The caller can't
+        // attach to that, so local mode must emit the URL untouched.
+        let url = "ws://127.0.0.1:9222/devtools/browser/abc-123-def-456-opaque-guid";
+        assert_eq!(endpoint_for_mode(Mode::Local, url), url);
+        assert_eq!(endpoint_for_mode(Mode::Extension, url), url);
+    }
+
+    #[test]
+    fn endpoint_for_mode_redacts_cloud_ws_with_apikey() {
+        // Cloud URLs must still be redacted so the daemon never echoes a
+        // provider API key back to stdout.
+        let url = "wss://connect.browser-use.com?apiKey=super-secret-token";
+        let emitted = endpoint_for_mode(Mode::Cloud, url);
+        assert!(
+            !emitted.contains("super-secret-token"),
+            "cloud endpoint must be redacted: {emitted}",
+        );
+        assert!(emitted.contains("apiKey=***"), "expected mask: {emitted}");
     }
 }
 

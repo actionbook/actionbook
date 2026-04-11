@@ -70,11 +70,13 @@ harness = true
 
 [profile.release]
 opt-level = "z"
-# Full LTO on the current macOS/Rust toolchain can produce a release binary
-# that gets SIGKILL'ed before browser commands even reach the daemon. Keep the
-# release build stripped and size-focused, but disable LTO so installed
-# binaries remain runnable.
-lto = false
+# Full (`lto = true`) LTO on the current macOS/Rust toolchain produces a
+# release binary that gets SIGKILL'ed before browser commands even reach the
+# daemon — likely a miscompilation or signal-handler interaction we have not
+# root-caused yet. Thin LTO keeps most of the size win without tripping the
+# crash, and preserves cross-crate inlining so opt-level="z" still pays off.
+# TODO: track down the SIGKILL root cause and switch back to `lto = true`.
+lto = "thin"
 codegen-units = 1
 strip = true
 panic = "abort"

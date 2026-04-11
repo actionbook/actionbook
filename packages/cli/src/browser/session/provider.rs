@@ -136,7 +136,10 @@ pub async fn connect_provider(
         ))
     })?;
 
-    let mut connection = match provider {
+    // Each helper stamps `env` directly onto its `ProviderSession` so the
+    // descriptor is always fully populated when it leaves the helper. No
+    // post-hoc fix-up is needed here.
+    let connection = match provider {
         "driver" => connect_driver_dev(profile_name, env).await?,
         "hyperbrowser" => connect_hyperbrowser(profile_name, env).await?,
         "browseruse" => connect_browser_use(profile_name, env).await?,
@@ -148,12 +151,6 @@ pub async fn connect_provider(
         }
     };
 
-    // Persist the env snapshot on the session descriptor so close/restart can
-    // talk to the provider's control plane later, even if the calling shell
-    // no longer has the keys exported.
-    if let Some(session) = connection.session.as_mut() {
-        session.provider_env = env.clone();
-    }
     Ok(connection)
 }
 
@@ -267,12 +264,28 @@ pub async fn close_provider_session(session: &ProviderSession) -> Result<(), Cli
 /// Conservative match: only the substrings driver.dev actually uses today,
 /// so a real upstream 5xx with the word "token" in a stack trace doesn't
 /// get reclassified.
+///
+/// Both branches log at info level so we can tell from daemon logs which
+/// classification fired when a user reports "I set the key but keep getting
+/// server error" (or vice versa). We only log a short prefix of the body to
+/// avoid leaking anything sensitive that upstream might echo back.
 fn is_driver_dev_auth_failure(body: &str) -> bool {
     let lower = body.to_ascii_lowercase();
-    lower.contains("invalid consumer token")
+    let hit = lower.contains("invalid consumer token")
         || lower.contains("invalid token")
         || lower.contains("invalid api key")
-        || lower.contains("unauthorized")
+        || lower.contains("unauthorized");
+    let snippet: String = body.chars().take(120).collect();
+    if hit {
+        tracing::info!(
+            "driver.dev response classified as auth failure (→ ApiUnauthorized): {snippet}"
+        );
+    } else {
+        tracing::info!(
+            "driver.dev response classified as server error (→ ApiServerError): {snippet}"
+        );
+    }
+    hit
 }
 
 /// Read the driver.dev API key. Accepts both the namespaced
@@ -393,10 +406,10 @@ async fn connect_driver_dev(
         session: Some(ProviderSession {
             provider: "driver".to_string(),
             session_id,
-            // provider_env is filled in by connect_provider() so close/restart
-            // can talk to api.driver.dev later even when the calling shell
-            // no longer has DRIVER_DEV_API_KEY exported.
-            provider_env: ProviderEnv::new(),
+            // Snapshot the env so close/restart can talk to api.driver.dev
+            // later even when the calling shell no longer has
+            // DRIVER_DEV_API_KEY exported.
+            provider_env: env.clone(),
         }),
     })
 }
@@ -469,7 +482,7 @@ async fn connect_hyperbrowser(
         session: Some(ProviderSession {
             provider: "hyperbrowser".to_string(),
             session_id,
-            provider_env: ProviderEnv::new(),
+            provider_env: env.clone(),
         }),
     })
 }
@@ -558,7 +571,7 @@ async fn connect_browser_use(
         session: Some(ProviderSession {
             provider: "browseruse".to_string(),
             session_id,
-            provider_env: ProviderEnv::new(),
+            provider_env: env.clone(),
         }),
     })
 }

@@ -170,10 +170,21 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let to_url = super::get_tab_url(&cdp, &target_id).await;
     let title = super::get_tab_title(&cdp, &target_id).await;
 
-    // Clear snapshot RefCache — page changed, old backendNodeIds are invalid
+    // Clear snapshot RefCache — page changed, old backendNodeIds are invalid.
+    // Also refresh the registry's TabEntry so downstream consumers (restart
+    // preserving open_url, list-sessions summary, etc.) see the navigated URL
+    // instead of the stale launch-time URL. Without this, a session restart
+    // after a `goto` would rewind the user to whatever page the browser
+    // booted on.
     {
         let mut reg = registry.lock().await;
         reg.clear_ref_cache(&cmd.session, &cmd.tab);
+        if let Some(entry) = reg.get_mut(&cmd.session)
+            && let Some(tab) = entry.tabs.iter_mut().find(|t| t.id.0 == cmd.tab)
+        {
+            tab.url = to_url.clone();
+            tab.title = title.clone();
+        }
     }
 
     ActionResult::ok(json!({
