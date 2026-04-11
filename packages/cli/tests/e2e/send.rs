@@ -5,7 +5,7 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_meta, assert_success, headless, headless_json, parse_json,
-    skip, start_session, stdout_str, url_a,
+    skip, start_session, stdout_str, url_a, url_echo,
 };
 
 /// Local server URL for `/api/data` endpoint used in send tests.
@@ -16,12 +16,11 @@ fn api_data_url() -> String {
     )
 }
 
-fn api_data_url_with_source(source: &str) -> String {
-    format!(
-        "http://127.0.0.1:{}/api/data?source={}",
-        crate::harness::local_server().port,
-        source,
-    )
+/// Helper: parse the echo endpoint's JSON body from a send response.
+/// The echo endpoint returns the request method, headers, and body as JSON.
+fn parse_echo_body(v: &serde_json::Value) -> serde_json::Value {
+    let body_str = v["data"]["body"].as_str().expect("body must be a string");
+    serde_json::from_str(body_str).expect("echo body should be valid JSON")
 }
 
 #[test]
@@ -67,7 +66,7 @@ fn send_get_returns_json_response() {
 }
 
 #[test]
-fn send_post_with_body() {
+fn send_post_with_body_verified() {
     if skip() {
         return;
     }
@@ -79,7 +78,7 @@ fn send_post_with_body() {
         &[
             "browser",
             "send",
-            &api_data_url_with_source("post-test"),
+            &url_echo(),
             "-X",
             "POST",
             "-d",
@@ -91,16 +90,25 @@ fn send_post_with_body() {
         ],
         30,
     );
-    assert_success(&out, "send POST");
+    assert_success(&out, "send POST echo");
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["status"], 200);
+
+    // Verify the echo confirms POST method and body were forwarded
+    let echo = parse_echo_body(&v);
+    assert_eq!(echo["method"], "POST", "method should be POST");
+    let echoed_body = echo["body"].as_str().unwrap_or("");
+    assert!(
+        echoed_body.contains(r#"{"key":"value"}"#),
+        "request body should be forwarded: {echoed_body}"
+    );
     assert_meta(&v);
 }
 
 #[test]
-fn send_with_custom_headers() {
+fn send_with_custom_headers_verified() {
     if skip() {
         return;
     }
@@ -112,7 +120,7 @@ fn send_with_custom_headers() {
         &[
             "browser",
             "send",
-            &api_data_url(),
+            &url_echo(),
             "-H",
             "X-Custom-Header: test-value",
             "--session",
@@ -122,11 +130,18 @@ fn send_with_custom_headers() {
         ],
         30,
     );
-    assert_success(&out, "send with headers");
+    assert_success(&out, "send with headers echo");
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["status"], 200);
+
+    // Verify the echo confirms the custom header was forwarded
+    let echo = parse_echo_body(&v);
+    assert_eq!(
+        echo["headers"]["x-custom-header"], "test-value",
+        "custom header should be forwarded to the server"
+    );
     assert_meta(&v);
 }
 
@@ -188,7 +203,7 @@ fn send_invalid_session_fails() {
 }
 
 #[test]
-fn send_explicit_method_override() {
+fn send_explicit_method_override_verified() {
     if skip() {
         return;
     }
@@ -196,12 +211,12 @@ fn send_explicit_method_override() {
     let (sid, tid) = start_session(&url_a());
     let _guard = SessionGuard::new(&sid);
 
-    // Use PUT method explicitly
+    // Use PUT method explicitly — echo endpoint confirms it
     let out = headless_json(
         &[
             "browser",
             "send",
-            &api_data_url_with_source("put-test"),
+            &url_echo(),
             "-X",
             "PUT",
             "-d",
@@ -213,11 +228,20 @@ fn send_explicit_method_override() {
         ],
         30,
     );
-    assert_success(&out, "send PUT");
+    assert_success(&out, "send PUT echo");
     let v = parse_json(&out);
 
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["status"], 200);
+
+    // Verify the echo confirms PUT method and body
+    let echo = parse_echo_body(&v);
+    assert_eq!(echo["method"], "PUT", "method should be PUT");
+    let echoed_body = echo["body"].as_str().unwrap_or("");
+    assert!(
+        echoed_body.contains(r#"{"update":"data"}"#),
+        "request body should be forwarded: {echoed_body}"
+    );
     assert_meta(&v);
 }
 

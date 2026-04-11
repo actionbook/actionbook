@@ -203,6 +203,80 @@ fn handle_http(mut stream: std::net::TcpStream) {
         other => other.trim_start_matches('/'),
     };
 
+    // Echo endpoint: returns the request method, headers, and body as JSON.
+    // Used by `browser send` e2e tests to verify that the CLI correctly
+    // forwarded method, headers, and body through CDP fetch.
+    if path == "/api/echo" {
+        let request_str = request.to_string();
+        let method = request_str
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().next())
+            .unwrap_or("GET")
+            .to_string();
+
+        // Parse headers (skip request line, stop at empty line)
+        let mut req_headers = std::collections::HashMap::<String, String>::new();
+        let mut in_headers = false;
+        let mut header_end_idx = request_str.len();
+        for (i, line) in request_str.lines().enumerate() {
+            if i == 0 {
+                in_headers = true;
+                continue;
+            }
+            if line.is_empty() {
+                header_end_idx = request_str
+                    .find("\r\n\r\n")
+                    .map(|p| p + 4)
+                    .or_else(|| request_str.find("\n\n").map(|p| p + 2))
+                    .unwrap_or(request_str.len());
+                break;
+            }
+            if in_headers && let Some(colon) = line.find(':') {
+                let key = line[..colon].trim().to_lowercase();
+                let value = line[colon + 1..].trim().to_string();
+                req_headers.insert(key, value);
+            }
+        }
+
+        // Extract body after headers
+        let req_body = if header_end_idx < request_str.len() {
+            &request_str[header_end_idx..]
+        } else {
+            ""
+        };
+
+        // Build JSON response echoing the request
+        let headers_json: Vec<String> = req_headers
+            .iter()
+            .map(|(k, v)| {
+                format!(
+                    "\"{}\":\"{}\"",
+                    k.replace('\\', "\\\\").replace('"', "\\\""),
+                    v.replace('\\', "\\\\").replace('"', "\\\"")
+                )
+            })
+            .collect();
+        let body_escaped = req_body
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n")
+            .replace('\r', "\\r");
+        let echo_body = format!(
+            r#"{{"method":"{}","headers":{{{}}},"body":"{}"}}"#,
+            method,
+            headers_json.join(","),
+            body_escaped
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: *\r\nAccess-Control-Allow-Headers: *\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            echo_body.len(),
+            echo_body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
     if path == "/redirect-fast" {
         let response = format!(
             "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{}/page-b\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
@@ -284,13 +358,17 @@ setTimeout(() => {{
             (Some(_site), None, None) => {
                 r#"{"success":true,"data":{"name":"example.com","description":"Example API with base URL `https://api.example.com/v1`","authentication":{"type":"apiKey","name":"Authorization","in":"header"},"groups":[{"name":"users","base_url":null,"actions":[{"name":"list_users","summary":"List all users"},{"name":"create_user","summary":"Create a user"}]},{"name":"posts","base_url":null,"actions":["list_posts","create_post","delete_post"]}]}}"#.to_string()
             }
-            // L2: group overview
-            (Some(_site), Some(_group), None) => {
-                r#"{"success":true,"data":{"group":"users","base_url":"https://api.example.com/v1","actions":[{"name":"list_users","method":"GET","path":"/users","base_url":null,"summary":"List all users"},{"name":"create_user","method":"POST","path":"/users","base_url":null,"summary":"Create a new user"}]}}"#.to_string()
+            // L2: group overview — echo the requested group name
+            (Some(_site), Some(group), None) => {
+                format!(
+                    r#"{{"success":true,"data":{{"group":"{group}","base_url":"https://api.example.com/v1","actions":[{{"name":"list_users","method":"GET","path":"/users","base_url":null,"summary":"List all users"}},{{"name":"create_user","method":"POST","path":"/users","base_url":null,"summary":"Create a new user"}}]}}}}"#
+                )
             }
-            // L3: action detail
-            (Some(_site), Some(_group), Some(_action)) => {
-                r#"{"success":true,"data":{"site":"example.com","group":"users","action":"list_users","method":"GET","path":"/users","base_url":"https://api.example.com/v1","description":"List all users with optional filtering","parameters":[{"name":"page","in":"query","type":"integer","required":false,"description":"Page number"},{"name":"limit","in":"query","type":"integer","required":false,"description":"Items per page"}],"requestBody":null,"responses":[{"status":"200","description":"Successful response","schema":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"name":{"type":"string"}}}}}],"authentication":{"type":"apiKey","name":"Authorization","in":"header"}}}"#.to_string()
+            // L3: action detail — echo the requested group and action names
+            (Some(_site), Some(group), Some(action)) => {
+                format!(
+                    r#"{{"success":true,"data":{{"site":"example.com","group":"{group}","action":"{action}","method":"GET","path":"/users","base_url":"https://api.example.com/v1","description":"List all users with optional filtering","parameters":[{{"name":"page","in":"query","type":"integer","required":false,"description":"Page number"}},{{"name":"limit","in":"query","type":"integer","required":false,"description":"Items per page"}}],"requestBody":null,"responses":[{{"status":"200","description":"Successful response","schema":{{"type":"array","items":{{"type":"object","properties":{{"id":{{"type":"integer"}},"name":{{"type":"string"}}}}}}}}}}],"authentication":{{"type":"apiKey","name":"Authorization","in":"header"}}}}}}"#
+                )
             }
             _ => {
                 let err = r#"{"success":false,"error":{"code":"BAD_REQUEST","message":"Missing required parameter: site"}}"#;
@@ -504,6 +582,11 @@ Promise.all([
 /// Base URL for the mock API server (for search/manual e2e tests).
 pub fn api_base_url() -> String {
     format!("http://127.0.0.1:{}", local_server().port)
+}
+
+/// URL for the echo API endpoint (echoes back method, headers, body).
+pub fn url_echo() -> String {
+    format!("http://127.0.0.1:{}/api/echo", local_server().port)
 }
 
 /// URL for page A (primary test page).

@@ -158,6 +158,51 @@ fn manual_action_detail_json() {
     );
 }
 
+// ── Parameter forwarding ─────────────────────────────────────────────
+
+#[test]
+fn manual_group_param_forwarded_correctly() {
+    if skip() {
+        return;
+    }
+
+    // Use "posts" group — mock echoes the actual group param, so if the CLI
+    // sends the wrong value the assertion will catch it.
+    let out = headless_manual_json(&["manual", "example.com", "posts"], 15);
+    assert_success(&out, "manual L2 posts");
+
+    let text = stdout_str(&out);
+    let data: serde_json::Value = serde_json::from_str(&text).expect("output should be valid JSON");
+
+    assert_eq!(
+        data["group"], "posts",
+        "mock should echo the requested group param"
+    );
+}
+
+#[test]
+fn manual_action_param_forwarded_correctly() {
+    if skip() {
+        return;
+    }
+
+    // Use "posts"/"create_post" — mock echoes actual group+action params
+    let out = headless_manual_json(&["manual", "example.com", "posts", "create_post"], 15);
+    assert_success(&out, "manual L3 create_post");
+
+    let text = stdout_str(&out);
+    let data: serde_json::Value = serde_json::from_str(&text).expect("output should be valid JSON");
+
+    assert_eq!(
+        data["group"], "posts",
+        "mock should echo the requested group param"
+    );
+    assert_eq!(
+        data["action"], "create_post",
+        "mock should echo the requested action param"
+    );
+}
+
 // ── Edge cases ───────────────────────────────────────────────────────
 
 #[test]
