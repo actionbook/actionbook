@@ -50,6 +50,7 @@ colored = "3"
 indicatif = "0.17"
 console = "0.15"
 dirs = "6"
+fs2 = "0.4"
 
 # Logging
 tracing = "0.1"

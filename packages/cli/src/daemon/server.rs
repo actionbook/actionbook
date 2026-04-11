@@ -1,6 +1,8 @@
 use std::fs::OpenOptions;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+#[cfg(windows)]
+use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
 use tracing::{error, info, warn};
@@ -68,7 +70,25 @@ pub fn is_daemon_running() -> bool {
     }
 }
 
-#[cfg(not(unix))]
+/// Check if a daemon is running on Windows by probing the TCP port stored in
+/// `daemon.port`.  Returns `true` only if the file exists, contains a valid
+/// port, and a TCP connection to `127.0.0.1:<port>` succeeds within 100 ms.
+#[cfg(windows)]
+pub fn is_daemon_running() -> bool {
+    let Ok(port_str) = std::fs::read_to_string(port_path()) else {
+        return false;
+    };
+    let Ok(port) = port_str.trim().parse::<u16>() else {
+        return false;
+    };
+    std::net::TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+        std::time::Duration::from_millis(100),
+    )
+    .is_ok()
+}
+
+#[cfg(not(any(unix, windows)))]
 pub fn is_daemon_running() -> bool {
     false
 }
@@ -96,7 +116,17 @@ pub fn send_sigterm(pid: i32) -> bool {
     std::io::Error::last_os_error().raw_os_error() != Some(3)
 }
 
-#[cfg(not(unix))]
+/// Terminate a daemon process on Windows using `taskkill /F /PID <pid>`.
+/// Returns `true` if `taskkill` exits successfully (process was found and killed).
+#[cfg(windows)]
+pub fn send_sigterm(pid: i32) -> bool {
+    std::process::Command::new("taskkill")
+        .args(["/F", "/PID", &pid.to_string()])
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
+#[cfg(not(any(unix, windows)))]
 pub fn send_sigterm(_pid: i32) -> bool {
     false
 }
@@ -116,7 +146,14 @@ pub fn is_pid_alive(pid: i32) -> bool {
     std::io::Error::last_os_error().raw_os_error() == Some(1) // EPERM = 1
 }
 
-#[cfg(not(unix))]
+/// On Windows, check liveness by probing the daemon TCP port rather than by PID.
+/// (The PID argument is accepted for interface compatibility but is ignored.)
+#[cfg(windows)]
+pub fn is_pid_alive(_pid: i32) -> bool {
+    is_daemon_running()
+}
+
+#[cfg(not(any(unix, windows)))]
 pub fn is_pid_alive(_pid: i32) -> bool {
     false
 }
@@ -371,18 +408,182 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(unix))]
+/// Run the daemon server on Windows using TCP localhost transport.
+///
+/// Binds a `TcpListener` on `127.0.0.1:0` (OS assigns an ephemeral port) and
+/// writes the actual port to `daemon.port` for the CLI to discover.
+#[cfg(windows)]
 pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
-    Err("daemon is not supported on Windows".into())
+    info!(
+        "daemon starting (pid={}, version={})",
+        std::process::id(),
+        crate::BUILD_VERSION
+    );
+    let pid_file = pid_path();
+    let port_file = port_path();
+    let base_path = socket_path();
+    let ready_path = base_path.with_extension("ready");
+
+    // Acquire exclusive file lock to prevent two daemons from starting simultaneously.
+    // fs2::FileExt provides cross-platform LockFileEx semantics on Windows.
+    use fs2::FileExt;
+    let pid_file_fd = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&pid_file)?;
+
+    let mut locked = pid_file_fd.try_lock_exclusive().is_ok();
+    if !locked {
+        for attempt in 1..=3 {
+            info!("daemon lock held by another process, retrying ({attempt}/3)");
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            locked = pid_file_fd.try_lock_exclusive().is_ok();
+            if locked {
+                break;
+            }
+            if is_daemon_running() {
+                info!("another daemon is ready, exiting to let CLI reuse it");
+                return Ok(());
+            }
+        }
+        if !locked {
+            info!("daemon already running after retries, exiting");
+            return Ok(());
+        }
+    }
+
+    // Write our PID so the client can target us with taskkill on version mismatch.
+    {
+        use std::io::Write;
+        pid_file_fd.set_len(0)?;
+        write!(&pid_file_fd, "{}", std::process::id())?;
+    }
+
+    // Bind TCP listener; OS assigns an ephemeral port in the dynamic range.
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let port = listener.local_addr()?.port();
+    info!(
+        "daemon listening on 127.0.0.1:{port} (version {})",
+        crate::BUILD_VERSION
+    );
+
+    // Write port file for client discovery
+    std::fs::write(&port_file, port.to_string())?;
+
+    // Write version and ready files
+    std::fs::write(version_path(), crate::BUILD_VERSION)?;
+    std::fs::write(&ready_path, crate::BUILD_VERSION)?;
+
+    let registry = new_shared_registry();
+
+    if let Some(bridge_state) = super::bridge::spawn_bridge().await {
+        registry.lock().await.set_bridge_state(bridge_state);
+    }
+
+    let mut last_activity = Instant::now();
+    let idle_timeout_duration = idle_timeout();
+    let mut housekeeping = tokio::time::interval(housekeeping_interval());
+    housekeeping.tick().await;
+
+    loop {
+        tokio::select! {
+            accept = listener.accept() => {
+                last_activity = Instant::now();
+                match accept {
+                    Ok((stream, _)) => {
+                        let reg = registry.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = handle_connection(stream, &reg).await {
+                                warn!("connection error: {e}");
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        warn!("accept error: {e}");
+                    }
+                }
+            }
+            _ = tokio::signal::ctrl_c() => {
+                info!("received Ctrl+C, shutting down");
+                break;
+            }
+            _ = housekeeping.tick() => {
+                if let Some(timeout) = idle_timeout_duration
+                    && last_activity.elapsed() > timeout {
+                        let has_active = registry.lock().await.has_active_sessions();
+                        if !has_active {
+                            info!(
+                                "idle for {:?} with no active sessions, shutting down",
+                                last_activity.elapsed()
+                            );
+                            break;
+                        }
+                        last_activity = Instant::now();
+                    }
+            }
+        }
+    }
+
+    info!(
+        "daemon exiting main loop, starting graceful shutdown (pid={})",
+        std::process::id()
+    );
+
+    let entries_to_close = {
+        let mut reg = registry.lock().await;
+        let session_ids: Vec<String> = reg
+            .list()
+            .iter()
+            .map(|s| s.id.as_str().to_string())
+            .collect();
+        let mut entries = Vec::new();
+        for sid in session_ids {
+            if let Some(mut entry) = reg.remove(&sid) {
+                let cdp = entry.cdp.take();
+                let chrome = entry.chrome_process.take();
+                entries.push((cdp, chrome));
+            }
+        }
+        entries
+    };
+    for (cdp, chrome) in entries_to_close {
+        if let Some(cdp) = cdp {
+            cdp.close().await;
+        }
+        if let Some(child) = chrome {
+            crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
+        }
+    }
+
+    // Cleanup files
+    std::fs::remove_file(&port_file).ok();
+    std::fs::remove_file(&ready_path).ok();
+    std::fs::remove_file(version_path()).ok();
+    std::fs::remove_file(&pid_file).ok();
+
+    info!("daemon shutdown complete (pid={})", std::process::id());
+    drop(pid_file_fd);
+    Ok(())
 }
 
-#[cfg(unix)]
-async fn handle_connection(
-    stream: tokio::net::UnixStream,
-    registry: &SharedRegistry,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let (mut reader, mut writer) = stream.into_split();
+#[cfg(not(any(unix, windows)))]
+pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
+    Err("daemon is not supported on this platform".into())
+}
 
+/// Generic connection handler — works with any `AsyncRead + AsyncWrite` stream
+/// (UnixStream on Unix, TcpStream on Windows).
+async fn handle_connection_inner<R, W>(
+    mut reader: R,
+    mut writer: W,
+    registry: &SharedRegistry,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
     loop {
         let payload = match wire::read_frame(&mut reader).await {
             Ok(p) => p,
@@ -420,6 +621,24 @@ async fn handle_connection(
     Ok(())
 }
 
+#[cfg(unix)]
+async fn handle_connection(
+    stream: tokio::net::UnixStream,
+    registry: &SharedRegistry,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (reader, writer) = stream.into_split();
+    handle_connection_inner(reader, writer, registry).await
+}
+
+#[cfg(windows)]
+async fn handle_connection(
+    stream: tokio::net::TcpStream,
+    registry: &SharedRegistry,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (reader, writer) = stream.into_split();
+    handle_connection_inner(reader, writer, registry).await
+}
+
 // ─── Unit Tests ──────────────────────────────────────────────────────
 
 /// Windows-specific unit tests.
@@ -453,7 +672,10 @@ mod windows_tests {
         unsafe {
             std::env::remove_var("ACTIONBOOK_HOME");
         }
-        assert!(!result, "is_daemon_running() must return false when daemon.port is absent");
+        assert!(
+            !result,
+            "is_daemon_running() must return false when daemon.port is absent"
+        );
     }
 
     #[test]

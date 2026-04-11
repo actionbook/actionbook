@@ -73,7 +73,10 @@ pub fn actionbook_home() -> PathBuf {
         }
     }
 
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    // Try HOME (Unix/macOS), then USERPROFILE (Windows convention).
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| "/tmp".to_string());
     PathBuf::from(home).join(".actionbook")
 }
 
