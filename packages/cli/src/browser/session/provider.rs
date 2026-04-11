@@ -11,7 +11,11 @@ use crate::error::CliError;
 const HYPERBROWSER_API_BASE: &str = "https://api.hyperbrowser.ai";
 const BROWSERLESS_API_BASE: &str = "https://production-sfo.browserless.io";
 const BROWSER_USE_WS_BASE: &str = "wss://connect.browser-use.com";
-const DRIVER_DEV_WS_BASE: &str = "wss://cdp.driver.dev";
+// driver.dev is a stateful provider: POST /v1/browser/session mints a session
+// and returns a per-session distributed cdpUrl (e.g. wss://do-ric1-1.lex-milan.driver.dev/...).
+// We never connect directly to driver.dev/cdp; the URL is always the one the
+// API returns. Override only if you're pointing at a private control plane.
+const DRIVER_DEV_API_BASE: &str = "https://api.driver.dev";
 
 /// Per-request snapshot of provider-related environment variables, forwarded
 /// from the CLI client process to the daemon. The daemon must NOT call
@@ -21,8 +25,15 @@ pub type ProviderEnv = BTreeMap<String, String>;
 
 /// Env-var name prefixes considered "provider config". Used by the CLI client
 /// to filter `std::env::vars()` down to the values worth forwarding.
+///
+/// `DRIVER_` is intentionally broad: driver.dev's official docs use bare
+/// `DRIVER_API_KEY`, so we forward anything starting with `DRIVER_` to keep
+/// the official-name fallback working. The downside is that an unrelated tool
+/// using a `DRIVER_*` env var will leak its value into the daemon — acceptable
+/// because (a) the daemon is local to the user and (b) we never log these
+/// values, only forward them in the IPC payload.
 pub const PROVIDER_ENV_PREFIXES: &[&str] = &[
-    "DRIVER_DEV_",
+    "DRIVER_",
     "HYPERBROWSER_",
     "BROWSER_USE_",
     "BROWSERLESS_",
@@ -188,6 +199,33 @@ pub async fn close_provider_session(session: &ProviderSession) {
                 );
             }
         }
+        "driver.dev" => {
+            // driver.dev sessions auto-stop after 1h, but we explicitly DELETE
+            // them to release billing immediately. The session_id is the same
+            // opaque string returned by POST /v1/browser/session, passed back
+            // as a query parameter.
+            match read_driver_dev_api_key(env) {
+                Ok(api_key) => {
+                    let api_base = read_trimmed_env(env, "DRIVER_DEV_API_URL")
+                        .unwrap_or_else(|| DRIVER_DEV_API_BASE.to_string());
+                    let _ = client
+                        .delete(format!(
+                            "{}/v1/browser/session",
+                            api_base.trim_end_matches('/')
+                        ))
+                        .query(&[("sessionId", session.session_id.as_str())])
+                        .header("Authorization", format!("Bearer {api_key}"))
+                        .send()
+                        .await;
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        "driver.dev cleanup skipped for session '{}': no API key in stored env",
+                        session.session_id
+                    );
+                }
+            }
+        }
         "browserless" => {
             // Browserless returns a stop URL; store it directly as the cleanup handle.
             let _ = client.delete(&session.session_id).send().await;
@@ -196,32 +234,150 @@ pub async fn close_provider_session(session: &ProviderSession) {
     }
 }
 
+/// driver.dev returns HTTP 500 (instead of 401) with bodies like
+/// `{"error":"Invalid consumer token"}` for bad credentials. Sniff the body
+/// so the generic 5xx → "server error, retry" mapping doesn't kick in.
+///
+/// Conservative match: only the substrings driver.dev actually uses today,
+/// so a real upstream 5xx with the word "token" in a stack trace doesn't
+/// get reclassified.
+fn is_driver_dev_auth_failure(body: &str) -> bool {
+    let lower = body.to_ascii_lowercase();
+    lower.contains("invalid consumer token")
+        || lower.contains("invalid token")
+        || lower.contains("invalid api key")
+        || lower.contains("unauthorized")
+}
+
+/// Read the driver.dev API key. Accepts both the namespaced
+/// `DRIVER_DEV_API_KEY` (Actionbook convention) and `DRIVER_API_KEY` (driver.dev's
+/// own docs). The namespaced one takes precedence so env collisions with another
+/// "driver" tool are explicit.
+fn read_driver_dev_api_key(env: &ProviderEnv) -> Result<String, CliError> {
+    read_trimmed_env(env, "DRIVER_DEV_API_KEY")
+        .or_else(|| read_trimmed_env(env, "DRIVER_API_KEY"))
+        .ok_or_else(|| {
+            CliError::InvalidArgument(
+                "DRIVER_DEV_API_KEY (or DRIVER_API_KEY) environment variable is not set".to_string(),
+            )
+        })
+}
+
 async fn connect_driver_dev(
     profile_name: &str,
     env: &ProviderEnv,
 ) -> Result<ProviderConnection, CliError> {
-    let cdp_endpoint = if let Some(ws_url) = read_trimmed_env(env, "DRIVER_DEV_WS_URL")
+    // Escape hatch: allow a fully-qualified WSS URL to bypass the control plane.
+    // Useful for replaying captured CDP URLs in tests, or for pointing at a
+    // private deployment that exposes a CDP socket directly.
+    if let Some(ws_url) = read_trimmed_env(env, "DRIVER_DEV_WS_URL")
         .or_else(|| read_trimmed_env(env, "DRIVER_DEV_CDP_ENDPOINT"))
     {
-        ws_url
-    } else {
-        let api_key = read_required_env(env, "DRIVER_DEV_API_KEY")?;
-        let base = read_trimmed_env(env, "DRIVER_DEV_WS_BASE_URL")
-            .unwrap_or_else(|| DRIVER_DEV_WS_BASE.to_string());
-        let mut query = vec![("token", api_key)];
-        if let Some(profile) = read_trimmed_env(env, "DRIVER_DEV_PROFILE")
-            .or_else(|| non_default_profile(profile_name))
-        {
-            query.push(("profile", profile));
+        return Ok(ProviderConnection {
+            provider: "driver.dev".to_string(),
+            cdp_endpoint: ws_url,
+            headers: Vec::new(),
+            session: None,
+        });
+    }
+
+    let api_key = read_driver_dev_api_key(env)?;
+    let api_base = read_trimmed_env(env, "DRIVER_DEV_API_URL")
+        .unwrap_or_else(|| DRIVER_DEV_API_BASE.to_string());
+
+    // Build optional session-creation body. Empty `{}` is valid; only set fields
+    // when the user actually configured them.
+    let mut body = json!({});
+    if let Some(country) = read_trimmed_env(env, "DRIVER_DEV_COUNTRY") {
+        body["country"] = json!(country);
+    }
+    if let Some(node_id) = read_trimmed_env(env, "DRIVER_DEV_NODE_ID") {
+        body["nodeId"] = json!(node_id);
+    }
+    if let Some(session_type) = read_trimmed_env(env, "DRIVER_DEV_TYPE") {
+        // Driver supports `consumer_distributed` (default) and `hosted`. Pass
+        // through verbatim — the API will reject anything else.
+        body["type"] = json!(session_type);
+    }
+    if let Some(proxy_url) = read_trimmed_env(env, "DRIVER_DEV_PROXY_URL") {
+        body["proxyUrl"] = json!(proxy_url);
+    }
+    if let Some(window_size) = read_trimmed_env(env, "DRIVER_DEV_WINDOW_SIZE") {
+        body["windowSize"] = json!(window_size);
+    }
+    if let Some(profile) = read_trimmed_env(env, "DRIVER_DEV_PROFILE")
+        .or_else(|| non_default_profile(profile_name))
+    {
+        let persist = parse_env_bool(env, "DRIVER_DEV_PROFILE_PERSIST").unwrap_or(true);
+        body["profile"] = json!({
+            "name": profile,
+            "persist": persist,
+        });
+    }
+
+    let client = build_provider_http_client()?;
+    let response = client
+        .post(format!(
+            "{}/v1/browser/session",
+            api_base.trim_end_matches('/')
+        ))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await?;
+
+    let status = response.status();
+    let response_text = response.text().await?;
+    if !status.is_success() {
+        // driver.dev returns HTTP 500 with `{"error":"Invalid consumer token"}`
+        // for bad credentials instead of 401. Reclassify so callers (and the
+        // LLM agent) know not to retry — a "server error" wrongly suggests
+        // transient failure.
+        if is_driver_dev_auth_failure(&response_text) {
+            return Err(CliError::ApiUnauthorized(format!(
+                "driver.dev rejected credentials ({}): {}",
+                status.as_u16(),
+                response_text.chars().take(512).collect::<String>()
+            )));
         }
-        build_ws_url(&base, &query)
-    };
+        return Err(map_provider_http_status(
+            "driver.dev",
+            status,
+            &response_text,
+        ));
+    }
+
+    let data: Value = serde_json::from_str(&response_text)?;
+    let session_id = data
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            CliError::ApiError(format!(
+                "driver.dev API response missing sessionId: {data}"
+            ))
+        })?
+        .to_string();
+    let cdp_endpoint = data
+        .get("cdpUrl")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            CliError::ApiError(format!("driver.dev API response missing cdpUrl: {data}"))
+        })?
+        .to_string();
 
     Ok(ProviderConnection {
         provider: "driver.dev".to_string(),
         cdp_endpoint,
         headers: Vec::new(),
-        session: None,
+        session: Some(ProviderSession {
+            provider: "driver.dev".to_string(),
+            session_id,
+            // provider_env is filled in by connect_provider() so close/restart
+            // can talk to api.driver.dev later even when the calling shell
+            // no longer has DRIVER_DEV_API_KEY exported.
+            provider_env: ProviderEnv::new(),
+        }),
     })
 }
 
@@ -554,6 +710,69 @@ mod tests {
             Some(false)
         );
         assert_eq!(parse_env_bool(&env, "MISSING"), None);
+    }
+
+    #[tokio::test]
+    async fn driver_dev_ws_url_override_short_circuits_api_call() {
+        // The DRIVER_DEV_WS_URL escape hatch must bypass api.driver.dev so
+        // that offline tests / private deployments work without hitting the
+        // network. This also pins the env-map vs process-env contract: even
+        // if the daemon process has DRIVER_DEV_WS_URL exported, the per-request
+        // env map is what's used.
+        let env = env_with(&[(
+            "DRIVER_DEV_WS_URL",
+            "wss://example.test/devtools/browser/abc",
+        )]);
+        let connection = connect_driver_dev(crate::config::DEFAULT_PROFILE, &env)
+            .await
+            .expect("driver.dev connection should build from override");
+        assert_eq!(connection.provider, "driver.dev");
+        assert_eq!(
+            connection.cdp_endpoint,
+            "wss://example.test/devtools/browser/abc"
+        );
+        // Override path is "stateless"-like — no provider session to clean up.
+        assert!(connection.session.is_none());
+    }
+
+    #[test]
+    fn driver_dev_auth_failure_sniffer_catches_known_strings() {
+        assert!(is_driver_dev_auth_failure(
+            r#"{"error":"Invalid consumer token"}"#
+        ));
+        assert!(is_driver_dev_auth_failure(r#"{"error":"invalid token"}"#));
+        assert!(is_driver_dev_auth_failure(r#"{"error":"unauthorized"}"#));
+        // Not auth: a generic upstream 500 should still go through the
+        // ApiServerError path so the agent knows it's safe to retry.
+        assert!(!is_driver_dev_auth_failure(
+            r#"{"error":"upstream timeout"}"#
+        ));
+        assert!(!is_driver_dev_auth_failure(
+            r#"{"error":"node selection failed"}"#
+        ));
+    }
+
+    #[test]
+    fn driver_dev_api_key_falls_back_to_official_name() {
+        // Actionbook uses DRIVER_DEV_API_KEY to namespace; driver.dev's docs
+        // use DRIVER_API_KEY. Accept both, with the namespaced one winning.
+        let env = env_with(&[("DRIVER_API_KEY", "official-name-key")]);
+        assert_eq!(
+            read_driver_dev_api_key(&env).expect("falls back"),
+            "official-name-key"
+        );
+
+        let env = env_with(&[
+            ("DRIVER_DEV_API_KEY", "namespaced"),
+            ("DRIVER_API_KEY", "official"),
+        ]);
+        assert_eq!(
+            read_driver_dev_api_key(&env).expect("namespaced wins"),
+            "namespaced"
+        );
+
+        let env = ProviderEnv::new();
+        assert!(read_driver_dev_api_key(&env).is_err());
     }
 
     #[test]
