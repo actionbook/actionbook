@@ -769,7 +769,7 @@ mod tests {
 
         match cli.command {
             Some(Commands::Setup(cmd)) => {
-                assert_eq!(cmd.target.as_deref(), Some("codex"));
+                assert_eq!(cmd.target, Some(setup::skills::SetupTarget::Codex));
                 assert_eq!(cmd.api_key.as_deref(), Some("sk-test"));
                 assert_eq!(cmd.browser.as_deref(), Some("local"));
                 assert!(cmd.non_interactive);
@@ -777,6 +777,27 @@ mod tests {
             }
             other => panic!("expected setup command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn try_parse_from_parses_setup_target_short_flag() {
+        let cli = Cli::try_parse_from(["actionbook", "setup", "-t", "claude"])
+            .expect("parse setup quick mode");
+
+        match cli.command {
+            Some(Commands::Setup(cmd)) => {
+                assert_eq!(cmd.target, Some(setup::skills::SetupTarget::Claude));
+                assert!(cmd.api_key.is_none());
+                assert!(!cmd.non_interactive);
+            }
+            other => panic!("expected setup command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_parse_from_rejects_unknown_setup_target() {
+        let result = Cli::try_parse_from(["actionbook", "setup", "--target", "vim"]);
+        assert!(result.is_err(), "expected clap to reject unknown target");
     }
 
     #[test]

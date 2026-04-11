@@ -1,6 +1,7 @@
 pub mod api_key;
 pub mod browser_cfg;
 pub mod detect;
+pub mod skills;
 pub mod theme;
 
 use std::time::Duration;
@@ -9,6 +10,7 @@ use clap::Args;
 use dialoguer::Select;
 use indicatif::{ProgressBar, ProgressStyle};
 
+use self::skills::{SetupTarget, SkillsAction, SkillsResult};
 use self::theme::setup_theme;
 use crate::config::{self, ConfigFile};
 use crate::error::CliError;
@@ -16,11 +18,12 @@ use crate::types::Mode;
 
 #[derive(Args, Debug, Clone, Default, PartialEq, Eq)]
 pub struct Cmd {
-    /// Configuration target
-    #[arg(long)]
-    pub target: Option<String>,
+    /// AI coding tool target. When set, skips the wizard and only installs
+    /// skills for the given agent via `npx skills add` (quick mode).
+    #[arg(short = 't', long, value_enum)]
+    pub target: Option<SetupTarget>,
 
-    /// API key
+    /// API key (non-interactive). Overrides the global --api-key / ACTIONBOOK_API_KEY.
     #[arg(long)]
     pub api_key: Option<String>,
 
@@ -28,20 +31,30 @@ pub struct Cmd {
     #[arg(long)]
     pub browser: Option<String>,
 
-    /// Non-interactive mode
+    /// Skip all interactive prompts. Requires that every value be resolvable
+    /// from flags, env vars, or an existing config.
     #[arg(long)]
     pub non_interactive: bool,
 
-    /// Reset configuration
+    /// Reset existing configuration and start fresh
     #[arg(long)]
     pub reset: bool,
 }
 
-const TOTAL_STEPS: u8 = 4;
+const TOTAL_STEPS: u8 = 5;
 
 /// Run the setup wizard. Orchestrates all steps in order.
+///
+/// Quick mode: if `--target` is set, the full wizard is skipped and only
+/// `npx skills add` runs for the specified agent. This matches the CI /
+/// non-interactive "one-shot install" path from the previous CLI.
 pub async fn execute(cmd: &Cmd, json: bool) -> Result<(), CliError> {
     let non_interactive = cmd.non_interactive || json;
+
+    // Quick mode: --target only → install skills for that target and exit.
+    if let Some(target) = cmd.target {
+        return run_target_only(json, target);
+    }
 
     // Handle existing config (re-run protection)
     let mut config = handle_existing_config(json, non_interactive, cmd.reset)?;
@@ -125,11 +138,86 @@ pub async fn execute(cmd: &Cmd, json: bool) -> Result<(), CliError> {
         println!("  - Configuration saved to {}", path.display());
     }
 
-    // TODO: Step 5: Health check (API connectivity) — requires ApiClient
-    // TODO: Step 6: Install Skills — requires SetupTarget + npx skills integration
+    // TODO: Health check (API connectivity) — requires ApiClient
+
+    // Step 5: Install Skills
+    if !json {
+        print_step_connector();
+        print_step_header(5, "Skills");
+    }
+    let skills_result = skills::install_skills(json, &env, non_interactive)?;
 
     // Completion summary
-    print_completion(json, &config);
+    print_completion(json, &config, &skills_result);
+
+    // Propagate skills failure so non-interactive / CI callers see a non-zero exit.
+    if skills_result.action == SkillsAction::Failed {
+        return Err(CliError::Internal(
+            "Skills installation failed.".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Quick mode: only install skills for the given target via `npx skills add`.
+/// Used by `actionbook setup --target <agent>` for one-shot CI / bootstrap runs.
+fn run_target_only(json: bool, target: SetupTarget) -> Result<(), CliError> {
+    // Standalone = CLI only, no agent integration.
+    if target == SetupTarget::Standalone {
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "command": "setup",
+                    "mode": "target_only",
+                    "target": "Standalone CLI",
+                    "action": "skipped",
+                    "reason": "no_agent_integration_needed",
+                })
+            );
+        } else {
+            println!();
+            println!("  - Standalone CLI requires no skills integration.");
+            println!("     Run `actionbook setup` to configure the CLI.");
+            println!();
+        }
+        return Ok(());
+    }
+
+    if !json {
+        println!();
+        println!(
+            "  +  Installing skills for {}",
+            skills::target_display_name(&target)
+        );
+        println!("  |");
+    }
+
+    let result = skills::install_skills_for_target(json, &target)?;
+
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "command": "setup",
+                "mode": "target_only",
+                "target": skills::target_display_name(&target),
+                "npx_available": result.npx_available,
+                "action": format!("{}", result.action),
+                "skills_command": result.command,
+            })
+        );
+    } else if result.action == SkillsAction::Installed {
+        println!("  +  Done!");
+        println!();
+    }
+
+    if result.action == SkillsAction::Failed {
+        return Err(CliError::Internal(
+            "Skills installation failed.".to_string(),
+        ));
+    }
 
     Ok(())
 }
@@ -272,7 +360,7 @@ fn print_welcome() {
 }
 
 /// Print the completion summary with next steps.
-fn print_completion(json: bool, config: &ConfigFile) {
+fn print_completion(json: bool, config: &ConfigFile, skills_result: &SkillsResult) {
     if json {
         println!(
             "{}",
@@ -291,13 +379,22 @@ fn print_completion(json: bool, config: &ConfigFile) {
                     Mode::Extension => "extension (bridge)",
                 },
                 "headless": config.browser.headless,
+                "skills": {
+                    "npx_available": skills_result.npx_available,
+                    "action": format!("{}", skills_result.action),
+                    "command": skills_result.command,
+                },
             })
         );
         return;
     }
 
     println!("  |");
-    println!("  +  Setup completed.");
+    match skills_result.action {
+        SkillsAction::Installed => println!("  +  Actionbook is ready!"),
+        SkillsAction::Failed => println!("  +  Setup completed with errors."),
+        SkillsAction::Skipped | SkillsAction::Prompted => println!("  +  Setup completed."),
+    }
 
     // Configuration recap
     let api_display = config
