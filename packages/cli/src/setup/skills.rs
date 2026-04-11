@@ -45,7 +45,8 @@ pub fn target_to_agent_flag(target: &SetupTarget) -> Option<&'static str> {
         SetupTarget::Windsurf => Some("windsurf"),
         SetupTarget::Antigravity => Some("antigravity"),
         SetupTarget::Opencode => Some("opencode"),
-        SetupTarget::Standalone | SetupTarget::All => None,
+        SetupTarget::Standalone => None,
+        SetupTarget::All => Some("*"),
     }
 }
 
@@ -91,7 +92,11 @@ fn format_skills_command(target: Option<&SetupTarget>) -> String {
     if let Some(t) = target
         && let Some(agent) = target_to_agent_flag(t)
     {
-        cmd.push_str(&format!(" -a {}", agent));
+        if agent == "*" {
+            cmd.push_str(" -a '*'");
+        } else {
+            cmd.push_str(&format!(" -a {}", agent));
+        }
     }
     cmd
 }
@@ -369,7 +374,7 @@ mod tests {
             Some("opencode")
         );
         assert_eq!(target_to_agent_flag(&SetupTarget::Standalone), None);
-        assert_eq!(target_to_agent_flag(&SetupTarget::All), None);
+        assert_eq!(target_to_agent_flag(&SetupTarget::All), Some("*"));
     }
 
     #[test]
@@ -417,7 +422,7 @@ mod tests {
     #[test]
     fn build_skills_command_all_target_omits_agent_flag() {
         let args = build_skills_command(Some(&SetupTarget::All), true);
-        assert_eq!(args, vec!["skills", "add", SKILLS_PACKAGE, "-y"]);
+        assert_eq!(args, vec!["skills", "add", SKILLS_PACKAGE, "-a", "*", "-y"]);
     }
 
     #[test]
@@ -433,6 +438,12 @@ mod tests {
             cmd,
             format!("npx skills add {} -a claude-code", SKILLS_PACKAGE)
         );
+    }
+
+    #[test]
+    fn format_skills_command_with_all_target_quotes_star_agent() {
+        let cmd = format_skills_command(Some(&SetupTarget::All));
+        assert_eq!(cmd, format!("npx skills add {} -a '*'", SKILLS_PACKAGE));
     }
 
     #[test]
