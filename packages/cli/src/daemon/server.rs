@@ -35,6 +35,12 @@ pub fn pid_path() -> PathBuf {
     socket_path().with_extension("pid")
 }
 
+/// Port file path (Windows IPC): stores the TCP port the daemon is listening on.
+/// On Unix this file is never written; it is only used when `cfg(windows)`.
+pub fn port_path() -> PathBuf {
+    socket_path().with_extension("port")
+}
+
 /// Version file path (same directory as socket).
 pub fn version_path() -> PathBuf {
     socket_path().with_extension("version")
@@ -415,6 +421,77 @@ async fn handle_connection(
 }
 
 // ─── Unit Tests ──────────────────────────────────────────────────────
+
+/// Windows-specific unit tests.
+///
+/// These tests reference `port_path()` and Windows-only behaviour.
+/// They fail to compile on Windows until the implementation commit adds those
+/// functions — satisfying the TDD "red" gate on the Windows CI runner.
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    #[test]
+    fn test_port_path_ends_with_daemon_port() {
+        let path = port_path();
+        assert!(
+            path.to_string_lossy().ends_with("daemon.port"),
+            "port_path() should end with 'daemon.port', got: {}",
+            path.display()
+        );
+    }
+
+    #[test]
+    fn test_is_daemon_running_returns_false_when_no_port_file() {
+        // Point ACTIONBOOK_HOME at an empty temp dir so there is no port file.
+        let tmp = tempfile::tempdir().unwrap();
+        // SAFETY: single-threaded test; no other thread reads ACTIONBOOK_HOME concurrently.
+        unsafe {
+            std::env::set_var("ACTIONBOOK_HOME", tmp.path().to_str().unwrap());
+        }
+        let result = is_daemon_running();
+        unsafe {
+            std::env::remove_var("ACTIONBOOK_HOME");
+        }
+        assert!(!result, "is_daemon_running() must return false when daemon.port is absent");
+    }
+
+    #[test]
+    fn test_send_sigterm_returns_false_for_nonexistent_pid() {
+        // A very large PID that is almost certainly not a real process.
+        // taskkill /F /PID <nonexistent> exits with non-zero → send_sigterm returns false.
+        assert!(
+            !send_sigterm(i32::MAX),
+            "send_sigterm() on a nonexistent PID should return false"
+        );
+    }
+
+    #[test]
+    fn test_is_pid_alive_returns_false_when_daemon_not_running() {
+        let tmp = tempfile::tempdir().unwrap();
+        // SAFETY: single-threaded test; no other thread reads ACTIONBOOK_HOME concurrently.
+        unsafe {
+            std::env::set_var("ACTIONBOOK_HOME", tmp.path().to_str().unwrap());
+        }
+        let result = is_pid_alive(0);
+        unsafe {
+            std::env::remove_var("ACTIONBOOK_HOME");
+        }
+        assert!(
+            !result,
+            "is_pid_alive() should return false when no daemon TCP port is connectable"
+        );
+    }
+
+    // parse_idle_timeout is cross-platform; run on Windows too.
+    #[test]
+    fn test_parse_idle_timeout_default_windows() {
+        assert_eq!(
+            parse_idle_timeout(None),
+            Some(std::time::Duration::from_secs(DEFAULT_IDLE_TIMEOUT_SECS))
+        );
+    }
+}
 
 #[cfg(all(test, unix))]
 mod tests {

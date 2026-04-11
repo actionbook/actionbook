@@ -556,4 +556,44 @@ profile_name = "actionbook"
             "no backup should be created for current config"
         );
     }
+
+    /// Verify that `actionbook_home()` falls back to USERPROFILE when HOME is not set.
+    /// This is the Windows home directory convention.
+    /// Before the Windows fix this test fails (returns /tmp/.actionbook instead).
+    #[test]
+    fn test_actionbook_home_uses_userprofile_when_home_unset() {
+        let old_home = std::env::var("HOME").ok();
+        let old_userprofile = std::env::var("USERPROFILE").ok();
+        let old_ab_home = std::env::var("ACTIONBOOK_HOME").ok();
+
+        // SAFETY: single-threaded test; no other thread reads these env vars concurrently.
+        unsafe {
+            // Remove ACTIONBOOK_HOME override so we exercise the HOME/USERPROFILE path
+            std::env::remove_var("ACTIONBOOK_HOME");
+            std::env::remove_var("HOME");
+            std::env::set_var("USERPROFILE", "/test-user-profile");
+        }
+
+        let home = actionbook_home();
+
+        // Restore env vars before asserting so a test failure doesn't leave them dirty
+        unsafe {
+            std::env::remove_var("USERPROFILE");
+            if let Some(h) = old_home {
+                std::env::set_var("HOME", h);
+            }
+            if let Some(up) = old_userprofile {
+                std::env::set_var("USERPROFILE", up);
+            }
+            if let Some(abh) = old_ab_home {
+                std::env::set_var("ACTIONBOOK_HOME", abh);
+            }
+        }
+
+        assert_eq!(
+            home,
+            std::path::PathBuf::from("/test-user-profile/.actionbook"),
+            "should use USERPROFILE when HOME is not set"
+        );
+    }
 }
