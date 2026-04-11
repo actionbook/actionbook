@@ -213,13 +213,38 @@ fn run_target_only(json: bool, target: SetupTarget) -> Result<(), CliError> {
         println!();
     }
 
-    if result.action == SkillsAction::Failed {
-        return Err(CliError::Internal(
-            "Skills installation failed.".to_string(),
-        ));
-    }
+    target_only_exit_status(&result, &target)
+}
 
-    Ok(())
+/// Decide the exit status of `run_target_only` based on the skills outcome.
+///
+/// Quick mode is an explicit "install for this agent now" request, so any
+/// outcome other than `Installed` must surface as an error. This differs from
+/// the full-wizard Skills step, which treats `Prompted` (npx missing) as a
+/// soft prompt — there the user can still complete setup by hand. In quick
+/// mode the user's entire intent was to install; there's no other work to do.
+fn target_only_exit_status(
+    result: &skills::SkillsResult,
+    target: &SetupTarget,
+) -> Result<(), CliError> {
+    match result.action {
+        SkillsAction::Installed => Ok(()),
+        SkillsAction::Failed => Err(CliError::Internal(format!(
+            "Skills installation failed for {}.",
+            skills::target_display_name(target)
+        ))),
+        SkillsAction::Prompted => Err(CliError::Internal(format!(
+            "Skills installation skipped for {}: npx is not available. \
+             Install Node.js (https://nodejs.org) and re-run, or run \
+             `{}` manually.",
+            skills::target_display_name(target),
+            result.command,
+        ))),
+        SkillsAction::Skipped => Err(CliError::Internal(format!(
+            "Skills installation skipped for {}.",
+            skills::target_display_name(target)
+        ))),
+    }
 }
 
 /// Print a step header, e.g. `◆  Environment`
@@ -478,6 +503,50 @@ fn shorten_browser_path(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn make_skills_result(action: SkillsAction) -> skills::SkillsResult {
+        skills::SkillsResult {
+            npx_available: action != SkillsAction::Prompted,
+            action,
+            command: "npx skills add actionbook/actionbook -a claude-code".to_string(),
+        }
+    }
+
+    #[test]
+    fn target_only_installed_returns_ok() {
+        let result = make_skills_result(SkillsAction::Installed);
+        assert!(target_only_exit_status(&result, &SetupTarget::Claude).is_ok());
+    }
+
+    #[test]
+    fn target_only_failed_returns_err() {
+        let result = make_skills_result(SkillsAction::Failed);
+        let err = target_only_exit_status(&result, &SetupTarget::Claude)
+            .expect_err("failed must propagate");
+        assert!(err.to_string().contains("Claude Code"));
+    }
+
+    #[test]
+    fn target_only_prompted_returns_err_when_npx_missing() {
+        // P1 regression guard: quick mode must not silently succeed when
+        // npx is unavailable. `install_skills_for_target` returns Prompted
+        // in that case, and CI bootstrap relying on `--target` needs a
+        // non-zero exit to notice the missing prereq.
+        let result = make_skills_result(SkillsAction::Prompted);
+        let err = target_only_exit_status(&result, &SetupTarget::Codex)
+            .expect_err("prompted must propagate in quick mode");
+        assert!(err.to_string().contains("npx is not available"));
+        assert!(err.to_string().contains("Codex"));
+    }
+
+    #[test]
+    fn target_only_skipped_returns_err() {
+        // Skipped shouldn't happen in quick mode (auto_confirm=true is passed
+        // to run_npx_skills), but if it ever surfaces, quick mode must still
+        // fail loudly rather than silently exit 0.
+        let result = make_skills_result(SkillsAction::Skipped);
+        assert!(target_only_exit_status(&result, &SetupTarget::Cursor).is_err());
+    }
 
     #[test]
     fn parse_browser_flag_accepts_supported_values() {

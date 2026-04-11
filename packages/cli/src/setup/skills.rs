@@ -251,15 +251,24 @@ fn run_npx_skills(
         println!("  |");
     }
 
+    // In JSON mode discard subprocess output entirely (Stdio::null) to keep
+    // stdout a clean JSON stream. Piping + waiting via .status() would risk a
+    // deadlock when `npx skills add` exceeds the ~16KB pipe buffer (the
+    // "Installation Summary" block alone can exceed it). Using Stdio::null
+    // side-steps the issue without needing to drain buffers.
     let (stdout_cfg, stderr_cfg) = if json {
-        (Stdio::piped(), Stdio::piped())
+        (Stdio::null(), Stdio::null())
     } else {
         (Stdio::inherit(), Stdio::inherit())
     };
 
     let status = Command::new("npx")
         .args(&args)
-        .stdin(Stdio::inherit())
+        .stdin(if json {
+            Stdio::null()
+        } else {
+            Stdio::inherit()
+        })
         .stdout(stdout_cfg)
         .stderr(stderr_cfg)
         .status();
