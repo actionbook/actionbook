@@ -310,7 +310,7 @@ Usage: actionbook <command> [options]
 
 Commands:
   browser    Control browser sessions, tabs, and page interactions
-  setup      Configure actionbook
+  setup      Configure actionbook (or --target <agent> for quick skills install)
   help       Show this help
   --version  Show version
 
@@ -385,6 +385,10 @@ Logs:
   logs console        --session --tab  Get console logs
   logs errors         --session --tab  Get error logs (exceptions + rejections)
 
+Network:
+  network requests    --session --tab  List tracked network requests
+  network request <id>  --session --tab  Get detail for a single request (incl. body)
+
 Wait:
   wait element <selector>  --session --tab  Wait for element to appear
   wait navigation          --session --tab  Wait for navigation to complete
@@ -419,6 +423,11 @@ Interaction:
   mouse-move <x,y>       --session --tab  Move mouse to coordinates
   cursor-position         --session --tab  Get current cursor position
   scroll <direction|edge|into-view>  --session --tab  Scroll page or container
+
+Batch:
+  batch-new-tab --urls <url...>  --session  Open multiple tabs (alias: batch-open)
+  batch-snapshot --tabs <tab...>  --session  Snapshot multiple tabs
+  batch-click <sel...>  --session --tab  Click multiple elements sequentially
 
 Global flags (apply to all subcommands):
   --json          Output as JSON envelope
