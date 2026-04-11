@@ -26,7 +26,23 @@ Examples:
   actionbook browser start --session research --open-url https://google.com
   actionbook browser start --headless --profile scraper
   actionbook browser start --mode cloud --cdp-endpoint wss://browser.example.com/ws
-  actionbook browser start -p hyperbrowser
+
+Cloud providers (-p / --provider):
+  driver          requires DRIVER_DEV_API_KEY (or DRIVER_API_KEY)   # driver.dev
+  hyperbrowser    requires HYPERBROWSER_API_KEY                     # hyperbrowser.ai
+  browseruse      requires BROWSER_USE_API_KEY                      # browser-use.com
+
+  -p <name> implies --mode cloud and is mutually exclusive with
+  --cdp-endpoint and --mode local/extension. The daemon reads each
+  provider's env vars from the CLI caller's shell, not its own
+  process env. Each provider also reads optional tuning vars
+  (profile, proxy, country, window size, ...) — see docs.
+
+Provider examples:
+  export HYPERBROWSER_API_KEY=...
+  actionbook browser start -p hyperbrowser --session s1
+  actionbook browser start -p driver --open-url https://example.com
+  actionbook browser restart --session s1    # provider sessions: mints a fresh remote
 
 --session: get-or-create — reuses an existing session with the given ID, or creates one if not found.
 --set-session-id: always creates — fails if the ID is already in use.
@@ -51,8 +67,15 @@ pub struct Cmd {
     /// Connect to existing CDP endpoint
     #[arg(long)]
     pub cdp_endpoint: Option<String>,
-    /// Launch a provider-managed cloud browser session
-    #[arg(short = 'p', long)]
+    /// Cloud browser provider (implies --mode cloud).
+    ///
+    /// `-p <name>` is mutually exclusive with `--cdp-endpoint` and
+    /// `--mode local/extension`. Each provider reads its own
+    /// `<PROVIDER>_API_KEY` from the CLI caller's shell env — the
+    /// daemon's env was frozen at spawn time and is not consulted.
+    /// Sessions are stateful: `browser restart --session <id>` mints
+    /// a fresh remote session and preserves the session_id.
+    #[arg(short = 'p', long, value_parser = provider_value_parser())]
     pub provider: Option<String>,
     /// Headers for CDP endpoint (KEY:VALUE), may be repeated
     #[arg(long)]
@@ -81,6 +104,29 @@ pub struct Cmd {
 
 fn default_stealth() -> bool {
     true
+}
+
+/// clap value parser for `-p / --provider`.
+///
+/// Using `PossibleValuesParser` (rather than a `ValueEnum`) keeps the
+/// `Cmd.provider` field as `Option<String>`, so config/env merging in
+/// `resolve_start_command` can stay on untyped strings. The per-value
+/// `help` text is what gives agents a single-pass, self-contained
+/// `--help` output: they see the allowed names *and* the required
+/// auth env var in the same line. The alias on `browseruse` preserves
+/// the historical `browser-use` spelling; `normalize_provider_name`
+/// re-normalizes it at `execute()` time so the daemon-side IPC path
+/// keeps the same validation as the CLI-side one.
+fn provider_value_parser() -> clap::builder::PossibleValuesParser {
+    use clap::builder::PossibleValue;
+    clap::builder::PossibleValuesParser::new([
+        PossibleValue::new("driver")
+            .help("driver.dev — requires DRIVER_DEV_API_KEY (or DRIVER_API_KEY)"),
+        PossibleValue::new("hyperbrowser").help("hyperbrowser.ai — requires HYPERBROWSER_API_KEY"),
+        PossibleValue::new("browseruse")
+            .aliases(["browser-use"])
+            .help("browser-use.com — requires BROWSER_USE_API_KEY"),
+    ])
 }
 
 pub const COMMAND_NAME: &str = "browser start";
