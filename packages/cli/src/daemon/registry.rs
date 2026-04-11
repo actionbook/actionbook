@@ -671,18 +671,36 @@ mod tests {
     fn drop_session_entry_kills_chrome_process() {
         use std::process::Command;
 
+        // Spawn a long-lived process (cross-platform).
+        #[cfg(unix)]
         let child = Command::new("sleep")
             .arg("3600")
             .spawn()
             .expect("spawn sleep");
+        #[cfg(windows)]
+        let child = Command::new("ping")
+            .args(["-n", "3600", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn ping");
+
         let pid = child.id();
 
-        // Verify process is alive
+        // Verify process is alive.
+        #[cfg(unix)]
         assert!(
             Command::new("kill")
                 .args(["-0", &pid.to_string()])
                 .output()
                 .is_ok_and(|o| o.status.success()),
+            "process should be alive before drop"
+        );
+        #[cfg(windows)]
+        assert!(
+            Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+                .output()
+                .is_ok_and(|o| { String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()) }),
             "process should be alive before drop"
         );
 
@@ -699,11 +717,21 @@ mod tests {
             // entry is dropped here
         }
 
-        // After drop, the process must be dead
+        // Give kill a moment to take effect on Windows.
+        #[cfg(windows)]
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
+        // After drop, the process must be dead.
+        #[cfg(unix)]
         let alive = Command::new("kill")
             .args(["-0", &pid.to_string()])
             .output()
             .is_ok_and(|o| o.status.success());
+        #[cfg(windows)]
+        let alive = Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+            .output()
+            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()));
         assert!(
             !alive,
             "Chrome process should be killed when SessionEntry is dropped"
