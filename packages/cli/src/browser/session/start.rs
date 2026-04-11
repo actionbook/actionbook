@@ -1268,10 +1268,8 @@ fn read_json_or_default(path: &std::path::Path) -> Result<serde_json::Value, Str
 
 fn write_json(path: &std::path::Path, value: &serde_json::Value) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
     }
-    let content = serde_json::to_string_pretty(value)
-        .map_err(|e| format!("serialize: {e}"))?;
+    let content = serde_json::to_string_pretty(value).map_err(|e| format!("serialize: {e}"))?;
     std::fs::write(path, content).map_err(|e| format!("write {}: {e}", path.display()))
 }
