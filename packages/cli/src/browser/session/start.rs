@@ -1187,9 +1187,6 @@ pub fn redact_endpoint(endpoint: &str) -> String {
     endpoint.to_string()
 }
 
-/// Chrome's default profile name when no custom name has been set.
-const DEFAULT_CHROME_PROFILE_NAME: &str = "Your Chrome";
-
 /// Set the profile display name in Chrome's Local State and Preferences files
 /// so the "actionbook" profile shows its name in Chrome's profile picker.
 /// Preserves any user-customized name.
@@ -1241,20 +1238,29 @@ fn ensure_profile_display_name(user_data_dir: &std::path::Path) -> Result<(), St
 
 fn has_custom_profile_name(
     local_state: &serde_json::Value,
-    preferences: &serde_json::Value,
+    _preferences: &serde_json::Value,
 ) -> bool {
-    let names = [
-        local_state
-            .pointer("/profile/info_cache/Default/name")
-            .and_then(|v| v.as_str()),
-        preferences
-            .pointer("/profile/name")
-            .and_then(|v| v.as_str()),
-    ];
-    names.iter().flatten().any(|name| {
-        let n = name.trim();
-        !n.is_empty() && n != DEFAULT_PROFILE && n != DEFAULT_CHROME_PROFILE_NAME
-    })
+    // Use Chrome's `is_using_default_name` flag instead of comparing against a
+    // hardcoded English default like "Your Chrome".  This handles all locales
+    // (e.g. "Ihr Chrome" in German) and Chromium-branded builds.
+    let is_using_default = local_state
+        .pointer("/profile/info_cache/Default/is_using_default_name")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true); // absent → fresh profile → treat as default
+
+    if is_using_default {
+        return false;
+    }
+
+    // `is_using_default_name` is false — either the user customized the name,
+    // or we previously wrote "actionbook" (which also sets it to false).
+    // Only treat it as custom if the name differs from ours.
+    let name = local_state
+        .pointer("/profile/info_cache/Default/name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    !name.is_empty() && name != DEFAULT_PROFILE
 }
 
 fn read_json_or_default(path: &std::path::Path) -> Result<serde_json::Value, String> {
