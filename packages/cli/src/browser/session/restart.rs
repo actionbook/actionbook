@@ -84,7 +84,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         profile = entry.profile.clone();
         // The registry's tab.url is captured at session-launch time and only
         // refreshed by `list-tabs`. After a `goto`, the in-memory copy is
-        // stale. Worse, some cloud providers (driver.dev) launch with a
+        // stale. Worse, some cloud providers (driver) launch with a
         // `data:text/html,<title>...` watermark page that the L3 security
         // check rejects on re-navigation. So:
         //   - If the saved URL is a dangerous scheme (`data:`, `javascript:`),
@@ -128,14 +128,21 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     if let Some(child) = chrome_process {
         crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
     }
-    // Stateful providers (Hyperbrowser, Browserless, driver.dev) hand back a
-    // session descriptor whose lifetime is bound to the remote control plane —
-    // tearing it down here is mandatory before we mint a fresh one. Stateless
-    // providers (browseruse) embed credentials in the WSS URL itself and have
-    // no per-session handle to release.
+    // Provider-managed cloud sessions hand back a session descriptor whose
+    // lifetime is bound to the remote control plane. Tear it down here before
+    // minting a fresh one. The only remaining stateless path is an explicit
+    // Browser Use WS override, which has no provider session handle to release.
     let had_provider_session = provider_session.is_some();
     if let Some(provider_session) = provider_session {
-        crate::browser::session::provider::close_provider_session(&provider_session).await;
+        if let Err(err) =
+            crate::browser::session::provider::close_provider_session(&provider_session).await
+        {
+            tracing::warn!(
+                "failed to close provider session '{}' for provider '{}' during restart: {err}",
+                provider_session.session_id,
+                provider_session.provider
+            );
+        }
     }
 
     // Restart credential-reuse policy:
@@ -204,7 +211,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let result = super::start::execute(&start_cmd, registry).await;
 
     // Re-apply the provider tag for stateless reuse, so the restarted entry
-    // still reports `provider=driver.dev` (etc) and so subsequent
+    // still reports `provider=driver` (etc) and so subsequent
     // `find_cloud_session_by_provider` lookups continue to match.
     if let Some(provider_tag) = preserved_provider_tag
         && let ActionResult::Ok { ref data } = result

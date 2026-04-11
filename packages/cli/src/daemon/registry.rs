@@ -6,7 +6,7 @@ use tokio::sync::Mutex;
 
 use crate::action_result::ActionResult;
 use crate::browser::observation::snapshot_transform::RefCache;
-use crate::browser::session::provider::ProviderSession;
+use crate::browser::session::provider::{ProviderSession, normalize_provider_name};
 use crate::daemon::bridge::SharedBridgeState;
 use crate::daemon::cdp_session::CdpSession;
 use crate::error::CliError;
@@ -217,10 +217,15 @@ impl SessionRegistry {
         provider: &str,
         profile: &str,
     ) -> Option<&SessionEntry> {
+        let normalized = normalize_provider_name(provider).unwrap_or(provider);
         self.sessions.values().find(|entry| {
             entry.mode == Mode::Cloud
                 && entry.status.is_active()
-                && entry.provider.as_deref() == Some(provider)
+                && entry
+                    .provider
+                    .as_deref()
+                    .unwrap_or_default()
+                    == normalized
                 && entry.profile == profile
         })
     }

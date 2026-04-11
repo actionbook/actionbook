@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use reqwest::header::CONTENT_LENGTH;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -9,8 +10,7 @@ use uuid::Uuid;
 use crate::error::CliError;
 
 const HYPERBROWSER_API_BASE: &str = "https://api.hyperbrowser.ai";
-const BROWSERLESS_API_BASE: &str = "https://production-sfo.browserless.io";
-const BROWSER_USE_WS_BASE: &str = "wss://connect.browser-use.com";
+const BROWSER_USE_API_BASE: &str = "https://api.browser-use.com/api/v3";
 // driver.dev is a stateful provider: POST /v1/browser/session mints a session
 // and returns a per-session distributed cdpUrl (e.g. wss://do-ric1-1.lex-milan.driver.dev/...).
 // We never connect directly to driver.dev/cdp; the URL is always the one the
@@ -36,7 +36,6 @@ pub const PROVIDER_ENV_PREFIXES: &[&str] = &[
     "DRIVER_",
     "HYPERBROWSER_",
     "BROWSER_USE_",
-    "BROWSERLESS_",
 ];
 
 /// Collect every env var on the current process whose name starts with one of
@@ -112,23 +111,22 @@ pub struct ProviderConnection {
 
 pub fn normalize_provider_name(raw: &str) -> Option<&'static str> {
     match raw.trim().to_ascii_lowercase().as_str() {
-        "driver" | "driver.dev" => Some("driver.dev"),
+        "driver" => Some("driver"),
         "hyperbrowser" => Some("hyperbrowser"),
         "browseruse" | "browser-use" => Some("browseruse"),
-        "browserless" => Some("browserless"),
         _ => None,
     }
 }
 
 pub fn supported_providers() -> &'static str {
-    "driver.dev, hyperbrowser, browseruse, browserless"
+    "driver, hyperbrowser, browseruse"
 }
 
 pub async fn connect_provider(
     provider_name: &str,
     profile_name: &str,
     _headless: bool,
-    stealth: bool,
+    _stealth: bool,
     env: &ProviderEnv,
 ) -> Result<ProviderConnection, CliError> {
     let provider = normalize_provider_name(provider_name).ok_or_else(|| {
@@ -139,10 +137,9 @@ pub async fn connect_provider(
     })?;
 
     let mut connection = match provider {
-        "driver.dev" => connect_driver_dev(profile_name, env).await?,
+        "driver" => connect_driver_dev(profile_name, env).await?,
         "hyperbrowser" => connect_hyperbrowser(profile_name, env).await?,
         "browseruse" => connect_browser_use(profile_name, env).await?,
-        "browserless" => connect_browserless(stealth, env).await?,
         _ => {
             return Err(CliError::InvalidArgument(format!(
                 "unknown provider '{provider_name}'. Supported providers: {}",
@@ -160,7 +157,7 @@ pub async fn connect_provider(
     Ok(connection)
 }
 
-pub async fn close_provider_session(session: &ProviderSession) {
+pub async fn close_provider_session(session: &ProviderSession) -> Result<(), CliError> {
     // Use a short, bounded timeout for cleanup so a hung provider API can't
     // block daemon shutdown or session restarts.
     let client = match reqwest::Client::builder()
@@ -169,37 +166,37 @@ pub async fn close_provider_session(session: &ProviderSession) {
         .build()
     {
         Ok(c) => c,
-        Err(err) => {
-            tracing::warn!(
-                "failed to build cleanup client for provider '{}': {err}",
-                session.provider
-            );
-            return;
-        }
+        Err(err) => return Err(CliError::from(err)),
     };
     let env = &session.provider_env;
     match session.provider.as_str() {
         "hyperbrowser" => {
-            if let Some(api_key) = read_trimmed_env(env, "HYPERBROWSER_API_KEY") {
-                let api_base = read_trimmed_env(env, "HYPERBROWSER_API_URL")
-                    .unwrap_or_else(|| HYPERBROWSER_API_BASE.to_string());
-                let _ = client
-                    .put(format!(
-                        "{}/api/session/{}/stop",
-                        api_base.trim_end_matches('/'),
-                        session.session_id
-                    ))
-                    .header("x-api-key", api_key)
-                    .send()
-                    .await;
-            } else {
-                tracing::warn!(
-                    "hyperbrowser cleanup skipped for session '{}': no API key in stored env",
+            let api_key = read_required_env(env, "HYPERBROWSER_API_KEY")?;
+            let api_base = read_trimmed_env(env, "HYPERBROWSER_API_URL")
+                .unwrap_or_else(|| HYPERBROWSER_API_BASE.to_string());
+            let response = client
+                .put(format!(
+                    "{}/api/session/{}/stop",
+                    api_base.trim_end_matches('/'),
                     session.session_id
-                );
+                ))
+                .header("x-api-key", api_key)
+                // Hyperbrowser's edge rejects empty stop requests unless the
+                // client sends an explicit zero-length Content-Length header.
+                .header(CONTENT_LENGTH, "0")
+                .send()
+                .await?;
+            let status = response.status();
+            let response_text = response.text().await?;
+            if !status.is_success() {
+                return Err(map_provider_http_status(
+                    "Hyperbrowser",
+                    status,
+                    &response_text,
+                ));
             }
         }
-        "driver.dev" => {
+        "driver" => {
             // driver.dev sessions auto-stop after 1h, but we explicitly DELETE
             // them to release billing immediately. The session_id is the same
             // opaque string returned by POST /v1/browser/session, passed back
@@ -208,7 +205,7 @@ pub async fn close_provider_session(session: &ProviderSession) {
                 Ok(api_key) => {
                     let api_base = read_trimmed_env(env, "DRIVER_DEV_API_URL")
                         .unwrap_or_else(|| DRIVER_DEV_API_BASE.to_string());
-                    let _ = client
+                    let response = client
                         .delete(format!(
                             "{}/v1/browser/session",
                             api_base.trim_end_matches('/')
@@ -216,22 +213,51 @@ pub async fn close_provider_session(session: &ProviderSession) {
                         .query(&[("sessionId", session.session_id.as_str())])
                         .header("Authorization", format!("Bearer {api_key}"))
                         .send()
-                        .await;
+                        .await?;
+                    let status = response.status();
+                    let response_text = response.text().await?;
+                    if !status.is_success() {
+                        if is_driver_dev_auth_failure(&response_text) {
+                            return Err(CliError::ApiUnauthorized(format!(
+                                "driver rejected credentials ({}): {}",
+                                status.as_u16(),
+                                response_text.chars().take(512).collect::<String>()
+                            )));
+                        }
+                        return Err(map_provider_http_status("driver", status, &response_text));
+                    }
                 }
-                Err(_) => {
-                    tracing::warn!(
-                        "driver.dev cleanup skipped for session '{}': no API key in stored env",
-                        session.session_id
-                    );
-                }
+                Err(err) => return Err(err),
             }
         }
-        "browserless" => {
-            // Browserless returns a stop URL; store it directly as the cleanup handle.
-            let _ = client.delete(&session.session_id).send().await;
+        "browseruse" => {
+            let api_key = read_required_env(env, "BROWSER_USE_API_KEY")?;
+            let api_base = read_trimmed_env(env, "BROWSER_USE_API_URL")
+                .unwrap_or_else(|| BROWSER_USE_API_BASE.to_string());
+            let response = client
+                .patch(format!(
+                    "{}/browsers/{}",
+                    api_base.trim_end_matches('/'),
+                    session.session_id
+                ))
+                .header("X-Browser-Use-API-Key", api_key)
+                .header("Content-Type", "application/json")
+                .json(&json!({ "action": "stop" }))
+                .send()
+                .await?;
+            let status = response.status();
+            let response_text = response.text().await?;
+            if !status.is_success() {
+                return Err(map_provider_http_status(
+                    "Browser Use",
+                    status,
+                    &response_text,
+                ));
+            }
         }
         _ => {}
     }
+    Ok(())
 }
 
 /// driver.dev returns HTTP 500 (instead of 401) with bodies like
@@ -274,7 +300,7 @@ async fn connect_driver_dev(
         .or_else(|| read_trimmed_env(env, "DRIVER_DEV_CDP_ENDPOINT"))
     {
         return Ok(ProviderConnection {
-            provider: "driver.dev".to_string(),
+            provider: "driver".to_string(),
             cdp_endpoint: ws_url,
             headers: Vec::new(),
             session: None,
@@ -336,16 +362,12 @@ async fn connect_driver_dev(
         // transient failure.
         if is_driver_dev_auth_failure(&response_text) {
             return Err(CliError::ApiUnauthorized(format!(
-                "driver.dev rejected credentials ({}): {}",
+                "driver rejected credentials ({}): {}",
                 status.as_u16(),
                 response_text.chars().take(512).collect::<String>()
             )));
         }
-        return Err(map_provider_http_status(
-            "driver.dev",
-            status,
-            &response_text,
-        ));
+        return Err(map_provider_http_status("driver", status, &response_text));
     }
 
     let data: Value = serde_json::from_str(&response_text)?;
@@ -353,25 +375,23 @@ async fn connect_driver_dev(
         .get("sessionId")
         .and_then(Value::as_str)
         .ok_or_else(|| {
-            CliError::ApiError(format!(
-                "driver.dev API response missing sessionId: {data}"
-            ))
+            CliError::ApiError(format!("driver API response missing sessionId: {data}"))
         })?
         .to_string();
     let cdp_endpoint = data
         .get("cdpUrl")
         .and_then(Value::as_str)
         .ok_or_else(|| {
-            CliError::ApiError(format!("driver.dev API response missing cdpUrl: {data}"))
+            CliError::ApiError(format!("driver API response missing cdpUrl: {data}"))
         })?
         .to_string();
 
     Ok(ProviderConnection {
-        provider: "driver.dev".to_string(),
+        provider: "driver".to_string(),
         cdp_endpoint,
         headers: Vec::new(),
         session: Some(ProviderSession {
-            provider: "driver.dev".to_string(),
+            provider: "driver".to_string(),
             session_id,
             // provider_env is filled in by connect_provider() so close/restart
             // can talk to api.driver.dev later even when the calling shell
@@ -458,67 +478,46 @@ async fn connect_browser_use(
     profile_name: &str,
     env: &ProviderEnv,
 ) -> Result<ProviderConnection, CliError> {
-    let api_key = read_required_env(env, "BROWSER_USE_API_KEY")?;
-    let base = read_trimmed_env(env, "BROWSER_USE_WS_URL")
-        .unwrap_or_else(|| BROWSER_USE_WS_BASE.to_string());
+    if let Some(ws_url) = read_trimmed_env(env, "BROWSER_USE_WS_URL") {
+        return Ok(ProviderConnection {
+            provider: "browseruse".to_string(),
+            cdp_endpoint: ws_url,
+            headers: Vec::new(),
+            session: None,
+        });
+    }
 
-    let mut query = vec![("apiKey", api_key)];
+    let api_key = read_required_env(env, "BROWSER_USE_API_KEY")?;
+    let api_base = read_trimmed_env(env, "BROWSER_USE_API_URL")
+        .unwrap_or_else(|| BROWSER_USE_API_BASE.to_string());
+
+    let mut body = json!({});
     if let Some(value) = read_trimmed_env(env, "BROWSER_USE_PROXY_COUNTRY_CODE") {
-        query.push(("proxyCountryCode", value));
+        body["proxyCountryCode"] = json!(value);
     }
     if let Some(value) = read_trimmed_env(env, "BROWSER_USE_PROFILE_ID")
         .or_else(|| non_default_profile(profile_name))
     {
-        query.push(("profileId", value));
+        body["profileId"] = json!(value);
     }
     if let Some(value) = read_trimmed_env(env, "BROWSER_USE_TIMEOUT") {
-        query.push(("timeout", value));
+        body["timeout"] = json!(parse_env_u64("BROWSER_USE_TIMEOUT", &value)?);
     }
     if let Some(value) = read_trimmed_env(env, "BROWSER_USE_BROWSER_SCREEN_WIDTH") {
-        query.push(("browserScreenWidth", value));
+        body["browserScreenWidth"] =
+            json!(parse_env_u64("BROWSER_USE_BROWSER_SCREEN_WIDTH", &value)?);
     }
     if let Some(value) = read_trimmed_env(env, "BROWSER_USE_BROWSER_SCREEN_HEIGHT") {
-        query.push(("browserScreenHeight", value));
-    }
-
-    Ok(ProviderConnection {
-        provider: "browseruse".to_string(),
-        cdp_endpoint: build_ws_url(&base, &query),
-        headers: Vec::new(),
-        session: None,
-    })
-}
-
-async fn connect_browserless(
-    stealth: bool,
-    env: &ProviderEnv,
-) -> Result<ProviderConnection, CliError> {
-    let api_key = read_required_env(env, "BROWSERLESS_API_KEY")?;
-    let api_base = read_trimmed_env(env, "BROWSERLESS_API_URL")
-        .unwrap_or_else(|| BROWSERLESS_API_BASE.to_string());
-    let browser_type = read_trimmed_env(env, "BROWSERLESS_BROWSER_TYPE")
-        .unwrap_or_else(|| "chromium".to_string());
-    let ttl = read_trimmed_env(env, "BROWSERLESS_TTL").unwrap_or_else(|| "300000".to_string());
-    let use_stealth = parse_env_bool(env, "BROWSERLESS_STEALTH").unwrap_or(stealth);
-
-    if !matches!(browser_type.as_str(), "chromium" | "chrome") {
-        return Err(CliError::InvalidArgument(format!(
-            "BROWSERLESS_BROWSER_TYPE '{browser_type}' is not supported; use chromium or chrome"
-        )));
+        body["browserScreenHeight"] =
+            json!(parse_env_u64("BROWSER_USE_BROWSER_SCREEN_HEIGHT", &value)?);
     }
 
     let client = build_provider_http_client()?;
     let response = client
-        .post(format!("{}/session", api_base.trim_end_matches('/')))
-        .query(&[("token", api_key.as_str())])
+        .post(format!("{}/browsers", api_base.trim_end_matches('/')))
+        .header("X-Browser-Use-API-Key", &api_key)
         .header("Content-Type", "application/json")
-        .json(&json!({
-            "ttl": ttl.parse::<u64>().map_err(|_| {
-                CliError::InvalidArgument(format!("invalid BROWSERLESS_TTL: {ttl}"))
-            })?,
-            "stealth": use_stealth,
-            "browser": browser_type,
-        }))
+        .json(&body)
         .send()
         .await?;
 
@@ -526,50 +525,42 @@ async fn connect_browserless(
     let response_text = response.text().await?;
     if !status.is_success() {
         return Err(map_provider_http_status(
-            "Browserless",
+            "Browser Use",
             status,
             &response_text,
         ));
     }
 
     let data: Value = serde_json::from_str(&response_text)?;
-    let cdp_endpoint = data
-        .get("connect")
+    let session_id = data
+        .get("id")
         .and_then(Value::as_str)
         .ok_or_else(|| {
-            CliError::ApiError("Browserless response missing 'connect' URL".to_string())
+            CliError::ApiError(format!(
+                "Browser Use API returned incomplete session data: {data}"
+            ))
         })?
         .to_string();
-    let stop_url = data
-        .get("stop")
+    let cdp_endpoint = data
+        .get("cdpUrl")
         .and_then(Value::as_str)
-        .ok_or_else(|| CliError::ApiError("Browserless response missing 'stop' URL".to_string()))?
+        .ok_or_else(|| {
+            CliError::ApiError(format!(
+                "Browser Use API returned incomplete session data: {data}"
+            ))
+        })?
         .to_string();
 
     Ok(ProviderConnection {
-        provider: "browserless".to_string(),
+        provider: "browseruse".to_string(),
         cdp_endpoint,
         headers: Vec::new(),
         session: Some(ProviderSession {
-            provider: "browserless".to_string(),
-            session_id: stop_url,
+            provider: "browseruse".to_string(),
+            session_id,
             provider_env: ProviderEnv::new(),
         }),
     })
-}
-
-fn build_ws_url(base: &str, query: &[(&str, String)]) -> String {
-    if query.is_empty() {
-        return base.to_string();
-    }
-
-    let separator = if base.contains('?') { '&' } else { '?' };
-    let query_string = query
-        .iter()
-        .map(|(key, value)| format!("{key}={}", urlencoding::encode(value)))
-        .collect::<Vec<_>>()
-        .join("&");
-    format!("{base}{separator}{query_string}")
 }
 
 fn read_trimmed_env(env: &ProviderEnv, name: &str) -> Option<String> {
@@ -589,6 +580,12 @@ fn parse_env_bool(env: &ProviderEnv, name: &str) -> Option<bool> {
         "0" | "false" | "no" | "off" => Some(false),
         _ => None,
     })
+}
+
+fn parse_env_u64(name: &str, value: &str) -> Result<u64, CliError> {
+    value
+        .parse::<u64>()
+        .map_err(|_| CliError::InvalidArgument(format!("invalid {name}: {value}")))
 }
 
 fn non_default_profile(profile_name: &str) -> Option<String> {
@@ -618,36 +615,80 @@ fn normalize_hyperbrowser_profile_id(profile_id: &str) -> Result<String, CliErro
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+    use std::time::Duration;
+
     use super::*;
+
+    fn spawn_single_response_server(response: &'static str) -> (String, thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
+        let addr = listener.local_addr().expect("mock server addr");
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept request");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .expect("set read timeout");
+
+            let mut request = Vec::new();
+            let mut buf = [0u8; 4096];
+            loop {
+                match stream.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        request.extend_from_slice(&buf[..n]);
+                        if request.windows(4).any(|w| w == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    Err(err)
+                        if matches!(
+                            err.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) =>
+                    {
+                        break;
+                    }
+                    Err(err) => panic!("read request: {err}"),
+                }
+            }
+
+            stream
+                .write_all(response.as_bytes())
+                .expect("write response");
+            String::from_utf8(request).expect("utf8 request")
+        });
+        (format!("http://{}", addr), handle)
+    }
 
     #[test]
     fn normalizes_provider_aliases() {
-        assert_eq!(normalize_provider_name("driver"), Some("driver.dev"));
-        assert_eq!(normalize_provider_name("driver.dev"), Some("driver.dev"));
+        assert_eq!(normalize_provider_name("driver"), Some("driver"));
         assert_eq!(normalize_provider_name("browser-use"), Some("browseruse"));
         assert_eq!(normalize_provider_name("browseruse"), Some("browseruse"));
         assert_eq!(
             normalize_provider_name("hyperbrowser"),
             Some("hyperbrowser")
         );
-        assert_eq!(normalize_provider_name("browserless"), Some("browserless"));
+        assert_eq!(normalize_provider_name("driver.dev"), None);
         assert_eq!(normalize_provider_name("unknown"), None);
     }
 
-    #[test]
-    fn builds_ws_urls_with_query_parameters() {
-        let url = build_ws_url(
-            "wss://connect.browser-use.com",
-            &[
-                ("apiKey", "key-123".to_string()),
-                ("proxyCountryCode", "us".to_string()),
-            ],
-        );
+    #[tokio::test]
+    async fn driver_dev_provider_name_is_rejected() {
+        let err = connect_provider(
+            "driver.dev",
+            crate::config::DEFAULT_PROFILE,
+            false,
+            true,
+            &ProviderEnv::new(),
+        )
+        .await
+        .expect_err("driver.dev alias should be rejected");
 
-        assert_eq!(
-            url,
-            "wss://connect.browser-use.com?apiKey=key-123&proxyCountryCode=us"
-        );
+        assert!(matches!(err, CliError::InvalidArgument(_)));
+        assert!(err.to_string().contains("unknown provider 'driver.dev'"));
     }
 
     #[test]
@@ -726,13 +767,137 @@ mod tests {
         let connection = connect_driver_dev(crate::config::DEFAULT_PROFILE, &env)
             .await
             .expect("driver.dev connection should build from override");
-        assert_eq!(connection.provider, "driver.dev");
+        assert_eq!(connection.provider, "driver");
         assert_eq!(
             connection.cdp_endpoint,
             "wss://example.test/devtools/browser/abc"
         );
         // Override path is "stateless"-like — no provider session to clean up.
         assert!(connection.session.is_none());
+    }
+
+    #[test]
+    fn browser_use_ws_url_override_is_stateless() {
+        let env = env_with(&[(
+            "BROWSER_USE_WS_URL",
+            "wss://connect.browser-use.com?apiKey=bu-key",
+        )]);
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let connection = rt
+            .block_on(connect_browser_use(crate::config::DEFAULT_PROFILE, &env))
+            .expect("browseruse connection");
+        assert_eq!(connection.provider, "browseruse");
+        assert!(connection.session.is_none());
+    }
+
+    #[tokio::test]
+    async fn connect_browser_use_creates_provider_session_via_api() {
+        let (base_url, request_handle) = spawn_single_response_server(
+            "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: 81\r\n\r\n{\"id\":\"bu-s-1\",\"cdpUrl\":\"wss://cdp.browser-use.test/session-1\",\"status\":\"active\"}",
+        );
+        let env = env_with(&[
+            ("BROWSER_USE_API_URL", &base_url),
+            ("BROWSER_USE_API_KEY", "bu-key"),
+            ("BROWSER_USE_TIMEOUT", "30"),
+            ("BROWSER_USE_BROWSER_SCREEN_WIDTH", "1440"),
+            ("BROWSER_USE_BROWSER_SCREEN_HEIGHT", "900"),
+        ]);
+
+        let connection = connect_browser_use(crate::config::DEFAULT_PROFILE, &env)
+            .await
+            .expect("browseruse connection");
+        assert_eq!(connection.provider, "browseruse");
+        assert_eq!(connection.cdp_endpoint, "wss://cdp.browser-use.test/session-1");
+        assert_eq!(
+            connection.session.as_ref().map(|session| session.session_id.as_str()),
+            Some("bu-s-1")
+        );
+
+        let request = request_handle.join().expect("request join");
+        assert!(request.starts_with("POST /browsers HTTP/1.1"));
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("x-browser-use-api-key: bu-key")
+        );
+        assert!(request.contains("\"timeout\":30"));
+        assert!(request.contains("\"browserScreenWidth\":1440"));
+        assert!(request.contains("\"browserScreenHeight\":900"));
+    }
+
+    #[tokio::test]
+    async fn close_driver_session_calls_delete_endpoint() {
+        let (base_url, request_handle) =
+            spawn_single_response_server("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+        let session = ProviderSession {
+            provider: "driver".to_string(),
+            session_id: "driver-s-1".to_string(),
+            provider_env: env_with(&[
+                ("DRIVER_DEV_API_URL", &base_url),
+                ("DRIVER_DEV_API_KEY", "driver-key"),
+            ]),
+        };
+
+        close_provider_session(&session)
+            .await
+            .expect("driver close should succeed");
+
+        let request = request_handle.join().expect("request join");
+        assert!(request.starts_with("DELETE /v1/browser/session?sessionId=driver-s-1 HTTP/1.1"));
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer driver-key")
+        );
+    }
+
+    #[tokio::test]
+    async fn close_browser_use_session_calls_patch_endpoint() {
+        let (base_url, request_handle) =
+            spawn_single_response_server("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+        let session = ProviderSession {
+            provider: "browseruse".to_string(),
+            session_id: "bu-s-1".to_string(),
+            provider_env: env_with(&[
+                ("BROWSER_USE_API_URL", &base_url),
+                ("BROWSER_USE_API_KEY", "bu-key"),
+            ]),
+        };
+
+        close_provider_session(&session)
+            .await
+            .expect("browseruse close should succeed");
+
+        let request = request_handle.join().expect("request join");
+        assert!(request.starts_with("PATCH /browsers/bu-s-1 HTTP/1.1"));
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("x-browser-use-api-key: bu-key")
+        );
+        assert!(request.contains("\"action\":\"stop\""));
+    }
+
+    #[tokio::test]
+    async fn close_hyperbrowser_session_sends_zero_length_body() {
+        let (base_url, request_handle) =
+            spawn_single_response_server("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+        let session = ProviderSession {
+            provider: "hyperbrowser".to_string(),
+            session_id: "hb-s-1".to_string(),
+            provider_env: env_with(&[
+                ("HYPERBROWSER_API_URL", &base_url),
+                ("HYPERBROWSER_API_KEY", "hb-key"),
+            ]),
+        };
+
+        close_provider_session(&session)
+            .await
+            .expect("hyperbrowser close should succeed");
+
+        let request = request_handle.join().expect("request join");
+        assert!(request.starts_with("PUT /api/session/hb-s-1/stop HTTP/1.1"));
+        assert!(request.to_ascii_lowercase().contains("content-length: 0"));
     }
 
     #[test]

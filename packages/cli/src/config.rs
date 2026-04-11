@@ -429,7 +429,7 @@ cdp_endpoint = "ws://127.0.0.1:9333/devtools/browser/config"
             ("ACTIONBOOK_BROWSER_PROFILE_NAME", Some("env-profile")),
             ("ACTIONBOOK_BROWSER_HEADLESS", Some("true")),
             ("ACTIONBOOK_BROWSER_EXECUTABLE_PATH", Some("/env/browser")),
-            ("ACTIONBOOK_BROWSER_PROVIDER", Some("browserless")),
+            ("ACTIONBOOK_BROWSER_PROVIDER", Some("browseruse")),
             (
                 "ACTIONBOOK_BROWSER_CDP_ENDPOINT",
                 Some("ws://127.0.0.1:9444/devtools/browser/env"),
@@ -442,7 +442,7 @@ cdp_endpoint = "ws://127.0.0.1:9333/devtools/browser/config"
         assert_eq!(resolved.headless, Some(true));
         assert_eq!(resolved.profile.as_deref(), Some("env-profile"));
         assert_eq!(resolved.executable_path.as_deref(), Some("/env/browser"));
-        assert_eq!(resolved.provider.as_deref(), Some("browserless"));
+        assert_eq!(resolved.provider.as_deref(), Some("browseruse"));
         assert_eq!(
             resolved.cdp_endpoint.as_deref(),
             Some("ws://127.0.0.1:9444/devtools/browser/env")
@@ -458,7 +458,7 @@ cdp_endpoint = "ws://127.0.0.1:9333/devtools/browser/config"
             ("ACTIONBOOK_BROWSER_PROFILE_NAME", Some("env-profile")),
             ("ACTIONBOOK_BROWSER_HEADLESS", Some("false")),
             ("ACTIONBOOK_BROWSER_EXECUTABLE_PATH", Some("/env/browser")),
-            ("ACTIONBOOK_BROWSER_PROVIDER", Some("browserless")),
+            ("ACTIONBOOK_BROWSER_PROVIDER", Some("browseruse")),
             (
                 "ACTIONBOOK_BROWSER_CDP_ENDPOINT",
                 Some("ws://127.0.0.1:9444/devtools/browser/env"),

@@ -27,7 +27,6 @@ Examples:
   actionbook browser start --headless --profile scraper
   actionbook browser start --mode cloud --cdp-endpoint wss://browser.example.com/ws
   actionbook browser start -p hyperbrowser
-  actionbook browser start --provider browserless
 
 --session: get-or-create — reuses an existing session with the given ID, or creates one if not found.
 --set-session-id: always creates — fails if the ID is already in use.
@@ -70,7 +69,7 @@ pub struct Cmd {
     #[serde(default = "default_stealth")]
     pub stealth: bool,
     /// Snapshot of provider env vars forwarded from the CLI client to the
-    /// daemon (DRIVER_DEV_*, HYPERBROWSER_*, BROWSER_USE_*, BROWSERLESS_*).
+    /// daemon (DRIVER_DEV_*, HYPERBROWSER_*, BROWSER_USE_*).
     /// The daemon must NOT read these from its own process env — its env was
     /// frozen at daemon-spawn time and rarely matches the user's current shell.
     /// This field is populated automatically in `main.rs` before the action is
@@ -234,6 +233,18 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // ── Cloud mode ──────────────────────────────────────────────────
     if mode == Mode::Cloud {
         if let Some(provider_name) = provider_name {
+            // Explicit session IDs can be rejected locally before we create a
+            // provider-managed browser. This is only a fast-path preflight:
+            // `execute_cloud` still performs the authoritative reserve later
+            // so concurrent starts cannot slip through.
+            if effective_set_id.is_some() {
+                let mut reg = registry.lock().await;
+                if let Err(e) = reg.generate_session_id(effective_set_id) {
+                    let hint = e.hint();
+                    return ActionResult::fatal_with_hint(e.error_code(), e.to_string(), &hint);
+                }
+            }
+
             // Provider session reuse: lookup is keyed on (provider, profile),
             // but presence in the registry only proves the entry was once
             // healthy. The remote browser may have been killed by the
@@ -817,7 +828,13 @@ async fn fail_reserved_start(
 /// leak paid provider sessions.
 async fn cleanup_provider_session_if_any(provider_session: &Option<ProviderSession>) {
     if let Some(ps) = provider_session {
-        crate::browser::session::provider::close_provider_session(ps).await;
+        if let Err(err) = crate::browser::session::provider::close_provider_session(ps).await {
+            tracing::warn!(
+                "failed to clean up provider session '{}' for provider '{}': {err}",
+                ps.session_id,
+                ps.provider
+            );
+        }
     }
 }
 
@@ -870,9 +887,10 @@ async fn execute_cloud(
         Ok(u) => u,
         Err(e) => return e,
     };
+    let effective_set_id = cmd.session.as_deref().or(cmd.set_session_id.as_deref());
 
     // ── Cloud session reuse: match on cdp_endpoint ──
-    {
+    if effective_set_id.is_none() {
         let reg = registry.lock().await;
         if let Some(existing) = reg.find_cloud_session_by_endpoint(cdp_endpoint) {
             match existing.status {
@@ -914,7 +932,6 @@ async fn execute_cloud(
     }
 
     // ── Reserve placeholder ──
-    let effective_set_id = cmd.session.as_deref().or(cmd.set_session_id.as_deref());
     let session_id = {
         let mut reg = registry.lock().await;
         match reg.reserve_session_start(
@@ -926,7 +943,10 @@ async fn execute_cloud(
             cmd.stealth,
         ) {
             Ok(sid) => sid,
-            Err(e) => return ActionResult::fatal(e.error_code(), e.to_string()),
+            Err(e) => {
+                cleanup_provider_session_if_any(&provider_session).await;
+                return ActionResult::fatal(e.error_code(), e.to_string());
+            }
         }
     };
 
@@ -1480,10 +1500,10 @@ mod redact_tests {
 
     #[test]
     fn redacts_long_path_segment() {
-        let url = "wss://browserless.io/connect/very-long-opaque-token-segment";
+        let url = "wss://cloud.example.com/connect/very-long-opaque-token-segment";
         let red = redact_endpoint(url);
         assert!(!red.contains("very-long-opaque-token-segment"), "leaked: {red}");
-        assert!(red.starts_with("wss://browserless.io/"));
+        assert!(red.starts_with("wss://cloud.example.com/"));
         assert!(red.ends_with("***"));
     }
 
@@ -1498,5 +1518,224 @@ mod redact_tests {
         let url = "example.com/ws?token=secret";
         // No scheme — pass through unchanged (best-effort).
         assert_eq!(redact_endpoint(url), "example.com/ws?token=secret");
+    }
+}
+
+#[cfg(test)]
+mod provider_start_tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+    use std::time::Duration;
+
+    use super::*;
+    use crate::browser::session::provider::{ProviderEnv, ProviderSession};
+    use crate::daemon::registry::{SessionEntry, SessionState, new_shared_registry};
+    use crate::types::SessionId;
+
+    fn spawn_single_response_server(response: &'static str) -> (String, thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
+        let addr = listener.local_addr().expect("mock server addr");
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept request");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .expect("set read timeout");
+
+            let mut request = Vec::new();
+            let mut buf = [0u8; 4096];
+            loop {
+                match stream.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        request.extend_from_slice(&buf[..n]);
+                        if request.windows(4).any(|w| w == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    Err(err)
+                        if matches!(
+                            err.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) =>
+                    {
+                        break;
+                    }
+                    Err(err) => panic!("read request: {err}"),
+                }
+            }
+
+            stream
+                .write_all(response.as_bytes())
+                .expect("write response");
+            String::from_utf8(request).expect("utf8 request")
+        });
+        (format!("http://{}", addr), handle)
+    }
+
+    #[tokio::test]
+    async fn conflicting_set_session_id_cleans_up_provider_session() {
+        let (base_url, request_handle) =
+            spawn_single_response_server("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+        let registry = new_shared_registry();
+
+        let mut existing = SessionEntry::starting(
+            SessionId::new("hyp3").expect("session id"),
+            Mode::Cloud,
+            false,
+            true,
+            crate::config::DEFAULT_PROFILE.to_string(),
+        );
+        existing.status = SessionState::Running;
+        registry.lock().await.insert(existing);
+
+        let result = execute_cloud(
+            &Cmd {
+                mode: Some(Mode::Cloud),
+                headless: Some(false),
+                profile: None,
+                executable_path: None,
+                open_url: None,
+                cdp_endpoint: None,
+                provider: Some("hyperbrowser".to_string()),
+                header: vec![],
+                session: None,
+                set_session_id: Some("hyp3".to_string()),
+                stealth: true,
+                provider_env: ProviderEnv::new(),
+            },
+            &registry,
+            "ws://example.test/devtools/browser/fake",
+            &[],
+            crate::config::DEFAULT_PROFILE,
+            false,
+            Some("hyperbrowser"),
+            Some(ProviderSession {
+                provider: "hyperbrowser".to_string(),
+                session_id: "hb-conflict-1".to_string(),
+                provider_env: ProviderEnv::from([
+                    ("HYPERBROWSER_API_KEY".to_string(), "hb-key".to_string()),
+                    ("HYPERBROWSER_API_URL".to_string(), base_url.clone()),
+                ]),
+            }),
+        )
+        .await;
+
+        match result {
+            ActionResult::Fatal { code, message, .. } => {
+                assert_eq!(code, "SESSION_ALREADY_EXISTS");
+                assert!(message.contains("session id 'hyp3' is already in use"));
+            }
+            other => panic!("expected fatal result, got {other:?}"),
+        }
+
+        let request = request_handle.join().expect("request join");
+        assert!(request.starts_with("PUT /api/session/hb-conflict-1/stop HTTP/1.1"));
+        assert!(request.to_ascii_lowercase().contains("content-length: 0"));
+    }
+
+    #[tokio::test]
+    async fn explicit_provider_session_conflict_fails_before_connect() {
+        let registry = new_shared_registry();
+
+        let mut existing = SessionEntry::starting(
+            SessionId::new("hyp3").expect("session id"),
+            Mode::Cloud,
+            false,
+            true,
+            crate::config::DEFAULT_PROFILE.to_string(),
+        );
+        existing.status = SessionState::Running;
+        registry.lock().await.insert(existing);
+
+        let result = execute(
+            &Cmd {
+                mode: Some(Mode::Cloud),
+                headless: Some(false),
+                profile: None,
+                executable_path: None,
+                open_url: None,
+                cdp_endpoint: None,
+                provider: Some("hyperbrowser".to_string()),
+                header: vec![],
+                session: None,
+                set_session_id: Some("hyp3".to_string()),
+                stealth: true,
+                provider_env: ProviderEnv::from([
+                    ("HYPERBROWSER_API_KEY".to_string(), "hb-key".to_string()),
+                    (
+                        "HYPERBROWSER_API_URL".to_string(),
+                        "http://127.0.0.1:9".to_string(),
+                    ),
+                ]),
+            },
+            &registry,
+        )
+        .await;
+
+        match result {
+            ActionResult::Fatal { code, message, .. } => {
+                assert_eq!(code, "SESSION_ALREADY_EXISTS");
+                assert!(message.contains("session id 'hyp3' is already in use"));
+            }
+            other => panic!("expected fatal result, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_set_session_id_skips_endpoint_reuse_checks() {
+        let registry = new_shared_registry();
+        let endpoint = "ws://127.0.0.1:9/devtools/browser/fake";
+
+        let mut existing = SessionEntry::starting(
+            SessionId::new("dr3").expect("session id"),
+            Mode::Cloud,
+            false,
+            true,
+            crate::config::DEFAULT_PROFILE.to_string(),
+        );
+        existing.status = SessionState::Starting;
+        existing.cdp_endpoint = Some(endpoint.to_string());
+        existing.provider = Some("browseruse".to_string());
+        registry.lock().await.insert(existing);
+
+        let result = execute_cloud(
+            &Cmd {
+                mode: Some(Mode::Cloud),
+                headless: Some(false),
+                profile: None,
+                executable_path: None,
+                open_url: None,
+                cdp_endpoint: None,
+                provider: Some("browseruse".to_string()),
+                header: vec![],
+                session: None,
+                set_session_id: Some("bs1".to_string()),
+                stealth: true,
+                provider_env: ProviderEnv::new(),
+            },
+            &registry,
+            endpoint,
+            &[],
+            crate::config::DEFAULT_PROFILE,
+            false,
+            Some("browseruse"),
+            None,
+        )
+        .await;
+
+        match result {
+            ActionResult::Fatal { code, .. } => {
+                assert_eq!(code, "CDP_CONNECTION_FAILED");
+            }
+            other => panic!("expected fatal result, got {other:?}"),
+        }
+
+        let reg = registry.lock().await;
+        assert!(reg.get("bs1").is_none(), "failed start should clean placeholder");
+        assert_eq!(
+            reg.get("dr3").map(|entry| entry.status),
+            Some(SessionState::Starting)
+        );
     }
 }
