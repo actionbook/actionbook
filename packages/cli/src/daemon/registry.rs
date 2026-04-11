@@ -6,6 +6,7 @@ use tokio::sync::Mutex;
 
 use crate::action_result::ActionResult;
 use crate::browser::observation::snapshot_transform::RefCache;
+use crate::browser::session::provider::ProviderSession;
 use crate::daemon::bridge::SharedBridgeState;
 use crate::daemon::cdp_session::CdpSession;
 use crate::error::CliError;
@@ -63,6 +64,10 @@ pub struct SessionEntry {
     pub cdp_endpoint: Option<String>,
     /// Custom headers for cloud CDP connections (e.g. auth tokens).
     pub headers: Vec<(String, String)>,
+    /// Launch-time provider name for provider-backed cloud sessions.
+    pub provider: Option<String>,
+    /// Provider-managed remote session metadata used for cleanup.
+    pub provider_session: Option<ProviderSession>,
     /// Counter for assigning short tab IDs (t1, t2, ...).
     pub next_tab_id: u32,
 }
@@ -98,6 +103,8 @@ impl SessionEntry {
             cdp: None,
             cdp_endpoint: None,
             headers: Vec::new(),
+            provider: None,
+            provider_session: None,
             next_tab_id: 1,
         }
     }
@@ -202,6 +209,19 @@ impl SessionRegistry {
             entry.mode == Mode::Cloud
                 && entry.status.is_active()
                 && entry.cdp_endpoint.as_deref() == Some(endpoint)
+        })
+    }
+
+    pub fn find_cloud_session_by_provider(
+        &self,
+        provider: &str,
+        profile: &str,
+    ) -> Option<&SessionEntry> {
+        self.sessions.values().find(|entry| {
+            entry.mode == Mode::Cloud
+                && entry.status.is_active()
+                && entry.provider.as_deref() == Some(provider)
+                && entry.profile == profile
         })
     }
 

@@ -1114,6 +1114,8 @@ mod tests {
             "start",
             "--session",
             "my-session",
+            "-p",
+            "hyperbrowser",
             "--headless",
         ])
         .expect("browser start --session should parse");
@@ -1123,6 +1125,7 @@ mod tests {
                 command: BrowserCommands::Start(cmd),
             }) => {
                 assert_eq!(cmd.session.as_deref(), Some("my-session"));
+                assert_eq!(cmd.provider.as_deref(), Some("hyperbrowser"));
                 assert!(
                     cmd.set_session_id.is_none(),
                     "set_session_id should be None when --session is used"

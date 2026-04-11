@@ -35,7 +35,7 @@ pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Extract everything from registry then release the lock before slow I/O.
-    let (closed_tabs, cdp, chrome_process, profile_to_clean, mode) = {
+    let (closed_tabs, cdp, chrome_process, profile_to_clean, mode, provider_session) = {
         let mut reg = registry.lock().await;
         let mut entry = match reg.remove(&cmd.session) {
             Some(e) => e,
@@ -67,6 +67,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             entry.chrome_process.take(),
             profile,
             entry_mode,
+            entry.provider_session.take(),
         )
     };
     // Registry lock released here — slow I/O below won't block other sessions.
@@ -91,6 +92,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     if let Some(child) = chrome_process {
         crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
+    }
+    if let Some(provider_session) = provider_session {
+        crate::browser::session::provider::close_provider_session(&provider_session).await;
     }
 
     // Remove non-default profile directory after Chrome has fully exited.

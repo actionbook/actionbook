@@ -53,6 +53,12 @@ pub enum CliError {
     VersionMismatch { cli: String, daemon: String },
     #[error("api error: {0}")]
     ApiError(String),
+    #[error("api unauthorized: {0}")]
+    ApiUnauthorized(String),
+    #[error("api rate limited: {0}")]
+    ApiRateLimited(String),
+    #[error("api server error: {0}")]
+    ApiServerError(String),
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -85,6 +91,9 @@ impl CliError {
             CliError::CloudConnectionLost(_) => "CLOUD_CONNECTION_LOST",
             CliError::VersionMismatch { .. } => "VERSION_MISMATCH",
             CliError::ApiError(_) => "API_ERROR",
+            CliError::ApiUnauthorized(_) => "API_UNAUTHORIZED",
+            CliError::ApiRateLimited(_) => "API_RATE_LIMITED",
+            CliError::ApiServerError(_) => "API_SERVER_ERROR",
             CliError::Internal(_) => "INTERNAL_ERROR",
         }
     }
@@ -113,6 +122,18 @@ impl CliError {
                 "the session was closed while a command was still in flight — start a new session"
                     .to_string()
             }
+            CliError::ApiUnauthorized(_) => {
+                "check the provider API key environment variable (e.g. HYPERBROWSER_API_KEY, BROWSERLESS_API_KEY) and rotate it if revoked"
+                    .to_string()
+            }
+            CliError::ApiRateLimited(_) => {
+                "the provider rejected the request due to rate limiting — back off and retry later"
+                    .to_string()
+            }
+            CliError::ApiServerError(_) => {
+                "the provider service returned a 5xx error — retry after a short delay or check the provider's status page"
+                    .to_string()
+            }
             _ => String::new(),
         }
     }
@@ -125,6 +146,8 @@ impl CliError {
                 | CliError::CloudConnectionLost(_)
                 | CliError::Timeout
                 | CliError::Http(_)
+                | CliError::ApiRateLimited(_)
+                | CliError::ApiServerError(_)
         )
     }
 }

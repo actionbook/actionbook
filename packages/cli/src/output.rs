@@ -282,6 +282,13 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
             {
                 lines.push(format!("status: {status}"));
             }
+            if let Some(provider) = data
+                .get("session")
+                .and_then(|s| s.get("provider"))
+                .and_then(|v| v.as_str())
+            {
+                lines.push(format!("provider: {provider}"));
+            }
             if let Some(title) = data
                 .get("tab")
                 .and_then(|t| t.get("title"))
@@ -316,6 +323,9 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 }
                 if let Some(mode) = s.get("mode").and_then(|v| v.as_str()) {
                     lines.push(format!("mode: {mode}"));
+                }
+                if let Some(provider) = s.get("provider").and_then(|v| v.as_str()) {
+                    lines.push(format!("provider: {provider}"));
                 }
                 if let Some(tabs) = s.get("tabs_count").and_then(|v| v.as_u64()) {
                     lines.push(format!("tabs: {tabs}"));

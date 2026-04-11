@@ -39,6 +39,9 @@ pub async fn execute(_cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             if let Some(ref ep) = s.cdp_endpoint {
                 v["cdp_endpoint"] = json!(crate::browser::session::start::redact_endpoint(ep));
             }
+            if let Some(ref provider) = s.provider {
+                v["provider"] = json!(provider);
+            }
             v
         })
         .collect();
