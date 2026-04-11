@@ -1,5 +1,11 @@
 # @actionbookdev/cli
 
+## 1.3.1
+
+### Patch Changes
+
+- Fix `browser list-tabs` in extension mode by using `Extension.listTabs` for live tab enumeration instead of `Target.getTargets`, which is not available in extension-level CDP access.
+
 ## 1.3.0
 
 ### Minor Changes
