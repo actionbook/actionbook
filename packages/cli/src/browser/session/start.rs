@@ -276,6 +276,13 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let user_data_dir = profiles_dir.join(profile_name);
     std::fs::create_dir_all(&user_data_dir).ok();
 
+    // Set Chrome profile display name for the default "actionbook" profile.
+    if profile_name == DEFAULT_PROFILE
+        && let Err(e) = ensure_profile_display_name(&user_data_dir)
+    {
+        tracing::warn!("failed to set profile display name: {e}");
+    }
+
     for lock in &["SingletonLock", "SingletonSocket", "SingletonCookie"] {
         let p = user_data_dir.join(lock);
         if p.exists() {
@@ -1178,4 +1185,93 @@ pub fn redact_endpoint(endpoint: &str) -> String {
         }
     }
     endpoint.to_string()
+}
+
+/// Chrome's default profile name when no custom name has been set.
+const DEFAULT_CHROME_PROFILE_NAME: &str = "Your Chrome";
+
+/// Set the profile display name in Chrome's Local State and Preferences files
+/// so the "actionbook" profile shows its name in Chrome's profile picker.
+/// Preserves any user-customized name.
+fn ensure_profile_display_name(user_data_dir: &std::path::Path) -> Result<(), String> {
+    let local_state_path = user_data_dir.join("Local State");
+    let preferences_path = user_data_dir.join("Default").join("Preferences");
+
+    let mut local_state = read_json_or_default(&local_state_path)?;
+    let mut preferences = read_json_or_default(&preferences_path)?;
+
+    // Don't overwrite a name the user set manually.
+    if has_custom_profile_name(&local_state, &preferences) {
+        return Ok(());
+    }
+
+    // Local State: profile.info_cache.Default.name
+    let info_cache = local_state
+        .as_object_mut()
+        .ok_or("local_state not object")?
+        .entry("profile")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or("profile not object")?
+        .entry("info_cache")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or("info_cache not object")?
+        .entry("Default")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or("Default not object")?;
+    info_cache.insert("name".to_string(), json!(DEFAULT_PROFILE));
+    info_cache.insert("is_using_default_name".to_string(), json!(false));
+
+    // Preferences: profile.name
+    let prefs_profile = preferences
+        .as_object_mut()
+        .ok_or("preferences not object")?
+        .entry("profile")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or("profile not object")?;
+    prefs_profile.insert("name".to_string(), json!(DEFAULT_PROFILE));
+
+    write_json(&local_state_path, &local_state)?;
+    write_json(&preferences_path, &preferences)?;
+    Ok(())
+}
+
+fn has_custom_profile_name(
+    local_state: &serde_json::Value,
+    preferences: &serde_json::Value,
+) -> bool {
+    let names = [
+        local_state
+            .pointer("/profile/info_cache/Default/name")
+            .and_then(|v| v.as_str()),
+        preferences
+            .pointer("/profile/name")
+            .and_then(|v| v.as_str()),
+    ];
+    names.iter().flatten().any(|name| {
+        let n = name.trim();
+        !n.is_empty() && n != DEFAULT_PROFILE && n != DEFAULT_CHROME_PROFILE_NAME
+    })
+}
+
+fn read_json_or_default(path: &std::path::Path) -> Result<serde_json::Value, String> {
+    if !path.exists() {
+        return Ok(json!({}));
+    }
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    serde_json::from_str(&content).map_err(|e| format!("parse {}: {e}", path.display()))
+}
+
+fn write_json(path: &std::path::Path, value: &serde_json::Value) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+    }
+    let content = serde_json::to_string_pretty(value)
+        .map_err(|e| format!("serialize: {e}"))?;
+    std::fs::write(path, content).map_err(|e| format!("write {}: {e}", path.display()))
 }
