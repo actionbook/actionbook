@@ -859,14 +859,14 @@ async fn fail_reserved_start(
 /// branch in `execute_cloud` must funnel through this helper, otherwise we
 /// leak paid provider sessions.
 async fn cleanup_provider_session_if_any(provider_session: &Option<ProviderSession>) {
-    if let Some(ps) = provider_session {
-        if let Err(err) = crate::browser::session::provider::close_provider_session(ps).await {
-            tracing::warn!(
-                "failed to clean up provider session '{}' for provider '{}': {err}",
-                ps.session_id,
-                ps.provider
-            );
-        }
+    if let Some(ps) = provider_session
+        && let Err(err) = crate::browser::session::provider::close_provider_session(ps).await
+    {
+        tracing::warn!(
+            "failed to clean up provider session '{}' for provider '{}': {err}",
+            ps.session_id,
+            ps.provider
+        );
     }
 }
 
@@ -905,6 +905,12 @@ fn cleanup_chrome_process(mut chrome_process: Option<Child>) {
 ///
 /// Cloud sessions connect directly to a remote CDP endpoint via WebSocket
 /// with optional auth headers. No local Chrome process is launched.
+///
+/// The argument list is wider than clippy's 7-arg heuristic because all of
+/// these inputs are resolved by the caller (either from the CLI `start`
+/// command or from a `restart` handoff) and have no natural grouping —
+/// folding them into a struct would just be a lint-placation rename.
+#[allow(clippy::too_many_arguments)]
 async fn execute_cloud(
     cmd: &Cmd,
     registry: &SharedRegistry,
@@ -1546,7 +1552,10 @@ mod redact_tests {
         let red = redact_endpoint(url);
         assert!(!red.contains("super-secret-token"), "leaked token: {red}");
         assert!(red.contains("apiKey=***"), "expected mask: {red}");
-        assert!(red.contains("proxyCountryCode=us"), "kept non-secret: {red}");
+        assert!(
+            red.contains("proxyCountryCode=us"),
+            "kept non-secret: {red}"
+        );
     }
 
     #[test]
@@ -1562,7 +1571,10 @@ mod redact_tests {
     fn redacts_long_path_segment() {
         let url = "wss://cloud.example.com/connect/very-long-opaque-token-segment";
         let red = redact_endpoint(url);
-        assert!(!red.contains("very-long-opaque-token-segment"), "leaked: {red}");
+        assert!(
+            !red.contains("very-long-opaque-token-segment"),
+            "leaked: {red}"
+        );
         assert!(red.starts_with("wss://cloud.example.com/"));
         assert!(red.ends_with("***"));
     }
@@ -1619,7 +1631,9 @@ mod provider_start_tests {
     use crate::daemon::registry::{SessionEntry, SessionState, new_shared_registry};
     use crate::types::SessionId;
 
-    fn spawn_single_response_server(response: &'static str) -> (String, thread::JoinHandle<String>) {
+    fn spawn_single_response_server(
+        response: &'static str,
+    ) -> (String, thread::JoinHandle<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
         let addr = listener.local_addr().expect("mock server addr");
         let handle = thread::spawn(move || {
@@ -1818,7 +1832,10 @@ mod provider_start_tests {
         }
 
         let reg = registry.lock().await;
-        assert!(reg.get("bs1").is_none(), "failed start should clean placeholder");
+        assert!(
+            reg.get("bs1").is_none(),
+            "failed start should clean placeholder"
+        );
         assert_eq!(
             reg.get("dr3").map(|entry| entry.status),
             Some(SessionState::Starting)

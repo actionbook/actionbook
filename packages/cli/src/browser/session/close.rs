@@ -86,7 +86,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }
         return ActionResult::fatal_with_hint(
             err.error_code(),
-            format!("failed to close provider session for '{}': {err}", cmd.session),
+            format!(
+                "failed to close provider session for '{}': {err}",
+                cmd.session
+            ),
             err.hint(),
         );
     }
@@ -196,7 +199,9 @@ mod tests {
     use crate::daemon::registry::{SessionEntry, SessionState, new_shared_registry};
     use crate::types::{Mode, SessionId};
 
-    fn spawn_single_response_server(response: &'static str) -> (String, thread::JoinHandle<String>) {
+    fn spawn_single_response_server(
+        response: &'static str,
+    ) -> (String, thread::JoinHandle<String>) {
         spawn_single_response_server_with_delay(response, Duration::from_millis(0))
     }
 

@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use reqwest::header::CONTENT_LENGTH;
 use reqwest::StatusCode;
+use reqwest::header::CONTENT_LENGTH;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -32,11 +32,7 @@ pub type ProviderEnv = BTreeMap<String, String>;
 /// using a `DRIVER_*` env var will leak its value into the daemon — acceptable
 /// because (a) the daemon is local to the user and (b) we never log these
 /// values, only forward them in the IPC payload.
-pub const PROVIDER_ENV_PREFIXES: &[&str] = &[
-    "DRIVER_",
-    "HYPERBROWSER_",
-    "BROWSER_USE_",
-];
+pub const PROVIDER_ENV_PREFIXES: &[&str] = &["DRIVER_", "HYPERBROWSER_", "BROWSER_USE_"];
 
 /// Collect every env var on the current process whose name starts with one of
 /// the provider prefixes. Called from the CLI client (NOT the daemon) right
@@ -83,10 +79,7 @@ fn map_provider_http_status(provider: &str, status: StatusCode, body: &str) -> C
             "{provider} API server error ({}): {snippet}",
             status.as_u16()
         )),
-        s => CliError::ApiError(format!(
-            "{provider} API error ({}): {snippet}",
-            s.as_u16()
-        )),
+        s => CliError::ApiError(format!("{provider} API error ({}): {snippet}", s.as_u16())),
     }
 }
 
@@ -297,7 +290,8 @@ fn read_driver_dev_api_key(env: &ProviderEnv) -> Result<String, CliError> {
         .or_else(|| read_trimmed_env(env, "DRIVER_API_KEY"))
         .ok_or_else(|| {
             CliError::InvalidArgument(
-                "DRIVER_DEV_API_KEY (or DRIVER_API_KEY) environment variable is not set".to_string(),
+                "DRIVER_DEV_API_KEY (or DRIVER_API_KEY) environment variable is not set"
+                    .to_string(),
             )
         })
 }
@@ -344,8 +338,8 @@ async fn connect_driver_dev(
     if let Some(window_size) = read_trimmed_env(env, "DRIVER_DEV_WINDOW_SIZE") {
         body["windowSize"] = json!(window_size);
     }
-    if let Some(profile) = read_trimmed_env(env, "DRIVER_DEV_PROFILE")
-        .or_else(|| non_default_profile(profile_name))
+    if let Some(profile) =
+        read_trimmed_env(env, "DRIVER_DEV_PROFILE").or_else(|| non_default_profile(profile_name))
     {
         let persist = parse_env_bool(env, "DRIVER_DEV_PROFILE_PERSIST").unwrap_or(true);
         body["profile"] = json!({
@@ -394,9 +388,7 @@ async fn connect_driver_dev(
     let cdp_endpoint = data
         .get("cdpUrl")
         .and_then(Value::as_str)
-        .ok_or_else(|| {
-            CliError::ApiError(format!("driver API response missing cdpUrl: {data}"))
-        })?
+        .ok_or_else(|| CliError::ApiError(format!("driver API response missing cdpUrl: {data}")))?
         .to_string();
 
     Ok(ProviderConnection {
@@ -635,7 +627,9 @@ mod tests {
 
     use super::*;
 
-    fn spawn_single_response_server(response: &'static str) -> (String, thread::JoinHandle<String>) {
+    fn spawn_single_response_server(
+        response: &'static str,
+    ) -> (String, thread::JoinHandle<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
         let addr = listener.local_addr().expect("mock server addr");
         let handle = thread::spawn(move || {
@@ -820,9 +814,15 @@ mod tests {
             .await
             .expect("browseruse connection");
         assert_eq!(connection.provider, "browseruse");
-        assert_eq!(connection.cdp_endpoint, "wss://cdp.browser-use.test/session-1");
         assert_eq!(
-            connection.session.as_ref().map(|session| session.session_id.as_str()),
+            connection.cdp_endpoint,
+            "wss://cdp.browser-use.test/session-1"
+        );
+        assert_eq!(
+            connection
+                .session
+                .as_ref()
+                .map(|session| session.session_id.as_str()),
             Some("bu-s-1")
         );
 

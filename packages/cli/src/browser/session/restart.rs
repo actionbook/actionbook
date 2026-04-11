@@ -111,9 +111,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             .map(|(k, v)| format!("{k}:{v}"))
             .collect::<Vec<_>>();
         provider_session = entry.provider_session.clone();
-        saved_provider_env = provider_session
-            .as_ref()
-            .map(|s| s.provider_env.clone());
+        saved_provider_env = provider_session.as_ref().map(|s| s.provider_env.clone());
         cdp = entry.cdp.take();
         chrome_process = entry.chrome_process.take();
 
@@ -133,16 +131,15 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // minting a fresh one. The only remaining stateless path is an explicit
     // Browser Use WS override, which has no provider session handle to release.
     let had_provider_session = provider_session.is_some();
-    if let Some(provider_session) = provider_session {
-        if let Err(err) =
+    if let Some(provider_session) = provider_session
+        && let Err(err) =
             crate::browser::session::provider::close_provider_session(&provider_session).await
-        {
-            tracing::warn!(
-                "failed to close provider session '{}' for provider '{}' during restart: {err}",
-                provider_session.session_id,
-                provider_session.provider
-            );
-        }
+    {
+        tracing::warn!(
+            "failed to close provider session '{}' for provider '{}' during restart: {err}",
+            provider_session.session_id,
+            provider_session.provider
+        );
     }
 
     // Restart credential-reuse policy:
@@ -188,10 +185,8 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // at start time so restarts from a different shell don't break.
     let effective_provider_env = if !cmd.provider_env.is_empty() {
         cmd.provider_env.clone()
-    } else if let Some(saved) = saved_provider_env {
-        saved
     } else {
-        ProviderEnv::new()
+        saved_provider_env.unwrap_or_default()
     };
 
     let start_cmd = super::start::Cmd {
@@ -218,9 +213,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // `find_cloud_session_by_provider` lookups continue to match.
     if let Some(provider_tag) = preserved_provider_tag
         && let ActionResult::Ok { ref data } = result
-        && let Some(new_session_id) = data
-            .pointer("/session/session_id")
-            .and_then(|v| v.as_str())
+        && let Some(new_session_id) = data.pointer("/session/session_id").and_then(|v| v.as_str())
     {
         let mut reg = registry.lock().await;
         if let Some(entry) = reg.get_mut(new_session_id) {
