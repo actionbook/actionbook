@@ -82,7 +82,27 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         headless = entry.headless;
         stealth = entry.stealth;
         profile = entry.profile.clone();
-        open_url = entry.tabs.first().map(|t| t.url.clone());
+        // The registry's tab.url is captured at session-launch time and only
+        // refreshed by `list-tabs`. After a `goto`, the in-memory copy is
+        // stale. Worse, some cloud providers (driver.dev) launch with a
+        // `data:text/html,<title>...` watermark page that the L3 security
+        // check rejects on re-navigation. So:
+        //   - If the saved URL is a dangerous scheme (`data:`, `javascript:`),
+        //     drop it. Restart will boot the new session to its provider
+        //     default and the user can `goto` again from there.
+        //   - `about:blank` is also dropped to avoid an unnecessary navigation.
+        open_url = entry.tabs.first().and_then(|t| {
+            let lower = t.url.to_ascii_lowercase();
+            if lower.is_empty()
+                || lower == "about:blank"
+                || lower.starts_with("data:")
+                || lower.starts_with("javascript:")
+            {
+                None
+            } else {
+                Some(t.url.clone())
+            }
+        });
         cdp_endpoint = entry.cdp_endpoint.clone();
         provider = entry.provider.clone();
         headers = entry
@@ -108,11 +128,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     if let Some(child) = chrome_process {
         crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
     }
-    // Stateful providers (Hyperbrowser, Browserless) hand back a session
-    // descriptor whose lifetime is bound to the remote control plane —
+    // Stateful providers (Hyperbrowser, Browserless, driver.dev) hand back a
+    // session descriptor whose lifetime is bound to the remote control plane —
     // tearing it down here is mandatory before we mint a fresh one. Stateless
-    // providers (driver.dev, browseruse) embed credentials in the WSS URL
-    // itself and have no per-session handle to release.
+    // providers (browseruse) embed credentials in the WSS URL itself and have
+    // no per-session handle to release.
     let had_provider_session = provider_session.is_some();
     if let Some(provider_session) = provider_session {
         crate::browser::session::provider::close_provider_session(&provider_session).await;
