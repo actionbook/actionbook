@@ -61,9 +61,7 @@ async fn main() {
 
         // Only handle --version at the top level (no subcommands).
         // `actionbook --version` shows the version; `actionbook browser --version` does not.
-        if positional_args.is_empty()
-            && raw_args.iter().any(|a| a == "--version" || a == "-V")
-        {
+        if positional_args.is_empty() && raw_args.iter().any(|a| a == "--version" || a == "-V") {
             handle_version(json_mode);
             return;
         }
