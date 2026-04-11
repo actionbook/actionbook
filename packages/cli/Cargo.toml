@@ -62,6 +62,7 @@ assert_cmd = "2"
 tempfile = "3"
 serde_json = "1"
 tokio = { version = "1", features = ["test-util"] }
+wait-timeout = "0.2"
 
 [[test]]
 name = "e2e"
