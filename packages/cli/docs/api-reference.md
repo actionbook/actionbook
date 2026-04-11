@@ -409,7 +409,7 @@ Interactive configuration wizard.
 
 | Parameter | Type | Required | Description |
 |------|------|------|------|
-| `--target` | string | No | Configuration target |
+| `--target` | string | No | Quick mode only: install skills for the specified agent and skip the setup wizard. Conflicts with `--api-key`, `--browser`, and `--reset`. |
 | `--api-key` | string | No | API Key |
 | `--browser` | string | No | Browser configuration |
 | `--non-interactive` | bool | No | Non-interactive mode |

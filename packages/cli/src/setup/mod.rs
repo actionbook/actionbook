@@ -20,7 +20,15 @@ use crate::types::Mode;
 pub struct Cmd {
     /// AI coding tool target. When set, skips the wizard and only installs
     /// skills for the given agent via `npx skills add` (quick mode).
-    #[arg(short = 't', long, value_enum)]
+    ///
+    /// Mutually exclusive with full setup options like `--api-key`,
+    /// `--browser`, and `--reset` to avoid silently ignoring them.
+    #[arg(
+        short = 't',
+        long,
+        value_enum,
+        conflicts_with_all = ["api_key", "browser", "reset"]
+    )]
     pub target: Option<SetupTarget>,
 
     /// API key (non-interactive). Overrides the global --api-key / ACTIONBOOK_API_KEY.
@@ -384,32 +392,46 @@ fn print_welcome() {
     println!("  |");
 }
 
+fn setup_completion_status(skills_result: &SkillsResult) -> &'static str {
+    match skills_result.action {
+        SkillsAction::Failed => "failed",
+        SkillsAction::Installed | SkillsAction::Skipped | SkillsAction::Prompted => "complete",
+    }
+}
+
 /// Print the completion summary with next steps.
 fn print_completion(json: bool, config: &ConfigFile, skills_result: &SkillsResult) {
     if json {
+        let mut payload = serde_json::json!({
+            "command": "setup",
+            "status": setup_completion_status(skills_result),
+            "config_path": config::config_path().display().to_string(),
+            "browser_mode": format!("{}", config.browser.mode),
+            "browser": match config.browser.mode {
+                Mode::Local => config.browser.executable_path.as_deref().unwrap_or("built-in"),
+                Mode::Cloud => config
+                    .browser
+                    .cdp_endpoint
+                    .as_deref()
+                    .unwrap_or("endpoint not configured"),
+                Mode::Extension => "extension (bridge)",
+            },
+            "headless": config.browser.headless,
+            "skills": {
+                "npx_available": skills_result.npx_available,
+                "action": format!("{}", skills_result.action),
+                "command": skills_result.command,
+            },
+        });
+
+        if skills_result.action == SkillsAction::Failed {
+            payload["error"] =
+                serde_json::Value::String("Skills installation failed.".to_string());
+        }
+
         println!(
             "{}",
-            serde_json::json!({
-                "command": "setup",
-                "status": "complete",
-                "config_path": config::config_path().display().to_string(),
-                "browser_mode": format!("{}", config.browser.mode),
-                "browser": match config.browser.mode {
-                    Mode::Local => config.browser.executable_path.as_deref().unwrap_or("built-in"),
-                    Mode::Cloud => config
-                        .browser
-                        .cdp_endpoint
-                        .as_deref()
-                        .unwrap_or("endpoint not configured"),
-                    Mode::Extension => "extension (bridge)",
-                },
-                "headless": config.browser.headless,
-                "skills": {
-                    "npx_available": skills_result.npx_available,
-                    "action": format!("{}", skills_result.action),
-                    "command": skills_result.command,
-                },
-            })
+            payload
         );
         return;
     }
@@ -546,6 +568,18 @@ mod tests {
         // fail loudly rather than silently exit 0.
         let result = make_skills_result(SkillsAction::Skipped);
         assert!(target_only_exit_status(&result, &SetupTarget::Cursor).is_err());
+    }
+
+    #[test]
+    fn setup_completion_status_is_complete_when_skills_install_succeeds() {
+        let result = make_skills_result(SkillsAction::Installed);
+        assert_eq!(setup_completion_status(&result), "complete");
+    }
+
+    #[test]
+    fn setup_completion_status_is_failed_when_skills_install_fails() {
+        let result = make_skills_result(SkillsAction::Failed);
+        assert_eq!(setup_completion_status(&result), "failed");
     }
 
     #[test]
