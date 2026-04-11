@@ -1,5 +1,17 @@
 # @actionbookdev/cli
 
+## 1.3.0
+
+### Minor Changes
+
+- [#499](https://github.com/actionbook/actionbook/pull/499) [`3092c61`](https://github.com/actionbook/actionbook/commit/3092c612dc25ff5a71d8fb361a50afc762fd9f09) Thanks [@Senke0x](https://github.com/Senke0x)! - Improve `actionbook setup` with a new skills installation step and targeted quick mode.
+
+  - add a fifth setup step to install Actionbook skills during setup
+  - add `actionbook setup --target <agent>` quick mode for one-shot skills installation
+  - improve extension-mode setup guidance with Chrome Web Store and GitHub Releases fallback instructions
+  - make API key input visible by default during interactive setup
+  - tighten setup failure handling so quick mode and JSON flows report skills install failures correctly
+
 ## 1.2.0
 
 ### Minor Changes
