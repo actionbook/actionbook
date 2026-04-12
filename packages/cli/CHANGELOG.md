@@ -1,5 +1,16 @@
 # @actionbookdev/cli
 
+## 1.4.1
+
+### Patch Changes
+
+- [#511](https://github.com/actionbook/actionbook/pull/511) [`07a53a1`](https://github.com/actionbook/actionbook/commit/07a53a1c06a1036a9c121c2037dc5b88e33eb8a0) Thanks [@mcfn](https://github.com/mcfn)! - Fix Windows Chrome process cleanup and improve orphan recovery.
+
+  - Replace NtQueryInformationProcess/ToolHelp with Win32 Job Objects for atomic termination of Chrome helper processes (renderer, GPU, utility)
+  - Delete Chrome singleton lock files before orphan kill so new sessions can start even if helper processes linger
+  - Add actionable error message when orphan Chrome still holds the user-data-dir lock
+  - Fix 54 Windows e2e test cross-platform compatibility issues
+
 ## 1.4.0
 
 ### Minor Changes
