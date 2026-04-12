@@ -1,5 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+#[cfg(windows)]
+use tokio::net::TcpStream;
 #[cfg(unix)]
 use tokio::net::UnixStream;
 
@@ -17,7 +19,13 @@ pub struct DaemonClient {
     writer: tokio::io::WriteHalf<UnixStream>,
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+pub struct DaemonClient {
+    reader: tokio::io::ReadHalf<TcpStream>,
+    writer: tokio::io::WriteHalf<TcpStream>,
+}
+
+#[cfg(not(any(unix, windows)))]
 pub struct DaemonClient {
     _private: (),
 }
@@ -97,7 +105,82 @@ impl DaemonClient {
     }
 }
 
-#[cfg(not(unix))]
+/// Windows daemon client — communicates over TCP localhost.
+/// The daemon writes its port to `daemon.port`; we read it on each connect.
+#[cfg(windows)]
+impl DaemonClient {
+    /// Connect to the daemon, auto-starting it if needed.
+    pub async fn connect() -> Result<Self, CliError> {
+        let base = server::socket_path();
+        let port_file = server::port_path();
+        let ready_path = base.with_extension("ready");
+        let version_path = base.with_extension("version");
+
+        // Try connecting to an existing daemon
+        if let Some(port) = read_daemon_port(&port_file) {
+            if let Ok(stream) =
+                TcpStream::connect(std::net::SocketAddr::from(([127, 0, 0, 1], port))).await
+            {
+                let mut matched = versions_match(&version_path);
+                if !matched {
+                    for _ in 0..10 {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        if versions_match(&version_path) {
+                            matched = true;
+                            break;
+                        }
+                    }
+                }
+                if matched {
+                    let (reader, writer) = tokio::io::split(stream);
+                    return Ok(DaemonClient { reader, writer });
+                }
+                drop(stream);
+                restart_daemon_windows().await?;
+                return wait_for_daemon_windows(&port_file, &ready_path, &version_path).await;
+            }
+        }
+
+        // Daemon not connectable but process may be running
+        if server::is_daemon_running() {
+            let mut needs_restart = false;
+            for _ in 0..10 {
+                if versions_match(&version_path) {
+                    break;
+                }
+                if version_path.exists() {
+                    needs_restart = true;
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            if !needs_restart && !versions_match(&version_path) {
+                needs_restart = true;
+            }
+            if needs_restart {
+                restart_daemon_windows().await?;
+            }
+        }
+
+        if !server::is_daemon_running() {
+            auto_start_daemon_windows()?;
+        }
+
+        wait_for_daemon_windows(&port_file, &ready_path, &version_path).await
+    }
+
+    /// Send an action and receive the result.
+    pub async fn send_action(&mut self, action: &Action) -> Result<ActionResult, CliError> {
+        let id = REQUEST_ID.fetch_add(1, Ordering::Relaxed);
+        let payload = wire::serialize_request(id, action)?;
+        wire::write_frame(&mut self.writer, &payload).await?;
+        let response_payload = wire::read_frame(&mut self.reader).await?;
+        let response: wire::Response = serde_json::from_slice(&response_payload)?;
+        Ok(response.result)
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 impl DaemonClient {
     pub async fn connect() -> Result<Self, CliError> {
         Err(CliError::Internal(
@@ -221,6 +304,122 @@ fn auto_start_daemon() -> Result<(), CliError> {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(log_file)
+        .env(
+            "RUST_LOG",
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),
+        )
+        .spawn()
+        .map_err(|e| CliError::Internal(format!("failed to start daemon: {e}")))?;
+
+    Ok(())
+}
+
+/// Read the daemon TCP port from the port file.
+#[cfg(windows)]
+fn read_daemon_port(port_path: &std::path::Path) -> Option<u16> {
+    std::fs::read_to_string(port_path)
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+}
+
+/// Stop the running daemon and start a fresh one on Windows.
+#[cfg(windows)]
+async fn restart_daemon_windows() -> Result<(), CliError> {
+    let Some(pid) = server::read_daemon_pid().filter(|&p| p > 0) else {
+        if server::is_daemon_running() {
+            return Err(CliError::Internal(
+                "daemon PID file missing/corrupt but daemon is still running".to_string(),
+            ));
+        }
+        cleanup_stale_files_windows();
+        return auto_start_daemon_windows();
+    };
+
+    eprintln!("daemon version mismatch, restarting (pid={pid})...");
+
+    if server::send_sigterm(pid) {
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_secs(5) {
+            if !server::is_pid_alive(pid) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        if server::is_pid_alive(pid) {
+            return Err(CliError::Internal(
+                "old daemon did not exit after taskkill (5s timeout)".to_string(),
+            ));
+        }
+    }
+
+    let version_path = server::socket_path().with_extension("version");
+    if versions_match(&version_path) {
+        return Ok(());
+    }
+
+    cleanup_stale_files_windows();
+    auto_start_daemon_windows()
+}
+
+/// Wait for the Windows daemon to be ready and connect (up to 10 seconds).
+#[cfg(windows)]
+async fn wait_for_daemon_windows(
+    port_file: &std::path::Path,
+    ready_path: &std::path::Path,
+    version_path: &std::path::Path,
+) -> Result<DaemonClient, CliError> {
+    for _ in 0..100 {
+        if ready_path.exists() {
+            if let Some(port) = read_daemon_port(port_file) {
+                if let Ok(stream) =
+                    TcpStream::connect(std::net::SocketAddr::from(([127, 0, 0, 1], port))).await
+                {
+                    if versions_match(version_path) {
+                        let (reader, writer) = tokio::io::split(stream);
+                        return Ok(DaemonClient { reader, writer });
+                    }
+                    drop(stream);
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    Err(CliError::DaemonNotRunning)
+}
+
+#[cfg(windows)]
+fn cleanup_stale_files_windows() {
+    let base = server::socket_path();
+    std::fs::remove_file(server::port_path()).ok(); // daemon.port
+    std::fs::remove_file(base.with_extension("ready")).ok();
+    std::fs::remove_file(base.with_extension("version")).ok();
+}
+
+/// Spawn the daemon as a detached process on Windows.
+/// Uses `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` so the daemon survives
+/// the parent CLI process exiting and has its own console signal group.
+#[cfg(windows)]
+fn auto_start_daemon_windows() -> Result<(), CliError> {
+    use std::os::windows::process::CommandExt;
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+
+    let exe = std::env::current_exe().map_err(|e| CliError::Internal(e.to_string()))?;
+
+    let log_path = server::socket_path().with_extension("log");
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map(std::process::Stdio::from)
+        .unwrap_or_else(|_| std::process::Stdio::null());
+
+    std::process::Command::new(&exe)
+        .arg("__daemon")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(log_file)
+        .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
         .env(
             "RUST_LOG",
             std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),

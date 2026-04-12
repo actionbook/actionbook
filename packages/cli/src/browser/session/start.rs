@@ -298,12 +298,25 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let chrome_pid_file = user_data_dir.join("chrome.pid");
     if let Ok(pid_str) = std::fs::read_to_string(&chrome_pid_file) {
         if let Ok(pid) = pid_str.trim().parse::<i32>() {
-            unsafe extern "C" {
-                safe fn kill(pid: i32, sig: i32) -> i32;
+            #[cfg(unix)]
+            {
+                unsafe extern "C" {
+                    safe fn kill(pid: i32, sig: i32) -> i32;
+                }
+                // kill(pid, 0) checks liveness without sending a signal (POSIX).
+                if kill(pid, 0) == 0 {
+                    kill(pid, 9); // SIGKILL orphan
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
             }
-            // kill(pid, 0) checks liveness without sending a signal (POSIX).
-            if kill(pid, 0) == 0 {
-                kill(pid, 9); // SIGKILL orphan
+            #[cfg(windows)]
+            {
+                // On Windows, use taskkill to terminate the orphan Chrome process.
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/F", "/PID", &pid.to_string()])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
                 std::thread::sleep(std::time::Duration::from_millis(500));
             }
         }

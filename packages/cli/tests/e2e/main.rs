@@ -32,3 +32,4 @@ mod storage;
 mod tab_management;
 mod timeout;
 mod wait;
+mod windows_daemon;

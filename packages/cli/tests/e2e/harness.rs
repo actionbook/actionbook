@@ -13,6 +13,74 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
+/// Run a CLI command with a real timeout, avoiding pipe-inheritance hangs on Windows.
+///
+/// On Windows, `assert_cmd::Command::output()` pipes stdout/stderr. When the CLI
+/// spawns a detached daemon, the daemon inherits those pipe handles via
+/// `CreateProcess(bInheritHandles=TRUE)`. Even after the CLI exits, the daemon
+/// still holds write handles to the pipes, so the test's `read_to_end()` blocks
+/// forever. We avoid this by redirecting to temp files instead of pipes.
+fn run_cli_with_timeout(
+    actionbook_home: &str,
+    args: &[&str],
+    extra_env: &[(&str, &str)],
+    timeout_secs: u64,
+) -> Output {
+    #[cfg(windows)]
+    {
+        let stdout_file = tempfile::NamedTempFile::new().expect("create stdout temp file");
+        let stderr_file = tempfile::NamedTempFile::new().expect("create stderr temp file");
+        let stdout_path = stdout_file.path().to_path_buf();
+        let stderr_path = stderr_file.path().to_path_buf();
+
+        let bin = assert_cmd::cargo::cargo_bin("actionbook");
+        let mut cmd = std::process::Command::new(&bin);
+        cmd.env("ACTIONBOOK_HOME", actionbook_home)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .stdout(stdout_file.reopen().map(std::process::Stdio::from).unwrap())
+            .stderr(stderr_file.reopen().map(std::process::Stdio::from).unwrap());
+        for (key, value) in extra_env {
+            cmd.env(key, value);
+        }
+
+        let mut child = cmd.spawn().expect("failed to spawn command");
+        let status = match wait_timeout::ChildExt::wait_timeout(
+            &mut child,
+            Duration::from_secs(timeout_secs),
+        ) {
+            Ok(Some(status)) => status,
+            Ok(None) => {
+                let _ = child.kill();
+                child.wait().expect("failed to wait after kill")
+            }
+            Err(e) => panic!("wait_timeout error: {e}"),
+        };
+
+        let stdout = std::fs::read(&stdout_path).unwrap_or_default();
+        let stderr = std::fs::read(&stderr_path).unwrap_or_default();
+
+        Output {
+            status,
+            stdout,
+            stderr,
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        let mut command = Command::cargo_bin("actionbook").expect("binary exists");
+        command
+            .env("ACTIONBOOK_HOME", actionbook_home)
+            .args(args)
+            .timeout(Duration::from_secs(timeout_secs));
+        for (key, value) in extra_env {
+            command.env(key, value);
+        }
+        command.output().expect("failed to execute command")
+    }
+}
+
 // ── Isolated environment ────────────────────────────────────────────
 
 /// Shared isolated environment — used by most tests via the global daemon.
@@ -58,22 +126,13 @@ impl SoloEnv {
     }
 
     pub fn headless(&self, args: &[&str], timeout_secs: u64) -> Output {
-        let mut command = Command::cargo_bin("actionbook").expect("binary exists");
-        command
-            .env("ACTIONBOOK_HOME", &self.actionbook_home)
-            .args(args)
-            .timeout(Duration::from_secs(timeout_secs));
-        command.output().expect("failed to execute command")
+        run_cli_with_timeout(&self.actionbook_home, args, &[], timeout_secs)
     }
 
     pub fn headless_json(&self, args: &[&str], timeout_secs: u64) -> Output {
-        let mut command = Command::cargo_bin("actionbook").expect("binary exists");
-        command
-            .env("ACTIONBOOK_HOME", &self.actionbook_home)
-            .arg("--json")
-            .args(args)
-            .timeout(Duration::from_secs(timeout_secs));
-        command.output().expect("failed to execute command")
+        let mut full_args = vec!["--json"];
+        full_args.extend_from_slice(args);
+        run_cli_with_timeout(&self.actionbook_home, &full_args, &[], timeout_secs)
     }
 
     pub fn headless_json_with_env(
@@ -82,16 +141,9 @@ impl SoloEnv {
         extra_env: &[(&str, &str)],
         timeout_secs: u64,
     ) -> Output {
-        let mut command = Command::cargo_bin("actionbook").expect("binary exists");
-        command
-            .env("ACTIONBOOK_HOME", &self.actionbook_home)
-            .arg("--json")
-            .args(args)
-            .timeout(Duration::from_secs(timeout_secs));
-        for (key, value) in extra_env {
-            command.env(key, value);
-        }
-        command.output().expect("failed to execute command")
+        let mut full_args = vec!["--json"];
+        full_args.extend_from_slice(args);
+        run_cli_with_timeout(&self.actionbook_home, &full_args, extra_env, timeout_secs)
     }
 
     pub fn config_path(&self) -> std::path::PathBuf {
@@ -109,32 +161,73 @@ impl Drop for SoloEnv {
         if let Ok(pid_str) = std::fs::read_to_string(&pid_path)
             && let Ok(pid) = pid_str.trim().parse::<u32>()
         {
-            let _ = std::process::Command::new("kill")
-                .args(["-9", &pid.to_string()])
-                .output();
-            // Wait for the process to actually exit before cleaning up files.
-            let start = std::time::Instant::now();
-            while start.elapsed() < Duration::from_secs(3) {
-                // kill -0 checks if process exists without sending a signal.
-                let status = std::process::Command::new("kill")
-                    .args(["-0", &pid.to_string()])
+            #[cfg(unix)]
+            {
+                let _ = std::process::Command::new("kill")
+                    .args(["-9", &pid.to_string()])
                     .output();
-                if status.is_err() || !status.unwrap().status.success() {
-                    break;
+                // Wait for the process to actually exit before cleaning up files.
+                let start = std::time::Instant::now();
+                while start.elapsed() < Duration::from_secs(3) {
+                    let status = std::process::Command::new("kill")
+                        .args(["-0", &pid.to_string()])
+                        .output();
+                    if status.is_err() || !status.unwrap().status.success() {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
                 }
-                std::thread::sleep(Duration::from_millis(50));
+            }
+            #[cfg(windows)]
+            {
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/F", "/PID", &pid.to_string()])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+                let start = std::time::Instant::now();
+                while start.elapsed() < Duration::from_secs(3) {
+                    let status = std::process::Command::new("tasklist")
+                        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+                        .output();
+                    match status {
+                        Ok(out) => {
+                            let stdout = String::from_utf8_lossy(&out.stdout);
+                            if !stdout.contains(&pid.to_string()) {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
             }
         }
         let profiles_dir = dir.join("profiles");
         if profiles_dir.exists() {
-            let _ = std::process::Command::new("pkill")
-                .args(["-f", &format!("--user-data-dir={}", profiles_dir.display())])
-                .output();
+            #[cfg(unix)]
+            {
+                let _ = std::process::Command::new("pkill")
+                    .args(["-f", &format!("--user-data-dir={}", profiles_dir.display())])
+                    .output();
+            }
+            #[cfg(windows)]
+            {
+                // On Windows, use wmic to find and kill Chrome processes
+                // with matching user-data-dir argument.
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/F", "/IM", "chrome.exe"])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+            }
         }
         // Clean up daemon files that SIGKILL leaves behind.
         let _ = std::fs::remove_file(dir.join("daemon.sock"));
         let _ = std::fs::remove_file(dir.join("daemon.ready"));
         let _ = std::fs::remove_file(dir.join("daemon.pid"));
+        #[cfg(windows)]
+        let _ = std::fs::remove_file(dir.join("daemon.port"));
     }
 }
 
@@ -563,15 +656,7 @@ pub fn headless(args: &[&str], timeout_secs: u64) -> Output {
 
 pub fn headless_with_env(args: &[&str], extra_env: &[(&str, &str)], timeout_secs: u64) -> Output {
     let env = shared_env();
-    let mut command = Command::cargo_bin("actionbook").expect("binary exists");
-    command
-        .env("ACTIONBOOK_HOME", &env.actionbook_home)
-        .args(args)
-        .timeout(Duration::from_secs(timeout_secs));
-    for (key, value) in extra_env {
-        command.env(key, value);
-    }
-    command.output().expect("failed to execute command")
+    run_cli_with_timeout(&env.actionbook_home, args, extra_env, timeout_secs)
 }
 
 /// Run `actionbook --json <args>` with the shared isolated environment.
@@ -585,16 +670,9 @@ pub fn headless_json_with_env(
     timeout_secs: u64,
 ) -> Output {
     let env = shared_env();
-    let mut command = Command::cargo_bin("actionbook").expect("binary exists");
-    command
-        .env("ACTIONBOOK_HOME", &env.actionbook_home)
-        .arg("--json")
-        .args(args)
-        .timeout(Duration::from_secs(timeout_secs));
-    for (key, value) in extra_env {
-        command.env(key, value);
-    }
-    command.output().expect("failed to execute command")
+    let mut full_args = vec!["--json"];
+    full_args.extend_from_slice(args);
+    run_cli_with_timeout(&env.actionbook_home, &full_args, extra_env, timeout_secs)
 }
 
 // ── Cleanup helpers ─────────────────────────────────────────────────

@@ -5,6 +5,7 @@
 //! helpers instead of inlining `child.kill()` / `child.wait()`.
 
 use std::process::Child;
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 /// Gracefully terminate and reap a Chrome child process.
