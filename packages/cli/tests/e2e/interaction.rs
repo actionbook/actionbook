@@ -4691,12 +4691,16 @@ fn upload_session_not_found_json() {
     if skip() {
         return;
     }
+    let upload_path = std::env::temp_dir()
+        .join("example.txt")
+        .to_string_lossy()
+        .into_owned();
     let out = headless_json(
         &[
             "browser",
             "upload",
             "#ab-upload-input",
-            "/tmp/example.txt",
+            &upload_path,
             "--session",
             "nonexistent-sid",
             "--tab",
@@ -4720,12 +4724,16 @@ fn upload_session_not_found_text() {
     if skip() {
         return;
     }
+    let upload_path = std::env::temp_dir()
+        .join("example.txt")
+        .to_string_lossy()
+        .into_owned();
     let out = headless(
         &[
             "browser",
             "upload",
             "#ab-upload-input",
-            "/tmp/example.txt",
+            &upload_path,
             "--session",
             "nonexistent-sid",
             "--tab",
@@ -4748,13 +4756,17 @@ fn upload_tab_not_found_json() {
     }
     let (sid, _tid) = start_session(TEST_URL);
     let _guard = SessionGuard::new(&sid);
+    let upload_path = std::env::temp_dir()
+        .join("example.txt")
+        .to_string_lossy()
+        .into_owned();
 
     let out = headless_json(
         &[
             "browser",
             "upload",
             "#ab-upload-input",
-            "/tmp/example.txt",
+            &upload_path,
             "--session",
             &sid,
             "--tab",
@@ -4783,13 +4795,17 @@ fn upload_tab_not_found_text() {
     }
     let (sid, _tid) = start_session(TEST_URL);
     let _guard = SessionGuard::new(&sid);
+    let upload_path = std::env::temp_dir()
+        .join("example.txt")
+        .to_string_lossy()
+        .into_owned();
 
     let out = headless(
         &[
             "browser",
             "upload",
             "#ab-upload-input",
-            "/tmp/example.txt",
+            &upload_path,
             "--session",
             &sid,
             "--tab",
@@ -5548,6 +5564,10 @@ fn mouse_move_invalid_coordinates_text() {
 // ========================================================================
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "mouse-move coordinate tracking is unreliable on Windows headless Chrome"
+)]
 fn cursor_position_json() {
     if skip() {
         return;
@@ -5597,6 +5617,10 @@ fn cursor_position_json() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "mouse-move coordinate tracking is unreliable on Windows headless Chrome"
+)]
 fn cursor_position_text() {
     if skip() {
         return;
@@ -5764,6 +5788,10 @@ fn cursor_position_tab_not_found_text() {
 // ========================================================================
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "mouse-move coordinate tracking is unreliable on Windows headless Chrome"
+)]
 fn cursor_position_after_click_json() {
     if skip() {
         return;

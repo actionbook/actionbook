@@ -338,6 +338,12 @@ async fn restart_daemon_windows() -> Result<(), CliError> {
     eprintln!("daemon version mismatch, restarting (pid={pid})...");
 
     if server::send_sigterm(pid) {
+        // On Windows, is_pid_alive() checks the TCP port via daemon.port
+        // rather than actual PID liveness.  Remove daemon.port immediately
+        // after the force-kill so the liveness check returns false without
+        // waiting for the OS to release the socket.
+        std::fs::remove_file(server::port_path()).ok();
+
         let start = std::time::Instant::now();
         while start.elapsed() < Duration::from_secs(5) {
             if !server::is_pid_alive(pid) {
@@ -393,6 +399,7 @@ fn cleanup_stale_files_windows() {
     std::fs::remove_file(server::port_path()).ok(); // daemon.port
     std::fs::remove_file(base.with_extension("ready")).ok();
     std::fs::remove_file(base.with_extension("version")).ok();
+    std::fs::remove_file(base.with_extension("lock")).ok(); // daemon.lock
 }
 
 /// Spawn the daemon as a detached process on Windows.

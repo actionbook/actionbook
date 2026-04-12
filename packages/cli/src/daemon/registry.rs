@@ -68,6 +68,10 @@ pub struct SessionEntry {
     pub ws_url: String,
     pub tabs: Vec<TabEntry>,
     pub chrome_process: Option<Child>,
+    /// Win32 Job Object that owns Chrome's main process and all its helpers.
+    /// `TerminateJobObject` kills the entire process group atomically on close.
+    #[cfg(windows)]
+    pub job_object: Option<crate::daemon::chrome_reaper::ChromeJobObject>,
     /// Persistent CDP connection for this session.
     pub cdp: Option<CdpSession>,
     /// Original CDP endpoint for cloud sessions (used for reuse matching & restart).
@@ -84,8 +88,10 @@ pub struct SessionEntry {
 
 impl Drop for SessionEntry {
     fn drop(&mut self) {
-        // Last-resort backstop: kill the Chrome process if it wasn't
-        // explicitly cleaned up via kill_and_reap_async / close path.
+        // Last-resort backstop: kill Chrome if it wasn't cleaned up explicitly.
+        // On Windows, ChromeJobObject::Drop (called when job_object field drops)
+        // already calls TerminateJobObject, which kills the entire Chrome process
+        // group.  kill_and_reap_option below reaps the main process exit status.
         crate::daemon::chrome_reaper::kill_and_reap_option(&mut self.chrome_process);
     }
 }
@@ -110,6 +116,8 @@ impl SessionEntry {
             ws_url: String::new(),
             tabs: Vec::new(),
             chrome_process: None,
+            #[cfg(windows)]
+            job_object: None,
             cdp: None,
             cdp_endpoint: None,
             headers: Vec::new(),

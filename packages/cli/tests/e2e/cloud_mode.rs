@@ -82,28 +82,68 @@ fn launch_simulated_cloud() -> (ChromeGuard, String) {
 }
 
 fn find_chrome_executable() -> String {
-    let candidates = [
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        "/Applications/Chromium.app/Contents/MacOS/Chromium",
-        "google-chrome",
-        "google-chrome-stable",
-        "chromium",
-        "chromium-browser",
-    ];
-    for c in &candidates {
-        if std::path::Path::new(c).exists() {
-            return c.to_string();
+    #[cfg(windows)]
+    {
+        let program_files =
+            std::env::var("PROGRAMFILES").unwrap_or_else(|_| "C:\\Program Files".to_string());
+        let program_files_x86 = std::env::var("PROGRAMFILES(X86)")
+            .unwrap_or_else(|_| "C:\\Program Files (x86)".to_string());
+        let local_appdata = std::env::var("LOCALAPPDATA").unwrap_or_default();
+
+        let candidates = [
+            format!("{}\\Google\\Chrome\\Application\\chrome.exe", program_files),
+            format!(
+                "{}\\Google\\Chrome\\Application\\chrome.exe",
+                program_files_x86
+            ),
+            format!("{}\\Google\\Chrome\\Application\\chrome.exe", local_appdata),
+        ];
+        for c in &candidates {
+            if std::path::Path::new(c).exists() {
+                return c.clone();
+            }
         }
-        if let Ok(output) = StdCommand::new("which").arg(c).output()
+        if let Ok(output) = StdCommand::new("where").arg("chrome").output()
             && output.status.success()
         {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let path = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string();
             if !path.is_empty() {
                 return path;
             }
         }
+        panic!("Chrome not found for cloud simulation tests");
     }
-    panic!("Chrome not found for cloud simulation tests");
+
+    #[cfg(not(windows))]
+    {
+        let candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            "google-chrome",
+            "google-chrome-stable",
+            "chromium",
+            "chromium-browser",
+        ];
+        for c in &candidates {
+            if std::path::Path::new(c).exists() {
+                return c.to_string();
+            }
+            if let Ok(output) = StdCommand::new("which").arg(c).output()
+                && output.status.success()
+            {
+                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !path.is_empty() {
+                    return path;
+                }
+            }
+        }
+        panic!("Chrome not found for cloud simulation tests");
+    }
 }
 
 /// Check if real cloud tests are enabled. Returns (endpoint, headers).

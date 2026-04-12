@@ -29,8 +29,10 @@ fn assert_yaml_snapshot_artifact(entry: &Value) {
     );
 
     let content = batch_snapshot_content(path);
+    // Trim leading whitespace/BOM — Windows may emit a UTF-8 BOM or CRLF prefix.
+    let trimmed = content.trim_start();
     assert!(
-        content.starts_with("- "),
+        trimmed.starts_with("- "),
         "snapshot content must use YAML DSL list entries: {content}"
     );
     assert!(

@@ -541,33 +541,57 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // so Chrome is left alive using the same user-data-dir. A new Chrome
     // launched against the same dir would race with the orphan and likely crash,
     // causing discover_ws_url to time out with CDP_CONNECTION_FAILED.
+    //
+    // Windows: remember the orphan PID so we can give an actionable error
+    // message if Chrome still fails to start (kill may fail in some environments).
+    #[cfg(windows)]
+    let mut orphan_pid_hint: Option<u32> = None;
+
     let chrome_pid_file = user_data_dir.join("chrome.pid");
     if let Ok(pid_str) = std::fs::read_to_string(&chrome_pid_file) {
-        if let Ok(pid) = pid_str.trim().parse::<i32>() {
+        if let Ok(_pid) = pid_str.trim().parse::<i32>() {
             #[cfg(unix)]
             {
                 unsafe extern "C" {
                     safe fn kill(pid: i32, sig: i32) -> i32;
                 }
                 // kill(pid, 0) checks liveness without sending a signal (POSIX).
-                if kill(pid, 0) == 0 {
-                    kill(pid, 9); // SIGKILL orphan
+                if kill(_pid, 0) == 0 {
+                    kill(_pid, 9); // SIGKILL orphan
                     std::thread::sleep(std::time::Duration::from_millis(500));
                 }
             }
             #[cfg(windows)]
             {
-                // On Windows, use taskkill to terminate the orphan Chrome process.
-                let _ = std::process::Command::new("taskkill")
-                    .args(["/F", "/PID", &pid.to_string()])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
-                std::thread::sleep(std::time::Duration::from_millis(500));
+                // Reopen the named Job Object left by the crashed daemon and
+                // terminate it — kills the orphan Chrome main process and all
+                // helpers (renderer, GPU, utility) atomically.
+                if let Some(job) = crate::daemon::chrome_reaper::ChromeJobObject::open(profile_name)
+                {
+                    tracing::debug!(
+                        profile_name,
+                        "orphan recovery: terminating Job Object for profile"
+                    );
+                    job.terminate();
+                    // Brief wait for processes to fully exit before we try to
+                    // acquire the user-data-dir lock for the new Chrome instance.
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+                // Fallback: directly kill the known orphan PID in case the Job
+                // Object was already released (e.g. Chrome exited on its own).
+                crate::daemon::chrome_reaper::terminate_pid_and_wait(_pid as u32);
+                // Remember the PID in case the kill failed and Chrome still holds
+                // the user-data-dir lock; used for a clearer error message below.
+                orphan_pid_hint = Some(_pid as u32);
             }
         }
         let _ = std::fs::remove_file(&chrome_pid_file);
     }
+
+    // Windows: Job Object is created inside the local-Chrome branch below and
+    // stored here so it survives the if-else scope and reaches the registry.
+    #[cfg(windows)]
+    let mut chrome_job: Option<crate::daemon::chrome_reaper::ChromeJobObject> = None;
 
     let (mut chrome_process, port, ws_url, mut targets) = if let Some(endpoint) = cdp_endpoint {
         let (ws_url, port) = match browser::resolve_cdp_endpoint(endpoint).await {
@@ -637,6 +661,24 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         let ws_url = match browser::discover_ws_url(port).await {
             Ok(ws) => ws,
             Err(e) => {
+                // On Windows, if we detected an orphan PID but couldn't kill it
+                // (e.g. Job Object nesting restrictions in CI), give an actionable
+                // error instead of a generic CDP_CONNECTION_FAILED timeout.
+                #[cfg(windows)]
+                if let Some(orphan_pid) = orphan_pid_hint {
+                    return fail_reserved_start_with_chrome(
+                        registry,
+                        &session_id,
+                        Some(chrome),
+                        "CHROME_ORPHAN_STILL_RUNNING",
+                        format!(
+                            "Chrome from a previous session (PID {orphan_pid}) is still \
+                             running and holding the profile lock. Kill it manually: \
+                             taskkill /F /IM chrome.exe"
+                        ),
+                    )
+                    .await;
+                }
                 return fail_reserved_start_with_chrome(
                     registry,
                     &session_id,
@@ -652,6 +694,22 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         // Write Chrome PID so a future daemon restart can detect and kill this
         // process if the daemon is SIGKILL'd before it can run graceful shutdown.
         let _ = std::fs::write(&chrome_pid_file, chrome.id().to_string());
+
+        // Windows: create a named Job Object and assign Chrome's main process
+        // to it.  All Chrome child processes (renderer, GPU, utility) inherit
+        // job membership automatically.  TerminateJobObject on close/restart
+        // kills the entire group atomically — no WMI or process enumeration.
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            let job = crate::daemon::chrome_reaper::ChromeJobObject::create(profile_name);
+            if let Some(ref j) = job {
+                // RawHandle (*mut c_void) == HANDLE (*mut c_void) in windows-sys 0.59
+                j.assign(chrome.as_raw_handle() as _);
+            }
+            chrome_job = job;
+        }
+
         (Some(chrome), Some(port), ws_url, targets)
     };
 
@@ -782,6 +840,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         entry.push_tab(native_id, url, title);
     }
     entry.chrome_process = chrome_process;
+    #[cfg(windows)]
+    {
+        entry.job_object = chrome_job;
+    }
     entry.cdp = Some(cdp);
     entry.stealth_ua = user_agent;
 

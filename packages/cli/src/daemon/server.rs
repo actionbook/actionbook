@@ -48,6 +48,18 @@ pub fn version_path() -> PathBuf {
     socket_path().with_extension("version")
 }
 
+/// Lock file path (Windows only).
+///
+/// On Windows the daemon uses a separate `daemon.lock` for the exclusive
+/// singleton lock instead of locking `daemon.pid` itself.  Windows mandatory
+/// byte-range locks prevent other processes from *reading* a locked file,
+/// so keeping the PID in an unlocked file lets the CLI (and tests) read it
+/// without ERROR_LOCK_VIOLATION (error code 33).
+#[cfg(windows)]
+fn lock_path() -> PathBuf {
+    socket_path().with_extension("lock")
+}
+
 /// Check if a daemon is already running by probing the PID file lock.
 ///
 /// Uses `flock(LOCK_EX | LOCK_NB)` — if the lock cannot be acquired, a daemon
@@ -379,6 +391,9 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(mut entry) = reg.remove(&sid) {
                 let cdp = entry.cdp.take();
                 let chrome = entry.chrome_process.take();
+                // Windows: entry.job_object drops here (end of if-let block),
+                // which calls ChromeJobObject::Drop → TerminateJobObject →
+                // kills all Chrome processes (main + helpers) atomically.
                 entries.push((cdp, chrome));
             }
         }
@@ -389,6 +404,8 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(cdp) = cdp {
             cdp.close().await;
         }
+        // Reap the main process exit status (Chrome is already dead on Windows
+        // because the Job Object was terminated when entry dropped above).
         if let Some(child) = chrome {
             crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
         }
@@ -421,25 +438,29 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
     );
     let pid_file = pid_path();
     let port_file = port_path();
+    let lock_file = lock_path();
     let base_path = socket_path();
     let ready_path = base_path.with_extension("ready");
 
     // Acquire exclusive file lock to prevent two daemons from starting simultaneously.
-    // fs2::FileExt provides cross-platform LockFileEx semantics on Windows.
+    // We lock a separate `daemon.lock` file instead of `daemon.pid` because Windows
+    // mandatory byte-range locks prevent other processes from reading the locked file
+    // (error code 33 / ERROR_LOCK_VIOLATION).  Keeping the PID in an unlocked file
+    // lets the CLI and tests read it freely.
     use fs2::FileExt;
-    let pid_file_fd = OpenOptions::new()
+    let lock_file_fd = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
-        .open(&pid_file)?;
+        .open(&lock_file)?;
 
-    let mut locked = pid_file_fd.try_lock_exclusive().is_ok();
+    let mut locked = lock_file_fd.try_lock_exclusive().is_ok();
     if !locked {
         for attempt in 1..=3 {
             info!("daemon lock held by another process, retrying ({attempt}/3)");
             tokio::time::sleep(Duration::from_secs(1)).await;
-            locked = pid_file_fd.try_lock_exclusive().is_ok();
+            locked = lock_file_fd.try_lock_exclusive().is_ok();
             if locked {
                 break;
             }
@@ -454,12 +475,9 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Write our PID so the client can target us with taskkill on version mismatch.
-    {
-        use std::io::Write;
-        pid_file_fd.set_len(0)?;
-        write!(&pid_file_fd, "{}", std::process::id())?;
-    }
+    // Write our PID to a separate (unlocked) file so the client can target us
+    // with taskkill on version mismatch.
+    std::fs::write(&pid_file, std::process::id().to_string())?;
 
     // Bind TCP listener; OS assigns an ephemeral port in the dynamic range.
     let listener = TcpListener::bind("127.0.0.1:0").await?;
@@ -543,6 +561,8 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(mut entry) = reg.remove(&sid) {
                 let cdp = entry.cdp.take();
                 let chrome = entry.chrome_process.take();
+                // Windows: entry.job_object drops here → ChromeJobObject::Drop
+                // → TerminateJobObject → kills all Chrome processes atomically.
                 entries.push((cdp, chrome));
             }
         }
@@ -552,6 +572,7 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(cdp) = cdp {
             cdp.close().await;
         }
+        // Reap the main process exit status (Chrome already dead on Windows).
         if let Some(child) = chrome {
             crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
         }
@@ -562,9 +583,11 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::remove_file(&ready_path).ok();
     std::fs::remove_file(version_path()).ok();
     std::fs::remove_file(&pid_file).ok();
+    std::fs::remove_file(&lock_file).ok();
 
     info!("daemon shutdown complete (pid={})", std::process::id());
-    drop(pid_file_fd);
+    // Drop the lock fd — Windows releases the byte-range lock when the fd closes.
+    drop(lock_file_fd);
     Ok(())
 }
 

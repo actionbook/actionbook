@@ -68,4 +68,4 @@ jobs:
         working-directory: packages/cli
         env:
           RUN_E2E_TESTS: "true"
-        run: cargo test --test e2e -- windows_daemon --test-threads=1
+        run: cargo test --test e2e -- --test-threads=1

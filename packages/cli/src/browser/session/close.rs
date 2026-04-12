@@ -96,6 +96,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     // ── Phase 3: local teardown under the registry lock. ──
     // Extract everything from registry then release the lock before slow I/O.
+    // Windows: also extract the Job Object so we can terminate all Chrome
+    // processes (main + helpers) atomically after releasing the lock.
+    #[cfg(windows)]
+    let chrome_job: Option<crate::daemon::chrome_reaper::ChromeJobObject>;
+
     let (closed_tabs, cdp, chrome_process, profile_to_clean, mode) = {
         let mut reg = registry.lock().await;
         let mut entry = match reg.remove(&cmd.session) {
@@ -118,19 +123,24 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         // Only delete non-default profile directories for local sessions.
         // The default profile ("actionbook") is long-lived and preserves
         // user state (cookies, localStorage) across sessions.
-        let profile =
+        let profile_cleanup =
             if entry.chrome_process.is_some() && entry.profile != crate::config::DEFAULT_PROFILE {
                 Some(entry.profile.clone())
             } else {
                 None
             };
 
+        #[cfg(windows)]
+        {
+            chrome_job = entry.job_object.take();
+        }
+
         reg.clear_session_ref_caches(&cmd.session);
         (
             tabs,
             entry.cdp.take(),
             entry.chrome_process.take(),
-            profile,
+            profile_cleanup,
             entry_mode,
         )
     };
@@ -155,6 +165,16 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
 
     if let Some(child) = chrome_process {
+        // Windows: terminate the Job Object first — this kills all Chrome
+        // processes (main process + renderer/GPU/utility helpers) atomically
+        // without needing WMI or process enumeration.
+        #[cfg(windows)]
+        if let Some(job) = chrome_job {
+            job.terminate();
+        }
+
+        // Reap the main Chrome process to release the OS process handle.
+        // On Windows this is a no-op kill (already dead) followed by wait().
         crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
     }
 

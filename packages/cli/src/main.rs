@@ -1,3 +1,4 @@
+use std::io::Write as _;
 use std::time::{Duration, Instant};
 
 use clap::Parser;
@@ -8,6 +9,14 @@ use actionbook_cli::cli::{BrowserCommands, Cli, Commands};
 use actionbook_cli::config;
 use actionbook_cli::output::{self, JsonEnvelope};
 use actionbook_cli::utils::client::DaemonClient;
+
+/// Flush stdout then exit. On Windows, stdout is fully-buffered when redirected
+/// to a file (as in the e2e test harness), so `exit()` without a flush loses
+/// any `println!` output still sitting in the buffer.
+fn flush_and_exit(code: i32) -> ! {
+    let _ = std::io::stdout().flush();
+    std::process::exit(code);
+}
 
 #[tokio::main]
 async fn main() {
@@ -123,7 +132,7 @@ async fn main() {
                     eprintln!("hint: {hint}");
                 }
             }
-            std::process::exit(1);
+            flush_and_exit(1);
         }
     }
 }
@@ -218,7 +227,7 @@ async fn handle_browser(
                     let text = output::format_text("browser start", &context, &result);
                     println!("{text}");
                 }
-                std::process::exit(1);
+                flush_and_exit(1);
             }
         },
         BrowserCommands::Restart(mut cmd) => {
@@ -250,7 +259,7 @@ async fn handle_browser(
                 let text = output::format_text(&command_name, &context, &result);
                 println!("{text}");
             }
-            std::process::exit(1);
+            flush_and_exit(1);
         }
     };
 
@@ -278,7 +287,7 @@ async fn handle_browser(
                     let text = output::format_text(&command_name, &context, &result);
                     println!("{text}");
                 }
-                std::process::exit(1);
+                flush_and_exit(1);
             }
         }
     } else {
@@ -299,7 +308,7 @@ async fn handle_browser(
     }
 
     if !result.is_ok() {
-        std::process::exit(1);
+        flush_and_exit(1);
     }
 
     Ok(())
