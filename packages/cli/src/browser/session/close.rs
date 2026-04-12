@@ -35,6 +35,11 @@ pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Extract everything from registry then release the lock before slow I/O.
+    // Windows: also extract the Job Object so we can terminate all Chrome
+    // processes (main + helpers) atomically after releasing the lock.
+    #[cfg(windows)]
+    let chrome_job: Option<crate::daemon::chrome_reaper::ChromeJobObject>;
+
     let (closed_tabs, cdp, chrome_process, profile_to_clean, mode, _profile_name) = {
         let mut reg = registry.lock().await;
         let mut entry = match reg.remove(&cmd.session) {
@@ -60,6 +65,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             } else {
                 None
             };
+
+        #[cfg(windows)]
+        {
+            chrome_job = entry.job_object.take();
+        }
 
         reg.clear_session_ref_caches(&cmd.session);
         (
@@ -92,23 +102,17 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
 
     if let Some(child) = chrome_process {
-        // Build user_data_dir once; used for Win32-based post-kill cleanup.
+        // Windows: terminate the Job Object first — this kills all Chrome
+        // processes (main process + renderer/GPU/utility helpers) atomically
+        // without needing WMI or process enumeration.
         #[cfg(windows)]
-        let user_data_dir = crate::config::profiles_dir().join(&_profile_name);
+        if let Some(job) = chrome_job {
+            job.terminate();
+        }
 
-        // Kill the main Chrome process (also attempts taskkill /T tree-kill,
-        // which may take out some helpers).  Waits until the main process exits.
+        // Reap the main Chrome process to release the OS process handle.
+        // On Windows this is a no-op kill (already dead) followed by wait().
         crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
-
-        // On Windows, use Win32 CreateToolhelp32Snapshot to find and terminate
-        // any Chrome helpers that outlived the main process.  Win32 kernel
-        // snapshots are unaffected by Chrome's helper re-parenting, so all
-        // surviving processes are always visible regardless of process context.
-        #[cfg(windows)]
-        crate::daemon::chrome_reaper::kill_and_wait_for_chrome_by_user_data_dir_async(
-            user_data_dir,
-        )
-        .await;
     }
 
     // Remove non-default profile directory after Chrome has fully exited.

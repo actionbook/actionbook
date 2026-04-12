@@ -311,18 +311,33 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             }
             #[cfg(windows)]
             {
-                // Directly terminate the known orphan main PID first — this is
-                // reliable even if command-line enumeration fails for any reason.
+                // Reopen the named Job Object left by the crashed daemon and
+                // terminate it — kills the orphan Chrome main process and all
+                // helpers (renderer, GPU, utility) atomically.
+                if let Some(job) =
+                    crate::daemon::chrome_reaper::ChromeJobObject::open(profile_name)
+                {
+                    tracing::debug!(
+                        profile_name,
+                        "orphan recovery: terminating Job Object for profile"
+                    );
+                    job.terminate();
+                    // Brief wait for processes to fully exit before we try to
+                    // acquire the user-data-dir lock for the new Chrome instance.
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+                // Fallback: directly kill the known orphan PID in case the Job
+                // Object was already released (e.g. Chrome exited on its own).
                 crate::daemon::chrome_reaper::terminate_pid_and_wait(_pid as u32);
-                // Then sweep by user-data-dir to catch any surviving helpers.
-                crate::daemon::chrome_reaper::kill_and_wait_for_chrome_by_user_data_dir_async(
-                    user_data_dir.clone(),
-                )
-                .await;
             }
         }
         let _ = std::fs::remove_file(&chrome_pid_file);
     }
+
+    // Windows: Job Object is created inside the local-Chrome branch below and
+    // stored here so it survives the if-else scope and reaches the registry.
+    #[cfg(windows)]
+    let mut chrome_job: Option<crate::daemon::chrome_reaper::ChromeJobObject> = None;
 
     let (mut chrome_process, port, ws_url, mut targets) = if let Some(endpoint) = cdp_endpoint {
         let (ws_url, port) = match browser::resolve_cdp_endpoint(endpoint).await {
@@ -407,6 +422,22 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         // Write Chrome PID so a future daemon restart can detect and kill this
         // process if the daemon is SIGKILL'd before it can run graceful shutdown.
         let _ = std::fs::write(&chrome_pid_file, chrome.id().to_string());
+
+        // Windows: create a named Job Object and assign Chrome's main process
+        // to it.  All Chrome child processes (renderer, GPU, utility) inherit
+        // job membership automatically.  TerminateJobObject on close/restart
+        // kills the entire group atomically — no WMI or process enumeration.
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            let job = crate::daemon::chrome_reaper::ChromeJobObject::create(profile_name);
+            if let Some(ref j) = job {
+                // RawHandle (*mut c_void) == HANDLE (*mut c_void) in windows-sys 0.59
+                j.assign(chrome.as_raw_handle() as _);
+            }
+            chrome_job = job;
+        }
+
         (Some(chrome), Some(port), ws_url, targets)
     };
 
@@ -537,6 +568,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         entry.push_tab(native_id, url, title);
     }
     entry.chrome_process = chrome_process;
+    #[cfg(windows)]
+    {
+        entry.job_object = chrome_job;
+    }
     entry.cdp = Some(cdp);
     entry.stealth_ua = user_agent;
 

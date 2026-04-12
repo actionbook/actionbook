@@ -76,23 +76,26 @@ pub fn kill_and_reap_option(child: &mut Option<Child>) {
 
 // ─── Windows Chrome cleanup helpers ───────────────────────────────────────
 //
-// Uses Win32 APIs (CreateToolhelp32Snapshot + NtQueryInformationProcess) to
-// enumerate and terminate Chrome processes by user-data-dir.  This approach
-// works from any process context — including a DETACHED_PROCESS daemon —
-// without relying on WMI or PowerShell, which can fail to enumerate
-// processes when invoked from a detached or non-interactive process.
+// Uses Win32 Job Objects to track and terminate all Chrome processes for a
+// session (main process + renderer/GPU/utility helpers).  A named Job Object
+// is created at Chrome launch and stored in the session registry.  On close
+// or daemon restart, TerminateJobObject kills the entire process group
+// atomically — no WMI, PowerShell, or process enumeration needed.
+//
+// Named format: "Local\actionbook-chrome-{profile_name}"
+// This name survives daemon crashes, allowing the next daemon to reopen the
+// job and kill orphaned Chrome processes during orphan recovery.
 
 #[cfg(windows)]
 use windows_sys::Win32::{
-    Foundation::{CloseHandle, FALSE, HANDLE, INVALID_HANDLE_VALUE, UNICODE_STRING},
+    Foundation::{CloseHandle, FALSE, HANDLE},
     System::{
-        Diagnostics::ToolHelp::{
-            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
-            TH32CS_SNAPPROCESS,
+        JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_TERMINATE, OpenJobObjectW,
+            TerminateJobObject,
         },
         Threading::{
-            OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
-            PROCESS_TERMINATE,
+            OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_TERMINATE,
         },
     },
 };
@@ -102,163 +105,98 @@ use windows_sys::Win32::{
 #[cfg(windows)]
 const SYNCHRONIZE: u32 = 0x0010_0000;
 
-// Declare NtQueryInformationProcess from ntdll.dll.
-// ProcessCommandLineInformation (class 60, available since Windows 8.1)
-// only requires PROCESS_QUERY_LIMITED_INFORMATION, works from any process
-// context (no COM/WMI initialization needed), and returns the process
-// command-line string in our own output buffer — no cross-process memory
-// reads required.
+/// A named Win32 Job Object that owns all Chrome processes for a session.
+///
+/// When Chrome's main process is assigned to this job, all Chrome child
+/// processes (renderer, GPU, utility) automatically join the job as well.
+/// `TerminateJobObject` then kills the entire group atomically.
+///
+/// The job is named `Local\actionbook-chrome-{profile_name}` so a new daemon
+/// instance can reopen it after a crash to kill orphaned Chrome processes.
+///
+/// # Drop behaviour
+///
+/// Dropping a `ChromeJobObject` calls `TerminateJobObject` (kills all
+/// remaining processes in the job) and then `CloseHandle`.  This ensures
+/// that Chrome processes are always cleaned up when the job handle goes out
+/// of scope — including in error paths inside `browser start`.
+///
+/// Note: a SIGKILL / `taskkill /F` on the daemon does **not** run Rust
+/// destructors, so Chrome remains alive after a daemon crash (the required
+/// behaviour for orphan-recovery tests).
 #[cfg(windows)]
-#[link(name = "ntdll")]
-unsafe extern "system" {
-    fn NtQueryInformationProcess(
-        process_handle: HANDLE,
-        process_information_class: i32,
-        process_information: *mut ::core::ffi::c_void,
-        process_information_length: u32,
-        return_length: *mut u32,
-    ) -> i32;
+pub struct ChromeJobObject {
+    handle: HANDLE,
 }
 
-/// Read the command-line string of a process via `NtQueryInformationProcess`.
-///
-/// Returns `None` if the process has already exited, access is denied, or
-/// the command line cannot be decoded.
-///
-/// After the call, the kernel adjusts the `UNICODE_STRING.Buffer` pointer to
-/// reference the string data immediately following the structure, within our
-/// own allocation — no cross-process memory access needed.
 #[cfg(windows)]
-fn read_process_cmdline(pid: u32) -> Option<String> {
-    const PROCESS_COMMAND_LINE_INFORMATION: i32 = 60;
-    const STATUS_SUCCESS: i32 = 0;
-    // STATUS_INFO_LENGTH_MISMATCH: buffer too small but return_length was set.
-    const STATUS_INFO_LENGTH_MISMATCH: i32 = 0xC0000004u32 as i32;
+unsafe impl Send for ChromeJobObject {}
+#[cfg(windows)]
+unsafe impl Sync for ChromeJobObject {}
 
-    unsafe {
-        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+#[cfg(windows)]
+impl ChromeJobObject {
+    /// Create a new named Job Object for `profile_name`.
+    ///
+    /// Returns `None` if `CreateJobObjectW` fails (very unlikely in practice).
+    pub fn create(profile_name: &str) -> Option<Self> {
+        let name = format!("Local\\actionbook-chrome-{profile_name}");
+        let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+        let handle = unsafe { CreateJobObjectW(std::ptr::null(), wide.as_ptr()) };
+        if handle.is_null() {
+            tracing::warn!(profile_name, "ChromeJobObject::create failed");
+            return None;
+        }
+        Some(Self { handle })
+    }
+
+    /// Reopen an existing named Job Object for orphan recovery.
+    ///
+    /// Returns `None` if the job no longer exists (Chrome already exited and
+    /// released the last handle) or if access is denied.
+    pub fn open(profile_name: &str) -> Option<Self> {
+        let name = format!("Local\\actionbook-chrome-{profile_name}");
+        let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+        let handle = unsafe { OpenJobObjectW(JOB_OBJECT_TERMINATE, FALSE, wide.as_ptr()) };
         if handle.is_null() {
             return None;
         }
+        Some(Self { handle })
+    }
 
-        // Allocate a generous initial buffer. On Windows Server, calling
-        // NtQueryInformationProcess(class 60) with a NULL buffer does NOT
-        // reliably populate return_length, so we skip the probe call and
-        // use a fixed initial size, resizing only if explicitly told to.
-        let mut buf_size: u32 = 4096;
-        let mut buf = vec![0u8; buf_size as usize];
-        let mut return_length: u32 = 0;
+    /// Assign a process to this Job Object.
+    ///
+    /// `process_handle` must have `PROCESS_SET_QUOTA | PROCESS_TERMINATE` access.
+    /// The `Child::as_raw_handle()` handle satisfies this on Windows.
+    pub fn assign(&self, process_handle: HANDLE) -> bool {
+        unsafe { AssignProcessToJobObject(self.handle, process_handle) != FALSE }
+    }
 
-        let mut status = NtQueryInformationProcess(
-            handle,
-            PROCESS_COMMAND_LINE_INFORMATION,
-            buf.as_mut_ptr().cast(),
-            buf_size,
-            &mut return_length,
-        );
-
-        // Retry with the exact size if the initial buffer was too small.
-        if status == STATUS_INFO_LENGTH_MISMATCH && return_length > buf_size {
-            buf_size = return_length;
-            buf.resize(buf_size as usize, 0);
-            status = NtQueryInformationProcess(
-                handle,
-                PROCESS_COMMAND_LINE_INFORMATION,
-                buf.as_mut_ptr().cast(),
-                buf_size,
-                &mut return_length,
-            );
-        }
-
-        CloseHandle(handle);
-
-        if status != STATUS_SUCCESS {
-            return None;
-        }
-
-        // The buffer starts with a UNICODE_STRING. The kernel sets Buffer to
-        // point into our output buffer (self-relative), right after the struct.
-        if buf.len() < std::mem::size_of::<UNICODE_STRING>() {
-            return None;
-        }
-
-        // read_unaligned avoids alignment UB since buf is byte-aligned.
-        let us: UNICODE_STRING = std::ptr::read_unaligned(buf.as_ptr().cast());
-        if us.Buffer.is_null() || us.Length == 0 {
-            return None;
-        }
-
-        let char_count = us.Length as usize / 2;
-        let str_start = us.Buffer as usize;
-        let buf_start = buf.as_ptr() as usize;
-        let buf_end = buf_start + buf.len();
-
-        // Verify the Buffer pointer is within our allocation.
-        if str_start < buf_start || str_start.saturating_add(us.Length as usize) > buf_end {
-            return None;
-        }
-
-        Some(String::from_utf16_lossy(std::slice::from_raw_parts(
-            us.Buffer,
-            char_count,
-        )))
+    /// Terminate all processes currently in this Job Object.
+    ///
+    /// Returns `true` if the call succeeded.  Safe to call on an already-empty
+    /// job (no-op).
+    pub fn terminate(&self) -> bool {
+        unsafe { TerminateJobObject(self.handle, 1) != FALSE }
     }
 }
 
-/// Convert a null-terminated UTF-16 slice to a `String`.
 #[cfg(windows)]
-fn wstr_to_string(wstr: &[u16]) -> String {
-    let len = wstr.iter().position(|&c| c == 0).unwrap_or(wstr.len());
-    String::from_utf16_lossy(&wstr[..len])
-}
-
-/// Enumerate PIDs of `chrome.exe` processes whose command line contains
-/// `dir_pattern` (case-insensitive substring match).
-///
-/// Uses [`CreateToolhelp32Snapshot`] — no WMI, no PowerShell.  Kernel
-/// snapshots are unaffected by Chrome's helper-process re-parenting, so
-/// all Chrome processes (main, renderer, GPU, utility) are always visible.
-///
-/// Pass `exclude_pid` to skip one PID (e.g., the main Chrome process when
-/// enumerating helpers only).
-#[cfg(windows)]
-fn enumerate_chrome_pids_for_dir(dir_pattern: &str, exclude_pid: Option<u32>) -> Vec<u32> {
-    let dir_lower = dir_pattern.to_lowercase();
-    let mut result = Vec::new();
-
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-    if snapshot == INVALID_HANDLE_VALUE {
-        return result;
-    }
-
-    let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
-    entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-
-    if unsafe { Process32FirstW(snapshot, &mut entry) } != FALSE {
-        loop {
-            let pid = entry.th32ProcessID;
-            let exe_name = wstr_to_string(&entry.szExeFile).to_lowercase();
-
-            if exe_name == "chrome.exe" && exclude_pid != Some(pid) {
-                if let Some(cmdline) = read_process_cmdline(pid) {
-                    if cmdline.to_lowercase().contains(&dir_lower) {
-                        result.push(pid);
-                    }
-                }
-            }
-
-            if unsafe { Process32NextW(snapshot, &mut entry) } == FALSE {
-                break;
-            }
+impl Drop for ChromeJobObject {
+    fn drop(&mut self) {
+        // Terminate any surviving Chrome processes before releasing the handle.
+        // This is the last-resort backstop for error paths where the caller did
+        // not call terminate() explicitly.  Calling terminate() on an empty job
+        // is a no-op, so this is safe in the normal close/shutdown paths too.
+        unsafe {
+            TerminateJobObject(self.handle, 1);
+            CloseHandle(self.handle);
         }
     }
-
-    unsafe { CloseHandle(snapshot) };
-    result
 }
 
 /// Force-terminate a single known PID and wait up to 5 s for it to exit.
-/// Used for direct kills where the PID is already known (e.g., orphan main process).
+/// Used as a fallback for orphan recovery when the Job Object cannot be opened.
 #[cfg(windows)]
 pub fn terminate_pid_and_wait(pid: u32) {
     unsafe {
@@ -269,83 +207,6 @@ pub fn terminate_pid_and_wait(pid: u32) {
             CloseHandle(handle);
         }
     }
-}
-
-/// Force-terminate each PID in `pids` and wait up to 2 s per process for exit.
-#[cfg(windows)]
-fn terminate_pids_and_wait(pids: &[u32]) {
-    for &pid in pids {
-        unsafe {
-            let handle = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid);
-            if handle.is_null() {
-                continue; // Process already exited or no access
-            }
-            TerminateProcess(handle, 1);
-            WaitForSingleObject(handle, 2000);
-            CloseHandle(handle);
-        }
-    }
-}
-
-/// Kill all Chrome processes matching `user_data_dir` and block until they
-/// have fully exited.
-///
-/// Uses Win32 [`CreateToolhelp32Snapshot`] — works reliably from daemon
-/// context without WMI.  Loops up to 10 seconds to catch any Chrome that
-/// relaunches itself.  Intentionally synchronous — callers in async contexts
-/// should use [`kill_and_wait_for_chrome_by_user_data_dir_async`].
-#[cfg(windows)]
-pub fn kill_and_wait_for_chrome_by_user_data_dir(user_data_dir: &std::path::Path) {
-    let dir_str = user_data_dir.display().to_string();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    loop {
-        let pids = enumerate_chrome_pids_for_dir(&dir_str, None);
-        if pids.is_empty() || std::time::Instant::now() >= deadline {
-            break;
-        }
-        tracing::debug!(?pids, "chrome_reaper: force-terminating Chrome processes");
-        terminate_pids_and_wait(&pids);
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-}
-
-/// Async wrapper around [`kill_and_wait_for_chrome_by_user_data_dir`].
-#[cfg(windows)]
-pub async fn kill_and_wait_for_chrome_by_user_data_dir_async(user_data_dir: std::path::PathBuf) {
-    let _ = tokio::task::spawn_blocking(move || {
-        kill_and_wait_for_chrome_by_user_data_dir(&user_data_dir);
-    })
-    .await;
-}
-
-/// Kill all Chrome HELPER processes for `user_data_dir` (every `chrome.exe`
-/// matching the dir except `main_pid`) and block until they exit.
-///
-/// Uses Win32 — no WMI or re-parenting transient issues.
-/// Intentionally synchronous — use [`kill_chrome_helpers_and_wait_async`]
-/// from async contexts.
-#[cfg(windows)]
-pub fn kill_chrome_helpers_and_wait(user_data_dir: &std::path::Path, main_pid: u32) {
-    let dir_str = user_data_dir.display().to_string();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    loop {
-        let pids = enumerate_chrome_pids_for_dir(&dir_str, Some(main_pid));
-        if pids.is_empty() || std::time::Instant::now() >= deadline {
-            break;
-        }
-        tracing::debug!(?pids, main_pid, "chrome_reaper: force-terminating Chrome helpers");
-        terminate_pids_and_wait(&pids);
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-}
-
-/// Async wrapper around [`kill_chrome_helpers_and_wait`].
-#[cfg(windows)]
-pub async fn kill_chrome_helpers_and_wait_async(user_data_dir: std::path::PathBuf, main_pid: u32) {
-    let _ = tokio::task::spawn_blocking(move || {
-        kill_chrome_helpers_and_wait(&user_data_dir, main_pid);
-    })
-    .await;
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────

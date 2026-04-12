@@ -391,28 +391,23 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(mut entry) = reg.remove(&sid) {
                 let cdp = entry.cdp.take();
                 let chrome = entry.chrome_process.take();
-                let profile = entry.profile.clone();
-                entries.push((cdp, chrome, profile));
+                // Windows: entry.job_object drops here (end of if-let block),
+                // which calls ChromeJobObject::Drop → TerminateJobObject →
+                // kills all Chrome processes (main + helpers) atomically.
+                entries.push((cdp, chrome));
             }
         }
         entries
     };
     // Registry lock released — cleanup below runs without blocking.
-    for (cdp, chrome, _profile) in entries_to_close {
+    for (cdp, chrome) in entries_to_close {
         if let Some(cdp) = cdp {
             cdp.close().await;
         }
+        // Reap the main process exit status (Chrome is already dead on Windows
+        // because the Job Object was terminated when entry dropped above).
         if let Some(child) = chrome {
-            #[cfg(windows)]
-            let user_data_dir = crate::config::profiles_dir().join(&_profile);
             crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
-            // Use Win32 snapshot to catch any helpers that outlived the main
-            // process — avoids WMI re-parenting transient issues.
-            #[cfg(windows)]
-            crate::daemon::chrome_reaper::kill_and_wait_for_chrome_by_user_data_dir_async(
-                user_data_dir,
-            )
-            .await;
         }
     }
 
@@ -566,25 +561,20 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(mut entry) = reg.remove(&sid) {
                 let cdp = entry.cdp.take();
                 let chrome = entry.chrome_process.take();
-                let profile = entry.profile.clone();
-                entries.push((cdp, chrome, profile));
+                // Windows: entry.job_object drops here → ChromeJobObject::Drop
+                // → TerminateJobObject → kills all Chrome processes atomically.
+                entries.push((cdp, chrome));
             }
         }
         entries
     };
-    for (cdp, chrome, _profile) in entries_to_close {
+    for (cdp, chrome) in entries_to_close {
         if let Some(cdp) = cdp {
             cdp.close().await;
         }
+        // Reap the main process exit status (Chrome already dead on Windows).
         if let Some(child) = chrome {
-            #[cfg(windows)]
-            let user_data_dir = crate::config::profiles_dir().join(&_profile);
             crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
-            #[cfg(windows)]
-            crate::daemon::chrome_reaper::kill_and_wait_for_chrome_by_user_data_dir_async(
-                user_data_dir,
-            )
-            .await;
         }
     }
 
