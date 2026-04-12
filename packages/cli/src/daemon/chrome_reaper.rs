@@ -75,33 +75,92 @@ pub fn kill_and_reap_option(child: &mut Option<Child>) {
 }
 
 /// Kill any remaining Chrome processes whose command line contains the given
-/// `user_data_dir` path.
+/// `user_data_dir` path.  Uses `taskkill /F /T /PID` per process so that
+/// sandboxed child processes (renderer, GPU, utility) that have been
+/// re-parented by the OS are also terminated via their process subtree.
 ///
-/// On Windows, Chrome's sandboxed child processes (renderer, GPU, utility) may
-/// be re-parented by the OS during token manipulation, so `taskkill /F /T`
-/// cannot reach them via the process tree.  This function finds stragglers by
-/// command-line matching and kills them individually.
+/// Returns the number of matching PIDs that were found (and killed).
+/// Callers that need to wait for exit should use
+/// [`kill_and_wait_for_chrome_by_user_data_dir`] instead.
 #[cfg(windows)]
-pub fn kill_chrome_by_user_data_dir(user_data_dir: &std::path::Path) {
+fn kill_chrome_by_user_data_dir_inner(user_data_dir: &std::path::Path) -> u32 {
     let dir_str = user_data_dir.display().to_string().replace('\'', "''");
-    // Use Where-Object (PowerShell-side) rather than -Filter (WMI-side) for the
-    // name check — WMI -Filter can silently return no results when the CIM
-    // infrastructure is momentarily busy, causing the ForEach-Object body to
-    // be skipped entirely.  Where-Object is evaluated by PowerShell itself and
-    // is fully reliable.  We also omit the name restriction so that non-.exe
-    // Chrome helper processes (e.g. re-parented sandbox children visible under
-    // a different image name) are also caught.
+    // Use Where-Object (PowerShell-side) rather than -Filter (WMI-side): WMI
+    // -Filter can silently return empty results when the CIM provider is busy.
+    // We also omit the image-name restriction so re-parented helpers whose
+    // image name differs from chrome.exe are caught.
+    //
+    // Each PID is killed via `taskkill /F /T` (force + entire subtree) rather
+    // than Stop-Process: Stop-Process calls TerminateProcess() but can fail
+    // silently on sandboxed Chrome helpers that have special job-object
+    // protections.  taskkill /T additionally kills the subtree even when
+    // PROC_THREAD_ATTRIBUTE_PARENT_PROCESS re-parenting has occurred.
+    //
+    // Output format: "COUNT:<n>" on a dedicated line so we can parse it
+    // reliably even if PowerShell emits stray warnings.
     let ps_cmd = format!(
-        "Get-CimInstance Win32_Process | \
+        "$pids = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | \
          Where-Object {{ $_.CommandLine -like '*{}*' }} | \
-         ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}",
+         Select-Object -ExpandProperty ProcessId); \
+         foreach ($p in $pids) {{ & taskkill.exe /F /T /PID $p 2>&1 | Out-Null }}; \
+         Write-Output \"COUNT:$($pids.Count)\"",
         dir_str
     );
-    let _ = std::process::Command::new("powershell")
+    let output = std::process::Command::new("powershell")
         .args(["-NoProfile", "-Command", &ps_cmd])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+        .output();
+    output
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .and_then(|s| {
+            s.lines().find_map(|l| {
+                l.trim()
+                    .strip_prefix("COUNT:")
+                    .and_then(|n| n.parse::<u32>().ok())
+            })
+        })
+        .unwrap_or(0)
+}
+
+/// Kill any remaining Chrome processes whose command line contains the given
+/// `user_data_dir` path.  Fire-and-forget variant — does not wait for the
+/// processes to fully exit.  For a blocking wait use
+/// [`kill_and_wait_for_chrome_by_user_data_dir`].
+#[cfg(windows)]
+pub fn kill_chrome_by_user_data_dir(user_data_dir: &std::path::Path) {
+    kill_chrome_by_user_data_dir_inner(user_data_dir);
+}
+
+/// Kill all Chrome processes for `user_data_dir` and block until WMI reports
+/// zero matching processes (or up to 10 seconds have elapsed).
+///
+/// Runs kill-then-count iterations every 300 ms so processes that appear in
+/// WMI with a short delay (due to OS re-parenting) are caught on subsequent
+/// passes.
+///
+/// This is intentionally synchronous — callers in async contexts should use
+/// [`kill_and_wait_for_chrome_by_user_data_dir_async`].
+#[cfg(windows)]
+pub fn kill_and_wait_for_chrome_by_user_data_dir(user_data_dir: &std::path::Path) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let found = kill_chrome_by_user_data_dir_inner(user_data_dir);
+        if found == 0 || std::time::Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+}
+
+/// Async wrapper around [`kill_and_wait_for_chrome_by_user_data_dir`].
+/// Moves the blocking work into a `spawn_blocking` task so the Tokio runtime
+/// is not stalled.
+#[cfg(windows)]
+pub async fn kill_and_wait_for_chrome_by_user_data_dir_async(user_data_dir: std::path::PathBuf) {
+    let _ = tokio::task::spawn_blocking(move || {
+        kill_and_wait_for_chrome_by_user_data_dir(&user_data_dir);
+    })
+    .await;
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────

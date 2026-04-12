@@ -311,25 +311,16 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             }
             #[cfg(windows)]
             {
-                // On Windows, kill the entire Chrome process tree (/T) so that
-                // helper processes (renderer, GPU, utility) are also terminated.
-                // Without /T, helpers survive and keep the user-data-dir locked,
-                // causing the next Chrome launch to hang.
-                let _ = std::process::Command::new("taskkill")
-                    .args(["/F", "/T", "/PID", &pid.to_string()])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
-                // Chrome's sandboxed children may be re-parented by the OS,
-                // making them invisible to taskkill /T.  Kill stragglers by
-                // matching the --user-data-dir command-line argument.
-                // We call twice with a gap: the first call kills processes
-                // visible to WMI at that instant; any that appear in WMI only
-                // after a brief delay are caught by the second call.
-                crate::daemon::chrome_reaper::kill_chrome_by_user_data_dir(&user_data_dir);
-                std::thread::sleep(std::time::Duration::from_millis(800));
-                crate::daemon::chrome_reaper::kill_chrome_by_user_data_dir(&user_data_dir);
-                std::thread::sleep(std::time::Duration::from_millis(800));
+                // On Windows, kill the orphan Chrome and ALL its helpers by
+                // WMI command-line scan + taskkill /F /T /PID.  We wait until
+                // WMI confirms zero matching processes (up to 10 s) so the
+                // user-data-dir lock is fully released before we launch the
+                // new Chrome; without this wait the new Chrome races with a
+                // dying helper and discover_ws_url times out.
+                crate::daemon::chrome_reaper::kill_and_wait_for_chrome_by_user_data_dir_async(
+                    user_data_dir.clone(),
+                )
+                .await;
             }
         }
         let _ = std::fs::remove_file(&chrome_pid_file);
