@@ -1,5 +1,13 @@
 # @actionbookdev/cli
 
+## 1.4.0
+
+### Minor Changes
+
+- [#507](https://github.com/actionbook/actionbook/pull/507) [`5bddf13`](https://github.com/actionbook/actionbook/commit/5bddf13420a872355216b045ff616c6f58761feb) Thanks [@Senke0x](https://github.com/Senke0x)! - Add cloud browser provider support via `-p / --provider`.
+
+  Supported providers: Driver, Hyperbrowser, Browseruse. Each provider reads its own `<PROVIDER>_API_KEY` from the caller's shell, and `browser restart` mints a fresh remote session while preserving the local `session_id`.
+
 ## 1.3.1
 
 ### Patch Changes
