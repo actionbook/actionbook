@@ -391,18 +391,24 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(mut entry) = reg.remove(&sid) {
                 let cdp = entry.cdp.take();
                 let chrome = entry.chrome_process.take();
-                entries.push((cdp, chrome));
+                let profile = entry.profile.clone();
+                entries.push((cdp, chrome, profile));
             }
         }
         entries
     };
     // Registry lock released — cleanup below runs without blocking.
-    for (cdp, chrome) in entries_to_close {
+    for (cdp, chrome, _profile) in entries_to_close {
         if let Some(cdp) = cdp {
             cdp.close().await;
         }
         if let Some(child) = chrome {
             crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
+            #[cfg(windows)]
+            {
+                let user_data_dir = crate::config::profiles_dir().join(&_profile);
+                crate::daemon::chrome_reaper::kill_chrome_by_user_data_dir(&user_data_dir);
+            }
         }
     }
 
@@ -556,17 +562,23 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(mut entry) = reg.remove(&sid) {
                 let cdp = entry.cdp.take();
                 let chrome = entry.chrome_process.take();
-                entries.push((cdp, chrome));
+                let profile = entry.profile.clone();
+                entries.push((cdp, chrome, profile));
             }
         }
         entries
     };
-    for (cdp, chrome) in entries_to_close {
+    for (cdp, chrome, _profile) in entries_to_close {
         if let Some(cdp) = cdp {
             cdp.close().await;
         }
         if let Some(child) = chrome {
             crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
+            #[cfg(windows)]
+            {
+                let user_data_dir = crate::config::profiles_dir().join(&_profile);
+                crate::daemon::chrome_reaper::kill_chrome_by_user_data_dir(&user_data_dir);
+            }
         }
     }
 

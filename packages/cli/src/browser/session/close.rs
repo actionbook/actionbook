@@ -35,7 +35,7 @@ pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // Extract everything from registry then release the lock before slow I/O.
-    let (closed_tabs, cdp, chrome_process, profile_to_clean, mode) = {
+    let (closed_tabs, cdp, chrome_process, profile_to_clean, mode, _profile_name) = {
         let mut reg = registry.lock().await;
         let mut entry = match reg.remove(&cmd.session) {
             Some(e) => e,
@@ -49,11 +49,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         };
         let tabs = entry.tabs_count();
         let entry_mode = entry.mode;
+        let profile = entry.profile.clone();
 
         // Only delete non-default profile directories for local sessions.
         // The default profile ("actionbook") is long-lived and preserves
         // user state (cookies, localStorage) across sessions.
-        let profile =
+        let profile_cleanup =
             if entry.chrome_process.is_some() && entry.profile != crate::config::DEFAULT_PROFILE {
                 Some(entry.profile.clone())
             } else {
@@ -65,8 +66,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             tabs,
             entry.cdp.take(),
             entry.chrome_process.take(),
-            profile,
+            profile_cleanup,
             entry_mode,
+            profile,
         )
     };
     // Registry lock released here — slow I/O below won't block other sessions.
@@ -91,6 +93,15 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
     if let Some(child) = chrome_process {
         crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
+
+        // On Windows, Chrome's sandboxed child processes may be re-parented
+        // by the OS, so taskkill /T cannot reach them.  Kill stragglers by
+        // matching the --user-data-dir command-line argument.
+        #[cfg(windows)]
+        {
+            let user_data_dir = crate::config::profiles_dir().join(&_profile_name);
+            crate::daemon::chrome_reaper::kill_chrome_by_user_data_dir(&user_data_dir);
+        }
     }
 
     // Remove non-default profile directory after Chrome has fully exited.

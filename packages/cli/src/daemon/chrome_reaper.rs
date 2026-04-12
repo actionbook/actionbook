@@ -74,6 +74,29 @@ pub fn kill_and_reap_option(child: &mut Option<Child>) {
     }
 }
 
+/// Kill any remaining Chrome processes whose command line contains the given
+/// `user_data_dir` path.
+///
+/// On Windows, Chrome's sandboxed child processes (renderer, GPU, utility) may
+/// be re-parented by the OS during token manipulation, so `taskkill /F /T`
+/// cannot reach them via the process tree.  This function finds stragglers by
+/// command-line matching and kills them individually.
+#[cfg(windows)]
+pub fn kill_chrome_by_user_data_dir(user_data_dir: &std::path::Path) {
+    let dir_str = user_data_dir.display().to_string().replace('\'', "''");
+    let ps_cmd = format!(
+        "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | \
+         Where-Object {{ $_.CommandLine -like '*{}*' }} | \
+         ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}",
+        dir_str
+    );
+    let _ = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-Command", &ps_cmd])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(all(test, unix))]
