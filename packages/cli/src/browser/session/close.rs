@@ -92,28 +92,25 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
 
     if let Some(child) = chrome_process {
-        // On Windows, kill ALL Chrome processes matching this profile (by
-        // command-line WMI scan) BEFORE terminating the main process handle,
-        // while the process tree is still intact so WMI can enumerate children.
-        // We use taskkill /F /T /PID per process (not Stop-Process) because
-        // Stop-Process can fail silently on sandboxed Chrome helpers.
-        // After reaping the child we run a second wait-until-gone pass to
-        // ensure `browser close` does not return while any Chrome helper is
-        // still visible to the OS — the test polls for 5 s after close returns.
+        // On Windows, kill all Chrome HELPER processes first — while the main
+        // process is still alive — then reap the main process.
+        //
+        // Ordering matters: if the main Chrome dies first, its re-parented
+        // helpers enter a transient state where they may appear or disappear
+        // unpredictably in WMI.  By killing helpers before main we avoid that
+        // window and ensure `browser close` does not return while any Chrome
+        // process is still alive (the test polls for 5 s after close returns).
         #[cfg(windows)]
         {
             let user_data_dir = crate::config::profiles_dir().join(&_profile_name);
-            crate::daemon::chrome_reaper::kill_chrome_by_user_data_dir(&user_data_dir);
-        }
-        crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
-        #[cfg(windows)]
-        {
-            let user_data_dir = crate::config::profiles_dir().join(&_profile_name);
-            crate::daemon::chrome_reaper::kill_and_wait_for_chrome_by_user_data_dir_async(
+            let main_pid = child.id();
+            crate::daemon::chrome_reaper::kill_chrome_helpers_and_wait_async(
                 user_data_dir,
+                main_pid,
             )
             .await;
         }
+        crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
     }
 
     // Remove non-default profile directory after Chrome has fully exited.

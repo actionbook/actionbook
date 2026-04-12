@@ -311,12 +311,18 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             }
             #[cfg(windows)]
             {
-                // On Windows, kill the orphan Chrome and ALL its helpers by
-                // WMI command-line scan + taskkill /F /T /PID.  We wait until
-                // WMI confirms zero matching processes (up to 10 s) so the
-                // user-data-dir lock is fully released before we launch the
-                // new Chrome; without this wait the new Chrome races with a
-                // dying helper and discover_ws_url times out.
+                // Kill orphan helpers first (while the orphan main is still
+                // alive), then kill the isolated main process.  This avoids
+                // the re-parenting transient that occurs when Chrome's main
+                // dies first and helpers briefly disappear from WMI.
+                let main_pid = pid as u32;
+                crate::daemon::chrome_reaper::kill_chrome_helpers_and_wait_async(
+                    user_data_dir.clone(),
+                    main_pid,
+                )
+                .await;
+                // Helpers are confirmed dead; now kill the main process.
+                // No helpers remain, so re-parenting cannot occur.
                 crate::daemon::chrome_reaper::kill_and_wait_for_chrome_by_user_data_dir_async(
                     user_data_dir.clone(),
                 )
