@@ -75,116 +75,217 @@ pub fn kill_and_reap_option(child: &mut Option<Child>) {
 }
 
 // ─── Windows Chrome cleanup helpers ───────────────────────────────────────
+//
+// Uses Win32 APIs (CreateToolhelp32Snapshot + NtQueryInformationProcess) to
+// enumerate and terminate Chrome processes by user-data-dir.  This approach
+// works from any process context — including a DETACHED_PROCESS daemon —
+// without relying on WMI or PowerShell, which can fail to enumerate
+// processes when invoked from a detached or non-interactive process.
 
-/// Run a PowerShell command and parse the `COUNT:<n>` line from its stdout.
-/// Tries `pwsh` (PowerShell 7) first — CI runners ship with `pwsh.EXE` and
-/// `Get-CimInstance` works reliably from detached daemon processes under PS 7.
-/// Falls back to `powershell` (PS 5.1) if `pwsh` is unavailable.
-/// Returns 0 on any error or if no matching line is found.
 #[cfg(windows)]
-fn ps_run_and_get_count(ps_cmd: &str) -> u32 {
-    for exe in &["pwsh", "powershell"] {
-        let result = std::process::Command::new(exe)
-            .args(["-NoProfile", "-Command", ps_cmd])
-            .output();
-        let Ok(output) = result else { continue };
-        let stdout = String::from_utf8(output.stdout).unwrap_or_default();
-        let count = stdout
-            .lines()
-            .find_map(|l| {
-                l.trim()
-                    .strip_prefix("COUNT:")
-                    .and_then(|n| n.parse::<u32>().ok())
-            })
-            .unwrap_or(0);
-        tracing::debug!(exe, count, "chrome_reaper: ps_run_and_get_count");
-        return count;
-    }
-    tracing::warn!("chrome_reaper: neither pwsh nor powershell is available");
-    0
-}
+use windows_sys::Win32::{
+    Foundation::{BOOL, CloseHandle, FALSE, HANDLE, INVALID_HANDLE_VALUE, UNICODE_STRING},
+    System::{
+        Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+            TH32CS_SNAPPROCESS,
+        },
+        Threading::{
+            OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
+            PROCESS_TERMINATE,
+        },
+    },
+};
 
-/// Build a PowerShell snippet that:
-///   1. Finds all processes whose `CommandLine` contains `dir_pattern`
-///      (optionally excluding `exclude_pid`),
-///   2. Kills each with `taskkill /F /PID`,
-///   3. Waits for each to fully exit via `Wait-Process -Timeout 5` (process-
-///      handle based — no WMI lag), and
-///   4. Outputs `COUNT:<n>` where `n` is the number of PIDs that were found.
+/// `SYNCHRONIZE` access right (0x00100000) — required by `WaitForSingleObject`
+/// on a process handle.
+#[cfg(windows)]
+const SYNCHRONIZE: u32 = 0x0010_0000;
+
+/// Declare `NtQueryInformationProcess` from `ntdll.dll`.
 ///
-/// Waiting on process handles rather than polling WMI avoids the "re-parenting
-/// transient" that can make Chrome helpers briefly appear or disappear in WMI
-/// after the main Chrome process exits.
+/// `ProcessCommandLineInformation` (class 60, available since Windows 8.1)
+/// only requires `PROCESS_QUERY_LIMITED_INFORMATION`, works from any process
+/// context (no COM/WMI initialization needed), and returns the process
+/// command-line string in our own output buffer — no cross-process memory
+/// reads required.
 #[cfg(windows)]
-fn build_kill_wait_ps(dir_pattern: &str, exclude_pid: Option<u32>) -> String {
-    let filter = match exclude_pid {
-        Some(pid) => format!(
-            "Where-Object {{ $_.CommandLine -like '*{}*' -and $_.ProcessId -ne {} }}",
-            dir_pattern, pid
-        ),
-        None => format!(
-            "Where-Object {{ $_.CommandLine -like '*{}*' }}",
-            dir_pattern
-        ),
-    };
-    format!(
-        "$pids = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | \
-         {} | \
-         Select-Object -ExpandProperty ProcessId); \
-         foreach ($p in $pids) {{ & taskkill.exe /F /PID $p 2>&1 | Out-Null }}; \
-         foreach ($p in $pids) {{ \
-             Wait-Process -Id ([int]$p) -Timeout 5 -ErrorAction SilentlyContinue \
-         }}; \
-         Write-Output \"COUNT:$($pids.Count)\"",
-        filter
-    )
+#[link(name = "ntdll")]
+unsafe extern "system" {
+    fn NtQueryInformationProcess(
+        process_handle: HANDLE,
+        process_information_class: i32,
+        process_information: *mut ::core::ffi::c_void,
+        process_information_length: u32,
+        return_length: *mut u32,
+    ) -> i32;
 }
 
-/// Kill any remaining Chrome processes whose command line contains the given
-/// `user_data_dir` path.  Fire-and-forget — does not wait for exit.
-/// Prefer [`kill_and_wait_for_chrome_by_user_data_dir`] when a confirmed-dead
-/// guarantee is needed.
+/// Read the command-line string of a process via `NtQueryInformationProcess`.
+///
+/// Returns `None` if the process has already exited, access is denied, or
+/// the command line cannot be decoded.
+///
+/// After the call, the kernel adjusts the `UNICODE_STRING.Buffer` pointer to
+/// reference the string data immediately following the structure, within our
+/// own allocation — no cross-process memory access needed.
 #[cfg(windows)]
-pub fn kill_chrome_by_user_data_dir(user_data_dir: &std::path::Path) {
-    let dir_str = user_data_dir.display().to_string().replace('\'', "''");
-    let ps_cmd = format!(
-        "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | \
-         Where-Object {{ $_.CommandLine -like '*{}*' }} | \
-         ForEach-Object {{ & taskkill.exe /F /PID $_.ProcessId 2>&1 | Out-Null }}",
-        dir_str
-    );
-    for exe in &["pwsh", "powershell"] {
-        if std::process::Command::new(exe)
-            .args(["-NoProfile", "-Command", &ps_cmd])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok()
-        {
-            break;
+fn read_process_cmdline(pid: u32) -> Option<String> {
+    const PROCESS_COMMAND_LINE_INFORMATION: i32 = 60;
+    const STATUS_SUCCESS: i32 = 0;
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if handle == 0 {
+            return None;
+        }
+
+        // First call: obtain the required buffer size.
+        let mut return_length: u32 = 0;
+        NtQueryInformationProcess(
+            handle,
+            PROCESS_COMMAND_LINE_INFORMATION,
+            std::ptr::null_mut(),
+            0,
+            &mut return_length,
+        );
+
+        if return_length == 0 {
+            CloseHandle(handle);
+            return None;
+        }
+
+        let mut buf = vec![0u8; return_length as usize];
+        let status = NtQueryInformationProcess(
+            handle,
+            PROCESS_COMMAND_LINE_INFORMATION,
+            buf.as_mut_ptr().cast(),
+            return_length,
+            &mut return_length,
+        );
+
+        CloseHandle(handle);
+
+        if status != STATUS_SUCCESS {
+            return None;
+        }
+
+        // The buffer starts with a UNICODE_STRING. The kernel sets Buffer to
+        // point into our output buffer (self-relative), right after the struct.
+        if buf.len() < std::mem::size_of::<UNICODE_STRING>() {
+            return None;
+        }
+
+        // read_unaligned avoids alignment UB since buf is byte-aligned.
+        let us: UNICODE_STRING = std::ptr::read_unaligned(buf.as_ptr().cast());
+        if us.Buffer.is_null() || us.Length == 0 {
+            return None;
+        }
+
+        let char_count = us.Length as usize / 2;
+        let str_start = us.Buffer as usize;
+        let buf_start = buf.as_ptr() as usize;
+        let buf_end = buf_start + buf.len();
+
+        // Verify the Buffer pointer is within our allocation.
+        if str_start < buf_start || str_start.saturating_add(us.Length as usize) > buf_end {
+            return None;
+        }
+
+        Some(String::from_utf16_lossy(std::slice::from_raw_parts(
+            us.Buffer,
+            char_count,
+        )))
+    }
+}
+
+/// Convert a null-terminated UTF-16 slice to a `String`.
+#[cfg(windows)]
+fn wstr_to_string(wstr: &[u16]) -> String {
+    let len = wstr.iter().position(|&c| c == 0).unwrap_or(wstr.len());
+    String::from_utf16_lossy(&wstr[..len])
+}
+
+/// Enumerate PIDs of `chrome.exe` processes whose command line contains
+/// `dir_pattern` (case-insensitive substring match).
+///
+/// Uses [`CreateToolhelp32Snapshot`] — no WMI, no PowerShell.  Kernel
+/// snapshots are unaffected by Chrome's helper-process re-parenting, so
+/// all Chrome processes (main, renderer, GPU, utility) are always visible.
+///
+/// Pass `exclude_pid` to skip one PID (e.g., the main Chrome process when
+/// enumerating helpers only).
+#[cfg(windows)]
+fn enumerate_chrome_pids_for_dir(dir_pattern: &str, exclude_pid: Option<u32>) -> Vec<u32> {
+    let dir_lower = dir_pattern.to_lowercase();
+    let mut result = Vec::new();
+
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return result;
+    }
+
+    let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+    entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+    if unsafe { Process32FirstW(snapshot, &mut entry) } != FALSE {
+        loop {
+            let pid = entry.th32ProcessID;
+            let exe_name = wstr_to_string(&entry.szExeFile).to_lowercase();
+
+            if exe_name == "chrome.exe" && exclude_pid != Some(pid) {
+                if let Some(cmdline) = read_process_cmdline(pid) {
+                    if cmdline.to_lowercase().contains(&dir_lower) {
+                        result.push(pid);
+                    }
+                }
+            }
+
+            if unsafe { Process32NextW(snapshot, &mut entry) } == FALSE {
+                break;
+            }
+        }
+    }
+
+    unsafe { CloseHandle(snapshot) };
+    result
+}
+
+/// Force-terminate each PID in `pids` and wait up to 2 s per process for exit.
+#[cfg(windows)]
+fn terminate_pids_and_wait(pids: &[u32]) {
+    for &pid in pids {
+        unsafe {
+            let handle = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid);
+            if handle == 0 {
+                continue; // Process already exited or no access
+            }
+            TerminateProcess(handle, 1);
+            WaitForSingleObject(handle, 2000);
+            CloseHandle(handle);
         }
     }
 }
 
 /// Kill all Chrome processes matching `user_data_dir` and block until they
-/// have fully exited (confirmed via process handles, not WMI polling).
+/// have fully exited.
 ///
-/// Loops up to 10 seconds to catch any Chrome that relaunches itself.
-/// Intentionally synchronous — callers in async contexts should use
-/// [`kill_and_wait_for_chrome_by_user_data_dir_async`].
+/// Uses Win32 [`CreateToolhelp32Snapshot`] — works reliably from daemon
+/// context without WMI.  Loops up to 10 seconds to catch any Chrome that
+/// relaunches itself.  Intentionally synchronous — callers in async contexts
+/// should use [`kill_and_wait_for_chrome_by_user_data_dir_async`].
 #[cfg(windows)]
 pub fn kill_and_wait_for_chrome_by_user_data_dir(user_data_dir: &std::path::Path) {
-    let dir_str = user_data_dir.display().to_string().replace('\'', "''");
+    let dir_str = user_data_dir.display().to_string();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
-        let ps_cmd = build_kill_wait_ps(&dir_str, None);
-        let found = ps_run_and_get_count(&ps_cmd);
-        if found == 0 || std::time::Instant::now() >= deadline {
+        let pids = enumerate_chrome_pids_for_dir(&dir_str, None);
+        if pids.is_empty() || std::time::Instant::now() >= deadline {
             break;
         }
-        // found > 0: processes were found, killed, and waited on; sleep briefly
-        // then check again in case Chrome relaunched during the window.
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        tracing::debug!(?pids, "chrome_reaper: force-terminating Chrome processes");
+        terminate_pids_and_wait(&pids);
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }
 
@@ -197,27 +298,24 @@ pub async fn kill_and_wait_for_chrome_by_user_data_dir_async(user_data_dir: std:
     .await;
 }
 
-/// Kill all Chrome HELPER processes for `user_data_dir` (every process
-/// matching the dir except `main_pid`) and block until they have fully exited.
+/// Kill all Chrome HELPER processes for `user_data_dir` (every `chrome.exe`
+/// matching the dir except `main_pid`) and block until they exit.
 ///
-/// **Call this BEFORE [`kill_and_reap_async`].**  When Chrome's main process
-/// dies first, its re-parented helpers can briefly enter a transient state
-/// where they appear or disappear unpredictably in WMI.  Killing helpers
-/// while the main process is still alive avoids that window entirely.
-///
-/// Intentionally synchronous — use [`kill_chrome_helpers_and_wait_async`] from
-/// async contexts.
+/// Uses Win32 — no WMI or re-parenting transient issues.
+/// Intentionally synchronous — use [`kill_chrome_helpers_and_wait_async`]
+/// from async contexts.
 #[cfg(windows)]
 pub fn kill_chrome_helpers_and_wait(user_data_dir: &std::path::Path, main_pid: u32) {
-    let dir_str = user_data_dir.display().to_string().replace('\'', "''");
+    let dir_str = user_data_dir.display().to_string();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
-        let ps_cmd = build_kill_wait_ps(&dir_str, Some(main_pid));
-        let found = ps_run_and_get_count(&ps_cmd);
-        if found == 0 || std::time::Instant::now() >= deadline {
+        let pids = enumerate_chrome_pids_for_dir(&dir_str, Some(main_pid));
+        if pids.is_empty() || std::time::Instant::now() >= deadline {
             break;
         }
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        tracing::debug!(?pids, main_pid, "chrome_reaper: force-terminating Chrome helpers");
+        terminate_pids_and_wait(&pids);
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }
 

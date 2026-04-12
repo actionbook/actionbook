@@ -403,20 +403,16 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
             cdp.close().await;
         }
         if let Some(child) = chrome {
-            // Kill helpers before main to avoid the re-parenting transient
-            // that can cause helpers to briefly disappear from WMI after main
-            // exits (see chrome_reaper::kill_chrome_helpers_and_wait).
             #[cfg(windows)]
-            {
-                let user_data_dir = crate::config::profiles_dir().join(&_profile);
-                let main_pid = child.id();
-                crate::daemon::chrome_reaper::kill_chrome_helpers_and_wait_async(
-                    user_data_dir,
-                    main_pid,
-                )
-                .await;
-            }
+            let user_data_dir = crate::config::profiles_dir().join(&_profile);
             crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
+            // Use Win32 snapshot to catch any helpers that outlived the main
+            // process — avoids WMI re-parenting transient issues.
+            #[cfg(windows)]
+            crate::daemon::chrome_reaper::kill_and_wait_for_chrome_by_user_data_dir_async(
+                user_data_dir,
+            )
+            .await;
         }
     }
 
@@ -582,16 +578,13 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
         }
         if let Some(child) = chrome {
             #[cfg(windows)]
-            {
-                let user_data_dir = crate::config::profiles_dir().join(&_profile);
-                let main_pid = child.id();
-                crate::daemon::chrome_reaper::kill_chrome_helpers_and_wait_async(
-                    user_data_dir,
-                    main_pid,
-                )
-                .await;
-            }
+            let user_data_dir = crate::config::profiles_dir().join(&_profile);
             crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
+            #[cfg(windows)]
+            crate::daemon::chrome_reaper::kill_and_wait_for_chrome_by_user_data_dir_async(
+                user_data_dir,
+            )
+            .await;
         }
     }
 

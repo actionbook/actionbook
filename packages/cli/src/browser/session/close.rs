@@ -92,25 +92,23 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
 
     if let Some(child) = chrome_process {
-        // On Windows, kill all Chrome HELPER processes first — while the main
-        // process is still alive — then reap the main process.
-        //
-        // Ordering matters: if the main Chrome dies first, its re-parented
-        // helpers enter a transient state where they may appear or disappear
-        // unpredictably in WMI.  By killing helpers before main we avoid that
-        // window and ensure `browser close` does not return while any Chrome
-        // process is still alive (the test polls for 5 s after close returns).
+        // Build user_data_dir once; used for Win32-based post-kill cleanup.
         #[cfg(windows)]
-        {
-            let user_data_dir = crate::config::profiles_dir().join(&_profile_name);
-            let main_pid = child.id();
-            crate::daemon::chrome_reaper::kill_chrome_helpers_and_wait_async(
-                user_data_dir,
-                main_pid,
-            )
-            .await;
-        }
+        let user_data_dir = crate::config::profiles_dir().join(&_profile_name);
+
+        // Kill the main Chrome process (also attempts taskkill /T tree-kill,
+        // which may take out some helpers).  Waits until the main process exits.
         crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
+
+        // On Windows, use Win32 CreateToolhelp32Snapshot to find and terminate
+        // any Chrome helpers that outlived the main process.  Win32 kernel
+        // snapshots are unaffected by Chrome's helper re-parenting, so all
+        // surviving processes are always visible regardless of process context.
+        #[cfg(windows)]
+        crate::daemon::chrome_reaper::kill_and_wait_for_chrome_by_user_data_dir_async(
+            user_data_dir,
+        )
+        .await;
     }
 
     // Remove non-default profile directory after Chrome has fully exited.

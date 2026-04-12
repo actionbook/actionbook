@@ -311,18 +311,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             }
             #[cfg(windows)]
             {
-                // Kill orphan helpers first (while the orphan main is still
-                // alive), then kill the isolated main process.  This avoids
-                // the re-parenting transient that occurs when Chrome's main
-                // dies first and helpers briefly disappear from WMI.
-                let main_pid = pid as u32;
-                crate::daemon::chrome_reaper::kill_chrome_helpers_and_wait_async(
-                    user_data_dir.clone(),
-                    main_pid,
-                )
-                .await;
-                // Helpers are confirmed dead; now kill the main process.
-                // No helpers remain, so re-parenting cannot occur.
+                // Use Win32 CreateToolhelp32Snapshot to enumerate and kill all
+                // Chrome processes for this user-data-dir (main + helpers).
+                // Win32 kernel snapshots are unaffected by Chrome's re-parenting,
+                // so the two-phase helpers-then-main ordering is not needed.
                 crate::daemon::chrome_reaper::kill_and_wait_for_chrome_by_user_data_dir_async(
                     user_data_dir.clone(),
                 )
