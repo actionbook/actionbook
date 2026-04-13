@@ -415,8 +415,18 @@ fn hermes_skill_is_installed() -> Result<bool, CliError> {
     Ok(hermes_list_contains_skill(stdout.as_ref(), HERMES_SKILL_ID))
 }
 
+/// Check whether a skill name appears as an exact match in the first column
+/// of the `hermes skills list` table output.
+///
+/// Each data row looks like: `│ actionbook │ devops │ skills.sh │ community │`
+/// We split by `│`, take the second segment (index 1 = name column), trim
+/// whitespace, and compare exactly.
 fn hermes_list_contains_skill(output: &str, skill_id: &str) -> bool {
-    output.lines().any(|line| line.contains(skill_id))
+    output.lines().any(|line| {
+        line.split('│')
+            .nth(1)
+            .is_some_and(|cell| cell.trim() == skill_id)
+    })
 }
 
 fn print_missing_hermes(json: bool, command_str: &str) {
@@ -630,13 +640,20 @@ mod tests {
 
     #[test]
     fn hermes_list_contains_skill_detects_actionbook_row() {
-        let output = "┃ Name      ┃ Category ┃ Source    ┃ Trust ┃\n┃ actionbook ┃ devops   ┃ skills.sh ┃ comm  ┃";
+        let output = "│ Name       │ Category │ Source    │ Trust     │\n│ actionbook │ devops   │ skills.sh │ community │";
         assert!(hermes_list_contains_skill(output, HERMES_SKILL_ID));
     }
 
     #[test]
     fn hermes_list_contains_skill_ignores_empty_listing() {
         let output = "0 hub-installed, 0 builtin, 0 local";
+        assert!(!hermes_list_contains_skill(output, HERMES_SKILL_ID));
+    }
+
+    #[test]
+    fn hermes_list_contains_skill_rejects_substring_match() {
+        // A skill named "actionbook-extension" must NOT match "actionbook".
+        let output = "│ actionbook-extension │ devops │ local │ local │";
         assert!(!hermes_list_contains_skill(output, HERMES_SKILL_ID));
     }
 
