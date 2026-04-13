@@ -19,7 +19,8 @@ use crate::types::Mode;
 #[derive(Args, Debug, Clone, Default, PartialEq, Eq)]
 pub struct Cmd {
     /// AI coding tool target. When set, skips the wizard and only installs
-    /// skills for the given agent via `npx skills add` (quick mode).
+    /// skills for the given agent (quick mode). Most agents use `npx skills
+    /// add`; Hermes uses its native `hermes skills install`.
     ///
     /// Mutually exclusive with full setup options like `--api-key`,
     /// `--browser`, and `--reset` to avoid silently ignoring them.
@@ -228,9 +229,10 @@ fn run_target_only(json: bool, target: SetupTarget) -> Result<(), CliError> {
 ///
 /// Quick mode is an explicit "install for this agent now" request, so any
 /// outcome other than `Installed` must surface as an error. This differs from
-/// the full-wizard Skills step, which treats `Prompted` (npx missing) as a
-/// soft prompt — there the user can still complete setup by hand. In quick
-/// mode the user's entire intent was to install; there's no other work to do.
+/// the full-wizard Skills step, which treats `Prompted` (installer missing)
+/// as a soft prompt — there the user can still complete setup by hand. In
+/// quick mode the user's entire intent was to install; there's no other work
+/// to do.
 fn target_only_exit_status(
     result: &skills::SkillsResult,
     target: &SetupTarget,
@@ -241,13 +243,20 @@ fn target_only_exit_status(
             "Skills installation failed for {}.",
             skills::target_display_name(target)
         ))),
-        SkillsAction::Prompted => Err(CliError::Internal(format!(
-            "Skills installation skipped for {}: npx is not available. \
-             Install Node.js (https://nodejs.org) and re-run, or run \
-             `{}` manually.",
-            skills::target_display_name(target),
-            result.command,
-        ))),
+        SkillsAction::Prompted => {
+            let (missing_tool, install_hint) = match target {
+                SetupTarget::Hermes => ("hermes", "Install Hermes (https://hermes.sh)"),
+                _ => ("npx", "Install Node.js (https://nodejs.org)"),
+            };
+            Err(CliError::Internal(format!(
+                "Skills installation skipped for {}: {} is not available. \
+                 {} and re-run, or run `{}` manually.",
+                skills::target_display_name(target),
+                missing_tool,
+                install_hint,
+                result.command,
+            )))
+        }
         SkillsAction::Skipped => Err(CliError::Internal(format!(
             "Skills installation skipped for {}.",
             skills::target_display_name(target)
@@ -555,6 +564,25 @@ mod tests {
             .expect_err("prompted must propagate in quick mode");
         assert!(err.to_string().contains("npx is not available"));
         assert!(err.to_string().contains("Codex"));
+    }
+
+    #[test]
+    fn target_only_prompted_for_hermes_mentions_hermes_not_npx() {
+        // Prompted + Hermes target means `hermes` binary is missing — the
+        // error must tell users to install Hermes, not Node.js. Using the
+        // npx-centric message here would mislead Hermes users into
+        // installing the wrong tool.
+        let result = skills::SkillsResult {
+            npx_available: false,
+            action: SkillsAction::Prompted,
+            command: "hermes skills install actionbook -y".to_string(),
+        };
+        let err = target_only_exit_status(&result, &SetupTarget::Hermes)
+            .expect_err("prompted must propagate in quick mode");
+        let msg = err.to_string();
+        assert!(msg.contains("hermes is not available"), "got: {msg}");
+        assert!(msg.contains("Hermes"), "got: {msg}");
+        assert!(!msg.contains("Node.js"), "got: {msg}");
     }
 
     #[test]
