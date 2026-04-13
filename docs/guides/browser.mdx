@@ -1,9 +1,9 @@
 ---
 title: "Browser Automation"
-description: "Control browsers with Actionbook CLI — modes, commands, multi-session, and security"
+description: "Control browsers with Actionbook CLI: modes, commands, multi-session, and security"
 ---
 
-The `actionbook browser` command lets AI agents automate any Chromium-based browser. Two modes are available depending on the use case:
+The `actionbook browser` command lets AI agents automate any Chromium-based browser. Three modes are available depending on the use case:
 
 <Note>
   Normal usage: run `actionbook setup` once, then use `actionbook browser ...` commands only.
@@ -13,51 +13,25 @@ The `actionbook browser` command lets AI agents automate any Chromium-based brow
 
 | Mode | How It Works | Best For |
 |------|-------------|----------|
-| **Isolated** *(default)* | Launches a new Chrome with a fresh, dedicated profile | Automated tasks, CI/CD, headless, no user data needed |
+| **Local** *(default)* | Launches a new Chrome with a fresh, dedicated profile | Automated tasks, CI/CD, headless, no user data needed |
+| **Cloud** | Connects to a remote browser via a cloud provider | Scalable headless infra, geo-targeting, persistent profiles in the cloud |
 | **Extension** | Connects to the user's running Chrome via extension bridge | Tasks requiring existing login sessions, cookies, personal context |
 
-Both modes are designed for AI agents. **Isolated** gives agents a clean, reproducible environment. **Extension** lets agents operate inside the user's real browser — ideal when the task requires existing authentication (e.g., "book my flight", "reply to that email").
+All three modes are designed for AI agents:
 
-## Configuration
+- **Local** gives agents a clean, reproducible environment.
+- **Cloud** offloads the browser to a remote provider, suited for production workloads, parallel execution at scale, or IP geolocation control.
+- **Extension** lets agents operate inside the user's real browser when the task requires existing authentication (e.g., "book my flight", "reply to that email").
 
-The recommended way to set your preferred browser mode is via `actionbook setup`.
-It writes your choice to `~/.actionbook/config.toml`, so you can run browser commands without extra flags.
+## Local Mode
 
-### Set Default Mode
-
-Create or edit `~/.actionbook/config.toml`:
-
-```toml
-[browser]
-# Use "isolated" (default) or "extension"
-mode = "extension"
-
-[browser.extension]
-# Auto-install local debug fallback when Web Store install is unavailable
-auto_install = true
-```
-
-Once configured, all browser commands will automatically use your chosen mode:
+Works out of the box with no setup. The CLI launches a temporary Chrome process with a dedicated profile and connects via CDP.
 
 ```bash
-# No flags needed - uses configured mode
+# If local is your default mode (or not configured)
 actionbook browser open "https://example.com"
 actionbook browser click "button[type='submit']"
-```
-
-<Note>
-  In current extension mode, bridge communication uses fixed `127.0.0.1:19222`.
-</Note>
-
-## Isolated Mode
-
-Works out of the box — no setup required. The CLI launches a temporary Chrome process with a dedicated profile and connects via CDP.
-
-```bash
-# If isolated is your default mode (or not configured)
-actionbook browser open "https://example.com"
-actionbook browser click "button[type='submit']"
-actionbook browser fill "actionbook" "#search"
+actionbook browser fill "#search" "actionbook"
 actionbook browser screenshot output.png
 ```
 
@@ -67,7 +41,79 @@ When done, close the browser:
 actionbook browser close
 ```
 
+## Cloud Providers
+
+Cloud mode lets you run browser sessions on a remote provider instead of launching a local Chrome. Use the `-p` (or `--provider`) flag with `browser start`:
+
+```bash
+actionbook browser start -p hyperbrowser --session s1
+```
+
+### Supported Providers
+
+| Provider | Flag Value | Required Env Var | Service |
+|----------|-----------|-----------------|---------|
+| driver.dev | `driver` | `DRIVER_API_KEY` | [driver.dev](https://driver.dev) |
+| Hyperbrowser | `hyperbrowser` | `HYPERBROWSER_API_KEY` | [hyperbrowser.ai](https://hyperbrowser.ai) |
+| Browser Use | `browseruse` | `BROWSER_USE_API_KEY` | [browser-use.com](https://browser-use.com) |
+
+### Quick Start
+
+<Steps>
+  <Step title="Export your provider API key">
+    ```bash
+    # Pick one provider
+    export DRIVER_API_KEY="your-key"
+    # or
+    export HYPERBROWSER_API_KEY="your-key"
+    # or
+    export BROWSER_USE_API_KEY="your-key"
+    ```
+  </Step>
+
+  <Step title="Start a cloud browser session">
+    ```bash
+    actionbook browser start -p hyperbrowser --session cloud1
+    ```
+
+    The CLI creates a remote browser session and returns the `session_id` and `tab_id` for subsequent commands.
+  </Step>
+
+  <Step title="Use browser commands as usual">
+    ```bash
+    actionbook browser open "https://example.com" --session cloud1
+    actionbook browser snapshot --session cloud1 --tab t1
+    actionbook browser click "#login" --session cloud1 --tab t1
+    ```
+
+    All browser commands work the same way. The session runs on the cloud provider transparently.
+  </Step>
+
+  <Step title="Close when done">
+    ```bash
+    actionbook browser close --session cloud1
+    ```
+
+    This terminates the remote browser session and releases provider resources.
+  </Step>
+</Steps>
+
+### How It Works
+
+- `-p <name>` automatically implies `--mode cloud`, so you don't need to set both
+- `-p` is mutually exclusive with `--cdp-endpoint` and `--mode local/extension`
+- The CLI forwards provider env vars from your current shell to the daemon at start time (the daemon's own env is frozen at spawn)
+- `browser restart --session <id>` mints a **fresh remote session** while preserving the same `session_id`, so you can reset state without losing your addressing handle
+
+<Warning>
+  For raw CDP connections without a managed provider, use `--mode cloud --cdp-endpoint wss://...` instead of `-p`.
+</Warning>
+
 ## Extension Mode Setup
+
+<Note>
+  Extension mode is under active development. For most use cases, **Local** or **Cloud** mode is recommended.
+</Note>
 
 If you've configured `mode = "extension"` in your config file, you only need to perform this one-time setup.
 
@@ -105,244 +151,226 @@ If you've configured `mode = "extension"` in your config file, you only need to 
   </Step>
 </Steps>
 
-<Tip>
-  **Upgrading from v0.2.0 or earlier?**
-  - The extension path moved from `~/.config/actionbook/extension/` to `~/.actionbook/extension/` — files migrate automatically on first use
-  - Token-based pairing is no longer needed — the extension auto-connects when the bridge is running
-  - The bridge auto-starts with browser commands — you no longer need to run `actionbook extension serve` manually
-</Tip>
+
+## Configuration
+
+The recommended way to set your preferred browser mode is via `actionbook setup`.
+It writes your choice to `~/.actionbook/config.toml`, so you can run browser commands without extra flags.
+
+### Set Default Mode
+
+Create or edit `~/.actionbook/config.toml`:
+
+```toml
+[browser]
+# Use "local" (default), "cloud", or "extension"
+mode = "local"
+```
+
+Once configured, all browser commands will automatically use your chosen mode:
+
+```bash
+# No flags needed - uses configured mode
+actionbook browser open "https://example.com"
+actionbook browser click "button[type='submit']"
+```
 
 ## Browser Commands
 
-Most commands work in both modes. Commands marked with **<sup>CDP</sup>** require isolated mode (CDP) and are not available in extension mode.
+Most commands work in all modes. All per-tab commands require `--session` and `--tab` flags to address a specific tab.
 
-### Navigation
-
-```bash
-actionbook browser open "https://example.com"
-actionbook browser goto "https://example.com/login"
-actionbook browser back
-actionbook browser forward
-actionbook browser reload
-actionbook browser wait-nav              # wait for navigation to complete
-```
-
-### Page Interaction
+### Session Lifecycle
 
 ```bash
-actionbook browser click "button[type='submit']"
-actionbook browser fill "demo" "#username"
-actionbook browser type "hello" "#search"    # append text (does not clear)
-actionbook browser select "#country" "US"
-actionbook browser hover ".menu-item"
-actionbook browser focus "#search-input"
-actionbook browser press "Enter"
-actionbook browser hotkey "Control+A"        # keyboard shortcuts
-actionbook browser scroll down 500           # scroll by pixels
-actionbook browser wait "#username" --timeout 10000
-actionbook browser wait-idle                 # wait for network idle  [CDP]
-actionbook browser wait-fn "document.readyState === 'complete'"
-```
-
-<Tip>
-  Use `--ref` with `click`, `type`, or `fill` to target elements by snapshot ref (e.g., `--ref e5`) instead of CSS selectors.
-  Add `--human` to `click` or `type` for human-like mouse movement and typing delays.
-</Tip>
-
-### Debug & Export
-
-```bash
-actionbook browser screenshot output.png --full-page
-actionbook browser pdf report.pdf
-actionbook browser eval "document.title"
-actionbook browser snapshot                  # accessibility tree
-actionbook browser snapshot --interactive    # only interactive elements
-actionbook browser snapshot --diff           # show changes since last snapshot
-actionbook browser html
-actionbook browser text
-actionbook browser text --mode readability   # smart content extraction
-actionbook browser console --level error     # capture console logs  [CDP]
-actionbook browser info "#submit"            # element bounding box & attributes
-actionbook browser viewport                  # get viewport dimensions
-actionbook browser inspect 100 200           # inspect element at coordinates
-```
-
-### Cookie & Storage Operations
-
-```bash
-# Cookies
-actionbook browser cookies list
-actionbook browser cookies get session_id
-actionbook browser cookies set demo_cookie hello
-actionbook browser cookies delete demo_cookie
-actionbook browser cookies clear --domain example.com --yes
-
-# Local/Session Storage
-actionbook browser storage list
-actionbook browser storage get myKey
-actionbook browser storage set myKey "myValue"
-actionbook browser storage remove myKey
-actionbook browser storage clear
-```
-
-### File Upload
-
-```bash
-actionbook browser upload photo.jpg                     # auto-detect file input
-actionbook browser upload doc.pdf -s "input[type=file]" # specific selector
-actionbook browser upload a.png b.png                   # multiple files
-```
-
-### Fetch (One-Shot) <sup>CDP</sup>
-
-Fetch page content in a single command — opens a temporary browser, extracts content, then closes:
-
-```bash
-actionbook browser fetch "https://example.com"                # text output
-actionbook browser fetch "https://example.com" --format html  # full HTML
-actionbook browser fetch "https://example.com" --lite          # HTTP-first, browser fallback
-actionbook browser fetch "https://example.com" --max-tokens 4000  # truncate for LLM context
-```
-
-### Batch Actions
-
-Execute multiple actions from a JSON file for complex workflows:
-
-```bash
-actionbook browser batch --file actions.json --delay 100
-```
-
-### Advanced Features
-
-```bash
-# IFrame context switching  [CDP]
-actionbook browser switch-frame "iframe#editor"   # switch into iframe
-actionbook browser switch-frame parent             # back to parent
-actionbook browser switch-frame default            # back to main frame
-
-# Device emulation  [CDP]
-actionbook browser emulate iphone-14
-actionbook browser emulate pixel-7
-actionbook browser emulate "1920x1080"             # custom resolution
-
-# Connection & Remote Browsers
-actionbook browser connect 9222                    # connect by port
-actionbook browser connect "ws://host:9222/..."    # connect by WebSocket URL
-actionbook browser connect "wss://..." -H "authorization:Bearer token"
-
-# Fingerprint rotation (stealth)
-actionbook browser fingerprint rotate
-actionbook browser fingerprint rotate --os windows --screen 1920x1080
-
-# Browser status
-actionbook browser status                          # show detection & connection info
+actionbook browser start --session s1 --open-url https://google.com
+actionbook browser list-sessions                     # list all active sessions
+actionbook browser status --session s1               # show session info
+actionbook browser restart --session s1              # restart, preserving session_id
+actionbook browser close --session s1                # close a session
 ```
 
 ### Tab Management
 
 ```bash
-actionbook browser tab list          # list all tabs
-actionbook browser tab active        # show current tab
-actionbook browser tab new           # open a new blank tab
-actionbook browser tab switch <id>   # switch to tab by ID
-actionbook browser tab close <id>    # close a tab by ID
+actionbook browser list-tabs --session s1                          # list all tabs
+actionbook browser new-tab "https://example.com" --session s1      # open a new tab (alias: open)
+actionbook browser close-tab --session s1 --tab t1                 # close a tab
 ```
 
 <Tip>
-  For running **parallel tasks** across multiple tabs, use [Multi-Session](#multi-session-parallel-tabs) with the `-S` flag instead of manual tab switching.
+  For running **parallel tasks** across multiple tabs, use [Multi-Session](#multi-session-parallel-tabs) with the `--session` flag instead of manual tab switching.
 </Tip>
+
+### Navigation
+
+```bash
+actionbook browser goto "https://example.com/login" --session s1 --tab t1
+actionbook browser back --session s1 --tab t1
+actionbook browser forward --session s1 --tab t1
+actionbook browser reload --session s1 --tab t1
+```
+
+### Page Interaction
+
+```bash
+actionbook browser click "button[type='submit']" --session s1 --tab t1
+actionbook browser fill "#username" "demo" --session s1 --tab t1
+actionbook browser type "#search" "hello" --session s1 --tab t1     # append text (does not clear)
+actionbook browser select "#country" "US" --session s1 --tab t1
+actionbook browser hover ".menu-item" --session s1 --tab t1
+actionbook browser focus "#search-input" --session s1 --tab t1
+actionbook browser press "Enter" --session s1 --tab t1              # single key or combo
+actionbook browser press "Control+A" --session s1 --tab t1          # keyboard shortcuts
+actionbook browser scroll down 500 --session s1 --tab t1            # scroll by pixels
+actionbook browser drag "#src" "#target" --session s1 --tab t1
+actionbook browser mouse-move 100,200 --session s1 --tab t1
+actionbook browser cursor-position --session s1 --tab t1
+```
+
+<Tip>
+  Use `@eN` refs from snapshot output directly as selectors (e.g., `actionbook browser click @e5 --session s1 --tab t1`).
+</Tip>
+
+### Wait Conditions
+
+```bash
+actionbook browser wait element "#username" --session s1 --tab t1 --timeout 10000
+actionbook browser wait navigation --session s1 --tab t1
+actionbook browser wait network-idle --session s1 --tab t1
+actionbook browser wait condition "document.readyState === 'complete'" --session s1 --tab t1
+```
+
+### Observation & Export
+
+```bash
+actionbook browser snapshot --session s1 --tab t1                   # accessibility tree
+actionbook browser snapshot --interactive --session s1 --tab t1     # only interactive elements
+actionbook browser screenshot output.png --session s1 --tab t1
+actionbook browser screenshot output.png --full --session s1 --tab t1
+actionbook browser pdf report.pdf --session s1 --tab t1
+actionbook browser eval "document.title" --session s1 --tab t1
+actionbook browser html --session s1 --tab t1
+actionbook browser text --session s1 --tab t1
+actionbook browser title --session s1 --tab t1
+actionbook browser url --session s1 --tab t1
+actionbook browser viewport --session s1 --tab t1
+actionbook browser inspect-point 100,200 --session s1 --tab t1     # inspect element at coordinates
+actionbook browser describe "#submit" --session s1 --tab t1        # element properties & context
+actionbook browser box "#submit" --session s1 --tab t1             # element bounding box
+actionbook browser attrs "#submit" --session s1 --tab t1           # all element attributes
+actionbook browser state "#submit" --session s1 --tab t1           # element state
+actionbook browser logs console --session s1 --tab t1              # console logs
+actionbook browser logs errors --session s1 --tab t1               # error logs
+actionbook browser network requests --session s1 --tab t1          # tracked network requests
+```
+
+### Cookie & Storage Operations
+
+```bash
+# Cookies (session-level, no --tab needed)
+actionbook browser cookies list --session s1
+actionbook browser cookies get session_id --session s1
+actionbook browser cookies set demo_cookie hello --session s1
+actionbook browser cookies delete demo_cookie --session s1
+actionbook browser cookies clear --domain example.com --session s1
+
+# Local Storage (window.localStorage)
+actionbook browser local-storage list --session s1 --tab t1
+actionbook browser local-storage get myKey --session s1 --tab t1
+actionbook browser local-storage set myKey "myValue" --session s1 --tab t1
+actionbook browser local-storage delete myKey --session s1 --tab t1
+actionbook browser local-storage clear myKey --session s1 --tab t1
+
+# Session Storage (window.sessionStorage)
+actionbook browser session-storage list --session s1 --tab t1
+actionbook browser session-storage get myKey --session s1 --tab t1
+actionbook browser session-storage set myKey "myValue" --session s1 --tab t1
+actionbook browser session-storage delete myKey --session s1 --tab t1
+actionbook browser session-storage clear myKey --session s1 --tab t1
+```
+
+### File Upload
+
+```bash
+actionbook browser upload "input[type=file]" photo.jpg --session s1 --tab t1
+actionbook browser upload "#file-input" a.png b.png --session s1 --tab t1   # multiple files
+```
 
 ## Multi-Session (Parallel Tabs)
 
 <Note>
-  Available since v0.11.0. Requires isolated mode (default).
+  Available since v0.11.0. Requires local mode (default).
 </Note>
 
-Multi-session lets you run **multiple independent tabs in a single browser instance**. Each named session is bound to its own tab — commands sent to one session never affect another.
+Multi-session lets you run **multiple independent tabs in a single browser instance**. Each named session is bound to its own tab, so commands sent to one session never affect another.
 
 ### Basic Usage
 
-Use the `-S` (or `--session`) flag to name a session:
+Use the `--session` flag to name a session:
 
 ```bash
 # Open three sites in separate sessions
-actionbook browser open "https://arxiv.org" -S research
-actionbook browser open "https://x.com" -S social
-actionbook browser open "https://amazon.com" -S shopping
+actionbook browser start --session research --open-url "https://arxiv.org"
+actionbook browser start --session social --open-url "https://x.com"
+actionbook browser start --session shopping --open-url "https://amazon.com"
 
 # Each session operates independently
-actionbook browser snapshot -S research    # only sees arxiv.org
-actionbook browser snapshot -S social      # only sees x.com
-actionbook browser click "#search" -S shopping  # only affects amazon.com
+actionbook browser snapshot --session research --tab t1   # only sees arxiv.org
+actionbook browser snapshot --session social --tab t1     # only sees x.com
+actionbook browser click "#search" --session shopping --tab t1  # only affects amazon.com
 ```
 
-Without `-S`, all commands share a single `default` session.
+Without `--session`, commands use a `default` session.
 
 ### Session Management
 
 ```bash
 # List all active sessions
-actionbook browser session list
+actionbook browser list-sessions
 
-# Show which session is currently active
-actionbook browser session active
+# Show session status
+actionbook browser status --session research
 
-# Destroy a session (closes its tab)
-actionbook browser session destroy research
+# Close a session
+actionbook browser close --session research
 ```
 
 ### Common Mistakes
 
 <Warning>
-  **Don't create multiple profiles or ports for parallel tabs.** Use `-S` instead.
+  **Don't create multiple profiles or ports for parallel tabs.** Use `--session` instead.
 </Warning>
 
 <AccordionGroup>
-  <Accordion title="❌ Creating separate profiles with different ports">
+  <Accordion title="Creating separate profiles with different ports">
     ```bash
-    # WRONG — wasteful, launches 3 Chrome instances
-    actionbook profile create work --cdp-port 9301
-    actionbook profile create work --cdp-port 9302
-    actionbook profile create work --cdp-port 9303
+    # WRONG: wasteful, launches 3 Chrome instances
+    actionbook browser start --profile work1
+    actionbook browser start --profile work2
+    actionbook browser start --profile work3
     ```
 
     ```bash
-    # ✅ CORRECT — one browser, three sessions
-    actionbook browser open "https://arxiv.org" -S research
-    actionbook browser open "https://x.com" -S social
-    actionbook browser open "https://amazon.com" -S shopping
-    ```
-  </Accordion>
-
-  <Accordion title="❌ Using --browser-mode isolated per site">
-    ```bash
-    # WRONG — each command launches a new isolated Chrome
-    actionbook browser open "https://arxiv.org" -P work --browser-mode isolated
-    actionbook browser open "https://x.com" -P work --browser-mode isolated
-    actionbook browser open "https://amazon.com" -P work --browser-mode isolated
-    ```
-
-    ```bash
-    # ✅ CORRECT — one browser, named sessions for isolation
-    actionbook browser open "https://arxiv.org" -P work -S research
-    actionbook browser open "https://x.com" -P work -S social
-    actionbook browser open "https://amazon.com" -P work -S shopping
+    # CORRECT: one browser, three sessions
+    actionbook browser start --session research --open-url "https://arxiv.org"
+    actionbook browser start --session social --open-url "https://x.com"
+    actionbook browser start --session shopping --open-url "https://amazon.com"
     ```
   </Accordion>
 
-  <Accordion title="❌ Running snapshot without session distinction">
+  <Accordion title="Running snapshot without session distinction">
     ```bash
-    # WRONG — all three snapshots see the same (last opened) tab
-    actionbook browser snapshot -P work
-    actionbook browser snapshot -P work
-    actionbook browser snapshot -P work
+    # WRONG: all three snapshots see the same (last opened) tab
+    actionbook browser snapshot --session default --tab t1
+    actionbook browser snapshot --session default --tab t1
+    actionbook browser snapshot --session default --tab t1
     ```
 
     ```bash
-    # ✅ CORRECT — each snapshot targets a specific session
-    actionbook browser snapshot -P work -S research
-    actionbook browser snapshot -P work -S social
-    actionbook browser snapshot -P work -S shopping
+    # CORRECT: each snapshot targets a specific session
+    actionbook browser snapshot --session research --tab t1
+    actionbook browser snapshot --session social --tab t1
+    actionbook browser snapshot --session shopping --tab t1
     ```
   </Accordion>
 </AccordionGroup>
@@ -360,45 +388,26 @@ actionbook get "<area_id>"
 
 # 3. Execute (uses your configured mode)
 actionbook browser open "https://github.com"
-actionbook browser fill "actionbook" "#query-builder-test"
+actionbook browser fill "#query-builder-test" "actionbook"
 actionbook browser click "button[type='submit']"
 ```
 
 ## Shutdown
 
 ```bash
-actionbook browser close     # close the browser
-actionbook browser restart   # restart with same profile/session
+actionbook browser close --session s1       # close a session
+actionbook browser restart --session s1     # restart with same profile/mode
 ```
 
-In extension mode, if you manually started `actionbook extension serve` for debugging, stop it separately with `actionbook extension stop`.
 
 ## Extension Security
 
-Extension mode includes multiple security layers to protect your browser.
+Extension mode connects via a local WebSocket bridge with the following guarantees:
 
-### Risk Levels
-
-| Level | Description | Example Operations |
-|-------|-------------|-------------------|
-| **L1** | Read-only, safe | `eval`, `snapshot`, `screenshot` |
-| **L2** | Page interaction | `click`, `fill`, `select`, navigation |
-| **L3** | Sensitive operations | Cookie writes on banking/payment sites |
-
-L3 operations on sensitive domains trigger a confirmation popup in the extension — you must approve them manually.
-
-### Localhost Trust Model
-
-- The bridge only accepts connections from `127.0.0.1` (loopback interface)
-- No token or pairing is required — local origin is sufficient for authentication
+- The bridge only listens on `127.0.0.1` (loopback), no external network access
+- No token or pairing is required; local origin is sufficient for authentication
 - The extension identifies itself via a WebSocket handshake with role and version fields
 - The bridge validates the connection source (origin + extension ID) before accepting commands
-
-### Network Isolation
-
-- The bridge server only listens on `127.0.0.1` (loopback)
-- No external network access is possible
-- Origin validation enforces exact host matching
 
 ## Troubleshooting
 
@@ -426,7 +435,7 @@ L3 operations on sensitive domains trigger a confirmation popup in the extension
   <Accordion title="No tab attached">
     - Make sure Chrome has at least one visible, active tab
     - Run `actionbook browser open <url>` first to attach a tab
-    - Avoid `chrome://` pages — the debugger cannot attach to them
+    - Avoid `chrome://` pages; the debugger cannot attach to them
   </Accordion>
 
   <Accordion title="Port 19222 in use">
