@@ -92,12 +92,21 @@ The agent will automatically use the CLI to fetch action manuals and execute bro
 
 ## AI Agent Skills
 
-Actionbook ships with Agent Skills that teach your AI agent how to use the CLI. Add them with one command:
+Actionbook ships with Agent Skills that teach your AI agent how to use the CLI.
+
+**Claude Code, Cursor, Codex, Windsurf, Antigravity, Opencode** — one command:
 
 ```bash
 npx skills add actionbook/actionbook
 ```
 
+**Hermes** — one command (installs the CLI and registers the skill in `~/.hermes/skills/`):
+
+```bash
+npm install -g @actionbookdev/cli && hermes skills install actionbook -y
+```
+
+Then start a chat and say things like *"use actionbook to open google.com and search for anthropic"*. Hermes auto-activates the skill and drives the CLI for you.
 
 ## Examples
 

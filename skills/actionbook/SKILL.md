@@ -1,6 +1,16 @@
 ---
 name: actionbook
 description: Browser action engine. Provides up-to-date action manuals for the modern web — operate any website instantly, one tab or dozens, concurrently.
+version: 1.3.0
+license: MIT
+platforms: [macos, linux, windows]
+metadata:
+  hermes:
+    category: devops
+    tags: [browser-automation, web-automation, scraping, e2e-testing]
+    requires_toolsets: [terminal]
+prerequisites:
+  commands: [actionbook]
 ---
 
 ## When to Use This Skill
