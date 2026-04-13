@@ -10,11 +10,18 @@ use crate::error::CliError;
 /// The skills package installed via `npx skills add`.
 pub const SKILLS_PACKAGE: &str = "actionbook/actionbook";
 
+/// The skill identifier passed to `hermes skills install`.
+pub const HERMES_SKILL_ID: &str = "actionbook";
+
 /// AI coding tool target for skills installation.
 ///
 /// Used by the `--target` flag to run `npx skills add` in quick mode
 /// (bypassing the full setup wizard) and as the `-a` agent hint passed
 /// through to the skills CLI.
+///
+/// The `Hermes` variant is special-cased: it uses `hermes skills install`
+/// directly instead of `npx skills add`, because Hermes has a dedicated
+/// native installer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "kebab-case")]
 pub enum SetupTarget {
@@ -30,6 +37,8 @@ pub enum SetupTarget {
     Antigravity,
     /// Opencode
     Opencode,
+    /// Hermes Agent (uses `hermes skills install` instead of npx)
+    Hermes,
     /// Standalone CLI (no AI tool integration)
     Standalone,
     /// Install for all known agents
@@ -37,6 +46,9 @@ pub enum SetupTarget {
 }
 
 /// Map a `SetupTarget` to the skills CLI `-a` agent flag value.
+///
+/// Returns `None` for targets that bypass the `npx skills add` flow
+/// (e.g. `Standalone` has no agent, and `Hermes` uses its own installer).
 pub fn target_to_agent_flag(target: &SetupTarget) -> Option<&'static str> {
     match target {
         SetupTarget::Claude => Some("claude-code"),
@@ -45,6 +57,7 @@ pub fn target_to_agent_flag(target: &SetupTarget) -> Option<&'static str> {
         SetupTarget::Windsurf => Some("windsurf"),
         SetupTarget::Antigravity => Some("antigravity"),
         SetupTarget::Opencode => Some("opencode"),
+        SetupTarget::Hermes => None,
         SetupTarget::Standalone => None,
         SetupTarget::All => Some("*"),
     }
@@ -59,6 +72,7 @@ pub fn target_display_name(t: &SetupTarget) -> &'static str {
         SetupTarget::Windsurf => "Windsurf",
         SetupTarget::Antigravity => "Antigravity",
         SetupTarget::Opencode => "Opencode",
+        SetupTarget::Hermes => "Hermes",
         SetupTarget::Standalone => "Standalone CLI",
         SetupTarget::All => "All",
     }
@@ -195,10 +209,19 @@ pub fn install_skills(
 
 /// Quick mode: install skills for a specific target via `npx skills add`.
 /// Skips the full setup wizard — only runs the skills step.
+///
+/// Hermes is special-cased: it has its own skill installer
+/// (`hermes skills install`). We invoke it directly instead of going
+/// through `npx skills add`, then verify the skill shows up in
+/// `hermes skills list --source hub` before reporting success.
 pub fn install_skills_for_target(
     json: bool,
     target: &SetupTarget,
 ) -> Result<SkillsResult, CliError> {
+    if matches!(target, SetupTarget::Hermes) {
+        return install_skills_for_hermes(json);
+    }
+
     let npx_available = which::which("npx").is_ok();
     let command_str = format_skills_command(Some(target));
 
@@ -217,6 +240,204 @@ pub fn install_skills_for_target(
     }
 
     run_npx_skills(json, Some(target), true)
+}
+
+/// Build the `hermes skills install` command string for display / logging.
+fn format_hermes_install_command() -> String {
+    format!("hermes skills install {HERMES_SKILL_ID} -y")
+}
+
+/// Install the actionbook skill into Hermes via `hermes skills install`.
+///
+/// Flow:
+/// 1. If `hermes` binary is not on PATH, print install guidance and
+///    return `Prompted` so `run_target_only` propagates a non-zero exit.
+/// 2. Otherwise, exec `hermes skills install actionbook -y` and inherit
+///    stdio so the user sees Hermes output directly.
+/// 3. Hermes can exit 0 even when the remote fetch fails, so verify the
+///    skill is actually present before reporting `Installed`.
+fn install_skills_for_hermes(json: bool) -> Result<SkillsResult, CliError> {
+    let command_str = format_hermes_install_command();
+
+    if which::which("hermes").is_err() {
+        print_missing_hermes(json, &command_str);
+        return Ok(SkillsResult {
+            // Reuse the `npx_available` field to mean "installer available".
+            // It's a lossy name but the field is consumed downstream only as
+            // a boolean for error messaging, not to distinguish tool kinds.
+            npx_available: false,
+            action: SkillsAction::Prompted,
+            command: command_str,
+        });
+    }
+
+    if !json {
+        println!("  |  installer: hermes skills install (native)");
+        println!("  |  source:    skills-sh/actionbook");
+        println!("  |");
+        println!("  |  running: {}", command_str);
+        println!("  |");
+    }
+
+    let (stdout_cfg, stderr_cfg) = if json {
+        (Stdio::null(), Stdio::null())
+    } else {
+        (Stdio::inherit(), Stdio::inherit())
+    };
+
+    let status = Command::new("hermes")
+        .args(["skills", "install", HERMES_SKILL_ID, "-y"])
+        .stdin(if json {
+            Stdio::null()
+        } else {
+            Stdio::inherit()
+        })
+        .stdout(stdout_cfg)
+        .stderr(stderr_cfg)
+        .status();
+
+    match status {
+        Ok(exit) if exit.success() => {
+            let verified = hermes_skill_is_installed()?;
+            if !verified {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "step": "skills",
+                            "installer": "hermes",
+                            "npx_available": true,
+                            "action": "failed",
+                            "command": command_str,
+                            "reason": "verification_failed",
+                        })
+                    );
+                } else {
+                    println!(
+                        "  !  Hermes exited successfully, but `{}` is not listed as installed",
+                        HERMES_SKILL_ID
+                    );
+                    println!("  |  Verify with: hermes skills list --source hub");
+                    println!("  |  You can retry manually:");
+                    println!("  |    $ {}", command_str);
+                }
+                return Ok(SkillsResult {
+                    npx_available: true,
+                    action: SkillsAction::Failed,
+                    command: command_str,
+                });
+            }
+
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "step": "skills",
+                        "installer": "hermes",
+                        "npx_available": true,
+                        "action": "installed",
+                        "command": command_str,
+                    })
+                );
+            } else {
+                println!("  -  Skill installed into ~/.hermes/skills/");
+            }
+            Ok(SkillsResult {
+                npx_available: true,
+                action: SkillsAction::Installed,
+                command: command_str,
+            })
+        }
+        Ok(exit) => {
+            let code = exit.code().unwrap_or(-1);
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "step": "skills",
+                        "installer": "hermes",
+                        "npx_available": true,
+                        "action": "failed",
+                        "command": command_str,
+                        "exit_code": code,
+                    })
+                );
+            } else {
+                println!("  !  Hermes skill install failed (exit code: {})", code);
+                println!("  |  You can retry manually:");
+                println!("  |    $ {}", command_str);
+            }
+            Ok(SkillsResult {
+                npx_available: true,
+                action: SkillsAction::Failed,
+                command: command_str,
+            })
+        }
+        Err(e) => {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "step": "skills",
+                        "installer": "hermes",
+                        "npx_available": true,
+                        "action": "failed",
+                        "command": command_str,
+                        "error": e.to_string(),
+                    })
+                );
+            } else {
+                println!("  !  Failed to spawn hermes: {}", e);
+                println!("  |  You can retry manually:");
+                println!("  |    $ {}", command_str);
+            }
+            Ok(SkillsResult {
+                npx_available: true,
+                action: SkillsAction::Failed,
+                command: command_str,
+            })
+        }
+    }
+}
+
+fn hermes_skill_is_installed() -> Result<bool, CliError> {
+    let output = Command::new("hermes")
+        .args(["skills", "list", "--source", "hub"])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| CliError::Internal(format!("Failed to verify Hermes skills list: {e}")))?;
+
+    if !output.status.success() {
+        return Ok(false);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(hermes_list_contains_skill(stdout.as_ref(), HERMES_SKILL_ID))
+}
+
+fn hermes_list_contains_skill(output: &str, skill_id: &str) -> bool {
+    output.lines().any(|line| line.contains(skill_id))
+}
+
+fn print_missing_hermes(json: bool, command_str: &str) {
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "step": "skills",
+                "installer": "hermes",
+                "npx_available": false,
+                "action": "prompted",
+                "command": command_str,
+                "reason": "hermes_binary_not_found",
+            })
+        );
+    } else {
+        println!("  |  hermes binary not found on PATH");
+        println!("  |  Install Hermes first: https://hermes.sh");
+        println!("  |  Then re-run:");
+        println!("  |    $ {}", command_str);
+    }
 }
 
 fn print_missing_npx(json: bool, command_str: &str) {
@@ -373,6 +594,9 @@ mod tests {
             target_to_agent_flag(&SetupTarget::Opencode),
             Some("opencode")
         );
+        // Hermes does not flow through `npx skills add -a <name>`; it uses
+        // `hermes skills install` directly, so it must return None here.
+        assert_eq!(target_to_agent_flag(&SetupTarget::Hermes), None);
         assert_eq!(target_to_agent_flag(&SetupTarget::Standalone), None);
         assert_eq!(target_to_agent_flag(&SetupTarget::All), Some("*"));
     }
@@ -388,11 +612,33 @@ mod tests {
             "Antigravity"
         );
         assert_eq!(target_display_name(&SetupTarget::Opencode), "Opencode");
+        assert_eq!(target_display_name(&SetupTarget::Hermes), "Hermes");
         assert_eq!(
             target_display_name(&SetupTarget::Standalone),
             "Standalone CLI"
         );
         assert_eq!(target_display_name(&SetupTarget::All), "All");
+    }
+
+    #[test]
+    fn format_hermes_install_command_matches_native_cli() {
+        assert_eq!(
+            format_hermes_install_command(),
+            format!("hermes skills install {} -y", HERMES_SKILL_ID)
+        );
+    }
+
+    #[test]
+    fn hermes_list_contains_skill_detects_actionbook_row() {
+        let output =
+            "┃ Name      ┃ Category ┃ Source    ┃ Trust ┃\n┃ actionbook ┃ devops   ┃ skills.sh ┃ comm  ┃";
+        assert!(hermes_list_contains_skill(output, HERMES_SKILL_ID));
+    }
+
+    #[test]
+    fn hermes_list_contains_skill_ignores_empty_listing() {
+        let output = "0 hub-installed, 0 builtin, 0 local";
+        assert!(!hermes_list_contains_skill(output, HERMES_SKILL_ID));
     }
 
     #[test]
