@@ -495,21 +495,50 @@ fn close_session(session_id: &str) {
     assert_success(&out, &format!("close {session_id}"));
 }
 
-fn eval_value(session_id: &str, tab_id: &str, expression: &str) -> String {
-    let out = headless_json(
-        &[
-            "browser",
-            "eval",
-            expression,
-            "--session",
-            session_id,
-            "--tab",
-            tab_id,
-        ],
-        15,
-    );
+fn eval_json_with_flags(
+    session_id: &str,
+    tab_id: &str,
+    expression: &str,
+    extra_flags: &[&str],
+) -> serde_json::Value {
+    let mut args = vec![
+        "browser",
+        "eval",
+        expression,
+        "--session",
+        session_id,
+        "--tab",
+        tab_id,
+    ];
+    args.extend_from_slice(extra_flags);
+    let out = headless_json(&args, 15);
     assert_success(&out, "eval");
-    let v = parse_json(&out);
+    parse_json(&out)
+}
+
+fn eval_failure_json_with_flags(
+    session_id: &str,
+    tab_id: &str,
+    expression: &str,
+    extra_flags: &[&str],
+) -> serde_json::Value {
+    let mut args = vec![
+        "browser",
+        "eval",
+        expression,
+        "--session",
+        session_id,
+        "--tab",
+        tab_id,
+    ];
+    args.extend_from_slice(extra_flags);
+    let out = headless_json(&args, 15);
+    assert_failure(&out, "eval");
+    parse_json(&out)
+}
+
+fn eval_value(session_id: &str, tab_id: &str, expression: &str) -> String {
+    let v = eval_json_with_flags(session_id, tab_id, expression, &[]);
     v["data"]["value"].as_str().unwrap_or("").to_string()
 }
 
@@ -5285,7 +5314,223 @@ fn eval_exception_text() {
 }
 
 // ========================================================================
-// Group 19: mouse-move — command wiring, success path, and error path
+// Group 19: eval improvements — scope isolation, pre-context, details
+// ========================================================================
+
+#[test]
+fn eval_scope_isolation_default() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let first = eval_json_with_flags(&sid, &tid, "let x = 42; x", &[]);
+    assert_eq!(first["data"]["value"], serde_json::json!(42));
+
+    let second = eval_json_with_flags(&sid, &tid, "let x = 99; x", &[]);
+    assert_eq!(second["data"]["value"], serde_json::json!(99));
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_scope_isolation_expression() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let v = eval_json_with_flags(&sid, &tid, "document.title", &[]);
+    assert_eq!(v["data"]["value"], serde_json::json!("Example Domain"));
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_scope_isolation_multi_statement() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let v = eval_json_with_flags(&sid, &tid, "let a = 1; let b = 2; a + b", &[]);
+    assert_eq!(v["data"]["value"], serde_json::json!(3));
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_scope_isolation_async() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let v = eval_json_with_flags(
+        &sid,
+        &tid,
+        "await new Promise(r => setTimeout(() => r(42), 50))",
+        &[],
+    );
+    assert_eq!(v["data"]["value"], serde_json::json!(42));
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_no_isolate_flag() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let first = eval_json_with_flags(&sid, &tid, "let x = 42; x", &["--no-isolate"]);
+    assert_eq!(first["data"]["value"], serde_json::json!(42));
+
+    let second = eval_json_with_flags(&sid, &tid, "x", &["--no-isolate"]);
+    assert_eq!(second["data"]["value"], serde_json::json!(42));
+
+    let third = eval_failure_json_with_flags(&sid, &tid, "let x = 1", &["--no-isolate"]);
+    assert_eq!(third["command"], "browser eval");
+    assert_error_envelope(&third, "EVAL_FAILED");
+    assert!(
+        third["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("already been declared"),
+        "expected redeclare failure under --no-isolate"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_pre_context_fields() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let v = eval_json_with_flags(&sid, &tid, "document.title", &[]);
+    assert_eq!(v["data"]["value"], serde_json::json!("Example Domain"));
+    assert!(
+        v["data"]["pre_url"]
+            .as_str()
+            .is_some_and(|url| url.starts_with(TEST_URL)),
+        "pre_url must include navigated page URL"
+    );
+    assert_eq!(v["data"]["pre_origin"], "https://example.com");
+    assert_eq!(v["data"]["pre_readyState"], "complete");
+    assert!(
+        v["data"]["post_url"]
+            .as_str()
+            .is_some_and(|url| url.starts_with(TEST_URL)),
+        "post_url must remain present"
+    );
+    assert_eq!(v["data"]["post_title"], "Example Domain");
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_pre_context_about_blank() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let v = eval_json_with_flags(&sid, &tid, "1 + 1", &[]);
+    assert_eq!(v["data"]["value"], serde_json::json!(2));
+    assert_eq!(v["data"]["pre_url"], "about:blank");
+    assert_eq!(v["data"]["pre_origin"], "null");
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_error_details_syntax() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let v = eval_failure_json_with_flags(&sid, &tid, "{{{invalid", &[]);
+    assert_eq!(v["command"], "browser eval");
+    assert_error_envelope(&v, "EVAL_FAILED");
+    assert_eq!(v["error"]["details"]["stage"], "eval");
+    assert_eq!(v["error"]["details"]["pre_url"], "about:blank");
+    assert_eq!(v["error"]["details"]["pre_origin"], "null");
+    assert!(
+        v["error"]["details"]["pre_readyState"].is_string(),
+        "pre_readyState must be captured on syntax failures"
+    );
+    assert!(
+        v["error"]["details"]["error_type"].is_string(),
+        "error_type must be captured on syntax failures"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_error_details_runtime() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let v = eval_failure_json_with_flags(&sid, &tid, "nonExistentVariable.foo", &[]);
+    assert_eq!(v["command"], "browser eval");
+    assert_error_envelope(&v, "EVAL_FAILED");
+    assert_eq!(v["error"]["details"]["stage"], "eval");
+    assert!(
+        v["error"]["details"]["pre_url"]
+            .as_str()
+            .is_some_and(|url| url.starts_with(TEST_URL)),
+        "pre_url must be present on runtime failures"
+    );
+    assert_eq!(v["error"]["details"]["pre_origin"], "https://example.com");
+    assert_eq!(v["error"]["details"]["pre_readyState"], "complete");
+    assert!(
+        v["error"]["details"]["error_type"].is_string(),
+        "error_type must be captured on runtime failures"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn eval_error_details_has_context() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let v = eval_failure_json_with_flags(&sid, &tid, "{{{invalid", &[]);
+    assert_eq!(v["command"], "browser eval");
+    assert_error_envelope(&v, "EVAL_FAILED");
+    assert!(
+        v["error"]["details"]["pre_url"]
+            .as_str()
+            .is_some_and(|url| url.starts_with(TEST_URL)),
+        "details.pre_url must keep page context on failure"
+    );
+
+    close_session(&sid);
+}
+
+// ========================================================================
+// Group 20: mouse-move — command wiring, success path, and error path
 // ========================================================================
 
 #[test]
