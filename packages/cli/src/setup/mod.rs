@@ -245,14 +245,8 @@ fn target_only_exit_status(
         ))),
         SkillsAction::Prompted => {
             let (missing_tool, install_hint) = match target {
-                SetupTarget::Hermes => (
-                    "hermes",
-                    "Install Hermes (https://hermes.sh)",
-                ),
-                _ => (
-                    "npx",
-                    "Install Node.js (https://nodejs.org)",
-                ),
+                SetupTarget::Hermes => ("hermes", "Install Hermes (https://hermes.sh)"),
+                _ => ("npx", "Install Node.js (https://nodejs.org)"),
             };
             Err(CliError::Internal(format!(
                 "Skills installation skipped for {}: {} is not available. \

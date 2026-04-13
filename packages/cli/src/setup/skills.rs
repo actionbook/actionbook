@@ -630,8 +630,7 @@ mod tests {
 
     #[test]
     fn hermes_list_contains_skill_detects_actionbook_row() {
-        let output =
-            "┃ Name      ┃ Category ┃ Source    ┃ Trust ┃\n┃ actionbook ┃ devops   ┃ skills.sh ┃ comm  ┃";
+        let output = "┃ Name      ┃ Category ┃ Source    ┃ Trust ┃\n┃ actionbook ┃ devops   ┃ skills.sh ┃ comm  ┃";
         assert!(hermes_list_contains_skill(output, HERMES_SKILL_ID));
     }
 
