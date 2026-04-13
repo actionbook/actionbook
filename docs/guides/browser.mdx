@@ -15,8 +15,77 @@ The `actionbook browser` command lets AI agents automate any Chromium-based brow
 |------|-------------|----------|
 | **Isolated** *(default)* | Launches a new Chrome with a fresh, dedicated profile | Automated tasks, CI/CD, headless, no user data needed |
 | **Extension** | Connects to the user's running Chrome via extension bridge | Tasks requiring existing login sessions, cookies, personal context |
+| **Cloud** | Connects to a remote browser via a cloud provider | Scalable headless infra, geo-targeting, persistent profiles in the cloud |
 
-Both modes are designed for AI agents. **Isolated** gives agents a clean, reproducible environment. **Extension** lets agents operate inside the user's real browser — ideal when the task requires existing authentication (e.g., "book my flight", "reply to that email").
+All modes are designed for AI agents. **Isolated** gives agents a clean, reproducible environment. **Extension** lets agents operate inside the user's real browser — ideal when the task requires existing authentication (e.g., "book my flight", "reply to that email"). **Cloud** offloads the browser to a remote provider — ideal for production workloads, parallel execution at scale, or when you need IP geolocation control.
+
+## Cloud Providers
+
+Cloud mode lets you run browser sessions on a remote provider instead of launching a local Chrome. Use the `-p` (or `--provider`) flag with `browser start`:
+
+```bash
+actionbook browser start -p hyperbrowser --session s1
+```
+
+### Supported Providers
+
+| Provider | Flag Value | Required Env Var | Service |
+|----------|-----------|-----------------|---------|
+| driver.dev | `driver` | `DRIVER_API_KEY` | [driver.dev](https://driver.dev) |
+| Hyperbrowser | `hyperbrowser` | `HYPERBROWSER_API_KEY` | [hyperbrowser.ai](https://hyperbrowser.ai) |
+| Browser Use | `browseruse` | `BROWSER_USE_API_KEY` | [browser-use.com](https://browser-use.com) |
+
+### Quick Start
+
+<Steps>
+  <Step title="Export your provider API key">
+    ```bash
+    # Pick one provider
+    export DRIVER_API_KEY="your-key"
+    # or
+    export HYPERBROWSER_API_KEY="your-key"
+    # or
+    export BROWSER_USE_API_KEY="your-key"
+    ```
+  </Step>
+
+  <Step title="Start a cloud browser session">
+    ```bash
+    actionbook browser start -p hyperbrowser --session cloud1
+    ```
+
+    The CLI creates a remote browser session and returns the `session_id` and `tab_id` for subsequent commands.
+  </Step>
+
+  <Step title="Use browser commands as usual">
+    ```bash
+    actionbook browser open "https://example.com" -S cloud1
+    actionbook browser snapshot -S cloud1
+    actionbook browser click "#login" -S cloud1
+    ```
+
+    All browser commands work the same way — the session runs on the cloud provider transparently.
+  </Step>
+
+  <Step title="Close when done">
+    ```bash
+    actionbook browser close --session cloud1
+    ```
+
+    This terminates the remote browser session and releases provider resources.
+  </Step>
+</Steps>
+
+### How It Works
+
+- `-p <name>` automatically implies `--mode cloud` — you don't need to set both
+- `-p` is mutually exclusive with `--cdp-endpoint` and `--mode local/extension`
+- The CLI forwards provider env vars from your current shell to the daemon at start time (the daemon's own env is frozen at spawn)
+- `browser restart --session <id>` mints a **fresh remote session** while preserving the same `session_id` — useful for resetting state without losing your addressing handle
+
+<Warning>
+  For raw CDP connections without a managed provider, use `--mode cloud --cdp-endpoint wss://...` instead of `-p`.
+</Warning>
 
 ## Configuration
 

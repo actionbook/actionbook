@@ -69,6 +69,51 @@ Browser automation commands.
   After `actionbook setup`, browser command syntax is identical across modes.
 </Note>
 
+### `actionbook browser start`
+
+Start or attach a browser session. This is the entry point for cloud provider sessions.
+
+**Usage:**
+
+```bash
+actionbook browser start [options]
+```
+
+**Options:**
+
+| Flag | Description |
+|------|-------------|
+| `--mode <mode>` | Browser mode: `local`, `extension`, or `cloud` |
+| `-p, --provider <name>` | Cloud browser provider: `driver`, `hyperbrowser`, `browseruse`. Implies `--mode cloud` |
+| `--session <id>` | Session ID (get-or-create: reuse if exists, create if not) |
+| `--set-session-id <id>` | Always create a new session with this ID (fails if already exists) |
+| `--open-url <url>` | Open this URL on start |
+| `--cdp-endpoint <url>` | Connect to an existing CDP endpoint |
+| `--header <KEY:VALUE>` | Headers for CDP endpoint (may be repeated) |
+| `--headless` | Run in headless mode |
+| `--profile <name>` | Profile name |
+| `--stealth` / `--no-stealth` | Anti-detection mode (default: enabled) |
+
+**Examples:**
+
+```bash
+# Local session
+actionbook browser start
+actionbook browser start --session research --open-url https://google.com
+
+# Cloud provider
+export DRIVER_API_KEY="your-key"
+actionbook browser start -p driver --open-url https://example.com
+
+# Raw CDP endpoint
+actionbook browser start --mode cloud --cdp-endpoint wss://browser.example.com/ws
+```
+
+<Note>
+  `-p` is mutually exclusive with `--cdp-endpoint` and `--mode local/extension`.
+  See [Cloud Providers](/guides/browser#cloud-providers) for provider-specific env vars.
+</Note>
+
 ### `actionbook browser open`
 
 Open a URL in the browser.
@@ -108,10 +153,21 @@ actionbook browser fill [selector] [value]
 - `selector`: The target input element selector.
 - `value`: The text value to input.
 
+### `actionbook browser restart`
+
+Restart a session — closes and reopens with the same profile and mode. The `session_id` is preserved; tab IDs reset to `t1`.
+
+**Usage:**
+
+```bash
+actionbook browser restart --session <id>
+```
+
 ### Global Flags
 
 These flags apply to all `actionbook browser` subcommands:
 
+- `-S, --session <id>` — Target a specific session (defaults to `default`).
 - `--json` — Output results in JSON format.
 
 ---
