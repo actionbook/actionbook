@@ -1,6 +1,6 @@
 ---
 title: "Browser Automation"
-description: "Control browsers with Actionbook CLI — modes, commands, multi-session, and security"
+description: "Control browsers with Actionbook CLI: modes, commands, multi-session, and security"
 ---
 
 The `actionbook browser` command lets AI agents automate any Chromium-based browser. Three modes are available depending on the use case:
@@ -14,10 +14,32 @@ The `actionbook browser` command lets AI agents automate any Chromium-based brow
 | Mode | How It Works | Best For |
 |------|-------------|----------|
 | **Local** *(default)* | Launches a new Chrome with a fresh, dedicated profile | Automated tasks, CI/CD, headless, no user data needed |
-| **Extension** | Connects to the user's running Chrome via extension bridge | Tasks requiring existing login sessions, cookies, personal context |
 | **Cloud** | Connects to a remote browser via a cloud provider | Scalable headless infra, geo-targeting, persistent profiles in the cloud |
+| **Extension** | Connects to the user's running Chrome via extension bridge | Tasks requiring existing login sessions, cookies, personal context |
 
-All modes are designed for AI agents. **Local** gives agents a clean, reproducible environment. **Extension** lets agents operate inside the user's real browser — ideal when the task requires existing authentication (e.g., "book my flight", "reply to that email"). **Cloud** offloads the browser to a remote provider — ideal for production workloads, parallel execution at scale, or when you need IP geolocation control.
+All three modes are designed for AI agents:
+
+- **Local** gives agents a clean, reproducible environment.
+- **Cloud** offloads the browser to a remote provider, suited for production workloads, parallel execution at scale, or IP geolocation control.
+- **Extension** lets agents operate inside the user's real browser when the task requires existing authentication (e.g., "book my flight", "reply to that email").
+
+## Local Mode
+
+Works out of the box with no setup. The CLI launches a temporary Chrome process with a dedicated profile and connects via CDP.
+
+```bash
+# If local is your default mode (or not configured)
+actionbook browser open "https://example.com"
+actionbook browser click "button[type='submit']"
+actionbook browser fill "#search" "actionbook"
+actionbook browser screenshot output.png
+```
+
+When done, close the browser:
+
+```bash
+actionbook browser close
+```
 
 ## Cloud Providers
 
@@ -64,7 +86,7 @@ actionbook browser start -p hyperbrowser --session s1
     actionbook browser click "#login" --session cloud1 --tab t1
     ```
 
-    All browser commands work the same way — the session runs on the cloud provider transparently.
+    All browser commands work the same way. The session runs on the cloud provider transparently.
   </Step>
 
   <Step title="Close when done">
@@ -78,65 +100,20 @@ actionbook browser start -p hyperbrowser --session s1
 
 ### How It Works
 
-- `-p <name>` automatically implies `--mode cloud` — you don't need to set both
+- `-p <name>` automatically implies `--mode cloud`, so you don't need to set both
 - `-p` is mutually exclusive with `--cdp-endpoint` and `--mode local/extension`
 - The CLI forwards provider env vars from your current shell to the daemon at start time (the daemon's own env is frozen at spawn)
-- `browser restart --session <id>` mints a **fresh remote session** while preserving the same `session_id` — useful for resetting state without losing your addressing handle
+- `browser restart --session <id>` mints a **fresh remote session** while preserving the same `session_id`, so you can reset state without losing your addressing handle
 
 <Warning>
   For raw CDP connections without a managed provider, use `--mode cloud --cdp-endpoint wss://...` instead of `-p`.
 </Warning>
 
-## Configuration
-
-The recommended way to set your preferred browser mode is via `actionbook setup`.
-It writes your choice to `~/.actionbook/config.toml`, so you can run browser commands without extra flags.
-
-### Set Default Mode
-
-Create or edit `~/.actionbook/config.toml`:
-
-```toml
-[browser]
-# Use "local" (default), "extension", or "cloud"
-mode = "extension"
-
-[browser.extension]
-# Auto-install local debug fallback when Web Store install is unavailable
-auto_install = true
-```
-
-Once configured, all browser commands will automatically use your chosen mode:
-
-```bash
-# No flags needed - uses configured mode
-actionbook browser open "https://example.com"
-actionbook browser click "button[type='submit']"
-```
+## Extension Mode Setup
 
 <Note>
-  In current extension mode, bridge communication uses fixed `127.0.0.1:19222`.
+  Extension mode is under active development. For most use cases, **Local** or **Cloud** mode is recommended.
 </Note>
-
-## Local Mode
-
-Works out of the box — no setup required. The CLI launches a temporary Chrome process with a dedicated profile and connects via CDP.
-
-```bash
-# If local is your default mode (or not configured)
-actionbook browser open "https://example.com"
-actionbook browser click "button[type='submit']"
-actionbook browser fill "#search" "actionbook"
-actionbook browser screenshot output.png
-```
-
-When done, close the browser:
-
-```bash
-actionbook browser close
-```
-
-## Extension Mode Setup
 
 If you've configured `mode = "extension"` in your config file, you only need to perform this one-time setup.
 
@@ -174,12 +151,29 @@ If you've configured `mode = "extension"` in your config file, you only need to 
   </Step>
 </Steps>
 
-<Tip>
-  **Upgrading from v0.2.0 or earlier?**
-  - The extension path moved from `~/.config/actionbook/extension/` to `~/.actionbook/extension/` — files migrate automatically on first use
-  - Token-based pairing is no longer needed — the extension auto-connects when the bridge is running
-  - The bridge auto-starts with browser commands — you no longer need to run `actionbook extension serve` manually
-</Tip>
+
+## Configuration
+
+The recommended way to set your preferred browser mode is via `actionbook setup`.
+It writes your choice to `~/.actionbook/config.toml`, so you can run browser commands without extra flags.
+
+### Set Default Mode
+
+Create or edit `~/.actionbook/config.toml`:
+
+```toml
+[browser]
+# Use "local" (default), "cloud", or "extension"
+mode = "local"
+```
+
+Once configured, all browser commands will automatically use your chosen mode:
+
+```bash
+# No flags needed - uses configured mode
+actionbook browser open "https://example.com"
+actionbook browser click "button[type='submit']"
+```
 
 ## Browser Commands
 
@@ -188,11 +182,9 @@ Most commands work in all modes. All per-tab commands require `--session` and `-
 ### Session Lifecycle
 
 ```bash
-actionbook browser start                             # start a new session
-actionbook browser start --session research --open-url https://google.com
-actionbook browser start --headless --profile scraper
-actionbook browser status --session s1               # show session info
+actionbook browser start --session s1 --open-url https://google.com
 actionbook browser list-sessions                     # list all active sessions
+actionbook browser status --session s1               # show session info
 actionbook browser restart --session s1              # restart, preserving session_id
 actionbook browser close --session s1                # close a session
 ```
@@ -310,7 +302,7 @@ actionbook browser upload "#file-input" a.png b.png --session s1 --tab t1   # mu
   Available since v0.11.0. Requires local mode (default).
 </Note>
 
-Multi-session lets you run **multiple independent tabs in a single browser instance**. Each named session is bound to its own tab — commands sent to one session never affect another.
+Multi-session lets you run **multiple independent tabs in a single browser instance**. Each named session is bound to its own tab, so commands sent to one session never affect another.
 
 ### Basic Usage
 
@@ -352,14 +344,14 @@ actionbook browser close --session research
 <AccordionGroup>
   <Accordion title="Creating separate profiles with different ports">
     ```bash
-    # WRONG — wasteful, launches 3 Chrome instances
+    # WRONG: wasteful, launches 3 Chrome instances
     actionbook browser start --profile work1
     actionbook browser start --profile work2
     actionbook browser start --profile work3
     ```
 
     ```bash
-    # CORRECT — one browser, three sessions
+    # CORRECT: one browser, three sessions
     actionbook browser start --session research --open-url "https://arxiv.org"
     actionbook browser start --session social --open-url "https://x.com"
     actionbook browser start --session shopping --open-url "https://amazon.com"
@@ -368,14 +360,14 @@ actionbook browser close --session research
 
   <Accordion title="Running snapshot without session distinction">
     ```bash
-    # WRONG — all three snapshots see the same (last opened) tab
+    # WRONG: all three snapshots see the same (last opened) tab
     actionbook browser snapshot --session default --tab t1
     actionbook browser snapshot --session default --tab t1
     actionbook browser snapshot --session default --tab t1
     ```
 
     ```bash
-    # CORRECT — each snapshot targets a specific session
+    # CORRECT: each snapshot targets a specific session
     actionbook browser snapshot --session research --tab t1
     actionbook browser snapshot --session social --tab t1
     actionbook browser snapshot --session shopping --tab t1
@@ -407,34 +399,15 @@ actionbook browser close --session s1       # close a session
 actionbook browser restart --session s1     # restart with same profile/mode
 ```
 
-In extension mode, if you manually started `actionbook extension serve` for debugging, stop it separately with `actionbook extension stop`.
 
 ## Extension Security
 
-Extension mode includes multiple security layers to protect your browser.
+Extension mode connects via a local WebSocket bridge with the following guarantees:
 
-### Risk Levels
-
-| Level | Description | Example Operations |
-|-------|-------------|-------------------|
-| **L1** | Read-only, safe | `eval`, `snapshot`, `screenshot` |
-| **L2** | Page interaction | `click`, `fill`, `select`, navigation |
-| **L3** | Sensitive operations | Cookie writes on banking/payment sites |
-
-L3 operations on sensitive domains trigger a confirmation popup in the extension — you must approve them manually.
-
-### Localhost Trust Model
-
-- The bridge only accepts connections from `127.0.0.1` (loopback interface)
-- No token or pairing is required — local origin is sufficient for authentication
+- The bridge only listens on `127.0.0.1` (loopback), no external network access
+- No token or pairing is required; local origin is sufficient for authentication
 - The extension identifies itself via a WebSocket handshake with role and version fields
 - The bridge validates the connection source (origin + extension ID) before accepting commands
-
-### Network Isolation
-
-- The bridge server only listens on `127.0.0.1` (loopback)
-- No external network access is possible
-- Origin validation enforces exact host matching
 
 ## Troubleshooting
 
@@ -462,7 +435,7 @@ L3 operations on sensitive domains trigger a confirmation popup in the extension
   <Accordion title="No tab attached">
     - Make sure Chrome has at least one visible, active tab
     - Run `actionbook browser open <url>` first to attach a tab
-    - Avoid `chrome://` pages — the debugger cannot attach to them
+    - Avoid `chrome://` pages; the debugger cannot attach to them
   </Accordion>
 
   <Accordion title="Port 19222 in use">
