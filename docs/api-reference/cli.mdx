@@ -5,7 +5,47 @@ description: "Detailed reference for Actionbook CLI commands"
 
 # CLI Reference
 
-The Actionbook CLI (`actionbook`) is the primary interface for browser automation. Every browser command is **stateless** — pass `--session` and `--tab` explicitly.
+The Actionbook CLI (`actionbook`) is the primary interface for interacting with Actionbook. Every browser command is **stateless** — pass `--session` and `--tab` explicitly.
+
+## `actionbook search`
+
+Search for available action manuals.
+
+**Usage:**
+
+```bash
+actionbook search [query]
+```
+
+**Arguments:**
+
+- `query`: The search keyword (e.g., "airbnb", "google login").
+
+**Example:**
+
+```bash
+actionbook search "airbnb search"
+```
+
+## `actionbook get`
+
+Retrieve a specific action manual by its ID.
+
+**Usage:**
+
+```bash
+actionbook get [actionId]
+```
+
+**Arguments:**
+
+- `actionId`: The unique identifier of the action.
+
+**Example:**
+
+```bash
+actionbook get "site/airbnb.com/page/home/element/search-button"
+```
 
 ## `actionbook setup`
 

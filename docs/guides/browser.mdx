@@ -378,20 +378,21 @@ actionbook browser close --session research
 
 ## Recommended Workflow
 
-Start a session, snapshot the page to get element refs, then automate using those refs:
+Combine action manuals with browser automation for the best results:
 
 ```bash
-# 1. Start a session and navigate
+# 1. Find the action manual
+actionbook search "github search repos"
+
+# 2. Get verified selectors
+actionbook get "<area_id>"
+
+# 3. Start a session and execute
 actionbook browser start --set-session-id s1
 actionbook browser goto "https://github.com" --session s1 --tab t1
-
-# 2. Snapshot to get element refs
 actionbook browser snapshot --session s1 --tab t1
-
-# 3. Automate using refs from snapshot
 actionbook browser fill @e3 "actionbook" --session s1 --tab t1
 actionbook browser click @e7 --session s1 --tab t1
-actionbook browser wait navigation --session s1 --tab t1
 ```
 
 ## Shutdown

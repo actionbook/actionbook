@@ -28,6 +28,22 @@ This configures API key and browser preferences, then you can use the same `acti
 
 ### Core Commands
 
+#### Search Actions
+
+Find available action manuals for a specific task or website.
+
+```bash
+actionbook search "airbnb search"
+```
+
+#### Get Action Details
+
+Retrieve the full manual for a specific action ID.
+
+```bash
+actionbook get "site/airbnb.com/page/home/element/search-button"
+```
+
 #### Browser Automation
 
 Every browser command is stateless — pass `--session` and `--tab` explicitly. The core workflow is: start a session, snapshot the page, then use element refs to interact.
@@ -69,8 +85,8 @@ This will download the skill definition to your `.skills` (or similar) directory
 ### Benefits of Skills
 
 1.  **Context Awareness**: The skill provides the agent with specific instructions on when and how to call Actionbook CLI commands.
-2.  **Workflow Optimization**: It teaches the agent the optimal workflow: `start` -> `snapshot` -> `automate with refs`.
-3.  **Reduced Hallucinations**: By following the skill's procedure, the agent uses snapshot refs instead of guessing DOM selectors.
+2.  **Workflow Optimization**: It teaches the agent the optimal workflow: `search` -> `get` -> `operate`.
+3.  **Reduced Hallucinations**: By following the skill's procedure, the agent relies on verified action manuals instead of guessing DOM selectors.
 
 ### Example Agent Workflow
 
@@ -80,9 +96,9 @@ Once the CLI is installed and the Skill is added, you can simply ask your agent:
 
 The agent will:
 1.  **Read Skill**: Understands it should use `actionbook` CLI.
-2.  **Start & Navigate**: Runs `actionbook browser start` and `goto` to open the page.
-3.  **Snapshot**: Runs `actionbook browser snapshot` to get element refs.
-4.  **Automate**: Uses refs (`@eN`) to fill, click, and interact confidently.
+2.  **Search**: Runs `actionbook search "airbnb search"`.
+3.  **Get**: Runs `actionbook get ...` to find the search input and button selectors.
+4.  **Operate**: Runs `actionbook browser start` + `goto` + snapshot refs to perform the search.
 
 ### Extracting Data
 
@@ -98,10 +114,10 @@ Ask naturally:
 > "Pull all job listings from this page — title, company, location."
 
 The agent will:
-1.  Start a browser session and navigate to the target page.
-2.  Snapshot the page to identify data elements and their refs.
+1.  Search Actionbook for verified selectors.
+2.  If `actionbook get` already covers required fields, start from those selectors and draft the script quickly.
 3.  Run lightweight mechanism probes when needed (hydration/scroll/pagination checks).
-4.  Use snapshot/screenshot/inspect to map the data structure.
+4.  Use snapshot/screenshot/inspect only when selectors are missing or fail in validation.
 5.  Generate a **standalone Playwright script** that handles detected page mechanisms.
 6.  Run the script and write the extracted data to disk.
 
