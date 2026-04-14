@@ -1323,24 +1323,41 @@ async fn execute_extension(
 ) -> ActionResult {
     use crate::daemon::bridge::BRIDGE_PORT;
 
-    // Check bridge state from registry.
+    // Check bridge state from registry, then wait briefly for the extension
+    // to (re)connect. This covers the race where the daemon was auto-started
+    // by this very call and the extension has not finished its WS handshake
+    // yet (typical window: 100ms–2s after a daemon restart).
     let bridge_ws_url = {
-        let reg = registry.lock().await;
-        let Some(bridge_state) = reg.bridge_state() else {
-            return ActionResult::fatal_with_hint(
-                "BRIDGE_NOT_RUNNING",
-                "extension bridge is not running",
-                "the daemon failed to start the bridge — check if port 19222 is in use",
-            );
+        let bridge_state = {
+            let reg = registry.lock().await;
+            match reg.bridge_state() {
+                Some(bs) => bs.clone(),
+                None => {
+                    return ActionResult::fatal_with_hint(
+                        "BRIDGE_NOT_RUNNING",
+                        "extension bridge is not running",
+                        "the daemon failed to start the bridge — check if port 19222 is in use",
+                    );
+                }
+            }
         };
-        let bs = bridge_state.lock().await;
-        if !bs.is_extension_connected() {
-            return ActionResult::fatal_with_hint(
-                "EXTENSION_NOT_CONNECTED",
-                "no Chrome extension is connected to the bridge",
-                "open Chrome with the Actionbook extension installed and ensure it is active",
-            );
+
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if bridge_state.lock().await.is_extension_connected() {
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                return ActionResult::fatal_with_hint(
+                    "EXTENSION_NOT_CONNECTED",
+                    "no Chrome extension connected to the bridge within 5s",
+                    "open chrome://extensions, ensure the Actionbook extension is enabled and its popup shows Connected",
+                );
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
+
         format!("ws://127.0.0.1:{BRIDGE_PORT}")
     };
 
