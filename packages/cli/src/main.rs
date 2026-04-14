@@ -393,8 +393,9 @@ No \"current tab\" — run commands on any session/tab in parallel.
 Usage: actionbook <command> [options]
 
 Commands:
-  browser    Control browser sessions, tabs, and page interactions
-  setup      Configure actionbook (or --target <agent> for quick skills install)
+  browser           Control browser sessions, tabs, and page interactions
+  daemon restart    Stop the running daemon (next CLI call auto-respawns one)
+  setup             Configure actionbook (or --target <agent> for quick skills install)
   help       Show this help
   --version  Show version
 
