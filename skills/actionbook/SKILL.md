@@ -6,11 +6,8 @@ license: MIT
 platforms: [macos, linux, windows]
 metadata:
   hermes:
-    category: devops
     tags: [browser-automation, web-automation, scraping, e2e-testing]
     requires_toolsets: [terminal]
-prerequisites:
-  commands: [actionbook]
 ---
 
 ## When to Use This Skill
