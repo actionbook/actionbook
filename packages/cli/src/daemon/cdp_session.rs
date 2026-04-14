@@ -16,6 +16,7 @@ use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http;
+use tracing::warn;
 
 use crate::error::CliError;
 
@@ -686,10 +687,13 @@ impl CdpSession {
     /// which closes the WS connection, which causes the reader loop to exit,
     /// which fails all pending requests with `SessionClosed`.
     ///
-    /// Waits for the writer task to finish so the WS close handshake has
-    /// propagated to the peer before returning. Without this, a peer like the
-    /// extension bridge may still see the old client as connected and reject
-    /// an immediately-following reconnect.
+    /// Waits up to 500ms for the writer task to finish so the WS close
+    /// handshake has propagated to the peer before returning. Without this,
+    /// a peer like the extension bridge may still see the old client as
+    /// connected and reject an immediately-following reconnect. If the
+    /// writer is stalled on network I/O (broken CDP connection, half-open
+    /// socket) we abort it so `browser close` and daemon shutdown stay
+    /// bounded — the OS reclaims the socket when the task drops.
     pub async fn close(&self) {
         // Take and drop the writer sender — closes the channel.
         self.writer_tx.lock().await.take();
@@ -705,9 +709,16 @@ impl CdpSession {
             }
         }
 
-        // Await writer task so its Close frame has been flushed to the peer.
+        // Bounded wait for the writer to flush its Close frame.
         if let Some(handle) = self.writer_handle.lock().await.take() {
-            let _ = handle.await;
+            let aborter = handle.abort_handle();
+            if tokio::time::timeout(std::time::Duration::from_millis(500), handle)
+                .await
+                .is_err()
+            {
+                aborter.abort();
+                warn!("cdp_session: writer task exceeded 500ms shutdown budget; aborted");
+            }
         }
     }
 
