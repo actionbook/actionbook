@@ -229,6 +229,8 @@ pub fn format_text(
                     | "browser session-storage clear"
                     | "browser network requests"
                     | "browser network request"
+                    | "extension install"
+                    | "extension uninstall"
             );
 
             if is_action {
@@ -344,6 +346,48 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                 if let Some(tabs) = s.get("tabs_count").and_then(|v| v.as_u64()) {
                     lines.push(format!("tabs: {tabs}"));
                 }
+            }
+        }
+        "extension status" => {
+            if let Some(bridge) = data.get("bridge").and_then(|v| v.as_str()) {
+                lines.push(format!("bridge: {bridge}"));
+            }
+            if let Some(extension_connected) =
+                data.get("extension_connected").and_then(|v| v.as_bool())
+            {
+                lines.push(format!("extension_connected: {extension_connected}"));
+            }
+        }
+        "extension ping" => {
+            if let Some(bridge) = data.get("bridge").and_then(|v| v.as_str()) {
+                lines.push(format!("bridge: {bridge}"));
+            }
+            if let Some(rtt_ms) = data.get("rtt_ms").and_then(|v| v.as_u64()) {
+                lines.push(format!("rtt_ms: {rtt_ms}"));
+            }
+        }
+        "extension path" => {
+            if let Some(path) = data.get("path").and_then(|v| v.as_str()) {
+                lines.push(format!("path: {path}"));
+            }
+            if let Some(installed) = data.get("installed").and_then(|v| v.as_bool()) {
+                lines.push(format!("installed: {installed}"));
+            }
+            if let Some(version) = data.get("version").and_then(|v| v.as_str()) {
+                lines.push(format!("version: {version}"));
+            }
+        }
+        "extension install" => {
+            if let Some(path) = data.get("path").and_then(|v| v.as_str()) {
+                lines.push(format!("path: {path}"));
+            }
+            if let Some(version) = data.get("version").and_then(|v| v.as_str()) {
+                lines.push(format!("version: {version}"));
+            }
+        }
+        "extension uninstall" => {
+            if let Some(uninstalled) = data.get("uninstalled").and_then(|v| v.as_bool()) {
+                lines.push(format!("uninstalled: {uninstalled}"));
             }
         }
         "browser close" => {
@@ -1129,6 +1173,49 @@ mod tests {
         assert_eq!(
             text,
             "1/2 tabs opened in session s0\n[s0 t2] https://a.com\n[failed] javascript:alert(1) - INVALID_ARGUMENT: dangerous URL protocol blocked: javascript:alert(1)"
+        );
+    }
+
+    #[test]
+    fn extension_install_text_renders_action_header_and_fields() {
+        let result = ActionResult::ok(json!({
+            "path": "/Users/test/.actionbook/extension",
+            "version": "1.4.3-alpha",
+        }));
+
+        let text = format_text("extension install", &None, &result);
+
+        assert_eq!(
+            text,
+            "ok extension install\npath: /Users/test/.actionbook/extension\nversion: 1.4.3-alpha"
+        );
+    }
+
+    #[test]
+    fn extension_status_text_renders_bridge_state() {
+        let result = ActionResult::ok(json!({
+            "bridge": "listening",
+            "extension_connected": true,
+        }));
+
+        let text = format_text("extension status", &None, &result);
+
+        assert_eq!(text, "bridge: listening\nextension_connected: true");
+    }
+
+    #[test]
+    fn extension_path_text_renders_install_state() {
+        let result = ActionResult::ok(json!({
+            "path": "/Users/test/.actionbook/extension",
+            "installed": false,
+            "version": null,
+        }));
+
+        let text = format_text("extension path", &None, &result);
+
+        assert_eq!(
+            text,
+            "path: /Users/test/.actionbook/extension\ninstalled: false"
         );
     }
 }

@@ -79,8 +79,62 @@ static BUNDLED_EXTENSION: &[(&str, &[u8])] = &[
     ),
 ];
 
-fn extension_dir() -> PathBuf {
+fn legacy_extension_dir() -> PathBuf {
     config::actionbook_home().join("extension")
+}
+
+fn default_extension_dir_for_home(actionbook_home: &Path) -> PathBuf {
+    match actionbook_home.file_name().and_then(|name| name.to_str()) {
+        Some(".actionbook") => actionbook_home
+            .parent()
+            .unwrap_or(actionbook_home)
+            .join("Actionbook")
+            .join("extension"),
+        _ => actionbook_home.join("extension"),
+    }
+}
+
+fn preferred_extension_dir() -> PathBuf {
+    default_extension_dir_for_home(&config::actionbook_home())
+}
+
+fn installed_extension_dir() -> Option<PathBuf> {
+    let preferred = preferred_extension_dir();
+    if preferred.join("manifest.json").exists() {
+        return Some(preferred);
+    }
+
+    let legacy = legacy_extension_dir();
+    if legacy != preferred && legacy.join("manifest.json").exists() {
+        return Some(legacy);
+    }
+
+    None
+}
+
+fn extension_dir() -> PathBuf {
+    installed_extension_dir().unwrap_or_else(preferred_extension_dir)
+}
+
+fn removable_extension_dirs() -> Vec<PathBuf> {
+    let preferred = preferred_extension_dir();
+    let legacy = legacy_extension_dir();
+    if preferred == legacy {
+        vec![preferred]
+    } else {
+        vec![preferred, legacy]
+    }
+}
+
+fn remove_existing_extension_dirs() -> Result<(), std::io::Error> {
+    for dir in removable_extension_dirs() {
+        if let Err(e) = std::fs::remove_dir_all(&dir)
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(e);
+        }
+    }
+    Ok(())
 }
 
 fn read_version(dir: &Path) -> Option<String> {
@@ -101,14 +155,16 @@ pub fn execute_path() -> ActionResult {
 }
 
 pub fn execute_install(force: bool) -> ActionResult {
-    let dir = extension_dir();
+    let dir = preferred_extension_dir();
 
-    if dir.exists() && !force {
+    if let Some(existing) = installed_extension_dir()
+        && !force
+    {
         return ActionResult::fatal(
             "ALREADY_INSTALLED",
             format!(
                 "extension already installed at '{}'; use --force to overwrite",
-                dir.display()
+                existing.display()
             ),
         );
     }
@@ -123,9 +179,7 @@ pub fn execute_install(force: bool) -> ActionResult {
 }
 
 fn extract_bundled(dst: &Path) -> ActionResult {
-    if let Err(e) = std::fs::remove_dir_all(dst)
-        && e.kind() != std::io::ErrorKind::NotFound
-    {
+    if let Err(e) = remove_existing_extension_dirs() {
         return ActionResult::fatal(
             "IO_ERROR",
             format!("failed to remove existing install: {e}"),
@@ -164,9 +218,7 @@ fn extract_bundled(dst: &Path) -> ActionResult {
 }
 
 fn copy_from_dir(src: &Path, dst: &Path) -> ActionResult {
-    if let Err(e) = std::fs::remove_dir_all(dst)
-        && e.kind() != std::io::ErrorKind::NotFound
-    {
+    if let Err(e) = remove_existing_extension_dirs() {
         return ActionResult::fatal(
             "IO_ERROR",
             format!("failed to remove existing install: {e}"),
@@ -204,12 +256,37 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 pub fn execute_uninstall() -> ActionResult {
-    let dir = extension_dir();
-    if !dir.exists() {
+    let installed = removable_extension_dirs()
+        .into_iter()
+        .any(|dir| dir.join("manifest.json").exists());
+    if !installed {
         return ActionResult::fatal("NOT_INSTALLED", "extension is not installed");
     }
-    if let Err(e) = std::fs::remove_dir_all(&dir) {
+    if let Err(e) = remove_existing_extension_dirs() {
         return ActionResult::fatal("IO_ERROR", format!("failed to remove extension: {e}"));
     }
     ActionResult::ok(json!({ "uninstalled": true }))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::default_extension_dir_for_home;
+
+    #[test]
+    fn visible_extension_install_dir_defaults_to_non_hidden_home_sibling() {
+        let home = Path::new("/Users/test/.actionbook");
+        let dir = default_extension_dir_for_home(home);
+
+        assert_eq!(dir, Path::new("/Users/test/Actionbook/extension"));
+    }
+
+    #[test]
+    fn custom_actionbook_home_keeps_extension_inside_custom_tree() {
+        let home = Path::new("/tmp/actionbook-home");
+        let dir = default_extension_dir_for_home(home);
+
+        assert_eq!(dir, Path::new("/tmp/actionbook-home/extension"));
+    }
 }

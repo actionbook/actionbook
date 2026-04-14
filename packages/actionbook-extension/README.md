@@ -16,7 +16,8 @@ Chrome extension that bridges the Actionbook CLI with your browser for AI-powere
 actionbook extension install
 ```
 
-This installs the local debug fallback package to `~/.actionbook/extension/`.
+On a default install, this writes the unpacked extension to `~/Actionbook/extension/`.
+If you use a custom `ACTIONBOOK_HOME`, it stays inside that custom tree.
 
 ### Option 3: Manual download
 
@@ -123,4 +124,4 @@ The CLI and extension are versioned independently. Compatibility is guaranteed b
 
 4. **Web Store install failed** - Use fallback `actionbook extension install`, then load it from `chrome://extensions` with **Load unpacked**.
 
-5. **Offline install** - Download the `.zip` from another machine, unzip to `~/.actionbook/extension/`, then load it as an unpacked extension in `chrome://extensions`.
+5. **Offline install** - Download the `.zip` from another machine, unzip it to any local folder, then load it as an unpacked extension in `chrome://extensions`.
