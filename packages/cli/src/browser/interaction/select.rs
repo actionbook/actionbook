@@ -176,29 +176,29 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             );
         }
         other if other.starts_with('{') => {
-            if let Ok(diag) = serde_json::from_str::<serde_json::Value>(other) {
-                if diag["status"].as_str() == Some("option not found") {
-                    let mode = diag["mode"].as_str().unwrap_or("by-value").to_string();
-                    let total = diag["total"].as_u64().unwrap_or(0);
-                    let values = diag["values"].clone();
-                    let texts = diag["texts"].clone();
-                    let message = format!(
-                        "option not found: '{}'. Mode: {}. Total options: {}. Values: {}. Texts: {}",
-                        cmd.value, mode, total, values, texts,
-                    );
-                    return ActionResult::fatal_with_details(
-                        "INVALID_ARGUMENT",
-                        message,
-                        "check the available values and texts above, or use --by-text to match display text",
-                        json!({
-                            "status": "option not found",
-                            "mode": mode,
-                            "total": total,
-                            "values": values,
-                            "texts": texts,
-                        }),
-                    );
-                }
+            if let Ok(diag) = serde_json::from_str::<serde_json::Value>(other)
+                && diag["status"].as_str() == Some("option not found")
+            {
+                let mode = diag["mode"].as_str().unwrap_or("by-value").to_string();
+                let total = diag["total"].as_u64().unwrap_or(0);
+                let values = diag["values"].clone();
+                let texts = diag["texts"].clone();
+                let message = format!(
+                    "option not found: '{}'. Mode: {}. Total options: {}. Values: {}. Texts: {}",
+                    cmd.value, mode, total, values, texts,
+                );
+                return ActionResult::fatal_with_details(
+                    "INVALID_ARGUMENT",
+                    message,
+                    "check the available values and texts above, or use --by-text to match display text",
+                    json!({
+                        "status": "option not found",
+                        "mode": mode,
+                        "total": total,
+                        "values": values,
+                        "texts": texts,
+                    }),
+                );
             }
             return ActionResult::fatal("CDP_ERROR", format!("select failed: {other}"));
         }
