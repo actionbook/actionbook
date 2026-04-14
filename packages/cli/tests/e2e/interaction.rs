@@ -272,6 +272,46 @@ fn assert_select_success_full(
     assert_meta(v);
 }
 
+fn assert_select_not_found_diagnostics(
+    v: &serde_json::Value,
+    session_id: &str,
+    tab_id: &str,
+    requested_value: &str,
+    expected_values: &[&str],
+    expected_texts: &[&str],
+    expected_mode: &str,
+    expected_total: u64,
+) {
+    assert_eq!(v["command"], "browser select");
+    assert!(v["context"].is_object(), "context must be present on error");
+    assert_eq!(v["context"]["session_id"], session_id);
+    assert_eq!(v["context"]["tab_id"], tab_id);
+    assert_error_envelope(v, "INVALID_ARGUMENT");
+
+    let message = v["error"]["message"]
+        .as_str()
+        .expect("error.message must be a string");
+    assert!(
+        message.contains(&format!("option not found: '{requested_value}'")),
+        "message must mention missing option: got {message}"
+    );
+    assert!(
+        message.contains(&format!("Mode: {expected_mode}")),
+        "message must include current match mode: got {message}"
+    );
+    assert!(
+        message.contains(&format!("Total options: {expected_total}")),
+        "message must include total options: got {message}"
+    );
+
+    let details = &v["error"]["details"];
+    assert_eq!(details["status"], "option not found");
+    assert_eq!(details["mode"], expected_mode);
+    assert_eq!(details["total"], expected_total);
+    assert_eq!(details["values"], serde_json::json!(expected_values));
+    assert_eq!(details["texts"], serde_json::json!(expected_texts));
+}
+
 fn assert_hover_success(
     v: &serde_json::Value,
     session_id: &str,
@@ -793,6 +833,107 @@ fn install_select_fixture(session_id: &str, tab_id: &str) {
 
     let value = eval_value(session_id, tab_id, expression);
     assert_eq!(value, "ok", "select fixture should install successfully");
+}
+
+fn install_select_diagnostic_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-select-diagnostics-fixture');
+  if (existing) existing.remove();
+
+  const root = document.createElement('div');
+  root.id = 'ab-select-diagnostics-fixture';
+
+  const style = document.createElement('style');
+  style.textContent = '#ab-select-diagnostics { position: fixed; top: 260px; left: 40px; width: 240px; height: 36px; z-index: 2147483647; }';
+  root.appendChild(style);
+
+  const select = document.createElement('select');
+  select.id = 'ab-select-diagnostics';
+  [['a', 'Alpha'], ['b', 'Beta']].forEach(([val, txt]) => {
+    const opt = document.createElement('option');
+    opt.value = val;
+    opt.textContent = txt;
+    select.appendChild(opt);
+  });
+  root.appendChild(select);
+  document.body.appendChild(root);
+
+  return 'ok';
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(
+        value, "ok",
+        "select diagnostic fixture should install successfully"
+    );
+}
+
+fn install_select_empty_fixture(session_id: &str, tab_id: &str) {
+    let expression = r#"
+(() => {
+  const existing = document.getElementById('ab-select-empty-fixture');
+  if (existing) existing.remove();
+
+  const root = document.createElement('div');
+  root.id = 'ab-select-empty-fixture';
+
+  const style = document.createElement('style');
+  style.textContent = '#ab-select-empty { position: fixed; top: 320px; left: 40px; width: 240px; height: 36px; z-index: 2147483647; }';
+  root.appendChild(style);
+
+  const select = document.createElement('select');
+  select.id = 'ab-select-empty';
+  root.appendChild(select);
+  document.body.appendChild(root);
+
+  return 'ok';
+})()
+"#;
+
+    let value = eval_value(session_id, tab_id, expression);
+    assert_eq!(
+        value, "ok",
+        "empty select fixture should install successfully"
+    );
+}
+
+fn install_select_many_options_fixture(session_id: &str, tab_id: &str, count: usize) {
+    let expression = format!(
+        r#"
+(() => {{
+  const existing = document.getElementById('ab-select-many-fixture');
+  if (existing) existing.remove();
+
+  const root = document.createElement('div');
+  root.id = 'ab-select-many-fixture';
+
+  const style = document.createElement('style');
+  style.textContent = '#ab-select-many {{ position: fixed; top: 380px; left: 40px; width: 240px; height: 36px; z-index: 2147483647; }}';
+  root.appendChild(style);
+
+  const select = document.createElement('select');
+  select.id = 'ab-select-many';
+  for (let i = 0; i < {count}; i++) {{
+    const opt = document.createElement('option');
+    opt.value = `value-${{i}}`;
+    opt.textContent = `Option ${{i}}`;
+    select.appendChild(opt);
+  }}
+  root.appendChild(select);
+  document.body.appendChild(root);
+
+  return 'ok';
+}})()
+"#
+    );
+
+    let value = eval_value(session_id, tab_id, &expression);
+    assert_eq!(
+        value, "ok",
+        "many-options select fixture should install successfully"
+    );
 }
 
 fn install_hover_fixture(session_id: &str, tab_id: &str) {
@@ -2878,6 +3019,167 @@ fn select_by_text_json() {
             "document.querySelector('#ab-select').selectedOptions[0].textContent.trim()"
         ),
         "Citrus Fruit"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn select_not_found_shows_available_values() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_select_diagnostic_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "select",
+            "#ab-select-diagnostics",
+            "nonexistent",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "select missing option by-value json");
+    let v = parse_json(&out);
+
+    assert_select_not_found_diagnostics(
+        &v,
+        &sid,
+        &tid,
+        "nonexistent",
+        &["a", "b"],
+        &["Alpha", "Beta"],
+        "by-value",
+        2,
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn select_not_found_by_text_shows_diagnostics() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_select_diagnostic_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "select",
+            "#ab-select-diagnostics",
+            "nonexistent",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--by-text",
+        ],
+        15,
+    );
+    assert_failure(&out, "select missing option by-text json");
+    let v = parse_json(&out);
+
+    assert_select_not_found_diagnostics(
+        &v,
+        &sid,
+        &tid,
+        "nonexistent",
+        &["a", "b"],
+        &["Alpha", "Beta"],
+        "by-text",
+        2,
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn select_not_found_empty_select() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_select_empty_fixture(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "select",
+            "#ab-select-empty",
+            "nonexistent",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "select missing option empty select json");
+    let v = parse_json(&out);
+
+    assert_select_not_found_diagnostics(&v, &sid, &tid, "nonexistent", &[], &[], "by-value", 0);
+
+    close_session(&sid);
+}
+
+#[test]
+fn select_not_found_many_options_truncated() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+    install_select_many_options_fixture(&sid, &tid, 50);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "select",
+            "#ab-select-many",
+            "nonexistent",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_failure(&out, "select missing option many-options json");
+    let v = parse_json(&out);
+
+    let expected_values: Vec<String> = (0..20).map(|i| format!("value-{i}")).collect();
+    let expected_texts: Vec<String> = (0..20).map(|i| format!("Option {i}")).collect();
+    let details = &v["error"]["details"];
+
+    assert_eq!(v["command"], "browser select");
+    assert_error_envelope(&v, "INVALID_ARGUMENT");
+    assert_eq!(details["status"], "option not found");
+    assert_eq!(details["mode"], "by-value");
+    assert_eq!(details["total"], 50);
+    assert_eq!(details["values"], serde_json::json!(expected_values));
+    assert_eq!(details["texts"], serde_json::json!(expected_texts));
+
+    let message = v["error"]["message"]
+        .as_str()
+        .expect("error.message must be a string");
+    assert!(
+        message.contains("value-0") && message.contains("value-19"),
+        "message must include truncated leading values: got {message}"
+    );
+    assert!(
+        !message.contains("value-20"),
+        "message must omit values beyond truncation limit: got {message}"
     );
 
     close_session(&sid);

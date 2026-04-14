@@ -129,7 +129,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                     const opt = {by_text}
                         ? opts.find(o => o.textContent.trim() === {value_json})
                         : opts.find(o => o.value === {value_json});
-                    if (!opt) return 'option not found';
+                    if (!opt) {{
+                        const MAX = 20;
+                        const values = opts.slice(0, MAX).map(o => o.value);
+                        const texts = opts.slice(0, MAX).map(o => o.textContent.trim());
+                        return JSON.stringify({{ status: 'option not found', mode: {by_text} ? 'by-text' : 'by-value', total: opts.length, values, texts }});
+                    }}
                     this.value = opt.value;
                     this.dispatchEvent(new Event('input', {{ bubbles: true }}));
                     this.dispatchEvent(new Event('change', {{ bubbles: true }}));
@@ -164,10 +169,38 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     match result_str {
         "ok" => {}
         "option not found" => {
+            // Fallback: JS now returns JSON; this arm kept as defensive safety net.
             return ActionResult::fatal(
                 "INVALID_ARGUMENT",
                 format!("option not found: '{}'", cmd.value),
             );
+        }
+        other if other.starts_with('{') => {
+            if let Ok(diag) = serde_json::from_str::<serde_json::Value>(other) {
+                if diag["status"].as_str() == Some("option not found") {
+                    let mode = diag["mode"].as_str().unwrap_or("by-value").to_string();
+                    let total = diag["total"].as_u64().unwrap_or(0);
+                    let values = diag["values"].clone();
+                    let texts = diag["texts"].clone();
+                    let message = format!(
+                        "option not found: '{}'. Mode: {}. Total options: {}. Values: {}. Texts: {}",
+                        cmd.value, mode, total, values, texts,
+                    );
+                    return ActionResult::fatal_with_details(
+                        "INVALID_ARGUMENT",
+                        message,
+                        "check the available values and texts above, or use --by-text to match display text",
+                        json!({
+                            "status": "option not found",
+                            "mode": mode,
+                            "total": total,
+                            "values": values,
+                            "texts": texts,
+                        }),
+                    );
+                }
+            }
+            return ActionResult::fatal("CDP_ERROR", format!("select failed: {other}"));
         }
         "not an option element" => {
             return ActionResult::fatal(
