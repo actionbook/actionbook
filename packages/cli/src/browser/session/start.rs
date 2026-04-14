@@ -1390,6 +1390,7 @@ async fn execute_extension(
         let final_url = match ensure_scheme_or_fatal(url) {
             Ok(u) => u,
             Err(e) => {
+                cdp.close().await;
                 registry.lock().await.remove(session_id.as_str());
                 return e;
             }
@@ -1406,6 +1407,7 @@ async fn execute_extension(
                 vec![(tab_id, tab_url, title)]
             }
             Err(e) => {
+                cdp.close().await;
                 return fail_reserved_start(
                     registry,
                     &session_id,
@@ -1431,6 +1433,7 @@ async fn execute_extension(
                 // here so the agent gets a clear remediation instead of a
                 // downstream -32000 error on the first real command.
                 if is_restricted_attach_scheme(&tab_url) {
+                    cdp.close().await;
                     return fail_reserved_start_with_hint(
                         registry,
                         &session_id,
@@ -1444,6 +1447,7 @@ async fn execute_extension(
             }
             Err(e) => {
                 let msg = e.to_string();
+                cdp.close().await;
                 if is_chrome_attach_restriction_error(&msg) {
                     return fail_reserved_start_with_hint(
                         registry,

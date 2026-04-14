@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio::task::JoinHandle;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -261,6 +262,11 @@ pub struct CdpSession {
     /// Wrapped in Option so `close()` can take it out, closing the channel
     /// and propagating shutdown to both reader and writer background tasks.
     writer_tx: Arc<Mutex<Option<mpsc::Sender<String>>>>,
+    /// Writer task handle. Awaited by `close()` so the graceful WS close
+    /// frame is delivered before the next caller tries to reconnect — without
+    /// it, the peer (e.g. bridge) still sees the old client as connected and
+    /// rejects the new CDP client.
+    writer_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     /// In-flight requests keyed by message ID.
     pending: PendingRequests,
     /// Atomic counter for generating unique message IDs.
@@ -325,7 +331,7 @@ impl CdpSession {
             Arc::new(Mutex::new(HashMap::new()));
         let tab_net_requests: TabNetRequests = Arc::new(Mutex::new(HashMap::new()));
 
-        tokio::spawn(Self::writer_loop(ws_writer, writer_rx));
+        let writer_handle = tokio::spawn(Self::writer_loop(ws_writer, writer_rx));
         tokio::spawn(Self::reader_loop(
             ws_reader,
             pending.clone(),
@@ -339,6 +345,7 @@ impl CdpSession {
 
         Ok(CdpSession {
             writer_tx: Arc::new(Mutex::new(Some(writer_tx))),
+            writer_handle: Arc::new(Mutex::new(Some(writer_handle))),
             pending,
             next_id,
             tab_sessions,
@@ -678,17 +685,29 @@ impl CdpSession {
     /// Drops the writer channel sender, which causes the writer loop to exit,
     /// which closes the WS connection, which causes the reader loop to exit,
     /// which fails all pending requests with `SessionClosed`.
+    ///
+    /// Waits for the writer task to finish so the WS close handshake has
+    /// propagated to the peer before returning. Without this, a peer like the
+    /// extension bridge may still see the old client as connected and reject
+    /// an immediately-following reconnect.
     pub async fn close(&self) {
         // Take and drop the writer sender — closes the channel.
         self.writer_tx.lock().await.take();
 
         // Fail all pending requests immediately instead of waiting for
         // the reader loop to notice the connection drop.
-        let mut map = self.pending.lock().await;
-        for (_, tx) in map.drain() {
-            let _ = tx.send(Err(CliError::SessionClosed(
-                "session was closed".to_string(),
-            )));
+        {
+            let mut map = self.pending.lock().await;
+            for (_, tx) in map.drain() {
+                let _ = tx.send(Err(CliError::SessionClosed(
+                    "session was closed".to_string(),
+                )));
+            }
+        }
+
+        // Await writer task so its Close frame has been flushed to the peer.
+        if let Some(handle) = self.writer_handle.lock().await.take() {
+            let _ = handle.await;
         }
     }
 
@@ -922,15 +941,25 @@ impl CdpSession {
     }
 
     /// Background task: forward channel messages to WS writer.
+    ///
+    /// When the channel closes (on drop / `close()`), send a WebSocket Close
+    /// frame so the peer tears down promptly. Without this, dropping the
+    /// writer half alone leaves the reader half holding the TCP connection
+    /// open; the peer never sees EOF and keeps us registered as "still
+    /// connected", which breaks immediate reconnects (e.g. the extension
+    /// bridge rejecting a second CDP client).
     async fn writer_loop<S>(mut writer: S, mut rx: mpsc::Receiver<String>)
     where
         S: SinkExt<Message> + Unpin,
     {
         while let Some(text) = rx.recv().await {
             if writer.send(Message::Text(text.into())).await.is_err() {
-                break;
+                return;
             }
         }
+        // Graceful shutdown: send Close frame then close the sink.
+        let _ = writer.send(Message::Close(None)).await;
+        let _ = writer.close().await;
     }
 }
 
