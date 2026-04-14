@@ -15,6 +15,13 @@
 //! with, so they intentionally let the call fail with `EXTENSION_NOT_CONNECTED`
 //! after the bridge bind step. We assert on what happened to the bridge listener
 //! (port bound? error code? holder hint?), not on session establishment.
+//!
+//! Unix-only: port-holder identification uses `lsof`. On Windows the equivalent
+//! lookup needs `netstat` parsing or netstat2; until that's wired the assertions
+//! "is 19222 free?" and "who holds it?" silently pass, masking regressions —
+//! so the whole module is gated to Unix.
+
+#![cfg(unix)]
 
 use std::net::TcpListener;
 use std::sync::Mutex;
@@ -70,24 +77,12 @@ fn wait_for_daemon_up(env: &SoloEnv, max: Duration) -> Option<u32> {
     None
 }
 
-#[cfg(unix)]
 fn pid_alive(pid: u32) -> bool {
     std::process::Command::new("kill")
         .args(["-0", &pid.to_string()])
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
-}
-
-#[cfg(windows)]
-fn pid_alive(pid: u32) -> bool {
-    let out = std::process::Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-        .output();
-    match out {
-        Ok(o) => String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()),
-        Err(_) => false,
-    }
 }
 
 // ===========================================================================
@@ -222,10 +217,17 @@ fn ensure_retries_within_window() {
     blocker_handle.join().unwrap();
 
     // Bind retry ladder is 100/500/1000/2000/5000ms (≈8.6s window). Hog
-    // released at ~4s → bind should succeed on attempt 4 or 5 (T≈3.6s).
+    // released at ~4s → bind should succeed on attempt 4 or 5 (T≈3.6s);
+    // the call also includes the 5s extension-handshake poll afterwards.
+    // Lower bound 3s = retries actually waited; upper bound 22s = scenario
+    // ran within the harness timeout (25s) and didn't burn the full window.
     assert!(
         elapsed >= Duration::from_secs(3),
         "extension call returned too early ({elapsed:?}) — retries skipped?"
+    );
+    assert!(
+        elapsed < Duration::from_secs(22),
+        "extension call took too long ({elapsed:?}) — retry ladder is broken or extended past spec"
     );
 
     // After the retries the daemon must end up holding 19222.
@@ -284,10 +286,17 @@ fn ensure_surfaces_holder_after_retries_exhausted() {
         "expected BRIDGE_BIND_FAILED, got code={code}; full body={}",
         stdout_str(&out)
     );
+    // Holder pid must surface in user-facing output. Accept either error
+    // message (the BridgeError::Display content) or hint (the actionable
+    // guidance) — Phase 3 chooses where to put it, but it must appear
+    // *somewhere* the user can read.
+    let message = v["error"]["message"].as_str().unwrap_or("");
     let hint = v["error"]["hint"].as_str().unwrap_or("");
+    let pid_str = test_pid.to_string();
+    let combined = format!("{message} | {hint}");
     assert!(
-        hint.contains(&format!("pid {test_pid}")) || hint.contains(&test_pid.to_string()),
-        "hint must reference holder pid {test_pid} — got: {hint:?}"
+        combined.contains(&pid_str),
+        "error envelope must reference holder pid {test_pid} — got message={message:?} hint={hint:?}"
     );
 }
 
@@ -397,7 +406,12 @@ fn daemon_restart_recovers_bridge_after_failed() {
     }
     assert!(!pid_alive(pid_before), "old daemon did not exit");
 
-    // After restart, a fresh extension call must successfully bind 19222.
+    // After restart, a fresh extension call must successfully bind 19222 —
+    // and crucially, the daemon holding 19222 must be a NEW process. This
+    // separates "daemon restart actually restarted the daemon" from
+    // "ensure_bridge silently self-recovered" (which is covered by UT
+    // ensure_recovers_from_failed; this test is specifically about the
+    // user-visible daemon-restart subcommand).
     let _ = env.headless_json(
         &[
             "browser",
@@ -409,10 +423,17 @@ fn daemon_restart_recovers_bridge_after_failed() {
         ],
         20,
     );
+    let daemon_pid_after = wait_for_daemon_up(&env, Duration::from_secs(2));
+    assert!(daemon_pid_after.is_some(), "no daemon up after restart");
+    let new_pid = daemon_pid_after.unwrap();
+    assert_ne!(
+        new_pid, pid_before,
+        "daemon pid did not change — restart was a no-op (broken: pid_before={pid_before}, pid_after={new_pid})"
+    );
     let holder = port_holder_pid();
-    let daemon_pid = wait_for_daemon_up(&env, Duration::from_secs(2));
     assert_eq!(
-        holder, daemon_pid,
-        "after daemon restart, 19222 must be held by new daemon — got holder={holder:?}, daemon={daemon_pid:?}"
+        holder,
+        Some(new_pid),
+        "after daemon restart, 19222 must be held by NEW daemon pid {new_pid} — got holder={holder:?}"
     );
 }
