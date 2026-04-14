@@ -1342,8 +1342,7 @@ async fn execute_extension(
             }
         };
 
-        let deadline =
-            std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
             if bridge_state.lock().await.is_extension_connected() {
                 break;
