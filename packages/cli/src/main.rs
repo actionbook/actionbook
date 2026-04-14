@@ -211,6 +211,7 @@ async fn handle_browser(
                         profile: None,
                         executable_path: None,
                         open_url: None,
+                        tab_id: None,
                         cdp_endpoint: None,
                         provider: None,
                         header: vec![],

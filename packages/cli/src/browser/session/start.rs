@@ -64,6 +64,13 @@ pub struct Cmd {
     /// Open this URL on start
     #[arg(long)]
     pub open_url: Option<String>,
+    /// Extension mode only: attach to a pre-existing Chrome tab by its native
+    /// numeric tab id (e.g. from `browser list-tabs --json`'s `native_tab_id`).
+    /// Mutually exclusive with --open-url. Required when `--mode extension`
+    /// is used without `--open-url`; the legacy "attach active tab" default
+    /// has been removed in protocol 0.3.0 — every tab must be explicit.
+    #[arg(long, conflicts_with = "open_url")]
+    pub tab_id: Option<u64>,
     /// Connect to existing CDP endpoint
     #[arg(long)]
     pub cdp_endpoint: Option<String>,
@@ -1489,29 +1496,29 @@ async fn execute_extension(
                 .await;
             }
         }
-    } else {
-        // No open_url — attach the current active tab.
+    } else if let Some(explicit_tab_id) = cmd.tab_id {
+        // Explicit attach to a pre-existing Chrome tab by its native id.
+        // No "active tab" default in protocol 0.3.0 — every attach is explicit.
         match cdp
-            .execute_browser("Extension.attachActiveTab", json!({}))
+            .execute_browser("Extension.attachTab", json!({ "tabId": explicit_tab_id }))
             .await
         {
             Ok(resp) => {
                 let result = &resp["result"];
-                let tab_id = result["tabId"].as_i64().unwrap_or(0).to_string();
+                let tab_id = result["tabId"]
+                    .as_i64()
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| explicit_tab_id.to_string());
                 let tab_url = result["url"].as_str().unwrap_or("about:blank").to_string();
                 let title = result["title"].as_str().unwrap_or("").to_string();
-                // The attach may succeed but return a URL that Chrome will later
-                // refuse CDP commands on (chrome://, devtools://, ...). Catch it
-                // here so the agent gets a clear remediation instead of a
-                // downstream -32000 error on the first real command.
                 if is_restricted_attach_scheme(&tab_url) {
                     cdp.close().await;
                     return fail_reserved_start_with_hint(
                         registry,
                         &session_id,
-                        "RESTRICTED_ACTIVE_TAB",
-                        format!("active tab is a restricted URL: {tab_url}"),
-                        "pass --open-url <url>",
+                        "RESTRICTED_TAB",
+                        format!("tab {explicit_tab_id} is a restricted URL: {tab_url}"),
+                        "pass --open-url <url> or pick a different --tab-id",
                     )
                     .await;
                 }
@@ -1524,9 +1531,9 @@ async fn execute_extension(
                     return fail_reserved_start_with_hint(
                         registry,
                         &session_id,
-                        "RESTRICTED_ACTIVE_TAB",
-                        "active tab is a restricted URL".to_string(),
-                        "pass --open-url <url>",
+                        "RESTRICTED_TAB",
+                        format!("tab {explicit_tab_id} cannot be debugged"),
+                        "pass --open-url <url> or pick a different --tab-id",
                     )
                     .await;
                 }
@@ -1534,11 +1541,22 @@ async fn execute_extension(
                     registry,
                     &session_id,
                     "CDP_ERROR",
-                    format!("failed to attach active tab via extension: {e}"),
+                    format!("failed to attach tab {explicit_tab_id} via extension: {e}"),
                 )
                 .await;
             }
         }
+    } else {
+        // Neither --open-url nor --tab-id: extension mode requires one.
+        cdp.close().await;
+        return fail_reserved_start_with_hint(
+            registry,
+            &session_id,
+            "MISSING_TAB_TARGET",
+            "extension mode requires either --open-url or --tab-id".to_string(),
+            "pass --open-url <url> to create a new tab, or --tab-id <N> (find ids via `actionbook browser list-tabs --json`)",
+        )
+        .await;
     };
 
     // Register extension tabs in CdpSession so execute_on_tab works.
@@ -2032,6 +2050,7 @@ mod provider_start_tests {
                 profile: None,
                 executable_path: None,
                 open_url: None,
+                tab_id: None,
                 cdp_endpoint: None,
                 provider: Some("hyperbrowser".to_string()),
                 header: vec![],
@@ -2093,6 +2112,7 @@ mod provider_start_tests {
                 profile: None,
                 executable_path: None,
                 open_url: None,
+                tab_id: None,
                 cdp_endpoint: None,
                 provider: Some("hyperbrowser".to_string()),
                 header: vec![],
@@ -2145,6 +2165,7 @@ mod provider_start_tests {
                 profile: None,
                 executable_path: None,
                 open_url: None,
+                tab_id: None,
                 cdp_endpoint: None,
                 provider: Some("browseruse".to_string()),
                 header: vec![],

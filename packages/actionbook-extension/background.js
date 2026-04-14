@@ -14,22 +14,40 @@ const L3_CONFIRM_TIMEOUT_MS = 30000;
 const CDP_ALLOWLIST = {
   // L1 - Read only (auto-approved)
   'Page.captureScreenshot': 'L1',
+  'Page.getLayoutMetrics': 'L1',
+  'Page.getNavigationHistory': 'L1',
   'DOM.getDocument': 'L1',
   'DOM.querySelector': 'L1',
   'DOM.querySelectorAll': 'L1',
   'DOM.getOuterHTML': 'L1',
   'DOM.enable': 'L1',
+  'DOM.describeNode': 'L1',
+  'DOM.getBoxModel': 'L1',
+  'DOM.getFrameOwner': 'L1',
+  'DOM.getNodeForLocation': 'L1',
+  'DOM.requestNode': 'L1',
+  'DOM.resolveNode': 'L1',
   'Accessibility.enable': 'L1',
   'Accessibility.getFullAXTree': 'L1',
+  'Accessibility.getPartialAXTree': 'L1',
+  'Accessibility.queryAXTree': 'L1',
   'Network.getCookies': 'L1',
+  'Network.getAllCookies': 'L1',
+  'Network.getResponseBody': 'L1',
 
   // L2 - Page modification (auto-approved with logging)
   'Runtime.evaluate': 'L2',
+  'Runtime.callFunctionOn': 'L2',
+  'Page.enable': 'L2',
   'Page.navigate': 'L2',
+  'Page.navigateToHistoryEntry': 'L2',
   'Page.reload': 'L2',
   'Input.dispatchMouseEvent': 'L2',
   'Input.dispatchKeyEvent': 'L2',
+  'DOM.focus': 'L2',
+  'DOM.setFileInputFiles': 'L2',
   'Emulation.setDeviceMetricsOverride': 'L2',
+  'Emulation.clearDeviceMetricsOverride': 'L2',
   'Page.printToPDF': 'L2',
 
   // L3 - High risk (requires confirmation)
@@ -49,7 +67,12 @@ const SENSITIVE_DOMAIN_PATTERNS = [
 ];
 
 let ws = null;
-let attachedTabId = null;
+// Set<number> of Chrome tab IDs that the extension currently has
+// chrome.debugger attached to. Multiple tabs can be attached concurrently;
+// every CDP command from the CLI must carry its target `tabId` field.
+// The legacy single-attach variable and `Extension.attachActiveTab` have
+// been removed — the CLI always specifies tabId.
+const attachedTabs = new Set();
 let connectionState = "idle"; // idle | pairing_required | connecting | connected | disconnected | failed
 let reconnectDelay = RECONNECT_BASE_MS;
 let reconnectTimer = null;
@@ -142,11 +165,13 @@ async function connect() {
 
   ws.onopen = () => {
     wsOpened = true;
-    // Send hello handshake (tokenless - server validates via origin + extension ID)
+    // Send hello handshake (tokenless - server validates via origin + extension ID).
+    // Protocol 0.3.0 adds root-level `tabId` in every CDP request/event and
+    // supports concurrent multi-tab attach.
     wsSend({
       type: "hello",
       role: "extension",
-      version: "0.2.0",
+      version: "0.3.0",
     });
 
     // Start handshake timeout - if no hello_ack within this window, treat as auth failure
@@ -327,11 +352,14 @@ function scheduleReconnect() {
 // --- CDP Event Forwarding ---
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
-  if (source.tabId === attachedTabId) {
-    // Forward CDP event to bridge (no id field = event, not response)
+  if (typeof source.tabId === "number" && attachedTabs.has(source.tabId)) {
+    // Forward CDP event to bridge (no id field = event, not response).
+    // Include `tabId` so CdpSession can route the event to the right tab
+    // subscriber in extension-mode multi-tab sessions.
     wsSend({
       method: method,
       params: params || {},
+      tabId: source.tabId,
     });
   }
 });
@@ -371,20 +399,31 @@ async function createOrReuseTab(targetUrl) {
 // --- Command Handler ---
 
 async function handleCommand(msg) {
-  const { id, method, params } = msg;
+  const { id, method, params, tabId } = msg;
 
   if (!method) {
     return { id, error: { code: -32600, message: "Missing method" } };
   }
 
   try {
-    // Extension-specific commands (non-CDP)
+    // Extension-specific commands (non-CDP) — tabId lives inside params for
+    // these (e.g. Extension.attachTab{tabId:N}), not at the message root.
     if (method.startsWith("Extension.")) {
       return await handleExtensionCommand(id, method, params || {});
     }
 
-    // CDP commands - forward to chrome.debugger
-    return await handleCdpCommand(id, method, params || {});
+    // CDP commands — every command must specify which tab it targets.
+    // Protocol 0.3.0: root-level `tabId` is required; no implicit "active".
+    if (typeof tabId !== "number") {
+      return {
+        id,
+        error: {
+          code: -32602,
+          message: `Missing required root-level "tabId" for CDP method ${method} (protocol 0.3.0+)`,
+        },
+      };
+    }
+    return await handleCdpCommand(id, method, params || {}, tabId);
   } catch (err) {
     return {
       id,
@@ -416,62 +455,51 @@ async function handleExtensionCommand(id, method, params) {
         return { id, error: { code: -32602, message: "Missing or invalid tabId" } };
       }
 
-      // Verify tab exists
+      // Verify tab exists, capture metadata for the response so callers
+      // (e.g. CLI session start) can surface url/title without an extra
+      // round-trip.
+      let tabInfo;
       try {
-        await chrome.tabs.get(tabId);
+        tabInfo = await chrome.tabs.get(tabId);
       } catch (_) {
         return { id, error: { code: -32000, message: `Tab ${tabId} not found` } };
       }
 
-      // Detach from current tab if any
-      if (attachedTabId !== null) {
+      // Accumulate — never auto-detach other tabs. Protocol 0.3.0 supports
+      // concurrent multi-tab attach; detach is explicit via Extension.detachTab.
+      if (!attachedTabs.has(tabId)) {
         try {
-          await chrome.debugger.detach({ tabId: attachedTabId });
-        } catch (_) {
-          // Ignore detach errors
+          await chrome.debugger.attach({ tabId }, "1.3");
+          attachedTabs.add(tabId);
+        } catch (err) {
+          return { id, error: { code: -32000, message: `attach failed: ${err.message}` } };
         }
       }
-
-      await chrome.debugger.attach({ tabId }, "1.3");
-      attachedTabId = tabId;
-      return { id, result: { attached: true, tabId } };
-    }
-
-    case "Extension.attachActiveTab": {
-      const [tab] = await chrome.tabs.query({
-        active: true,
-        currentWindow: true,
-      });
-      if (!tab) {
-        return { id, error: { code: -32000, message: "No active tab found" } };
-      }
-
-      if (attachedTabId !== null && attachedTabId !== tab.id) {
-        try {
-          await chrome.debugger.detach({ tabId: attachedTabId });
-        } catch (_) {
-          // Ignore
-        }
-      }
-
-      await chrome.debugger.attach({ tabId: tab.id }, "1.3");
-      attachedTabId = tab.id;
-      return { id, result: { attached: true, tabId: tab.id, title: tab.title, url: tab.url } };
+      broadcastState();
+      return {
+        id,
+        result: {
+          attached: true,
+          tabId,
+          url: tabInfo.url || "",
+          title: tabInfo.title || "",
+        },
+      };
     }
 
     case "Extension.createTab": {
       const url = params.url || "about:blank";
       const { tab, reused } = await createOrReuseTab(url);
 
-      // Auto-attach debugger to the target tab so subsequent CDP commands target it
+      // Auto-attach the newly-created tab so subsequent CDP commands on it
+      // work without a separate attachTab round-trip. Existing attached tabs
+      // are untouched (multi-attach).
       try {
-        if (attachedTabId !== null && attachedTabId !== tab.id) {
-          try { await chrome.debugger.detach({ tabId: attachedTabId }); } catch (_) {}
-        }
-        if (attachedTabId !== tab.id) {
+        if (!attachedTabs.has(tab.id)) {
           await chrome.debugger.attach({ tabId: tab.id }, "1.3");
-          attachedTabId = tab.id;
+          attachedTabs.add(tab.id);
         }
+        broadcastState();
         return { id, result: { tabId: tab.id, title: tab.title || "", url: tab.url || url, attached: true, reused } };
       } catch (err) {
         // Tab created but debugger attach failed — return tab info with attached: false
@@ -488,15 +516,12 @@ async function handleExtensionCommand(id, method, params) {
         await chrome.tabs.update(tabId, { active: true });
         const tab = await chrome.tabs.get(tabId);
 
-        // Auto-attach debugger to the activated tab so subsequent CDP commands target it
-        if (attachedTabId !== null && attachedTabId !== tabId) {
-          try { await chrome.debugger.detach({ tabId: attachedTabId }); } catch (_) {}
-        }
-        if (attachedTabId !== tabId) {
+        // Auto-attach (accumulating) so a follow-up CDP command can target it.
+        if (!attachedTabs.has(tabId)) {
           await chrome.debugger.attach({ tabId }, "1.3");
-          attachedTabId = tabId;
+          attachedTabs.add(tabId);
         }
-
+        broadcastState();
         return { id, result: { success: true, tabId, title: tab.title, url: tab.url, attached: true } };
       } catch (err) {
         return { id, error: { code: -32000, message: `Failed to activate tab ${tabId}: ${err.message}` } };
@@ -504,16 +529,19 @@ async function handleExtensionCommand(id, method, params) {
     }
 
     case "Extension.detachTab": {
-      if (attachedTabId === null) {
-        return { id, result: { detached: true } };
+      // Without explicit tabId, detach ALL attached tabs (used during
+      // session close). With tabId, detach just that one.
+      const targets = (typeof params.tabId === "number")
+        ? [params.tabId]
+        : Array.from(attachedTabs);
+      for (const t of targets) {
+        if (attachedTabs.has(t)) {
+          try { await chrome.debugger.detach({ tabId: t }); } catch (_) {}
+          attachedTabs.delete(t);
+        }
       }
-      try {
-        await chrome.debugger.detach({ tabId: attachedTabId });
-      } catch (_) {
-        // Ignore
-      }
-      attachedTabId = null;
-      return { id, result: { detached: true } };
+      broadcastState();
+      return { id, result: { detached: true, detachedTabIds: targets } };
     }
 
     case "Extension.status": {
@@ -521,8 +549,8 @@ async function handleExtensionCommand(id, method, params) {
         id,
         result: {
           connected: connectionState === "connected",
-          attachedTabId,
-          version: "0.2.0",
+          attachedTabIds: Array.from(attachedTabs),
+          version: "0.3.0",
         },
       };
     }
@@ -646,10 +674,10 @@ async function handleExtensionCommand(id, method, params) {
   }
 }
 
-async function getAttachedTabDomain() {
-  if (attachedTabId === null) return null;
+async function getTabDomain(tabId) {
+  if (typeof tabId !== "number") return null;
   try {
-    const tab = await chrome.tabs.get(attachedTabId);
+    const tab = await chrome.tabs.get(tabId);
     if (tab.url) {
       return new URL(tab.url).hostname;
     }
@@ -732,13 +760,13 @@ function broadcastL3Status(pending) {
     });
 }
 
-async function handleCdpCommand(id, method, params) {
-  if (attachedTabId === null) {
+async function handleCdpCommand(id, method, params, tabId) {
+  if (!attachedTabs.has(tabId)) {
     return {
       id,
       error: {
         code: -32000,
-        message: "No tab attached. Use Extension.attachTab first.",
+        message: `Tab ${tabId} not attached. Call Extension.attachTab first.`,
       },
     };
   }
@@ -751,24 +779,24 @@ async function handleCdpCommand(id, method, params) {
     };
   }
 
-  const domain = await getAttachedTabDomain();
+  const domain = await getTabDomain(tabId);
   const riskLevel = getEffectiveRiskLevel(method, domain);
 
   // L2: auto-approve with logging
   if (riskLevel === 'L2') {
-    debugLog(`[actionbook] L2 command: ${method} on ${domain || "unknown"}`);
+    debugLog(`[actionbook] L2 command: ${method} on ${domain || "unknown"} (tab ${tabId})`);
   }
 
   // L3: require user confirmation
   if (riskLevel === 'L3') {
-    debugLog(`[actionbook] L3 command requires confirmation: ${method} on ${domain || "unknown"}`);
+    debugLog(`[actionbook] L3 command requires confirmation: ${method} on ${domain || "unknown"} (tab ${tabId})`);
     const denial = await requestL3Confirmation(id, method, domain);
     if (denial) return denial;
   }
 
   try {
     const result = await chrome.debugger.sendCommand(
-      { tabId: attachedTabId },
+      { tabId },
       method,
       params
     );
@@ -783,14 +811,13 @@ async function handleCdpCommand(id, method, params) {
       errorMessage.includes("Cannot access") ||
       errorMessage.includes("Target closed")
     ) {
-      const previousTabId = attachedTabId;
-      attachedTabId = null;
+      attachedTabs.delete(tabId);
       broadcastState();
       return {
         id,
         error: {
           code: -32000,
-          message: `Debugger detached from tab ${previousTabId}: ${errorMessage}. Call Extension.attachTab to re-attach.`,
+          message: `Debugger detached from tab ${tabId}: ${errorMessage}. Call Extension.attachTab to re-attach.`,
         },
       };
     }
@@ -809,7 +836,7 @@ function broadcastState() {
     .sendMessage({
       type: "stateUpdate",
       connectionState,
-      attachedTabId,
+      attachedTabIds: Array.from(attachedTabs),
       retryCount,
       maxRetries: MAX_RETRIES,
     })
@@ -832,7 +859,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "getState") {
     sendResponse({
       connectionState,
-      attachedTabId,
+      attachedTabIds: Array.from(attachedTabs),
       retryCount,
       maxRetries: MAX_RETRIES,
     });
@@ -890,19 +917,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
-// Clean up debugger on tab close
+// Clean up debugger state when a tab is closed.
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (tabId === attachedTabId) {
-    attachedTabId = null;
+  if (attachedTabs.delete(tabId)) {
     broadcastState();
   }
 });
 
-// Handle debugger detach events
+// Handle debugger detach events (user cancelled the debug banner, tab crashed,
+// etc.). Remove only the affected tab from the attached set.
 chrome.debugger.onDetach.addListener((source, reason) => {
-  if (source.tabId === attachedTabId) {
-    debugLog(`[actionbook] Debugger detached from tab ${attachedTabId}: ${reason}`);
-    attachedTabId = null;
+  const tabId = source.tabId;
+  if (typeof tabId === "number" && attachedTabs.has(tabId)) {
+    debugLog(`[actionbook] Debugger detached from tab ${tabId}: ${reason}`);
+    attachedTabs.delete(tabId);
     broadcastState();
   }
 });

@@ -199,6 +199,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         profile: Some(profile),
         executable_path: None,
         open_url,
+        // Restart re-creates the session; if extension mode the original
+        // tab id is gone after debugger detach, so don't carry it through.
+        tab_id: None,
         cdp_endpoint: effective_cdp_endpoint,
         provider: effective_provider,
         header: effective_headers,
