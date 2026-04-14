@@ -49,6 +49,21 @@ const EXTENSION_IDS: &[&str] = &[EXTENSION_ID_CWS, EXTENSION_ID_DEV];
 
 // ─── Shared State ───────────────────────────────────────────────────────
 
+/// Observable state of the bridge TCP listener.
+///
+/// Exposed so callers (e.g. `browser start --mode extension`) can distinguish
+/// "still binding, keep waiting" from "bind failed, stop waiting" without
+/// having to watch a task JoinHandle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BridgeListenerStatus {
+    /// Bind attempt in progress (initial state; stays here during backoff retries).
+    Binding,
+    /// Listener is bound and accepting connections.
+    Listening,
+    /// Every retry failed; extension mode is permanently unavailable on this daemon.
+    Failed,
+}
+
 /// Bridge state shared across connections.
 pub struct BridgeState {
     /// Send commands TO the extension WebSocket.
@@ -59,6 +74,8 @@ pub struct BridgeState {
     connection_id: u64,
     /// Last activity timestamp.
     last_activity: Instant,
+    /// Listener bind state (updated by the background bind task).
+    listener_status: BridgeListenerStatus,
 }
 
 impl BridgeState {
@@ -68,6 +85,7 @@ impl BridgeState {
             cdp_tx: None,
             connection_id: 0,
             last_activity: Instant::now(),
+            listener_status: BridgeListenerStatus::Binding,
         }
     }
 
@@ -82,6 +100,15 @@ impl BridgeState {
             .map(|tx| !tx.is_closed())
             .unwrap_or(false)
     }
+
+    /// Current listener status.
+    pub fn listener_status(&self) -> BridgeListenerStatus {
+        self.listener_status
+    }
+
+    fn set_listener_status(&mut self, status: BridgeListenerStatus) {
+        self.listener_status = status;
+    }
 }
 
 pub type SharedBridgeState = Arc<Mutex<BridgeState>>;
@@ -95,32 +122,43 @@ pub fn new_bridge_state() -> SharedBridgeState {
 
 /// Spawn the bridge server as a background tokio task.
 ///
-/// Returns the bridge state handle on success. Returns `None` if every bind
-/// attempt fails (daemon still starts, only extension mode is unavailable).
-pub async fn spawn_bridge() -> Option<SharedBridgeState> {
-    let addr = format!("127.0.0.1:{BRIDGE_PORT}");
-    let listener = match bind_with_retry(&addr, BIND_RETRY_DELAYS_MS).await {
-        Ok(l) => {
-            info!("extension bridge listening on ws://{addr}");
-            l
-        }
-        Err(e) => {
-            warn!(
-                "extension bridge: failed to bind {addr} after {} attempts: {e} — extension mode unavailable",
-                BIND_RETRY_DELAYS_MS.len() + 1
-            );
-            return None;
-        }
-    };
-
+/// Returns the bridge state handle immediately; the TCP bind (with retry
+/// backoff) runs asynchronously in a background task so callers unrelated to
+/// extension mode — e.g. `browser start --mode local`, `browser screenshot` —
+/// do not pay the bind-retry window on daemon cold start. Consumers that
+/// need the bridge to be ready (extension mode) must poll
+/// [`BridgeState::listener_status`].
+pub fn spawn_bridge() -> SharedBridgeState {
     let state = new_bridge_state();
-    let state_clone = state.clone();
+    let state_for_task = state.clone();
 
     tokio::spawn(async move {
-        accept_loop(listener, state_clone).await;
+        let addr = format!("127.0.0.1:{BRIDGE_PORT}");
+        let listener = match bind_with_retry(&addr, BIND_RETRY_DELAYS_MS).await {
+            Ok(l) => {
+                info!("extension bridge listening on ws://{addr}");
+                state_for_task
+                    .lock()
+                    .await
+                    .set_listener_status(BridgeListenerStatus::Listening);
+                l
+            }
+            Err(e) => {
+                warn!(
+                    "extension bridge: failed to bind {addr} after {} attempts: {e} — extension mode unavailable",
+                    BIND_RETRY_DELAYS_MS.len() + 1
+                );
+                state_for_task
+                    .lock()
+                    .await
+                    .set_listener_status(BridgeListenerStatus::Failed);
+                return;
+            }
+        };
+        accept_loop(listener, state_for_task).await;
     });
 
-    Some(state)
+    state
 }
 
 /// Bind `addr` with bounded retry. First attempt is immediate; on failure,
@@ -512,6 +550,23 @@ mod tests {
     fn test_bridge_state_extension_not_connected_by_default() {
         let state = BridgeState::new();
         assert!(!state.is_extension_connected());
+    }
+
+    #[test]
+    fn test_bridge_state_listener_starts_in_binding() {
+        // start --mode extension must treat a fresh state as "keep waiting",
+        // not "fail fast" — the async bind task has not run yet.
+        let state = BridgeState::new();
+        assert_eq!(state.listener_status(), BridgeListenerStatus::Binding);
+    }
+
+    #[test]
+    fn test_bridge_state_listener_status_transitions() {
+        let mut state = BridgeState::new();
+        state.set_listener_status(BridgeListenerStatus::Listening);
+        assert_eq!(state.listener_status(), BridgeListenerStatus::Listening);
+        state.set_listener_status(BridgeListenerStatus::Failed);
+        assert_eq!(state.listener_status(), BridgeListenerStatus::Failed);
     }
 
     // ─── bind_with_retry ────────────────────────────────────────────────

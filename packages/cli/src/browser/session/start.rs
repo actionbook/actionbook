@@ -1321,12 +1321,17 @@ async fn execute_extension(
     profile_name: &str,
     headless: bool,
 ) -> ActionResult {
-    use crate::daemon::bridge::BRIDGE_PORT;
+    use crate::daemon::bridge::{BRIDGE_PORT, BridgeListenerStatus};
 
-    // Check bridge state from registry, then wait briefly for the extension
-    // to (re)connect. This covers the race where the daemon was auto-started
-    // by this very call and the extension has not finished its WS handshake
-    // yet (typical window: 100ms–2s after a daemon restart).
+    // Wait briefly for the bridge listener to finish binding AND for the
+    // Chrome extension to (re)connect. Two races overlap here:
+    //   1. `spawn_bridge()` now binds asynchronously so the daemon startup
+    //      does not block on port contention — when daemon + CLI are cold
+    //      started together the first request may arrive before the bind
+    //      even completes.
+    //   2. Even once the listener is up, the extension needs 100ms–2s to
+    //      complete its WS handshake (especially after a daemon restart
+    //      where the extension is in exponential-backoff reconnect).
     let bridge_ws_url = {
         let bridge_state = {
             let reg = registry.lock().await;
@@ -1344,8 +1349,21 @@ async fn execute_extension(
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
-            if bridge_state.lock().await.is_extension_connected() {
-                break;
+            {
+                let bs = bridge_state.lock().await;
+                match bs.listener_status() {
+                    BridgeListenerStatus::Failed => {
+                        return ActionResult::fatal_with_hint(
+                            "BRIDGE_BIND_FAILED",
+                            format!("extension bridge failed to bind port {BRIDGE_PORT}"),
+                            "another process is holding the port — stop it (e.g. a stale actionbook daemon) and retry",
+                        );
+                    }
+                    BridgeListenerStatus::Listening if bs.is_extension_connected() => {
+                        break;
+                    }
+                    _ => {}
+                }
             }
             if std::time::Instant::now() >= deadline {
                 return ActionResult::fatal_with_hint(
