@@ -205,6 +205,26 @@ fn versions_match(version_path: &std::path::Path) -> bool {
     !daemon_version.is_empty() && daemon_version == crate::BUILD_VERSION
 }
 
+/// Public wrapper for `actionbook daemon restart`. Stops the running daemon
+/// (SIGTERM on Unix, taskkill on Windows) and lets the next CLI call
+/// auto-respawn one. Idempotent: if no daemon is running, returns Ok.
+pub async fn restart_daemon_now() -> Result<(), CliError> {
+    #[cfg(unix)]
+    {
+        restart_daemon().await
+    }
+    #[cfg(windows)]
+    {
+        restart_daemon_windows().await
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        Err(CliError::Internal(
+            "daemon restart is not supported on this platform".to_string(),
+        ))
+    }
+}
+
 /// Stop the running daemon and start a fresh one with the current binary.
 #[cfg(unix)]
 async fn restart_daemon() -> Result<(), CliError> {

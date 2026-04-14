@@ -171,22 +171,126 @@ impl std::error::Error for BridgeError {}
 /// `bridge_init_lock`; subsequent callers observe `Listening` and return
 /// immediately. A previously `Failed` bridge is retried (allowing recovery
 /// after the holding process releases the port).
-///
-/// Stub: real implementation lands in Phase 3 (bridge lazy + recovery).
 pub async fn ensure_bridge(
-    _reg: &crate::daemon::registry::SharedRegistry,
+    reg: &crate::daemon::registry::SharedRegistry,
 ) -> Result<SharedBridgeState, BridgeError> {
-    unimplemented!("ensure_bridge: implemented in Phase 3")
+    // Fast path: bridge already Listening, skip locking.
+    if let Some(bs) = current_listening(reg).await {
+        return Ok(bs);
+    }
+
+    // Serialize first-start / recovery via the init lock so concurrent
+    // callers bind exactly once. Acquired without holding the registry lock
+    // so other commands stay responsive.
+    let init_lock = reg.lock().await.bridge_init_lock();
+    let _guard = init_lock.lock().await;
+
+    // Re-check under the init lock — another caller may have completed bind
+    // while we were waiting.
+    if let Some(bs) = current_listening(reg).await {
+        return Ok(bs);
+    }
+
+    let addr = format!("127.0.0.1:{BRIDGE_PORT}");
+    let listener = match bind_with_retry(&addr, BIND_RETRY_DELAYS_MS).await {
+        Ok(l) => l,
+        Err(e) => {
+            // Record Failed so the BRIDGE_BIND_FAILED hint path in start.rs
+            // can pick up the existing state via `bridge_state()`. Future
+            // `ensure_bridge` callers will re-enter this branch and retry
+            // (covering "holder eventually releases" recovery).
+            let failed = new_bridge_state();
+            failed
+                .lock()
+                .await
+                .set_listener_status(BridgeListenerStatus::Failed);
+            reg.lock().await.set_bridge_state(failed);
+            return Err(BridgeError::BindFailed {
+                port: BRIDGE_PORT,
+                holder: diagnose_port_holder(BRIDGE_PORT),
+                source: e,
+            });
+        }
+    };
+    info!("extension bridge listening on ws://{addr}");
+
+    let state = new_bridge_state();
+    state
+        .lock()
+        .await
+        .set_listener_status(BridgeListenerStatus::Listening);
+    let state_for_task = state.clone();
+    tokio::spawn(async move {
+        accept_loop(listener, state_for_task).await;
+    });
+
+    reg.lock().await.set_bridge_state(state.clone());
+    Ok(state)
+}
+
+/// Returns the bridge state if it's currently Listening, else None.
+async fn current_listening(
+    reg: &crate::daemon::registry::SharedRegistry,
+) -> Option<SharedBridgeState> {
+    let bs = {
+        let r = reg.lock().await;
+        r.bridge_state().cloned()
+    }?;
+    if bs.lock().await.listener_status() == BridgeListenerStatus::Listening {
+        Some(bs)
+    } else {
+        None
+    }
 }
 
 /// Identify the process listening on `port` (best effort).
 ///
 /// Returns `None` when the port is free, or when the lookup fails (e.g. the
 /// holder is owned by another user and the OS denies access).
-///
-/// Stub: real implementation lands in Phase 3 (netstat2-based diagnosis).
-pub fn diagnose_port_holder(_port: u16) -> Option<PortHolder> {
-    unimplemented!("diagnose_port_holder: implemented in Phase 3")
+pub fn diagnose_port_holder(port: u16) -> Option<PortHolder> {
+    use netstat2::{AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState};
+    let sockets = netstat2::get_sockets_info(AddressFamilyFlags::IPV4, ProtocolFlags::TCP).ok()?;
+    let hit = sockets
+        .into_iter()
+        .find(|s| match &s.protocol_socket_info {
+            ProtocolSocketInfo::Tcp(tcp) => tcp.local_port == port && tcp.state == TcpState::Listen,
+            _ => false,
+        })?;
+    let pid = *hit.associated_pids.first()?;
+    let command = read_process_name(pid).unwrap_or_else(|| "<unknown>".into());
+    Some(PortHolder { pid, command })
+}
+
+/// Look up the executable name for `pid` (best effort, cold-path).
+#[cfg(unix)]
+fn read_process_name(pid: u32) -> Option<String> {
+    let out = std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "comm="])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    // `comm` returns the full path on macOS, just the basename on Linux —
+    // normalize to basename so the hint stays compact.
+    let basename = std::path::Path::new(&name)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(&name)
+        .to_string();
+    if basename.is_empty() {
+        None
+    } else {
+        Some(basename)
+    }
+}
+
+#[cfg(windows)]
+fn read_process_name(_pid: u32) -> Option<String> {
+    // Windows process-name lookup needs Toolhelp32 / GetModuleBaseName.
+    // Out of scope for this PR; the hint will read "<unknown> pid N".
+    None
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────

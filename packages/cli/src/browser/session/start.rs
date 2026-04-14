@@ -1321,48 +1321,49 @@ async fn execute_extension(
     profile_name: &str,
     headless: bool,
 ) -> ActionResult {
-    use crate::daemon::bridge::{BRIDGE_PORT, BridgeListenerStatus};
+    use crate::daemon::bridge::{BRIDGE_PORT, BridgeError, ensure_bridge};
 
-    // Wait briefly for the bridge listener to finish binding AND for the
-    // Chrome extension to (re)connect. Two races overlap here:
-    //   1. `spawn_bridge()` now binds asynchronously so the daemon startup
-    //      does not block on port contention — when daemon + CLI are cold
-    //      started together the first request may arrive before the bind
-    //      even completes.
-    //   2. Even once the listener is up, the extension needs 100ms–2s to
-    //      complete its WS handshake (especially after a daemon restart
-    //      where the extension is in exponential-backoff reconnect).
+    // Lazy bridge: bind 19222 on the first --mode extension call.
+    // ensure_bridge is idempotent and recovers from a previous Failed state.
+    let bridge_state = match ensure_bridge(registry).await {
+        Ok(bs) => bs,
+        Err(BridgeError::BindFailed {
+            port,
+            source,
+            holder,
+        }) => {
+            let (message, hint) = match holder {
+                Some(h) => (
+                    format!(
+                        "extension bridge failed to bind port {port} (held by {} pid {}): {source}",
+                        h.command, h.pid
+                    ),
+                    format!(
+                        "stop {} (pid {}) — e.g. `kill {}` — then run `actionbook daemon restart`",
+                        h.command, h.pid, h.pid
+                    ),
+                ),
+                None => (
+                    format!("extension bridge failed to bind port {port}: {source}"),
+                    format!(
+                        "another process is holding port {port} — run `lsof -iTCP:{port} -sTCP:LISTEN` to find it, then `actionbook daemon restart`"
+                    ),
+                ),
+            };
+            return ActionResult::fatal_with_hint("BRIDGE_BIND_FAILED", message, hint);
+        }
+    };
+
+    // Bridge is bound; now wait for the Chrome extension's WS handshake to
+    // complete (the extension uses exponential-backoff reconnect after a
+    // daemon restart so it can take 100ms–2s).
     let bridge_ws_url = {
-        let bridge_state = {
-            let reg = registry.lock().await;
-            match reg.bridge_state() {
-                Some(bs) => bs.clone(),
-                None => {
-                    return ActionResult::fatal_with_hint(
-                        "BRIDGE_NOT_RUNNING",
-                        "extension bridge is not running",
-                        "the daemon failed to start the bridge — check if port 19222 is in use",
-                    );
-                }
-            }
-        };
-
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
             {
                 let bs = bridge_state.lock().await;
-                match bs.listener_status() {
-                    BridgeListenerStatus::Failed => {
-                        return ActionResult::fatal_with_hint(
-                            "BRIDGE_BIND_FAILED",
-                            format!("extension bridge failed to bind port {BRIDGE_PORT}"),
-                            "another process is holding the port — stop it (e.g. a stale actionbook daemon) and retry",
-                        );
-                    }
-                    BridgeListenerStatus::Listening if bs.is_extension_connected() => {
-                        break;
-                    }
-                    _ => {}
+                if bs.is_extension_connected() {
+                    break;
                 }
             }
             if std::time::Instant::now() >= deadline {

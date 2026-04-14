@@ -5,7 +5,7 @@ use clap::Parser;
 use serde_json::json;
 
 use actionbook_cli::action_result::ActionResult;
-use actionbook_cli::cli::{BrowserCommands, Cli, Commands};
+use actionbook_cli::cli::{BrowserCommands, Cli, Commands, DaemonCommands};
 use actionbook_cli::config;
 use actionbook_cli::output::{self, JsonEnvelope};
 use actionbook_cli::utils::client::DaemonClient;
@@ -166,6 +166,9 @@ async fn run(mut cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         Commands::Browser { command } => {
             handle_browser(command, json_mode, timeout_ms).await?;
         }
+        Commands::Daemon { command } => {
+            handle_daemon(command, json_mode).await?;
+        }
         Commands::Setup(cmd) => {
             actionbook_cli::setup::execute(&cmd, json_mode).await?;
         }
@@ -311,6 +314,46 @@ async fn handle_browser(
         flush_and_exit(1);
     }
 
+    Ok(())
+}
+
+async fn handle_daemon(
+    command: DaemonCommands,
+    json_mode: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let start = Instant::now();
+    match command {
+        DaemonCommands::Restart => {
+            let outcome = actionbook_cli::utils::client::restart_daemon_now().await;
+            let duration = start.elapsed();
+            match outcome {
+                Ok(()) => {
+                    if json_mode {
+                        let envelope = JsonEnvelope::success(
+                            "daemon restart",
+                            None,
+                            json!({ "status": "restarted" }),
+                            duration,
+                        );
+                        println!("{}", serde_json::to_string(&envelope)?);
+                    } else {
+                        println!("daemon restarted");
+                    }
+                }
+                Err(e) => {
+                    if json_mode {
+                        let result = ActionResult::fatal("DAEMON_RESTART_FAILED", e.to_string());
+                        let envelope =
+                            JsonEnvelope::from_result("daemon restart", None, &result, duration);
+                        println!("{}", serde_json::to_string(&envelope)?);
+                    } else {
+                        eprintln!("error DAEMON_RESTART_FAILED: {e}");
+                    }
+                    flush_and_exit(1);
+                }
+            }
+        }
+    }
     Ok(())
 }
 

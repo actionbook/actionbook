@@ -74,12 +74,30 @@ pub enum Commands {
         #[command(subcommand)]
         command: BrowserCommands,
     },
+    /// Daemon lifecycle management
+    Daemon {
+        #[command(subcommand)]
+        command: DaemonCommands,
+    },
     /// Interactive configuration wizard
     Setup(setup::Cmd),
     /// Show help
     Help,
     /// Print version
     Version,
+}
+
+/// Daemon-level subcommands. The daemon itself runs via the hidden `__daemon`
+/// flag — these commands are user-facing controls over its lifecycle.
+#[derive(Subcommand, Debug)]
+#[command(disable_help_subcommand = true)]
+pub enum DaemonCommands {
+    /// Stop the running daemon. The next CLI call will auto-spawn a fresh one.
+    ///
+    /// Use this to recover from a stuck bridge (e.g. `BRIDGE_BIND_FAILED`
+    /// after the holding process has been freed) without manually finding
+    /// the daemon pid.
+    Restart,
 }
 
 /// Unimplemented tab-level command args.

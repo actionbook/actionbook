@@ -307,11 +307,9 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
 
     let registry = new_shared_registry();
 
-    // Spawn extension bridge (non-fatal: daemon works without it).
-    // Returns immediately — the bind-with-retry happens on a background
-    // task so non-extension commands do not wait on bridge port contention.
-    let bridge_state = super::bridge::spawn_bridge();
-    registry.lock().await.set_bridge_state(bridge_state);
+    // Bridge is no longer spawned at daemon boot — it lazy-binds on the first
+    // `--mode extension` call via `bridge::ensure_bridge`. Non-extension users
+    // never touch port 19222, removing the most common source of bind contention.
 
     // Handle SIGINT, SIGTERM, and SIGHUP (terminal close).
     #[cfg(unix)]
@@ -497,8 +495,7 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
 
     let registry = new_shared_registry();
 
-    let bridge_state = super::bridge::spawn_bridge();
-    registry.lock().await.set_bridge_state(bridge_state);
+    // Bridge is lazy: see `bridge::ensure_bridge`. No bind at daemon boot.
 
     let mut last_activity = Instant::now();
     let idle_timeout_duration = idle_timeout();
