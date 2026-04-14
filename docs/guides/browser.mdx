@@ -29,16 +29,17 @@ Works out of the box with no setup. The CLI launches a temporary Chrome process 
 
 ```bash
 # If local is your default mode (or not configured)
-actionbook browser open "https://example.com"
-actionbook browser click "button[type='submit']"
-actionbook browser fill "#search" "actionbook"
-actionbook browser screenshot output.png
+actionbook browser start --set-session-id s1
+actionbook browser goto "https://example.com" --session s1 --tab t1
+actionbook browser click "button[type='submit']" --session s1 --tab t1
+actionbook browser fill "#search" "actionbook" --session s1 --tab t1
+actionbook browser screenshot output.png --session s1 --tab t1
 ```
 
 When done, close the browser:
 
 ```bash
-actionbook browser close
+actionbook browser close --session s1
 ```
 
 ## Cloud Providers
@@ -377,19 +378,20 @@ actionbook browser close --session research
 
 ## Recommended Workflow
 
-Combine action manuals with browser automation for the best results:
+Start a session, snapshot the page to get element refs, then automate using those refs:
 
 ```bash
-# 1. Find the action manual
-actionbook search "github search repos"
+# 1. Start a session and navigate
+actionbook browser start --set-session-id s1
+actionbook browser goto "https://github.com" --session s1 --tab t1
 
-# 2. Get verified selectors
-actionbook get "<area_id>"
+# 2. Snapshot to get element refs
+actionbook browser snapshot --session s1 --tab t1
 
-# 3. Execute (uses your configured mode)
-actionbook browser open "https://github.com"
-actionbook browser fill "#query-builder-test" "actionbook"
-actionbook browser click "button[type='submit']"
+# 3. Automate using refs from snapshot
+actionbook browser fill @e3 "actionbook" --session s1 --tab t1
+actionbook browser click @e7 --session s1 --tab t1
+actionbook browser wait navigation --session s1 --tab t1
 ```
 
 ## Shutdown

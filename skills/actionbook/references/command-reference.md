@@ -19,17 +19,22 @@ Selectors accept CSS, XPath, or snapshot refs (`@eN` from `snapshot` output).
 ```bash
 actionbook browser start                                   # Start a browser session
 actionbook browser start --set-session-id s1               # Start with a custom session ID
+actionbook browser start --session s1                      # Get-or-create: reuse if exists, create if not
 actionbook browser start --headless                        # Start headless
 actionbook browser start --mode cloud --cdp-endpoint <ws>  # Connect to cloud browser
+actionbook browser start -p hyperbrowser                   # Cloud provider (implies --mode cloud)
+actionbook browser start -p driver --header "X-Key:val"    # Provider with custom CDP headers
 actionbook browser start --open-url https://example.com    # Open URL on start
 actionbook browser start --profile myprofile               # Use named profile
-actionbook browser start --executable-path /path/to/chrome # Custom browser binary
+actionbook browser start --no-stealth                      # Disable anti-detection mode
 
 actionbook browser list-sessions                           # List all active sessions
 actionbook browser status --session s1                     # Show session status
 actionbook browser close --session s1                      # Close a session
 actionbook browser restart --session s1                    # Restart a session
 ```
+
+Supported cloud providers: `driver` (`DRIVER_API_KEY`), `hyperbrowser` (`HYPERBROWSER_API_KEY`), `browseruse` (`BROWSER_USE_API_KEY`). `-p` is mutually exclusive with `--cdp-endpoint` and `--mode local/extension`.
 
 ## Tab
 
@@ -46,10 +51,14 @@ actionbook browser close-tab --session s1 --tab t1         # Close a tab
 
 ```bash
 actionbook browser goto <url> --session s1 --tab t1        # Navigate to URL
+actionbook browser goto <url> --wait-until load --session s1 --tab t1   # Wait for full page load
+actionbook browser goto <url> --wait-until none --session s1 --tab t1   # Return immediately
 actionbook browser back --session s1 --tab t1              # Go back
 actionbook browser forward --session s1 --tab t1           # Go forward
 actionbook browser reload --session s1 --tab t1            # Reload page
 ```
+
+`--wait-until` controls when `goto` returns: `domcontentloaded` (default), `load` (all resources), or `none` (immediate). A scheme (`https://`) is added automatically if omitted.
 
 ## Interaction
 
@@ -77,6 +86,7 @@ actionbook browser press Shift+Tab --session s1 --tab t1
 # Selection
 actionbook browser select "<selector>" "value" --session s1 --tab t1
 actionbook browser select "<selector>" "Display Text" --by-text --session s1 --tab t1
+actionbook browser select "<selector>" @e12 --by-ref --session s1 --tab t1
 
 # Mouse
 actionbook browser hover "<selector>" --session s1 --tab t1
@@ -100,7 +110,12 @@ actionbook browser upload "<selector>" /path/to/file.pdf --session s1 --tab t1
 # JavaScript
 actionbook browser eval "document.title" --session s1 --tab t1
 actionbook browser eval "document.querySelectorAll('a').length" --session s1 --tab t1
+actionbook browser eval "await fetch('/api/data').then(r => r.json())" --no-isolate --session s1 --tab t1
 ```
+
+**eval scope isolation:** By default, `eval` wraps `let`/`const` declarations in an isolated scope so they don't leak across calls. Use `--no-isolate` to disable this — needed for multi-statement async expressions or when you want shared scope.
+
+**eval response fields:** Success includes `pre_url`, `pre_origin`, `pre_readyState` (page state before execution) and `post_url`, `post_title` (page state after). On failure, `details` contains `{stage, pre_url, pre_origin, pre_readyState, error_type}` for diagnostics.
 
 **fill vs type:** `fill` clears the field and sets the value directly (like pasting). `type` simulates individual keystrokes and appends to existing content.
 
@@ -173,6 +188,8 @@ actionbook browser screenshot output.png --session s1 --tab t1
 actionbook browser screenshot output.png --full --session s1 --tab t1          # Full page
 actionbook browser screenshot output.png --annotate --session s1 --tab t1      # Numbered labels
 actionbook browser screenshot output.jpg --screenshot-quality 80 --session s1 --tab t1
+actionbook browser screenshot output.jpg --screenshot-format jpeg --session s1 --tab t1
+actionbook browser screenshot output.png --selector "#main" --session s1 --tab t1  # Capture specific element
 actionbook browser pdf output.pdf --session s1 --tab t1
 ```
 
@@ -274,10 +291,11 @@ actionbook browser batch-click @e5 @e6 @e7 --session s1 --tab t1
 ```bash
 actionbook setup                                    # Interactive configuration wizard
 actionbook setup --non-interactive --api-key <KEY>  # Non-interactive setup
+actionbook setup --non-interactive --browser local   # Set browser mode non-interactively
 actionbook setup --reset                            # Reset configuration
 actionbook setup --target claude                    # Quick mode: install skills for an agent
 actionbook setup -t codex                           # Short flag
-# Targets: claude, codex, cursor, windsurf, antigravity, opencode, standalone, all
+# Targets: claude, codex, cursor, windsurf, antigravity, opencode, hermes, standalone, all
 ```
 
 ## Practical Examples

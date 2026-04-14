@@ -25,9 +25,10 @@ actionbook setup
 3. Run your first browser commands:
 
 ```bash
-actionbook browser open "https://example.com"
-actionbook browser snapshot
-actionbook browser close
+actionbook browser start --set-session-id s1
+actionbook browser goto "https://example.com" --session s1 --tab t1
+actionbook browser snapshot --session s1 --tab t1
+actionbook browser close --session s1
 ```
 
 If `snapshot` returns the page structure, your local setup is ready.

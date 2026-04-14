@@ -36,18 +36,17 @@ Actionbook places up-to-date action manuals with the relevant DOM selectors dire
 ## How It Works
 
 <Steps>
-  <Step title="Search for Actions" icon="magnifying-glass">
-    Find available actions for any website using the CLI (`actionbook search
-    "airbnb login"`).
+  <Step title="Start a Browser Session" icon="rocket">
+    Launch a browser session with a named ID (`actionbook browser start --set-session-id s1`).
   </Step>
-  <Step title="Get Action Details" icon="book">
-    Retrieve the full action manual with precise selectors and step-by-step
-    instructions (`actionbook get "google.com:/:default"`).
+  <Step title="Navigate & Snapshot" icon="magnifying-glass">
+    Go to any page and capture its structure with element refs
+    (`actionbook browser goto "https://airbnb.com" --session s1 --tab t1`,
+    then `actionbook browser snapshot --session s1 --tab t1`).
   </Step>
-  <Step title="Launch & Execute" icon="bullseye">
-    Open a browser session and let your agent execute actions with confidence —
-    no guessing, no hallucinations (`actionbook browser open
-    "https://www.google.com"`).
+  <Step title="Automate with Refs" icon="bullseye">
+    Use snapshot refs to interact with confidence — no guessing, no hallucinations
+    (`actionbook browser click @e7 --session s1 --tab t1`).
   </Step>
 </Steps>
 
