@@ -9,6 +9,7 @@ use crate::daemon::cdp::ensure_scheme_or_fatal;
 use crate::daemon::cdp_session::cdp_error_to_result;
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
+use crate::types::Mode;
 
 /// Open multiple tabs in one call (batch)
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
@@ -90,12 +91,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         }
     }
 
-    // Get CdpSession and stealth_ua from registry
-    let (cdp, stealth_ua) = {
+    // Get CdpSession, stealth_ua, and mode from registry
+    let (cdp, stealth_ua, mode) = {
         let reg = registry.lock().await;
         match reg.get(&cmd.session) {
             Some(e) => match e.cdp.clone() {
-                Some(c) => (c, e.stealth_ua.clone()),
+                Some(c) => (c, e.stealth_ua.clone(), e.mode),
                 None => {
                     return ActionResult::fatal_with_hint(
                         "INTERNAL_ERROR",
@@ -119,7 +120,97 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     for (i, final_url) in final_urls.iter().enumerate() {
         let custom_tab_id = cmd.tabs.get(i);
 
-        // Create tab via CDP
+        // Extension mode uses chrome.tabs.create (wrapped as Extension.createTab);
+        // bridge's CDP allowlist forbids raw Target.createTarget. Parallel to the
+        // branch in `tab/open.rs`.
+        if mode == Mode::Extension {
+            let resp = match cdp
+                .execute_browser("Extension.createTab", json!({ "url": final_url }))
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    return batch_error(
+                        i,
+                        final_url,
+                        cdp_error_to_result(e, "CDP_ERROR"),
+                        &results,
+                        cmd.urls.len(),
+                    );
+                }
+            };
+            let result = &resp["result"];
+            let native_id = match result["tabId"].as_i64() {
+                Some(n) => n.to_string(),
+                None => {
+                    return batch_error(
+                        i,
+                        final_url,
+                        ActionResult::fatal(
+                            "CDP_ERROR",
+                            format!("Extension.createTab did not return tabId: {}", resp),
+                        ),
+                        &results,
+                        cmd.urls.len(),
+                    );
+                }
+            };
+            let tab_url = result["url"].as_str().unwrap_or(final_url).to_string();
+            let title = result["title"].as_str().unwrap_or("").to_string();
+
+            let short_tab_id = {
+                let mut reg = registry.lock().await;
+                match reg.get_mut(&cmd.session) {
+                    Some(e) => {
+                        if let Some(custom_id) = custom_tab_id {
+                            match e.push_tab_with_id(
+                                custom_id.clone(),
+                                native_id.clone(),
+                                tab_url.clone(),
+                                title.clone(),
+                            ) {
+                                Ok(id) => id,
+                                Err(err_result) => {
+                                    return batch_error(
+                                        i,
+                                        final_url,
+                                        err_result,
+                                        &results,
+                                        cmd.urls.len(),
+                                    );
+                                }
+                            }
+                        } else {
+                            e.push_tab(native_id.clone(), tab_url.clone(), title.clone());
+                            e.tabs.last().map(|t| t.id.0.clone()).unwrap_or_default()
+                        }
+                    }
+                    None => {
+                        return ActionResult::fatal(
+                            "SESSION_NOT_FOUND",
+                            format!(
+                                "session '{}' was closed during batch tab creation",
+                                cmd.session
+                            ),
+                        );
+                    }
+                }
+            };
+
+            // Register in CdpSession so execute_on_tab finds this native_id.
+            // Same rationale as the single-tab path in tab/open.rs.
+            cdp.register_extension_tab(&native_id).await;
+
+            results.push(json!({
+                "tab_id": short_tab_id,
+                "native_tab_id": native_id,
+                "url": tab_url,
+                "title": title,
+            }));
+            continue;
+        }
+
+        // Local / cloud / CDP-direct: raw CDP Target.createTarget.
         let resp = match cdp
             .execute_browser("Target.createTarget", json!({ "url": final_url }))
             .await

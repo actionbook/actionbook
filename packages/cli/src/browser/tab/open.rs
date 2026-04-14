@@ -7,6 +7,7 @@ use crate::daemon::cdp::{ensure_scheme, ensure_scheme_or_fatal};
 use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result};
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
+use crate::types::Mode;
 
 /// Open a new tab
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
@@ -86,7 +87,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         );
     }
 
-    let (cdp, stealth_ua) = match session_cdp(&cmd.session, registry).await {
+    let (cdp, stealth_ua, mode) = match session_cdp(&cmd.session, registry).await {
         Ok(parts) => parts,
         Err(err) => return err,
     };
@@ -111,6 +112,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             &cmd.session,
             &cdp,
             stealth_ua.as_deref(),
+            mode,
             registry,
             &final_url,
             cmd.set_tab_id.get(index).map(String::as_str),
@@ -173,7 +175,7 @@ async fn execute_single(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         Err(e) => return e,
     };
 
-    let (cdp, stealth_ua) = match session_cdp(&cmd.session, registry).await {
+    let (cdp, stealth_ua, mode) = match session_cdp(&cmd.session, registry).await {
         Ok(parts) => parts,
         Err(err) => return err,
     };
@@ -182,6 +184,7 @@ async fn execute_single(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         &cmd.session,
         &cdp,
         stealth_ua.as_deref(),
+        mode,
         registry,
         &final_url,
         cmd.set_tab_id.first().map(String::as_str),
@@ -200,11 +203,11 @@ async fn execute_single(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 async fn session_cdp(
     session_id: &str,
     registry: &SharedRegistry,
-) -> Result<(CdpSession, Option<String>), ActionResult> {
+) -> Result<(CdpSession, Option<String>, Mode), ActionResult> {
     let reg = registry.lock().await;
     match reg.get(session_id) {
         Some(entry) => match entry.cdp.clone() {
-            Some(cdp) => Ok((cdp, entry.stealth_ua.clone())),
+            Some(cdp) => Ok((cdp, entry.stealth_ua.clone(), entry.mode)),
             None => Err(ActionResult::fatal_with_hint(
                 "INTERNAL_ERROR",
                 format!("no CDP connection for session '{session_id}'"),
@@ -223,10 +226,85 @@ async fn open_one_tab(
     session_id: &str,
     cdp: &CdpSession,
     stealth_ua: Option<&str>,
+    mode: Mode,
     registry: &SharedRegistry,
     final_url: &str,
     custom_tab_id: Option<&str>,
 ) -> Result<serde_json::Value, ActionResult> {
+    // Extension mode: the bridge's CDP allowlist forbids `Target.createTarget`
+    // (an extension must not spawn debugger-controlled targets behind the
+    // user's back). Use the extension's custom `Extension.createTab` method,
+    // which calls `chrome.tabs.create` under the hood and auto-attaches the
+    // debugger — symmetric with the `--open-url` path in `session::start`.
+    if mode == Mode::Extension {
+        let resp = match cdp
+            .execute_browser("Extension.createTab", json!({ "url": final_url }))
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => return Err(cdp_error_to_result(e, "CDP_ERROR")),
+        };
+        let result = &resp["result"];
+        let tab_id = match result["tabId"].as_i64() {
+            Some(n) => n.to_string(),
+            None => {
+                return Err(ActionResult::fatal(
+                    "CDP_ERROR",
+                    format!("Extension.createTab did not return tabId: {}", resp),
+                ));
+            }
+        };
+        let tab_url = result["url"].as_str().unwrap_or(final_url).to_string();
+        let title = result["title"].as_str().unwrap_or("").to_string();
+        let native_id = tab_id; // extension uses Chrome tab ID as native identifier
+
+        let short_tab_id = {
+            let mut reg = registry.lock().await;
+            match reg.get_mut(session_id) {
+                Some(entry) => {
+                    if let Some(custom_id) = custom_tab_id {
+                        match entry.push_tab_with_id(
+                            custom_id.to_string(),
+                            native_id.clone(),
+                            tab_url.clone(),
+                            title.clone(),
+                        ) {
+                            Ok(id) => id,
+                            Err(err_result) => return Err(err_result),
+                        }
+                    } else {
+                        entry.push_tab(native_id.clone(), tab_url.clone(), title.clone());
+                        entry
+                            .tabs
+                            .last()
+                            .map(|t| t.id.0.clone())
+                            .unwrap_or_default()
+                    }
+                }
+                None => {
+                    return Err(ActionResult::fatal(
+                        "SESSION_NOT_FOUND",
+                        format!("session '{session_id}' was closed during tab creation"),
+                    ));
+                }
+            }
+        };
+
+        // Register the new tab in CdpSession so subsequent execute_on_tab
+        // finds it. Mirrors what tab::list does when it discovers a new tab
+        // via Extension.listTabs — without this, `goto --tab <new>` fails
+        // with INTERNAL_ERROR "no CDP session for target '<native_id>'".
+        cdp.register_extension_tab(&native_id).await;
+
+        return Ok(json!({
+            "tab_id": short_tab_id,
+            "native_tab_id": native_id,
+            "url": tab_url,
+            "title": title,
+        }));
+    }
+
+    // Local / cloud / CDP-direct modes: use the standard CDP `Target.createTarget`.
     let resp = match cdp
         .execute_browser("Target.createTarget", json!({ "url": final_url }))
         .await
