@@ -103,6 +103,7 @@ Start or attach a browser session. Entry point for all modes including cloud pro
 | `--headless` | Run in headless mode |
 | `--profile <name>` | Profile name |
 | `--stealth` / `--no-stealth` | Anti-detection mode (default: enabled) |
+| `--max-tracked-requests <N>` | Network request buffer size per tab (default: 500, range: 1–100000) |
 
 **Examples:**
 
@@ -262,6 +263,7 @@ actionbook browser logs errors --session s1 --tab t1
 # Network
 actionbook browser network requests --session s1 --tab t1
 actionbook browser network requests --filter /api/ --method POST --session s1 --tab t1
+actionbook browser network requests --dump --out /tmp/dump --session s1 --tab t1  # Export to requests.json
 actionbook browser network request <id> --session s1 --tab t1         # Full detail + response body
 ```
 

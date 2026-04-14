@@ -27,8 +27,9 @@ actionbook browser start -p driver --header "X-Key:val"    # Provider with custo
 actionbook browser start --open-url https://example.com    # Open URL on start
 actionbook browser start --profile myprofile               # Use named profile
 actionbook browser start --no-stealth                      # Disable anti-detection mode
+actionbook browser start --max-tracked-requests 1000       # Custom network buffer size (default 500, range 1-100000)
 
-actionbook browser list-sessions                           # List all active sessions
+actionbook browser list-sessions                           # List all active sessions (includes max_tracked_requests)
 actionbook browser status --session s1                     # Show session status
 actionbook browser close --session s1                      # Close a session
 actionbook browser restart --session s1                    # Restart a session
@@ -220,11 +221,15 @@ actionbook browser network requests --type xhr,fetch --session s1 --tab t1      
 actionbook browser network requests --method POST --session s1 --tab t1            # Filter by HTTP method
 actionbook browser network requests --status 2xx --session s1 --tab t1             # Filter by status (200, 2xx, 400-499)
 actionbook browser network requests --clear --session s1 --tab t1                  # Clear request buffer
+actionbook browser network requests --dump --out /tmp/dump --session s1 --tab t1  # Export matching requests to /tmp/dump/requests.json
+actionbook browser network requests --dump --out /tmp/dump --filter /api/ --session s1 --tab t1  # Export filtered requests
 
 actionbook browser network request 1234.1 --session s1 --tab t1                   # Get full request detail + response body
 ```
 
-Requests are captured automatically per tab (500 cap ring buffer). Use `network requests` to list IDs, then `network request <id>` for detail including response body.
+Requests are captured automatically per tab (default 500, configurable via `browser start --max-tracked-requests N`). Use `network requests` to list IDs, then `network request <id>` for detail including response body.
+
+`--dump --out <dir>` exports all matching requests (after filters) as a single `<dir>/requests.json` file with best-effort response bodies. Returns `dump: { path, count }` on success.
 
 ## Wait
 

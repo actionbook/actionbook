@@ -184,9 +184,10 @@ Most commands work in all modes. All per-tab commands require `--session` and `-
 
 ```bash
 actionbook browser start --session s1 --open-url https://google.com
-actionbook browser list-sessions                     # list all active sessions
+actionbook browser start --session s1 --max-tracked-requests 1000   # custom network buffer size
+actionbook browser list-sessions                     # list all active sessions (includes max_tracked_requests)
 actionbook browser status --session s1               # show session info
-actionbook browser restart --session s1              # restart, preserving session_id
+actionbook browser restart --session s1              # restart, preserving session_id and max_tracked_requests
 actionbook browser close --session s1                # close a session
 ```
 
@@ -263,6 +264,7 @@ actionbook browser state "#submit" --session s1 --tab t1           # element sta
 actionbook browser logs console --session s1 --tab t1              # console logs
 actionbook browser logs errors --session s1 --tab t1               # error logs
 actionbook browser network requests --session s1 --tab t1          # tracked network requests
+actionbook browser network requests --dump --out /tmp/dump --session s1 --tab t1  # export to file
 ```
 
 ### Cookie & Storage Operations
