@@ -202,7 +202,12 @@ impl SessionRegistry {
     }
 
     /// Set the extension bridge state handle.
-    pub fn set_bridge_state(&mut self, state: SharedBridgeState) {
+    ///
+    /// **Internal-only**: must only be called from
+    /// `crate::daemon::bridge::ensure_bridge` while it holds
+    /// `bridge_init_lock`. Calling this from anywhere else will silently
+    /// orphan an in-flight accept loop and break the lazy-bridge invariant.
+    pub(crate) fn set_bridge_state(&mut self, state: SharedBridgeState) {
         self.bridge_state = Some(state);
     }
 
@@ -214,6 +219,11 @@ impl SessionRegistry {
     /// Clone the lock that serializes `ensure_bridge` first-callers / restart.
     /// Returning a clone (not `&Mutex`) lets callers acquire it without holding
     /// the surrounding registry lock.
+    ///
+    /// **Lock ordering invariant**: `bridge_init_lock > registry`. A caller
+    /// holding this lock may take `registry` next; the reverse is forbidden
+    /// (taking the registry lock and then trying to acquire `bridge_init_lock`
+    /// would deadlock against `ensure_bridge`).
     pub fn bridge_init_lock(&self) -> Arc<Mutex<()>> {
         Arc::clone(&self.bridge_init_lock)
     }

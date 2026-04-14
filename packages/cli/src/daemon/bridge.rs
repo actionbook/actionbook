@@ -165,14 +165,26 @@ impl std::fmt::Display for BridgeError {
 
 impl std::error::Error for BridgeError {}
 
-/// Lazily ensure the extension bridge is bound and listening.
+/// Lazily ensure the extension bridge is bound and listening on
+/// `BRIDGE_PORT`. Production entry point — see [`ensure_bridge_on_port`]
+/// for the underlying logic.
+pub async fn ensure_bridge(
+    reg: &crate::daemon::registry::SharedRegistry,
+) -> Result<SharedBridgeState, BridgeError> {
+    ensure_bridge_on_port(reg, BRIDGE_PORT).await
+}
+
+/// Same as [`ensure_bridge`] but binds an arbitrary port — exists so unit
+/// tests can exercise the idempotency / recovery contract without competing
+/// for the global 19222.
 ///
 /// Idempotent: concurrent first-callers are serialized through Registry's
 /// `bridge_init_lock`; subsequent callers observe `Listening` and return
 /// immediately. A previously `Failed` bridge is retried (allowing recovery
 /// after the holding process releases the port).
-pub async fn ensure_bridge(
+pub(crate) async fn ensure_bridge_on_port(
     reg: &crate::daemon::registry::SharedRegistry,
+    port: u16,
 ) -> Result<SharedBridgeState, BridgeError> {
     // Fast path: bridge already Listening, skip locking.
     if let Some(bs) = current_listening(reg).await {
@@ -191,7 +203,7 @@ pub async fn ensure_bridge(
         return Ok(bs);
     }
 
-    let addr = format!("127.0.0.1:{BRIDGE_PORT}");
+    let addr = format!("127.0.0.1:{port}");
     let listener = match bind_with_retry(&addr, BIND_RETRY_DELAYS_MS).await {
         Ok(l) => l,
         Err(e) => {
@@ -205,9 +217,16 @@ pub async fn ensure_bridge(
                 .await
                 .set_listener_status(BridgeListenerStatus::Failed);
             reg.lock().await.set_bridge_state(failed);
+            // netstat2 + ps are blocking syscalls; offload them so the
+            // tokio reactor stays responsive (CLAUDE.md: no blocking IO
+            // in async context). Cold path — only on retry exhaustion.
+            let holder = tokio::task::spawn_blocking(move || diagnose_port_holder(port))
+                .await
+                .ok()
+                .flatten();
             return Err(BridgeError::BindFailed {
-                port: BRIDGE_PORT,
-                holder: diagnose_port_holder(BRIDGE_PORT),
+                port,
+                holder,
                 source: e,
             });
         }
@@ -245,96 +264,66 @@ async fn current_listening(
 
 /// Identify the process listening on `port` (best effort).
 ///
-/// Returns `None` when the port is free, or when the lookup fails (e.g. the
-/// holder is owned by another user and the OS denies access).
+/// Returns `None` when the port is free, or when the lookup fails (no `lsof`
+/// available, holder owned by another user, etc).
+///
+/// Implemented via `lsof -F pc` on Unix (avoids pulling a bindgen-using
+/// crate just for an error-hint feature; `lsof` ships by default on macOS
+/// and most Linux distros). Windows returns `None` for now — the BRIDGE_BIND_FAILED
+/// hint there will fall back to "run lsof... or netstat".
 pub fn diagnose_port_holder(port: u16) -> Option<PortHolder> {
-    use netstat2::{AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState};
-    let sockets = netstat2::get_sockets_info(AddressFamilyFlags::IPV4, ProtocolFlags::TCP).ok()?;
-    let hit = sockets
-        .into_iter()
-        .find(|s| match &s.protocol_socket_info {
-            ProtocolSocketInfo::Tcp(tcp) => tcp.local_port == port && tcp.state == TcpState::Listen,
-            _ => false,
-        })?;
-    let pid = *hit.associated_pids.first()?;
-    let command = read_process_name(pid).unwrap_or_else(|| "<unknown>".into());
-    Some(PortHolder { pid, command })
+    diagnose_port_holder_impl(port)
 }
 
-/// Look up the executable name for `pid` (best effort, cold-path).
 #[cfg(unix)]
-fn read_process_name(pid: u32) -> Option<String> {
-    let out = std::process::Command::new("ps")
-        .args(["-p", &pid.to_string(), "-o", "comm="])
+fn diagnose_port_holder_impl(port: u16) -> Option<PortHolder> {
+    // -F pc → field-formatted output: "p<pid>\nc<command>" per file descriptor
+    // -P → numeric ports (skip /etc/services lookup)
+    // -n → numeric host (skip DNS)
+    let out = std::process::Command::new("lsof")
+        .args([
+            &format!("-iTCP:{port}"),
+            "-sTCP:LISTEN",
+            "-P",
+            "-n",
+            "-F",
+            "pc",
+        ])
         .output()
         .ok()?;
     if !out.status.success() {
         return None;
     }
-    let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    // `comm` returns the full path on macOS, just the basename on Linux —
-    // normalize to basename so the hint stays compact.
-    let basename = std::path::Path::new(&name)
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or(&name)
-        .to_string();
-    if basename.is_empty() {
-        None
-    } else {
-        Some(basename)
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let mut pid: Option<u32> = None;
+    let mut command: Option<String> = None;
+    // `lsof -F pc` groups records by process: the line starting with 'p' begins
+    // a new record, then 'c' carries the command name. Multiple FD records may
+    // follow; we only need the first matched (pid, command) pair.
+    for line in stdout.lines() {
+        if let Some(rest) = line.strip_prefix('p') {
+            pid = rest.trim().parse().ok();
+        } else if let Some(rest) = line.strip_prefix('c') {
+            command = Some(rest.trim().to_string());
+        }
+        if pid.is_some() && command.is_some() {
+            break;
+        }
     }
+    Some(PortHolder {
+        pid: pid?,
+        command: command.filter(|c| !c.is_empty())?,
+    })
 }
 
 #[cfg(windows)]
-fn read_process_name(_pid: u32) -> Option<String> {
-    // Windows process-name lookup needs Toolhelp32 / GetModuleBaseName.
-    // Out of scope for this PR; the hint will read "<unknown> pid N".
+fn diagnose_port_holder_impl(_port: u16) -> Option<PortHolder> {
+    // Windows port-holder lookup needs GetExtendedTcpTable + GetModuleBaseName.
+    // Out of scope for this PR; the hint falls back to "run netstat -ano".
     None
 }
 
-// ─── Public API ─────────────────────────────────────────────────────────
-
-/// Spawn the bridge server as a background tokio task.
-///
-/// Returns the bridge state handle immediately; the TCP bind (with retry
-/// backoff) runs asynchronously in a background task so callers unrelated to
-/// extension mode — e.g. `browser start --mode local`, `browser screenshot` —
-/// do not pay the bind-retry window on daemon cold start. Consumers that
-/// need the bridge to be ready (extension mode) must poll
-/// [`BridgeState::listener_status`].
-pub fn spawn_bridge() -> SharedBridgeState {
-    let state = new_bridge_state();
-    let state_for_task = state.clone();
-
-    tokio::spawn(async move {
-        let addr = format!("127.0.0.1:{BRIDGE_PORT}");
-        let listener = match bind_with_retry(&addr, BIND_RETRY_DELAYS_MS).await {
-            Ok(l) => {
-                info!("extension bridge listening on ws://{addr}");
-                state_for_task
-                    .lock()
-                    .await
-                    .set_listener_status(BridgeListenerStatus::Listening);
-                l
-            }
-            Err(e) => {
-                warn!(
-                    "extension bridge: failed to bind {addr} after {} attempts: {e} — extension mode unavailable",
-                    BIND_RETRY_DELAYS_MS.len() + 1
-                );
-                state_for_task
-                    .lock()
-                    .await
-                    .set_listener_status(BridgeListenerStatus::Failed);
-                return;
-            }
-        };
-        accept_loop(listener, state_for_task).await;
-    });
-
-    state
-}
+// ─── Internal binder ────────────────────────────────────────────────────
 
 /// Bind `addr` with bounded retry. First attempt is immediate; on failure,
 /// waits `delays_ms[i]` then retries, for a total of `delays_ms.len() + 1`
@@ -802,16 +791,29 @@ mod tests {
 
     use crate::daemon::registry::{SharedRegistry, new_shared_registry};
 
+    /// Pick a likely-free port (kernel-assigned, then released). Tests that
+    /// exercise `ensure_bridge_on_port` use this so they don't fight with the
+    /// real daemon on the global 19222.
+    async fn ephemeral_port() -> u16 {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        drop(l);
+        port
+    }
+
     /// Concurrent first-callers must observe the same `SharedBridgeState` —
     /// `ensure_bridge` binds at most once per daemon, no matter how many
     /// callers race in. The fix relies on `Registry::bridge_init_lock`.
     #[tokio::test]
     async fn ensure_idempotent_under_contention() {
         let reg: SharedRegistry = new_shared_registry();
+        let port = ephemeral_port().await;
         let mut handles = Vec::new();
         for _ in 0..10 {
             let r = reg.clone();
-            handles.push(tokio::spawn(async move { ensure_bridge(&r).await }));
+            handles.push(tokio::spawn(async move {
+                ensure_bridge_on_port(&r, port).await
+            }));
         }
         let mut firsts: Vec<*const Mutex<BridgeState>> = Vec::new();
         for h in handles {
@@ -832,12 +834,17 @@ mod tests {
     #[tokio::test]
     async fn ensure_skip_when_already_listening() {
         let reg: SharedRegistry = new_shared_registry();
+        let port = ephemeral_port().await;
         // First call: binds.
-        let first = ensure_bridge(&reg).await.expect("first bind ok");
+        let first = ensure_bridge_on_port(&reg, port)
+            .await
+            .expect("first bind ok");
         // Mutate state externally to prove the second call returns the same Arc
         // rather than creating a fresh one.
         first.lock().await.connection_id = 999;
-        let second = ensure_bridge(&reg).await.expect("second call ok");
+        let second = ensure_bridge_on_port(&reg, port)
+            .await
+            .expect("second call ok");
         assert!(
             Arc::ptr_eq(&first, &second),
             "second ensure must reuse listening bridge state"
@@ -855,6 +862,7 @@ mod tests {
     #[tokio::test]
     async fn ensure_recovers_from_failed() {
         let reg: SharedRegistry = new_shared_registry();
+        let port = ephemeral_port().await;
         // Seed Failed manually (the production path that produces it is the
         // bind-retry-exhausted branch; we shortcut for unit-test brevity).
         {
@@ -864,7 +872,9 @@ mod tests {
                 .set_listener_status(BridgeListenerStatus::Failed);
             reg.lock().await.set_bridge_state(stub);
         }
-        let recovered = ensure_bridge(&reg).await.expect("should recover");
+        let recovered = ensure_bridge_on_port(&reg, port)
+            .await
+            .expect("should recover");
         assert_eq!(
             recovered.lock().await.listener_status(),
             BridgeListenerStatus::Listening,

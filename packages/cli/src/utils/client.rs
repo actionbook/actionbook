@@ -206,16 +206,32 @@ fn versions_match(version_path: &std::path::Path) -> bool {
 }
 
 /// Public wrapper for `actionbook daemon restart`. Stops the running daemon
-/// (SIGTERM on Unix, taskkill on Windows) and lets the next CLI call
-/// auto-respawn one. Idempotent: if no daemon is running, returns Ok.
+/// (SIGTERM on Unix, taskkill on Windows), spawns a fresh one, and waits
+/// until it is ready to accept connections. The user-facing contract is
+/// "after this returns Ok, the next CLI call won't race against an unready
+/// daemon".
 pub async fn restart_daemon_now() -> Result<(), CliError> {
     #[cfg(unix)]
     {
-        restart_daemon().await
+        restart_daemon().await?;
+        // Block until the new daemon writes its ready/version files and the
+        // socket is connectable. Without this, the user sees "daemon
+        // restarted" but the very next call may race and hit DaemonNotRunning.
+        let path = server::socket_path();
+        let ready = path.with_extension("ready");
+        let version = path.with_extension("version");
+        let _client = wait_for_daemon(&path, &ready, &version).await?;
+        Ok(())
     }
     #[cfg(windows)]
     {
-        restart_daemon_windows().await
+        restart_daemon_windows().await?;
+        // Mirror the Unix readiness wait via the existing Windows path.
+        let port_path = server::socket_path().with_extension("port");
+        let ready = server::socket_path().with_extension("ready");
+        let version = server::socket_path().with_extension("version");
+        let _client = wait_for_daemon_windows(&port_path, &ready, &version).await?;
+        Ok(())
     }
     #[cfg(not(any(unix, windows)))]
     {
