@@ -3,9 +3,12 @@
 //! Covers the planned `browser network requests` and
 //! `browser network request <id>` commands for ACT-882.
 
+use std::fs;
+
 use crate::harness::{
-    SessionGuard, assert_meta, assert_success, headless_json, parse_json, skip, start_session,
-    url_network_load, url_network_xhr,
+    SessionGuard, assert_error_envelope, assert_failure, assert_meta, assert_success,
+    headless_json, parse_json, skip, start_session, unique_session, url_network_load,
+    url_network_xhr, wait_page_ready,
 };
 
 fn wait_requests_done(session_id: &str, tab_id: &str) {
@@ -27,11 +30,84 @@ fn wait_requests_done(session_id: &str, tab_id: &str) {
     assert_success(&out, "wait requests done");
 }
 
+fn clear_requests(session_id: &str, tab_id: &str) {
+    let out = headless_json(
+        &[
+            "browser",
+            "network",
+            "requests",
+            "--session",
+            session_id,
+            "--tab",
+            tab_id,
+            "--clear",
+        ],
+        15,
+    );
+    assert_success(&out, "clear network requests");
+}
+
 fn request_items(value: &serde_json::Value) -> &[serde_json::Value] {
     value["data"]["requests"]
         .as_array()
         .map(Vec::as_slice)
         .unwrap_or(&[])
+}
+
+fn start_session_with_max_tracked_requests(
+    url: &str,
+    max_tracked_requests: usize,
+) -> (String, String) {
+    let (sid, profile) = unique_session("net");
+    let max = max_tracked_requests.to_string();
+    let argv = vec![
+        "browser".to_string(),
+        "start".to_string(),
+        "--mode".to_string(),
+        "local".to_string(),
+        "--headless".to_string(),
+        "--set-session-id".to_string(),
+        sid.clone(),
+        "--profile".to_string(),
+        profile,
+        "--open-url".to_string(),
+        url.to_string(),
+        "--max-tracked-requests".to_string(),
+        max,
+    ];
+    let args: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let out = headless_json(&args, 30);
+    assert_success(
+        &out,
+        &format!("start session {sid} with custom max tracked requests"),
+    );
+    let v = parse_json(&out);
+    let actual_sid = v["data"]["session"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let tid = v["data"]["tab"]["tab_id"].as_str().unwrap().to_string();
+    wait_page_ready(&actual_sid, &tid);
+    (actual_sid, tid)
+}
+
+fn issue_bulk_requests(session_id: &str, tab_id: &str, count: usize, prefix: &str) {
+    let api_prefix = url_network_xhr().replace("/network-xhr", "/api/data?source=");
+    let expression = format!(
+        "await Promise.all(Array.from({{ length: {count} }}, (_, i) => fetch(`{api_prefix}{prefix}-${{i}}`).then(r => r.text())))"
+    );
+    let argv = vec![
+        "browser".to_string(),
+        "eval".to_string(),
+        expression,
+        "--session".to_string(),
+        session_id.to_string(),
+        "--tab".to_string(),
+        tab_id.to_string(),
+    ];
+    let args: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let out = headless_json(&args, 30);
+    assert_success(&out, "issue bulk requests");
 }
 
 #[test]
@@ -282,4 +358,262 @@ fn network_requests_empty_on_fresh_tab() {
     );
     assert!(v["data"]["total"].as_u64().unwrap_or(0) <= 1);
     assert_meta(&v);
+}
+
+#[test]
+fn start_with_custom_buffer_size() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session_with_max_tracked_requests(&url_network_xhr(), 10);
+    let _guard = SessionGuard::new(&sid);
+    wait_requests_done(&sid, &tid);
+    clear_requests(&sid, &tid);
+    issue_bulk_requests(&sid, &tid, 12, "buffer");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "network",
+            "requests",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        15,
+    );
+    assert_success(&out, "network requests custom buffer size");
+    let v = parse_json(&out);
+    let requests = request_items(&v);
+
+    assert_eq!(v["command"], "browser network requests");
+    assert!(
+        requests.len() <= 10,
+        "buffer should keep at most 10 newest requests"
+    );
+    let urls: Vec<&str> = requests
+        .iter()
+        .filter_map(|req| req["url"].as_str())
+        .collect();
+    assert!(
+        !urls.iter().any(|url| url.contains("buffer-0"))
+            && !urls.iter().any(|url| url.contains("buffer-1")),
+        "oldest requests should be evicted: {urls:?}"
+    );
+    assert!(
+        urls.iter().any(|url| url.contains("buffer-11")),
+        "newest request should be retained: {urls:?}"
+    );
+}
+
+#[test]
+fn start_default_buffer_size_shown() {
+    if skip() {
+        return;
+    }
+
+    let (sid, _tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(&["browser", "list-sessions"], 10);
+    assert_success(&out, "list-sessions with default buffer size");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser list-sessions");
+    let sessions = v["data"]["sessions"].as_array().expect("sessions array");
+    let session = sessions
+        .iter()
+        .find(|s| s["session_id"].as_str() == Some(sid.as_str()))
+        .expect("current session present in list-sessions");
+    assert_eq!(session["max_tracked_requests"], 500);
+}
+
+#[test]
+fn start_invalid_buffer_size_rejected() {
+    if skip() {
+        return;
+    }
+
+    let (sid, profile) = unique_session("net-invalid");
+    let out = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            &sid,
+            "--profile",
+            &profile,
+            "--open-url",
+            "about:blank",
+            "--max-tracked-requests",
+            "0",
+        ],
+        30,
+    );
+    assert_failure(&out, "start invalid max-tracked-requests");
+    let v = parse_json(&out);
+    assert_error_envelope(&v, "INVALID_ARGUMENT");
+}
+
+#[test]
+fn network_requests_dump_writes_file() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session(&url_network_xhr());
+    let _guard = SessionGuard::new(&sid);
+    wait_requests_done(&sid, &tid);
+    clear_requests(&sid, &tid);
+    issue_bulk_requests(&sid, &tid, 3, "dump");
+
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let dump_dir = temp.path().join("requests-dump");
+    let dump_dir_str = dump_dir.to_string_lossy().to_string();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "network",
+            "requests",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--dump",
+            "--out",
+            &dump_dir_str,
+        ],
+        30,
+    );
+    assert_success(&out, "network requests dump writes file");
+    let v = parse_json(&out);
+
+    let requests_path = dump_dir.join("requests.json");
+    assert!(requests_path.exists(), "requests.json should be created");
+    let dumped: serde_json::Value =
+        serde_json::from_slice(&fs::read(&requests_path).expect("read requests.json"))
+            .expect("requests.json must be valid JSON");
+
+    let requests = dumped["requests"].as_array().expect("requests array");
+    assert_eq!(requests.len(), 3);
+    assert!(
+        requests
+            .iter()
+            .all(|req| req["url"].is_string() && req["method"].is_string())
+    );
+    assert_eq!(
+        v["data"]["dump"]["path"],
+        requests_path.to_string_lossy().to_string()
+    );
+    assert_eq!(v["data"]["dump"]["count"], 3);
+}
+
+#[test]
+fn network_requests_dump_includes_body() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session(&url_network_xhr());
+    let _guard = SessionGuard::new(&sid);
+    wait_requests_done(&sid, &tid);
+    clear_requests(&sid, &tid);
+    issue_bulk_requests(&sid, &tid, 1, "dump-body");
+
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let dump_dir = temp.path().join("requests-dump-body");
+    let dump_dir_str = dump_dir.to_string_lossy().to_string();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "network",
+            "requests",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--dump",
+            "--out",
+            &dump_dir_str,
+        ],
+        30,
+    );
+    assert_success(&out, "network requests dump includes body");
+
+    let requests_path = dump_dir.join("requests.json");
+    let dumped: serde_json::Value =
+        serde_json::from_slice(&fs::read(&requests_path).expect("read requests.json"))
+            .expect("requests.json must be valid JSON");
+
+    let request = dumped["requests"]
+        .as_array()
+        .and_then(|requests| {
+            requests.iter().find(|req| {
+                req["url"]
+                    .as_str()
+                    .is_some_and(|url| url.contains("dump-body-0"))
+            })
+        })
+        .expect("matching dumped request");
+    assert!(
+        !request["response_body"].is_null() || !request["body_error"].is_null(),
+        "dumped request should include response_body or body_error"
+    );
+}
+
+#[test]
+fn network_requests_dump_with_filter() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session(&url_network_xhr());
+    let _guard = SessionGuard::new(&sid);
+    wait_requests_done(&sid, &tid);
+    clear_requests(&sid, &tid);
+    issue_bulk_requests(&sid, &tid, 2, "match");
+    issue_bulk_requests(&sid, &tid, 1, "skip");
+
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let dump_dir = temp.path().join("requests-dump-filter");
+    let dump_dir_str = dump_dir.to_string_lossy().to_string();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "network",
+            "requests",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--filter",
+            "match",
+            "--dump",
+            "--out",
+            &dump_dir_str,
+        ],
+        30,
+    );
+    assert_success(&out, "network requests dump with filter");
+
+    let requests_path = dump_dir.join("requests.json");
+    let dumped: serde_json::Value =
+        serde_json::from_slice(&fs::read(&requests_path).expect("read requests.json"))
+            .expect("requests.json must be valid JSON");
+
+    let requests = dumped["requests"].as_array().expect("requests array");
+    assert_eq!(requests.len(), 2);
+    assert!(
+        requests
+            .iter()
+            .all(|req| req["url"].as_str().is_some_and(|url| url.contains("match")))
+    );
 }
