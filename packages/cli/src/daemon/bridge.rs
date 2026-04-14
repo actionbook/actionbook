@@ -882,6 +882,10 @@ mod tests {
         );
     }
 
+    /// Unix-only: the Windows implementation of `diagnose_port_holder` is
+    /// currently a `None` stub (tracked as a follow-up), so this test only
+    /// runs on Unix where `lsof -F pc` provides real pid + command data.
+    #[cfg(unix)]
     #[tokio::test]
     async fn diagnose_port_holder_returns_pid_for_occupied() {
         // Bind a real listener so the port has a known holder = this process.
