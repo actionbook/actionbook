@@ -88,6 +88,8 @@ actionbook browser select "<selector>" "value" --session s1 --tab t1
 actionbook browser select "<selector>" "Display Text" --by-text --session s1 --tab t1
 actionbook browser select "<selector>" @e12 --by-ref --session s1 --tab t1
 
+When an option is not found, `select` returns structured diagnostics in the `details` field: available values, visible texts, current match mode (`by-value`/`by-text`), and total option count.
+
 # Mouse
 actionbook browser hover "<selector>" --session s1 --tab t1
 actionbook browser focus "<selector>" --session s1 --tab t1
