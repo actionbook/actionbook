@@ -100,10 +100,10 @@ Actionbook ships with Agent Skills that teach your AI agent how to use the CLI.
 npx skills add actionbook/actionbook
 ```
 
-**Hermes** — one command (installs the CLI and registers the skill in `~/.hermes/skills/`):
+**Hermes** — one command (registers the skill in `~/.hermes/skills/`):
 
 ```bash
-npm install -g @actionbookdev/cli && hermes skills install actionbook -y
+hermes skills install actionbook -y
 ```
 
 Then start a chat and say things like *"use actionbook to open google.com and search for anthropic"*. Hermes auto-activates the skill and drives the CLI for you.
