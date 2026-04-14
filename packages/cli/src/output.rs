@@ -241,7 +241,12 @@ pub fn format_text(
             // Emit key-value fields from data
             format_data_fields(command, data, &mut lines);
         }
-        ActionResult::Fatal { code, message, .. } => {
+        ActionResult::Fatal {
+            code,
+            message,
+            hint,
+            ..
+        } => {
             if (command == "browser new-tab" || command == "browser batch-new-tab")
                 && code == "PARTIAL_FAILURE"
             {
@@ -253,12 +258,21 @@ pub fn format_text(
             } else {
                 lines.push(format!("error {code}: {message}"));
             }
+            if !hint.is_empty() {
+                lines.push(format!("hint: {hint}"));
+            }
         }
-        ActionResult::Retryable { reason, .. } => {
+        ActionResult::Retryable { reason, hint } => {
             lines.push(format!("error RETRYABLE: {reason}"));
+            if !hint.is_empty() {
+                lines.push(format!("hint: {hint}"));
+            }
         }
-        ActionResult::UserAction { action, .. } => {
+        ActionResult::UserAction { action, hint } => {
             lines.push(format!("error USER_ACTION: {action}"));
+            if !hint.is_empty() {
+                lines.push(format!("hint: {hint}"));
+            }
         }
     }
 
