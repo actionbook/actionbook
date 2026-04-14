@@ -272,6 +272,7 @@ fn assert_select_success_full(
     assert_meta(v);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn assert_select_not_found_diagnostics(
     v: &serde_json::Value,
     session_id: &str,
