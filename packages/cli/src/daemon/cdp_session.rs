@@ -293,6 +293,12 @@ pub struct CdpSession {
     /// Per-tab ring buffer of tracked network requests, keyed by CDP session ID.
     /// Populated by reader_loop from Network events; capacity capped at MAX_TRACKED_REQUESTS.
     tab_net_requests: TabNetRequests,
+    /// `true` when this session speaks the extension-bridge protocol (0.3.0+).
+    /// Flipped by `register_extension_tab`. In extension mode every per-tab
+    /// command injects a root-level `tabId` instead of a CDP `sessionId`, and
+    /// the bridge/extension routes by that. Local/cloud sessions keep the
+    /// normal CDP flat-session protocol.
+    is_extension_bridge: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl CdpSession {
@@ -344,6 +350,7 @@ impl CdpSession {
         let tab_sessions: Arc<Mutex<HashMap<String, String>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let tab_net_requests: TabNetRequests = Arc::new(Mutex::new(HashMap::new()));
+        let is_extension_bridge = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         let writer_handle = tokio::spawn(Self::writer_loop(ws_writer, writer_rx));
         tokio::spawn(Self::reader_loop(
@@ -356,6 +363,7 @@ impl CdpSession {
             tab_sessions.clone(),
             tab_net_requests.clone(),
             max_tracked_requests,
+            is_extension_bridge.clone(),
         ));
 
         Ok(CdpSession {
@@ -369,6 +377,7 @@ impl CdpSession {
             iframe_sessions,
             pending_iframe_enables,
             tab_net_requests,
+            is_extension_bridge,
         })
     }
 
@@ -505,19 +514,26 @@ impl CdpSession {
         // (real users have 1366x768, 2560x1440, 3440x1440, etc.).
     }
 
-    /// Register a tab for extension mode (no CDP flat-session handshake needed).
+    /// Register a tab for extension mode (protocol 0.3.0+).
     ///
-    /// The extension bridge relays CDP commands to a single attached tab and
-    /// ignores the `sessionId` field entirely.  We insert an empty-string
-    /// session ID so that `execute_on_tab` can look it up and the resulting
-    /// WS message simply omits `sessionId` (because `execute()` only adds it
-    /// when `Some`).  Actually we store `""` but `execute_on_tab` passes
-    /// `Some("")` which adds `"sessionId":""` — the bridge ignores it.
+    /// Flips this session into "extension bridge" mode (one-way; local/cloud
+    /// sessions never call this), and derives a per-tab routing key
+    /// `tab:{native_id}` that is used uniformly by:
+    ///   - `execute_on_tab` to look up the tab (miss → `INTERNAL_ERROR`)
+    ///   - `get_cdp_session_id` to return a stable per-tab key for
+    ///     `subscribe_events`, `network_pending`, `network_requests`
+    ///   - `reader_loop` to bucket incoming events carrying the bridge's
+    ///     root-level `tabId` field
+    ///
+    /// Idempotent: calling again for the same `native_id` is a no-op.
     pub async fn register_extension_tab(&self, native_id: &str) {
+        self.is_extension_bridge
+            .store(true, std::sync::atomic::Ordering::Release);
+        let key = format!("tab:{native_id}");
         self.tab_sessions
             .lock()
             .await
-            .insert(native_id.to_string(), String::new());
+            .insert(native_id.to_string(), key);
     }
 
     /// Detach from a CDP target (tab).
@@ -559,24 +575,113 @@ impl CdpSession {
 
     /// Execute a CDP command on a specific tab (by target_id).
     ///
-    /// Looks up the CDP sessionId for the target and includes it in the message.
+    /// * **Local / cloud (CDP flat sessions)**: looks up the CDP `sessionId`
+    ///   for the target and includes it in the message.
+    /// * **Extension bridge (protocol 0.3.0+)**: parses `target_id` as the
+    ///   Chrome numeric tab id and injects a root-level `tabId`. The
+    ///   extension routes to `chrome.debugger.sendCommand({tabId}, …)`.
+    ///   On the extension's "Tab N not attached" error (can happen after
+    ///   extension reload or when the user cancels the debug banner),
+    ///   attempts exactly one lazy `Extension.attachTab` + retry.
     pub async fn execute_on_tab(
         &self,
         target_id: &str,
         method: &str,
         params: Value,
     ) -> Result<Value, CliError> {
-        let session_id = self
-            .tab_sessions
-            .lock()
-            .await
-            .get(target_id)
-            .cloned()
-            .ok_or_else(|| {
-                CliError::CdpError(format!("no CDP session for target '{target_id}'"))
+        if self
+            .is_extension_bridge
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            let tab_id: u64 = target_id.parse().map_err(|e| {
+                CliError::CdpError(format!("non-numeric extension tab id '{target_id}': {e}"))
             })?;
 
-        self.execute(method, params, Some(&session_id)).await
+            match self
+                .execute_extension_tab(tab_id, method, params.clone())
+                .await
+            {
+                Ok(v) => Ok(v),
+                Err(CliError::CdpError(ref msg))
+                    // keep in sync with error messages in background.js
+                    // handleCdpCommand ("Tab N not attached") and the
+                    // chrome.debugger catch block ("Debugger detached from tab")
+                    if msg.contains(&format!("Tab {tab_id} not attached"))
+                        || msg.contains("Debugger detached from tab") =>
+                {
+                    // Self-heal: extension reload / user-dismissed banner.
+                    // Re-attach, retry once. If that fails too, bubble up.
+                    self.execute("Extension.attachTab", json!({ "tabId": tab_id }), None)
+                        .await?;
+                    self.execute_extension_tab(tab_id, method, params).await
+                }
+                Err(e) => Err(e),
+            }
+        } else {
+            let session_id = self
+                .tab_sessions
+                .lock()
+                .await
+                .get(target_id)
+                .cloned()
+                .ok_or_else(|| {
+                    CliError::CdpError(format!("no CDP session for target '{target_id}'"))
+                })?;
+            self.execute(method, params, Some(&session_id)).await
+        }
+    }
+
+    /// Send a CDP command with a root-level `tabId` (extension bridge path).
+    async fn execute_extension_tab(
+        &self,
+        tab_id: u64,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, CliError> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let msg = json!({
+            "id": id,
+            "method": method,
+            "params": params,
+            "tabId": tab_id,
+        });
+
+        let (tx, rx) = oneshot::channel();
+        self.pending.lock().await.insert(id, tx);
+
+        let writer = self.writer_tx.lock().await.clone();
+        let send_result = match writer {
+            Some(tx) => tx.send(msg.to_string()).await,
+            None => Err(mpsc::error::SendError(msg.to_string())),
+        };
+        if send_result.is_err() {
+            self.pending.lock().await.remove(&id);
+            return Err(CliError::SessionClosed(
+                "session was closed while command was pending".to_string(),
+            ));
+        }
+
+        let resp = tokio::time::timeout(std::time::Duration::from_secs(60), rx)
+            .await
+            .map_err(|_| {
+                let pending = self.pending.clone();
+                tokio::spawn(async move {
+                    pending.lock().await.remove(&id);
+                });
+                CliError::Timeout
+            })?
+            .map_err(|_| CliError::CdpError("response channel dropped".to_string()))??;
+
+        if let Some(err) = resp.get("error") {
+            let code = err.get("code").and_then(|v| v.as_i64()).unwrap_or(0);
+            let message = err
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown CDP error");
+            return Err(CliError::CdpError(format!("CDP error {code}: {message}")));
+        }
+
+        Ok(resp)
     }
 
     /// Execute a browser-level CDP command (no sessionId).
@@ -811,6 +916,7 @@ impl CdpSession {
         _tab_sessions: Arc<Mutex<HashMap<String, String>>>,
         tab_net_requests: TabNetRequests,
         max_tracked_requests: usize,
+        is_extension_bridge: Arc<std::sync::atomic::AtomicBool>,
     ) where
         S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
     {
@@ -833,8 +939,25 @@ impl CdpSession {
                     let _ = tx.send(Ok(resp));
                 }
             } else if let Some(method) = resp.get("method").and_then(|v| v.as_str()) {
-                // Event: extract sessionId (empty string for browser-level events).
-                let session_id = resp.get("sessionId").and_then(|v| v.as_str()).unwrap_or("");
+                // Event routing key:
+                // - extension bridge (protocol 0.3.0): event frame carries a
+                //   root-level `tabId` that identifies the source tab; derive
+                //   `tab:{tabId}` so per-tab subscribers stay separated.
+                // - local/cloud: CDP flat session — key by `sessionId`
+                //   (empty string for browser-level events).
+                // Guard on is_extension_bridge so local/cloud events that happen
+                // to carry a numeric `tabId` field (e.g. Target.* params) are
+                // never mis-routed by the extension key path.
+                let session_id_str = resp.get("sessionId").and_then(|v| v.as_str()).unwrap_or("");
+                let ext_tab_key: Option<String> =
+                    if is_extension_bridge.load(std::sync::atomic::Ordering::Acquire) {
+                        resp.get("tabId")
+                            .and_then(|v| v.as_u64())
+                            .map(|n| format!("tab:{n}"))
+                    } else {
+                        None
+                    };
+                let session_id = ext_tab_key.as_deref().unwrap_or(session_id_str);
 
                 // Track cross-origin iframe sessions from Target.setAutoAttach.
                 match method {

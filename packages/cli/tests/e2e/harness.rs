@@ -13,6 +13,85 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
+/// If `ACTIONBOOK_E2E_MODE` is set, rewrite every `browser start` in `args`
+/// to target that mode instead of whatever the test hardcoded.
+///
+/// For `extension` target also:
+///   - strip `--headless` / `--executable-path` / `--cdp-endpoint` (local-only
+///     flags clap would reject on extension or that have no meaning)
+///   - if neither `--open-url` nor `--tab-id` is present, inject
+///     `--open-url http://127.0.0.1:<local_server_port>/` so the tests can
+///     actually land on a page (protocol 0.3.0 requires one or the other)
+///
+/// Everything else (non-`browser start` commands, arg order, etc.) is left
+/// untouched so tests see identical context before and after start.
+fn effective_override_mode() -> Option<String> {
+    env::var("ACTIONBOOK_E2E_MODE")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+fn remove_flag_with_value(v: &mut Vec<String>, flag: &str) {
+    let mut i = 0;
+    while i < v.len() {
+        if v[i] == flag {
+            v.remove(i);
+            if i < v.len() {
+                v.remove(i);
+            }
+        } else {
+            i += 1;
+        }
+    }
+}
+
+fn rewrite_args_for_mode(args: &[&str]) -> Vec<String> {
+    let Some(target_mode) = effective_override_mode() else {
+        return args.iter().map(|s| s.to_string()).collect();
+    };
+
+    let Some(start_idx) = args
+        .windows(2)
+        .position(|w| w[0] == "browser" && w[1] == "start")
+    else {
+        return args.iter().map(|s| s.to_string()).collect();
+    };
+
+    let mut out: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+
+    let mut replaced = false;
+    let mut i = start_idx + 2;
+    while i + 1 < out.len() {
+        if out[i] == "--mode" {
+            out[i + 1] = target_mode.clone();
+            replaced = true;
+            break;
+        }
+        i += 1;
+    }
+    if !replaced {
+        out.insert(start_idx + 2, "--mode".to_string());
+        out.insert(start_idx + 3, target_mode.clone());
+    }
+
+    if target_mode == "extension" {
+        out.retain(|s| s != "--headless");
+        remove_flag_with_value(&mut out, "--executable-path");
+        remove_flag_with_value(&mut out, "--cdp-endpoint");
+
+        let has_open_url = out.iter().any(|s| s == "--open-url");
+        let has_tab_id = out.iter().any(|s| s == "--tab-id");
+        if !has_open_url && !has_tab_id {
+            let default_url = format!("http://127.0.0.1:{}/", local_server().port);
+            out.insert(start_idx + 2, "--open-url".to_string());
+            out.insert(start_idx + 3, default_url);
+        }
+    }
+
+    out
+}
+
 /// Run a CLI command with a real timeout, avoiding pipe-inheritance hangs on Windows.
 ///
 /// On Windows, `assert_cmd::Command::output()` pipes stdout/stderr. When the CLI
@@ -26,6 +105,9 @@ fn run_cli_with_timeout(
     extra_env: &[(&str, &str)],
     timeout_secs: u64,
 ) -> Output {
+    let rewritten = rewrite_args_for_mode(args);
+    let args: Vec<&str> = rewritten.iter().map(String::as_str).collect();
+    let args = args.as_slice();
     #[cfg(windows)]
     {
         let stdout_file = tempfile::NamedTempFile::new().expect("create stdout temp file");
@@ -233,11 +315,61 @@ impl Drop for SoloEnv {
 
 // ── Gate ────────────────────────────────────────────────────────────
 
+/// Test-name substrings that are inherently incompatible with extension-mode
+/// rewrite (`ACTIONBOOK_E2E_MODE=extension`):
+///   - `cloud_mode::*` — talks to a mock cloud CDP endpoint, not the bridge
+///   - `concurrent_two_sessions` / `cross_session` — extension bridge is
+///     1 CDP client per daemon, multi-session in one daemon cannot race
+///   - `headless` tests — extension uses the host Chrome window, not headless
+///   - `windows_daemon::*` — Windows-specific daemon path, unrelated to
+///     extension
+const EXTENSION_INCOMPATIBLE_SUBSTRINGS: &[&str] = &[
+    "cloud_mode::",
+    "concurrent_two_sessions",
+    "cross_session",
+    "windows_daemon::",
+    "_headless",
+    "lifecycle_open_headless",
+];
+
 /// Returns `true` when E2E tests should be skipped.
+///
+/// Skip conditions:
+///   1. `RUN_E2E_TESTS != "true"` — e2e suite gate
+///   2. `ACTIONBOOK_E2E_MODE=extension` AND the current test's name matches
+///      any substring in `EXTENSION_INCOMPATIBLE_SUBSTRINGS` — these tests
+///      cannot pass under extension-bridge semantics and are skipped by
+///      design when running the extension-mode regression pass
 pub fn skip() -> bool {
-    env::var("RUN_E2E_TESTS")
+    if env::var("RUN_E2E_TESTS")
         .map(|v| v != "true")
         .unwrap_or(true)
+    {
+        return true;
+    }
+
+    if let Ok(m) = env::var("ACTIONBOOK_E2E_MODE")
+        && m == "extension"
+    {
+        let thread = std::thread::current();
+        let name = thread.name().unwrap_or("");
+        if EXTENSION_INCOMPATIBLE_SUBSTRINGS
+            .iter()
+            .any(|pat| name.contains(pat))
+        {
+            eprintln!(
+                "(skipping {name}: incompatible with extension mode — matches '{}')",
+                EXTENSION_INCOMPATIBLE_SUBSTRINGS
+                    .iter()
+                    .find(|p| name.contains(*p))
+                    .copied()
+                    .unwrap_or("?")
+            );
+            return true;
+        }
+    }
+
+    false
 }
 
 // ── Local HTTP server ──────────────────────────────────────────────

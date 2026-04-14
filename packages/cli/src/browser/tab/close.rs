@@ -96,11 +96,15 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
 
     if mode == Mode::Extension {
-        // Extension mode: detach debugger. The extension doesn't own the
-        // browser so we can't force-close user tabs — only release the
-        // debugger attachment.
-        if let Err(e) = cdp.execute_browser("Extension.detachTab", json!({})).await {
-            tracing::warn!("extension: failed to detach tab: {e}");
+        // Extension mode: detach debugger from this specific tab only.
+        // Protocol 0.3.0: Extension.detachTab without tabId detaches ALL tabs;
+        // pass the native id so only this tab is released.
+        let native_tab_id: u64 = native_id.parse().unwrap_or(0);
+        if let Err(e) = cdp
+            .execute_browser("Extension.detachTab", json!({ "tabId": native_tab_id }))
+            .await
+        {
+            tracing::warn!("extension: failed to detach tab {native_tab_id}: {e}");
         }
     } else {
         // Local/Cloud mode: detach then close via CDP Target.closeTarget.

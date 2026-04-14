@@ -40,7 +40,13 @@ pub const BRIDGE_PORT: u16 = 19222;
 const BIND_RETRY_DELAYS_MS: &[u64] = &[100, 500, 1_000, 2_000, 5_000];
 
 /// Protocol version for the hello handshake.
-const PROTOCOL_VERSION: &str = "0.2.0";
+///
+/// Bumped to `0.3.0` when multi-tab concurrent debug landed:
+/// - every CDP request now carries a root-level `tabId`
+/// - extension uses `attachedTabs: Set<number>` instead of a single attach
+/// - older extensions (0.2.x) are rejected and asked to reload — the
+///   single-attach protocol cannot be mixed with the multi-attach client.
+const PROTOCOL_VERSION: &str = "0.3.0";
 
 /// Known Actionbook Chrome extension IDs.
 const EXTENSION_ID_CWS: &str = "bebchpafpemheedhcdabookaifcijmfo";
@@ -671,14 +677,14 @@ fn is_origin_allowed(origin: Option<&str>) -> bool {
     false
 }
 
-/// Check protocol version >= 0.2.0 (simple major.minor comparison).
+/// Check protocol version >= 0.3.0 (simple major.minor comparison).
 fn is_version_ok(version: &str) -> bool {
     let parts: Vec<u32> = version.split('.').filter_map(|p| p.parse().ok()).collect();
     if parts.len() < 2 {
         return false;
     }
-    // 0.2.0 minimum: major > 0, or major == 0 && minor >= 2
-    parts[0] > 0 || (parts[0] == 0 && parts[1] >= 2)
+    // 0.3.0 minimum: major > 0, or major == 0 && minor >= 3
+    parts[0] > 0 || (parts[0] == 0 && parts[1] >= 3)
 }
 
 // ─── Unit Tests ─────────────────────────────────────────────────────────
@@ -702,9 +708,11 @@ mod tests {
 
     #[test]
     fn test_is_version_ok() {
-        assert!(is_version_ok("0.2.0"));
         assert!(is_version_ok("0.3.0"));
+        assert!(is_version_ok("0.3.5"));
         assert!(is_version_ok("1.0.0"));
+        assert!(!is_version_ok("0.2.0"));
+        assert!(!is_version_ok("0.2.9"));
         assert!(!is_version_ok("0.1.0"));
         assert!(!is_version_ok("0.0.1"));
         assert!(!is_version_ok("invalid"));

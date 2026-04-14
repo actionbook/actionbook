@@ -101,7 +101,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     #[cfg(windows)]
     let chrome_job: Option<crate::daemon::chrome_reaper::ChromeJobObject>;
 
-    let (closed_tabs, cdp, chrome_process, profile_to_clean, mode) = {
+    let (closed_tabs, cdp, chrome_process, profile_to_clean, mode, ext_native_tab_ids) = {
         let mut reg = registry.lock().await;
         let mut entry = match reg.remove(&cmd.session) {
             Some(e) => e,
@@ -130,6 +130,19 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 None
             };
 
+        // Extension mode: collect the native (Chrome numeric) tab IDs we
+        // attached so we can ask the extension to close them. native_id is
+        // a stringified i64 here.
+        let ext_ids: Vec<u64> = if entry_mode == Mode::Extension {
+            entry
+                .tabs
+                .iter()
+                .filter_map(|t| t.native_id.parse::<u64>().ok())
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         #[cfg(windows)]
         {
             chrome_job = entry.job_object.take();
@@ -142,20 +155,28 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             entry.chrome_process.take(),
             profile_cleanup,
             entry_mode,
+            ext_ids,
         )
     };
     // Registry lock released here — slow I/O below won't block other sessions.
 
-    // Extension mode: detach debugger before tearing down the CDP connection.
-    // Extension mode doesn't own the browser — we only release the debugger,
-    // leaving tabs open for the user.
+    // Extension mode: detach the debugger AND close the chrome tabs the
+    // session opened. Symmetric with local mode killing its chrome process —
+    // the session "owns" the tabs it created via Extension.createTab and
+    // attached via --tab-id, so leaving them around on close would leak
+    // browser state across runs (and was responsible for tab-explosion in
+    // the e2e suite).
     if mode == Mode::Extension
         && let Some(ref cdp) = cdp
+        && !ext_native_tab_ids.is_empty()
         && let Err(e) = cdp
-            .execute_browser("Extension.detachTab", serde_json::json!({}))
+            .execute_browser(
+                "Extension.closeTabs",
+                serde_json::json!({ "tabIds": ext_native_tab_ids }),
+            )
             .await
     {
-        tracing::warn!("extension: failed to detach: {e}");
+        tracing::warn!("extension: failed to close tabs {ext_native_tab_ids:?}: {e}");
     }
 
     // Close CDP session AFTER extension cleanup is complete.

@@ -6,6 +6,7 @@ use crate::action_result::ActionResult;
 use crate::browser::session::provider::ProviderEnv;
 use crate::daemon::registry::SharedRegistry;
 use crate::output::ResponseContext;
+use crate::types::Mode;
 
 /// Restart a session
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
@@ -57,7 +58,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         headless,
         stealth,
         profile,
-        open_url,
+        mut open_url,
         cdp_endpoint,
         provider,
         headers,
@@ -104,6 +105,13 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 Some(t.url.clone())
             }
         });
+        // Extension mode requires either --open-url or --tab-id. If the
+        // previous session's URL was filtered out (about:blank, data:, etc.)
+        // and we have no native tab id to carry through, open a fresh tab so
+        // start::execute doesn't see MISSING_TAB_TARGET.
+        if mode == Mode::Extension && open_url.is_none() {
+            open_url = Some("about:blank".to_string());
+        }
         cdp_endpoint = entry.cdp_endpoint.clone();
         provider = entry.provider.clone();
         headers = entry
@@ -199,6 +207,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         profile: Some(profile),
         executable_path: None,
         open_url,
+        // Restart re-creates the session; if extension mode the original
+        // tab id is gone after debugger detach, so don't carry it through.
+        tab_id: None,
         cdp_endpoint: effective_cdp_endpoint,
         provider: effective_provider,
         header: effective_headers,

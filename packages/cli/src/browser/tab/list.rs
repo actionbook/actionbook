@@ -133,7 +133,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // - Matching native_id → keep short tab ID, update url/title
     // - Stale registry tabs (not in CDP) → remove
     // - New CDP tabs (not in registry) → assign new short ID
-    let (tabs, to_attach): (Vec<serde_json::Value>, Vec<String>) = {
+    let (tabs, to_attach_cdp, to_register_ext): (Vec<serde_json::Value>, Vec<String>, Vec<String>) = {
         let mut reg = registry.lock().await;
         let entry = match reg.get_mut(&cmd.session) {
             Some(e) => e,
@@ -152,8 +152,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             .retain(|t| live_pages.iter().any(|(nid, _, _)| *nid == t.native_id));
 
         let mut result = Vec::new();
-        let mut to_attach = Vec::new();
+        let mut to_attach_cdp = Vec::new();
+        let mut to_register_ext = Vec::new();
         for (native_id, url, title) in &live_pages {
+            let is_new;
             // Find existing short ID or assign a new one
             if let Some(existing) = entry.tabs.iter_mut().find(|t| t.native_id == *native_id) {
                 // Update url/title from live CDP data
@@ -165,29 +167,44 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                     "url": url,
                     "title": title,
                 }));
+                is_new = false;
             } else {
-                // New tab — assign next short ID and mark for CDP attach
+                // New tab — assign next short ID
                 entry.push_tab(native_id.to_string(), url.to_string(), title.to_string());
                 let new_tab = entry.tabs.last().unwrap();
-                to_attach.push(native_id.to_string());
                 result.push(json!({
                     "tab_id": new_tab.id.0,
                     "native_tab_id": native_id,
                     "url": url,
                     "title": title,
                 }));
+                is_new = true;
+            }
+            // Local/cloud: only NEW tabs need a CDP attach handshake — existing
+            // ones already have their session ID in CdpSession.tab_sessions.
+            //
+            // Extension: every live tab must be registered in CdpSession —
+            // register_extension_tab is an idempotent HashMap insert and it
+            // recovers the case where `entry.tabs` out-lives CdpSession (e.g.
+            // after a daemon restart, or when a tab was created by a pre-fix
+            // binary that skipped register_extension_tab). Without this
+            // `execute_on_tab` fails with INTERNAL_ERROR "no CDP session for
+            // target '<native_id>'".
+            if mode == Mode::Extension {
+                to_register_ext.push(native_id.to_string());
+            } else if is_new {
+                to_attach_cdp.push(native_id.to_string());
             }
         }
-        (result, to_attach)
+        (result, to_attach_cdp, to_register_ext)
     };
 
-    // Attach newly discovered tabs outside the registry lock.
-    // Extension mode uses register_extension_tab (no Target.attachToTarget);
-    // local/cloud mode uses the standard CDP attach.
-    for native_id in &to_attach {
-        if mode == Mode::Extension {
-            cdp.register_extension_tab(native_id).await;
-        } else if let Err(e) = cdp.attach(native_id, None).await {
+    // Outside the registry lock.
+    for native_id in &to_register_ext {
+        cdp.register_extension_tab(native_id).await;
+    }
+    for native_id in &to_attach_cdp {
+        if let Err(e) = cdp.attach(native_id, None).await {
             tracing::warn!("failed to attach discovered tab {native_id}: {e}");
         }
     }
