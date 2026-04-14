@@ -22,6 +22,7 @@ use std::time::Instant;
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, mpsc};
 use tokio_tungstenite::tungstenite::Message;
@@ -52,6 +53,11 @@ const PROTOCOL_VERSION: &str = "0.3.0";
 const EXTENSION_ID_CWS: &str = "bebchpafpemheedhcdabookaifcijmfo";
 const EXTENSION_ID_DEV: &str = "dpfioflkmnkklgjldmaggkodhlidkdcd";
 const EXTENSION_IDS: &[&str] = &[EXTENSION_ID_CWS, EXTENSION_ID_DEV];
+
+/// Plain HTTP health check served on the same port as the WS bridge so the
+/// extension can probe readiness without emitting a failed WebSocket error.
+const HEALTH_CHECK_PATH: &str = "/healthz";
+const HEALTH_CHECK_RESPONSE: &[u8] = b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\n\r\n";
 
 // ─── Shared State ───────────────────────────────────────────────────────
 
@@ -385,7 +391,16 @@ async fn accept_loop(listener: TcpListener, state: SharedBridgeState) {
 
 // ─── Connection Handler ─────────────────────────────────────────────────
 
-async fn handle_connection(stream: TcpStream, state: SharedBridgeState) {
+async fn handle_connection(mut stream: TcpStream, state: SharedBridgeState) {
+    match maybe_serve_health_check(&mut stream).await {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(e) => {
+            warn!("bridge: failed to serve health check: {e}");
+            return;
+        }
+    }
+
     // Capture origin during WS upgrade for extension ID validation.
     let captured_origin: Arc<std::sync::Mutex<Option<String>>> =
         Arc::new(std::sync::Mutex::new(None));
@@ -659,6 +674,33 @@ async fn handle_cdp_client(
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
+fn is_health_check_request(buf: &[u8]) -> bool {
+    buf.starts_with(format!("GET {HEALTH_CHECK_PATH} ").as_bytes())
+        || buf.starts_with(format!("HEAD {HEALTH_CHECK_PATH} ").as_bytes())
+}
+
+async fn maybe_serve_health_check(stream: &mut TcpStream) -> std::io::Result<bool> {
+    let mut buf = [0_u8; 256];
+    let n = stream.peek(&mut buf).await?;
+    if n == 0 || !is_health_check_request(&buf[..n]) {
+        return Ok(false);
+    }
+
+    let mut consumed = Vec::with_capacity(n);
+    while !consumed.windows(4).any(|w| w == b"\r\n\r\n") && consumed.len() < 8 * 1024 {
+        let mut chunk = [0_u8; 512];
+        let read = stream.read(&mut chunk).await?;
+        if read == 0 {
+            break;
+        }
+        consumed.extend_from_slice(&chunk[..read]);
+    }
+
+    stream.write_all(HEALTH_CHECK_RESPONSE).await?;
+    let _ = stream.shutdown().await;
+    Ok(true)
+}
+
 /// Validate WS origin: allow chrome-extension:// and loopback HTTP.
 fn is_origin_allowed(origin: Option<&str>) -> bool {
     let Some(o) = origin else { return true };
@@ -692,6 +734,10 @@ fn is_version_ok(version: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio_tungstenite::connect_async;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    use tokio_tungstenite::tungstenite::http::HeaderValue;
 
     #[test]
     fn test_is_origin_allowed() {
@@ -716,6 +762,14 @@ mod tests {
         assert!(!is_version_ok("0.1.0"));
         assert!(!is_version_ok("0.0.1"));
         assert!(!is_version_ok("invalid"));
+    }
+
+    #[test]
+    fn test_is_health_check_request() {
+        assert!(is_health_check_request(b"GET /healthz HTTP/1.1\r\n"));
+        assert!(is_health_check_request(b"HEAD /healthz HTTP/1.1\r\n"));
+        assert!(!is_health_check_request(b"GET / HTTP/1.1\r\n"));
+        assert!(!is_health_check_request(b"GET /health HTTP/1.1\r\n"));
     }
 
     #[test]
@@ -932,5 +986,64 @@ mod tests {
             diagnose_port_holder(port).is_none(),
             "free port must return None"
         );
+    }
+
+    async fn spawn_single_connection_server() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let state = new_bridge_state();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            handle_connection(stream, state).await;
+        });
+        format!("127.0.0.1:{}", addr.port())
+    }
+
+    #[tokio::test]
+    async fn handle_connection_serves_health_check() {
+        let addr = spawn_single_connection_server().await;
+        let mut stream = TcpStream::connect(&addr).await.unwrap();
+        stream
+            .write_all(b"GET /healthz HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+            .await
+            .unwrap();
+
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await.unwrap();
+        let response = String::from_utf8(response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 204 No Content"));
+        assert!(response.contains("Access-Control-Allow-Origin: *"));
+    }
+
+    #[tokio::test]
+    async fn handle_connection_keeps_websocket_handshake_working() {
+        let addr = spawn_single_connection_server().await;
+        let url = format!("ws://{addr}");
+        let mut request = url.into_client_request().unwrap();
+        request.headers_mut().insert(
+            "Origin",
+            HeaderValue::from_static("chrome-extension://bebchpafpemheedhcdabookaifcijmfo"),
+        );
+
+        let (mut ws, _) = connect_async(request).await.unwrap();
+        ws.send(Message::Text(
+            json!({
+                "type": "hello",
+                "role": "extension",
+                "version": "0.3.0"
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+        let msg = ws.next().await.unwrap().unwrap();
+        let text = match msg {
+            Message::Text(text) => text.to_string(),
+            other => panic!("expected text hello_ack, got {other:?}"),
+        };
+        let ack: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(ack["type"], "hello_ack");
     }
 }

@@ -5,6 +5,7 @@ const BRIDGE_URL = "ws://127.0.0.1:19222";
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const MAX_RETRIES = 8;
+const BRIDGE_PROBE_TIMEOUT_MS = 750;
 
 const HANDSHAKE_TIMEOUT_MS = 2000;
 const L3_CONFIRM_TIMEOUT_MS = 30000;
@@ -141,6 +142,35 @@ async function getEffectiveBridgeUrl() {
   return BRIDGE_URL;
 }
 
+function getBridgeHealthUrl(bridgeUrl) {
+  if (bridgeUrl.startsWith("ws://")) {
+    return `http://${bridgeUrl.slice("ws://".length)}/healthz`;
+  }
+  if (bridgeUrl.startsWith("wss://")) {
+    return `https://${bridgeUrl.slice("wss://".length)}/healthz`;
+  }
+  return `${bridgeUrl}/healthz`;
+}
+
+async function canReachBridge(bridgeUrl) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), BRIDGE_PROBE_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(getBridgeHealthUrl(bridgeUrl), {
+      method: "HEAD",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    return response.ok;
+  } catch (err) {
+    debugLog("[actionbook] Bridge probe failed:", err?.message || err);
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function connect() {
   if (ws && ws.readyState === WebSocket.OPEN) return;
   if (connectionState === "connecting") return;
@@ -151,6 +181,13 @@ async function connect() {
 
   try {
     const bridgeUrl = await getEffectiveBridgeUrl();
+    if (!(await canReachBridge(bridgeUrl))) {
+      connectionState = "disconnected";
+      logStateTransition("disconnected", "bridge not listening");
+      broadcastState();
+      scheduleReconnect();
+      return;
+    }
     ws = new WebSocket(bridgeUrl);
   } catch (err) {
     connectionState = "disconnected";
