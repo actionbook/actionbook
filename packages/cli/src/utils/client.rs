@@ -283,18 +283,31 @@ async fn restart_daemon(reason: &str, force: bool) -> Result<(), CliError> {
         }
     }
 
-    // Auto-restart path (force=false): a concurrent CLI may have already
-    // spawned a fresh daemon with the correct version — in that case skip
-    // cleanup and let the caller connect via wait_for_daemon. For
-    // user-requested restart (force=true) this is unsafe: a crashed daemon
-    // can leave stale same-version marker files, so we must unconditionally
-    // cleanup + spawn to guarantee a real live daemon on return.
+    // Concurrent-restart guard: if another CLI has already brought up a
+    // fresh daemon (different pid, alive) while we were waiting, skip
+    // cleanup so we don't unlink THEIR live socket/ready/version files.
+    // This guard runs in BOTH force and non-force mode — it's about
+    // process liveness, which a crashed daemon (the failure mode `force`
+    // exists to escape) can't fake the way it can fake stale marker files.
+    if let Some(current_pid) = server::read_daemon_pid().filter(|&p| p > 0)
+        && current_pid != pid
+        && server::is_pid_alive(current_pid)
+    {
+        return Ok(());
+    }
+
+    // Non-force path additionally short-circuits on matching version files
+    // alone — preserves the original auto-restart optimization where two
+    // CLIs racing on a version-mismatch restart don't double-spawn. force
+    // mode skips this because a crashed daemon may have left stale
+    // same-version markers behind, and `restart_daemon_now` callers need
+    // the spawn to actually happen.
     let version_path = server::socket_path().with_extension("version");
     if !force && versions_match(&version_path) {
         return Ok(());
     }
 
-    // No matching daemon running — safe to clean up stale files and start
+    // No live successor daemon — safe to clean up stale files and start.
     cleanup_stale_files();
 
     auto_start_daemon()
@@ -407,7 +420,13 @@ async fn restart_daemon_windows(reason: &str, force: bool) -> Result<(), CliErro
         }
     }
 
-    // See restart_daemon (Unix) for the rationale of `force` here.
+    // See restart_daemon (Unix) for the rationale of both guards.
+    if let Some(current_pid) = server::read_daemon_pid().filter(|&p| p > 0)
+        && current_pid != pid
+        && server::is_pid_alive(current_pid)
+    {
+        return Ok(());
+    }
     let version_path = server::socket_path().with_extension("version");
     if !force && versions_match(&version_path) {
         return Ok(());
