@@ -17,6 +17,7 @@ mod cookies;
 mod describe_state;
 mod element_details;
 mod element_read;
+mod extension;
 mod harness;
 mod iframe;
 mod inspect_point;
