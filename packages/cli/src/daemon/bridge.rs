@@ -11,8 +11,11 @@
 //!    extension; otherwise it's treated as a CDP client and all messages are
 //!    relayed bidirectionally to the extension.
 //!
-//! The bridge is spawned from `run_daemon()`. If the port is already in use the
-//! daemon still starts — only extension mode is unavailable.
+//! The bridge is spawned from `run_daemon()`. Binding the fixed port is
+//! attempted with bounded exponential backoff so transient contention
+//! (old daemon still releasing the socket, rapid restart, brief third-party
+//! use of 19222) does not permanently break extension mode. If every attempt
+//! fails the daemon still starts — only extension mode is unavailable.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -30,6 +33,12 @@ use tracing::{error, info, warn};
 /// Default bridge port. Must match the extension's hardcoded `ws://127.0.0.1:19222`.
 pub const BRIDGE_PORT: u16 = 19222;
 
+/// Delays (in ms) between retry attempts when binding the bridge port fails.
+/// 6 total attempts (1 immediate + 5 retries), max wait ≈ 8.6s.
+/// Sized to comfortably cover: kernel socket cleanup after a previous daemon
+/// exit, rapid daemon restart races, and brief third-party port use.
+const BIND_RETRY_DELAYS_MS: &[u64] = &[100, 500, 1_000, 2_000, 5_000];
+
 /// Protocol version for the hello handshake.
 const PROTOCOL_VERSION: &str = "0.2.0";
 
@@ -39,6 +48,21 @@ const EXTENSION_ID_DEV: &str = "dpfioflkmnkklgjldmaggkodhlidkdcd";
 const EXTENSION_IDS: &[&str] = &[EXTENSION_ID_CWS, EXTENSION_ID_DEV];
 
 // ─── Shared State ───────────────────────────────────────────────────────
+
+/// Observable state of the bridge TCP listener.
+///
+/// Exposed so callers (e.g. `browser start --mode extension`) can distinguish
+/// "still binding, keep waiting" from "bind failed, stop waiting" without
+/// having to watch a task JoinHandle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BridgeListenerStatus {
+    /// Bind attempt in progress (initial state; stays here during backoff retries).
+    Binding,
+    /// Listener is bound and accepting connections.
+    Listening,
+    /// Every retry failed; extension mode is permanently unavailable on this daemon.
+    Failed,
+}
 
 /// Bridge state shared across connections.
 pub struct BridgeState {
@@ -50,6 +74,8 @@ pub struct BridgeState {
     connection_id: u64,
     /// Last activity timestamp.
     last_activity: Instant,
+    /// Listener bind state (updated by the background bind task).
+    listener_status: BridgeListenerStatus,
 }
 
 impl BridgeState {
@@ -59,6 +85,7 @@ impl BridgeState {
             cdp_tx: None,
             connection_id: 0,
             last_activity: Instant::now(),
+            listener_status: BridgeListenerStatus::Binding,
         }
     }
 
@@ -73,6 +100,15 @@ impl BridgeState {
             .map(|tx| !tx.is_closed())
             .unwrap_or(false)
     }
+
+    /// Current listener status.
+    pub fn listener_status(&self) -> BridgeListenerStatus {
+        self.listener_status
+    }
+
+    fn set_listener_status(&mut self, status: BridgeListenerStatus) {
+        self.listener_status = status;
+    }
 }
 
 pub type SharedBridgeState = Arc<Mutex<BridgeState>>;
@@ -86,29 +122,72 @@ pub fn new_bridge_state() -> SharedBridgeState {
 
 /// Spawn the bridge server as a background tokio task.
 ///
-/// Returns the bridge state handle on success. Returns `None` if the port is
-/// already in use (daemon still starts, only extension mode is unavailable).
-pub async fn spawn_bridge() -> Option<SharedBridgeState> {
-    let addr = format!("127.0.0.1:{BRIDGE_PORT}");
-    let listener = match TcpListener::bind(&addr).await {
-        Ok(l) => {
-            info!("extension bridge listening on ws://{addr}");
-            l
-        }
-        Err(e) => {
-            warn!("extension bridge: failed to bind {addr}: {e} — extension mode unavailable");
-            return None;
-        }
-    };
-
+/// Returns the bridge state handle immediately; the TCP bind (with retry
+/// backoff) runs asynchronously in a background task so callers unrelated to
+/// extension mode — e.g. `browser start --mode local`, `browser screenshot` —
+/// do not pay the bind-retry window on daemon cold start. Consumers that
+/// need the bridge to be ready (extension mode) must poll
+/// [`BridgeState::listener_status`].
+pub fn spawn_bridge() -> SharedBridgeState {
     let state = new_bridge_state();
-    let state_clone = state.clone();
+    let state_for_task = state.clone();
 
     tokio::spawn(async move {
-        accept_loop(listener, state_clone).await;
+        let addr = format!("127.0.0.1:{BRIDGE_PORT}");
+        let listener = match bind_with_retry(&addr, BIND_RETRY_DELAYS_MS).await {
+            Ok(l) => {
+                info!("extension bridge listening on ws://{addr}");
+                state_for_task
+                    .lock()
+                    .await
+                    .set_listener_status(BridgeListenerStatus::Listening);
+                l
+            }
+            Err(e) => {
+                warn!(
+                    "extension bridge: failed to bind {addr} after {} attempts: {e} — extension mode unavailable",
+                    BIND_RETRY_DELAYS_MS.len() + 1
+                );
+                state_for_task
+                    .lock()
+                    .await
+                    .set_listener_status(BridgeListenerStatus::Failed);
+                return;
+            }
+        };
+        accept_loop(listener, state_for_task).await;
     });
 
-    Some(state)
+    state
+}
+
+/// Bind `addr` with bounded retry. First attempt is immediate; on failure,
+/// waits `delays_ms[i]` then retries, for a total of `delays_ms.len() + 1`
+/// attempts. Returns the last error if every attempt fails.
+async fn bind_with_retry(addr: &str, delays_ms: &[u64]) -> std::io::Result<TcpListener> {
+    let mut last_err = match TcpListener::bind(addr).await {
+        Ok(l) => return Ok(l),
+        Err(e) => e,
+    };
+    let total = delays_ms.len() + 1;
+    for (i, &delay_ms) in delays_ms.iter().enumerate() {
+        info!(
+            "extension bridge: bind {addr} attempt {}/{total} failed ({last_err}) — retrying in {delay_ms}ms",
+            i + 1
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        match TcpListener::bind(addr).await {
+            Ok(l) => {
+                info!(
+                    "extension bridge: bound {addr} on attempt {}/{total}",
+                    i + 2
+                );
+                return Ok(l);
+            }
+            Err(e) => last_err = e,
+        }
+    }
+    Err(last_err)
 }
 
 // ─── Accept Loop ────────────────────────────────────────────────────────
@@ -471,5 +550,76 @@ mod tests {
     fn test_bridge_state_extension_not_connected_by_default() {
         let state = BridgeState::new();
         assert!(!state.is_extension_connected());
+    }
+
+    #[test]
+    fn test_bridge_state_listener_starts_in_binding() {
+        // start --mode extension must treat a fresh state as "keep waiting",
+        // not "fail fast" — the async bind task has not run yet.
+        let state = BridgeState::new();
+        assert_eq!(state.listener_status(), BridgeListenerStatus::Binding);
+    }
+
+    #[test]
+    fn test_bridge_state_listener_status_transitions() {
+        let mut state = BridgeState::new();
+        state.set_listener_status(BridgeListenerStatus::Listening);
+        assert_eq!(state.listener_status(), BridgeListenerStatus::Listening);
+        state.set_listener_status(BridgeListenerStatus::Failed);
+        assert_eq!(state.listener_status(), BridgeListenerStatus::Failed);
+    }
+
+    // ─── bind_with_retry ────────────────────────────────────────────────
+
+    /// Grab a free port, drop the listener, and return the address string.
+    /// The port *may* be racy if another process grabs it between drop and
+    /// the caller's bind — for CI we accept the vanishingly small risk.
+    async fn ephemeral_addr() -> String {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        drop(l);
+        format!("{addr}")
+    }
+
+    #[tokio::test]
+    async fn bind_with_retry_succeeds_immediately_when_port_is_free() {
+        let addr = ephemeral_addr().await;
+        let listener = bind_with_retry(&addr, &[50, 100]).await.expect("bind");
+        assert_eq!(listener.local_addr().unwrap().to_string(), addr);
+    }
+
+    #[tokio::test]
+    async fn bind_with_retry_recovers_when_port_releases_during_backoff() {
+        // Occupy a port, schedule release after first retry window.
+        let blocker = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = blocker.local_addr().unwrap().to_string();
+
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+            drop(blocker); // frees port before 2nd attempt at t=100ms
+        });
+
+        let started = std::time::Instant::now();
+        let listener = bind_with_retry(&addr, &[100, 500, 1_000])
+            .await
+            .expect("retry should succeed after port release");
+        // 2nd attempt fires at ~100ms; allow some slack for scheduler jitter.
+        assert!(
+            started.elapsed() >= std::time::Duration::from_millis(90),
+            "should have waited for at least one retry"
+        );
+        assert_eq!(listener.local_addr().unwrap().to_string(), addr);
+    }
+
+    #[tokio::test]
+    async fn bind_with_retry_gives_up_when_port_stays_busy() {
+        // Hold the port for the entire retry window.
+        let _blocker = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = _blocker.local_addr().unwrap().to_string();
+
+        let err = bind_with_retry(&addr, &[20, 30, 40])
+            .await
+            .expect_err("should fail while port is held");
+        assert_eq!(err.kind(), std::io::ErrorKind::AddrInUse);
     }
 }

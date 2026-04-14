@@ -308,9 +308,10 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
     let registry = new_shared_registry();
 
     // Spawn extension bridge (non-fatal: daemon works without it).
-    if let Some(bridge_state) = super::bridge::spawn_bridge().await {
-        registry.lock().await.set_bridge_state(bridge_state);
-    }
+    // Returns immediately — the bind-with-retry happens on a background
+    // task so non-extension commands do not wait on bridge port contention.
+    let bridge_state = super::bridge::spawn_bridge();
+    registry.lock().await.set_bridge_state(bridge_state);
 
     // Handle SIGINT, SIGTERM, and SIGHUP (terminal close).
     #[cfg(unix)]
@@ -496,9 +497,8 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
 
     let registry = new_shared_registry();
 
-    if let Some(bridge_state) = super::bridge::spawn_bridge().await {
-        registry.lock().await.set_bridge_state(bridge_state);
-    }
+    let bridge_state = super::bridge::spawn_bridge();
+    registry.lock().await.set_bridge_state(bridge_state);
 
     let mut last_activity = Instant::now();
     let idle_timeout_duration = idle_timeout();

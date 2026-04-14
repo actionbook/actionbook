@@ -980,6 +980,48 @@ async fn fail_reserved_start(
     ActionResult::fatal(code, message)
 }
 
+async fn fail_reserved_start_with_hint(
+    registry: &SharedRegistry,
+    session_id: &SessionId,
+    code: &str,
+    message: String,
+    hint: &'static str,
+) -> ActionResult {
+    registry.lock().await.remove(session_id.as_str());
+    ActionResult::fatal_with_hint(code, message, hint)
+}
+
+/// URL schemes that Chrome's `chrome.debugger.attach` refuses with -32000.
+/// Detecting them pre-/post-attach lets us surface a clean `RESTRICTED_ACTIVE_TAB`
+/// error instead of leaking Chrome's raw "Cannot access a chrome:// URL" message
+/// (or, worse, a transient "session closed" flake when the extension drops the
+/// WS on error). The list matches Chromium's debugger_api.cc restriction set.
+fn is_restricted_attach_scheme(url: &str) -> bool {
+    const RESTRICTED: &[&str] = &[
+        "chrome://",
+        "chrome-extension://",
+        "chrome-untrusted://",
+        "chrome-search://",
+        "devtools://",
+        "edge://",
+        "view-source:",
+    ];
+    RESTRICTED.iter().any(|p| url.starts_with(p))
+}
+
+/// Detects Chrome's CDP rejection when `debugger.attach` targets a restricted
+/// tab. Chrome's message is stable across versions: "Cannot access a chrome://
+/// URL" / "Cannot access a chrome-extension:// URL" / etc.
+fn is_chrome_attach_restriction_error(msg: &str) -> bool {
+    let lower = msg.to_lowercase();
+    lower.contains("cannot access")
+        && (lower.contains("chrome://")
+            || lower.contains("chrome-extension://")
+            || lower.contains("chrome-untrusted://")
+            || lower.contains("devtools://")
+            || lower.contains("edge://"))
+}
+
 /// Tear down a provider-side session as part of a failed cloud start.
 ///
 /// `panic = "abort"` means we cannot rely on `Drop` for this — every error
@@ -1279,26 +1321,60 @@ async fn execute_extension(
     profile_name: &str,
     headless: bool,
 ) -> ActionResult {
-    use crate::daemon::bridge::BRIDGE_PORT;
+    use crate::daemon::bridge::{BRIDGE_PORT, BridgeListenerStatus};
 
-    // Check bridge state from registry.
+    // Wait briefly for the bridge listener to finish binding AND for the
+    // Chrome extension to (re)connect. Two races overlap here:
+    //   1. `spawn_bridge()` now binds asynchronously so the daemon startup
+    //      does not block on port contention — when daemon + CLI are cold
+    //      started together the first request may arrive before the bind
+    //      even completes.
+    //   2. Even once the listener is up, the extension needs 100ms–2s to
+    //      complete its WS handshake (especially after a daemon restart
+    //      where the extension is in exponential-backoff reconnect).
     let bridge_ws_url = {
-        let reg = registry.lock().await;
-        let Some(bridge_state) = reg.bridge_state() else {
-            return ActionResult::fatal_with_hint(
-                "BRIDGE_NOT_RUNNING",
-                "extension bridge is not running",
-                "the daemon failed to start the bridge — check if port 19222 is in use",
-            );
+        let bridge_state = {
+            let reg = registry.lock().await;
+            match reg.bridge_state() {
+                Some(bs) => bs.clone(),
+                None => {
+                    return ActionResult::fatal_with_hint(
+                        "BRIDGE_NOT_RUNNING",
+                        "extension bridge is not running",
+                        "the daemon failed to start the bridge — check if port 19222 is in use",
+                    );
+                }
+            }
         };
-        let bs = bridge_state.lock().await;
-        if !bs.is_extension_connected() {
-            return ActionResult::fatal_with_hint(
-                "EXTENSION_NOT_CONNECTED",
-                "no Chrome extension is connected to the bridge",
-                "open Chrome with the Actionbook extension installed and ensure it is active",
-            );
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            {
+                let bs = bridge_state.lock().await;
+                match bs.listener_status() {
+                    BridgeListenerStatus::Failed => {
+                        return ActionResult::fatal_with_hint(
+                            "BRIDGE_BIND_FAILED",
+                            format!("extension bridge failed to bind port {BRIDGE_PORT}"),
+                            "another process is holding the port — stop it (e.g. a stale actionbook daemon) and retry",
+                        );
+                    }
+                    BridgeListenerStatus::Listening if bs.is_extension_connected() => {
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            if std::time::Instant::now() >= deadline {
+                return ActionResult::fatal_with_hint(
+                    "EXTENSION_NOT_CONNECTED",
+                    "no Chrome extension connected to the bridge within 5s",
+                    "open chrome://extensions, ensure the Actionbook extension is enabled and its popup shows Connected",
+                );
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
+
         format!("ws://127.0.0.1:{BRIDGE_PORT}")
     };
 
@@ -1348,6 +1424,7 @@ async fn execute_extension(
         let final_url = match ensure_scheme_or_fatal(url) {
             Ok(u) => u,
             Err(e) => {
+                cdp.close().await;
                 registry.lock().await.remove(session_id.as_str());
                 return e;
             }
@@ -1364,6 +1441,7 @@ async fn execute_extension(
                 vec![(tab_id, tab_url, title)]
             }
             Err(e) => {
+                cdp.close().await;
                 return fail_reserved_start(
                     registry,
                     &session_id,
@@ -1384,9 +1462,36 @@ async fn execute_extension(
                 let tab_id = result["tabId"].as_i64().unwrap_or(0).to_string();
                 let tab_url = result["url"].as_str().unwrap_or("about:blank").to_string();
                 let title = result["title"].as_str().unwrap_or("").to_string();
+                // The attach may succeed but return a URL that Chrome will later
+                // refuse CDP commands on (chrome://, devtools://, ...). Catch it
+                // here so the agent gets a clear remediation instead of a
+                // downstream -32000 error on the first real command.
+                if is_restricted_attach_scheme(&tab_url) {
+                    cdp.close().await;
+                    return fail_reserved_start_with_hint(
+                        registry,
+                        &session_id,
+                        "RESTRICTED_ACTIVE_TAB",
+                        format!("active tab is a restricted URL: {tab_url}"),
+                        "pass --open-url <url>",
+                    )
+                    .await;
+                }
                 vec![(tab_id, tab_url, title)]
             }
             Err(e) => {
+                let msg = e.to_string();
+                cdp.close().await;
+                if is_chrome_attach_restriction_error(&msg) {
+                    return fail_reserved_start_with_hint(
+                        registry,
+                        &session_id,
+                        "RESTRICTED_ACTIVE_TAB",
+                        "active tab is a restricted URL".to_string(),
+                        "pass --open-url <url>",
+                    )
+                    .await;
+                }
                 return fail_reserved_start(
                     registry,
                     &session_id,
@@ -1667,6 +1772,71 @@ pub fn redact_endpoint(endpoint: &str) -> String {
         out.push_str(&redact_query_string(query));
     }
     out
+}
+
+#[cfg(test)]
+mod restricted_scheme_tests {
+    use super::{is_chrome_attach_restriction_error, is_restricted_attach_scheme};
+
+    #[test]
+    fn restricted_schemes_match() {
+        for url in [
+            "chrome://newtab/",
+            "chrome://extensions",
+            "chrome-extension://foo/popup.html",
+            "chrome-untrusted://terminal",
+            "devtools://devtools/bundled/inspector.html",
+            "edge://settings",
+            "view-source:https://example.com",
+        ] {
+            assert!(
+                is_restricted_attach_scheme(url),
+                "should be restricted: {url}"
+            );
+        }
+    }
+
+    #[test]
+    fn normal_urls_are_not_restricted() {
+        for url in [
+            "https://mail.google.com/",
+            "http://localhost:3000",
+            "about:blank",
+            "file:///tmp/foo.html",
+        ] {
+            assert!(
+                !is_restricted_attach_scheme(url),
+                "should be allowed: {url}"
+            );
+        }
+    }
+
+    #[test]
+    fn chrome_attach_restriction_error_matches_real_cdp_message() {
+        // Shape from the user-reported transcript.
+        assert!(is_chrome_attach_restriction_error(
+            "cdp error: CDP error -32000: Cannot access a chrome:// URL"
+        ));
+        assert!(is_chrome_attach_restriction_error(
+            "CDP error -32000: Cannot access a chrome-extension:// URL"
+        ));
+        assert!(is_chrome_attach_restriction_error(
+            "Cannot access a devtools:// URL"
+        ));
+    }
+
+    #[test]
+    fn unrelated_errors_do_not_match() {
+        assert!(!is_chrome_attach_restriction_error(
+            "session closed: session was closed while command was pending"
+        ));
+        assert!(!is_chrome_attach_restriction_error(
+            "CDP error -32602: invalid params"
+        ));
+        assert!(!is_chrome_attach_restriction_error(
+            "cannot access chrome" // missing scheme marker
+        ));
+    }
 }
 
 #[cfg(test)]
