@@ -53,6 +53,12 @@ pub async fn route(action: &Action, registry: &SharedRegistry) -> ActionResult {
         Action::NetworkRequestDetail(cmd) => {
             browser::observation::network_request_detail::execute(cmd, registry).await
         }
+        Action::NetworkHarStart(cmd) => {
+            browser::observation::network_har::execute_start(cmd, registry).await
+        }
+        Action::NetworkHarStop(cmd) => {
+            browser::observation::network_har::execute_stop(cmd, registry).await
+        }
         Action::CookiesList(cmd) => browser::cookies::list::execute(cmd, registry).await,
         Action::CookiesGet(cmd) => browser::cookies::get::execute(cmd, registry).await,
         Action::CookiesSet(cmd) => browser::cookies::set::execute(cmd, registry).await,

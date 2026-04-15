@@ -49,6 +49,8 @@ pub enum Action {
     LogsErrors(observation::logs_errors::Cmd),
     NetworkRequests(observation::network_requests::Cmd),
     NetworkRequestDetail(observation::network_request_detail::Cmd),
+    NetworkHarStart(observation::network_har::StartCmd),
+    NetworkHarStop(observation::network_har::StopCmd),
 
     // ── Cookies ────────────────────────────────────────────────
     CookiesList(cookies::list::Cmd),
@@ -152,6 +154,8 @@ impl Action {
             Action::LogsErrors(c) => st!(c),
             Action::NetworkRequests(c) => st!(c),
             Action::NetworkRequestDetail(c) => st!(c),
+            Action::NetworkHarStart(c) => st!(c),
+            Action::NetworkHarStop(c) => st!(c),
 
             // Cookies (session-level, no tab)
             Action::CookiesList(c) => s_only!(c),
@@ -230,6 +234,8 @@ impl Action {
             Action::LogsErrors(_) => observation::logs_errors::COMMAND_NAME,
             Action::NetworkRequests(_) => observation::network_requests::COMMAND_NAME,
             Action::NetworkRequestDetail(_) => observation::network_request_detail::COMMAND_NAME,
+            Action::NetworkHarStart(_) => observation::network_har::START_COMMAND_NAME,
+            Action::NetworkHarStop(_) => observation::network_har::STOP_COMMAND_NAME,
             Action::CookiesList(_) => cookies::list::COMMAND_NAME,
             Action::CookiesGet(_) => cookies::get::COMMAND_NAME,
             Action::CookiesSet(_) => cookies::set::COMMAND_NAME,

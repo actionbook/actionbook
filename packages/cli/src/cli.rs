@@ -331,6 +331,20 @@ pub enum NetworkCommands {
     Requests(observation::network_requests::Cmd),
     /// Get detail for a single network request (including response body)
     Request(observation::network_request_detail::Cmd),
+    /// HAR recording (start / stop)
+    Har {
+        #[command(subcommand)]
+        command: HarCommands,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone)]
+#[command(disable_help_subcommand = true)]
+pub enum HarCommands {
+    /// Start HAR recording for a tab
+    Start(observation::network_har::StartCmd),
+    /// Stop HAR recording and export to a file
+    Stop(observation::network_har::StopCmd),
 }
 
 #[derive(Subcommand, Debug)]
@@ -484,6 +498,10 @@ impl BrowserCommands {
             Self::Network { command } => match command {
                 NetworkCommands::Requests(cmd) => Action::NetworkRequests(cmd.clone()),
                 NetworkCommands::Request(cmd) => Action::NetworkRequestDetail(cmd.clone()),
+                NetworkCommands::Har { command } => match command {
+                    HarCommands::Start(cmd) => Action::NetworkHarStart(cmd.clone()),
+                    HarCommands::Stop(cmd) => Action::NetworkHarStop(cmd.clone()),
+                },
             },
             Self::Wait { command } => match command {
                 WaitCommands::Element(cmd) => Action::WaitElement(cmd.clone()),
@@ -563,6 +581,10 @@ impl BrowserCommands {
             Self::Network { command } => match command {
                 NetworkCommands::Requests(_) => observation::network_requests::COMMAND_NAME,
                 NetworkCommands::Request(_) => observation::network_request_detail::COMMAND_NAME,
+                NetworkCommands::Har { command } => match command {
+                    HarCommands::Start(_) => observation::network_har::START_COMMAND_NAME,
+                    HarCommands::Stop(_) => observation::network_har::STOP_COMMAND_NAME,
+                },
             },
             Self::Wait { command } => match command {
                 WaitCommands::Element(_) => wait::element::COMMAND_NAME,
@@ -643,6 +665,10 @@ impl BrowserCommands {
                 NetworkCommands::Request(cmd) => {
                     observation::network_request_detail::context(cmd, result)
                 }
+                NetworkCommands::Har { command } => match command {
+                    HarCommands::Start(cmd) => observation::network_har::start_context(cmd, result),
+                    HarCommands::Stop(cmd) => observation::network_har::stop_context(cmd, result),
+                },
             },
             Self::Wait { command } => match command {
                 WaitCommands::Element(cmd) => wait::element::context(cmd, result),

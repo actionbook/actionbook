@@ -8,6 +8,7 @@ pub mod inspect_point;
 pub mod logs_console;
 pub mod logs_errors;
 pub mod network_request_detail;
+pub mod network_har;
 pub mod network_requests;
 pub mod pdf;
 pub mod query;

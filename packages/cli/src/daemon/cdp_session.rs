@@ -55,6 +55,160 @@ pub struct TrackedRequest {
 
 type TabNetRequests = Arc<Mutex<HashMap<String, VecDeque<TrackedRequest>>>>;
 
+// ─── HAR recording ────────────────────────────────────────────────────────────
+
+/// A single HTTP request/response pair captured for HAR 1.2 output.
+/// Fields map directly to HAR 1.2 entries; all timing values are in ms.
+pub struct HarEntry {
+    pub request_id: String,
+    pub wall_time: f64,
+    pub method: String,
+    pub url: String,
+    pub request_headers: Vec<(String, String)>,
+    pub post_data: Option<String>,
+    pub request_body_size: i64,
+    pub resource_type: String,
+    pub status: Option<i64>,
+    pub status_text: String,
+    pub http_version: String,
+    pub response_headers: Vec<(String, String)>,
+    pub mime_type: String,
+    pub redirect_url: String,
+    pub response_body_size: i64,
+    pub cdp_timing: Option<Value>,
+    pub loading_finished_timestamp: Option<f64>,
+}
+
+/// Per-tab HAR recording state, keyed by CDP flat-session ID.
+/// Present in the map only while recording is active.
+pub struct HarRecorder {
+    pub entries: Vec<HarEntry>,
+}
+
+impl HarRecorder {
+    fn new() -> Self {
+        Self { entries: Vec::new() }
+    }
+
+    fn on_request_will_be_sent(&mut self, params: &Value) {
+        let request_id = match params.get("requestId").and_then(|v| v.as_str()) {
+            Some(id) if !id.is_empty() => id,
+            _ => return,
+        };
+
+        // Handle redirect: the redirectResponse field carries the HTTP response
+        // for the *previous* request that issued the redirect (e.g. status 302).
+        // Finalize the existing entry for this requestId with the redirect data.
+        if let Some(rr) = params.get("redirectResponse") {
+            if let Some(entry) = self.entries.iter_mut().rev().find(|e| e.request_id == request_id) {
+                har_apply_response(entry, rr);
+            }
+        }
+
+        let req = params.get("request");
+        let url = req.and_then(|r| r.get("url")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let method = req.and_then(|r| r.get("method")).and_then(|v| v.as_str()).unwrap_or("GET").to_string();
+        let wall_time = params.get("wallTime").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let resource_type = params.get("type").and_then(|v| v.as_str()).unwrap_or("Other").to_string();
+        let request_headers = har_extract_headers(req.and_then(|r| r.get("headers")));
+        let post_data = req.and_then(|r| r.get("postData")).and_then(|v| v.as_str()).map(|s| s.to_string());
+        let request_body_size = post_data.as_ref().map(|s| s.len() as i64).unwrap_or(0);
+
+        self.entries.push(HarEntry {
+            request_id: request_id.to_string(),
+            wall_time,
+            method,
+            url,
+            request_headers,
+            post_data,
+            request_body_size,
+            resource_type,
+            status: None,
+            status_text: String::new(),
+            http_version: "HTTP/1.1".to_string(),
+            response_headers: Vec::new(),
+            mime_type: String::new(),
+            redirect_url: String::new(),
+            response_body_size: -1,
+            cdp_timing: None,
+            loading_finished_timestamp: None,
+        });
+    }
+
+    fn on_response_received(&mut self, params: &Value) {
+        let request_id = match params.get("requestId").and_then(|v| v.as_str()) {
+            Some(id) if !id.is_empty() => id,
+            _ => return,
+        };
+        if let Some(entry) = self.entries.iter_mut().rev().find(|e| e.request_id == request_id && e.status.is_none()) {
+            let resp = params.get("response").unwrap_or(&Value::Null);
+            har_apply_response(entry, resp);
+            entry.cdp_timing = resp.get("timing").cloned();
+        }
+    }
+
+    fn on_loading_finished(&mut self, params: &Value) {
+        let request_id = match params.get("requestId").and_then(|v| v.as_str()) {
+            Some(id) if !id.is_empty() => id,
+            _ => return,
+        };
+        if let Some(entry) = self.entries.iter_mut().rev().find(|e| e.request_id == request_id) {
+            entry.loading_finished_timestamp = params.get("timestamp").and_then(|v| v.as_f64());
+            if let Some(sz) = params.get("encodedDataLength").and_then(|v| v.as_i64()) {
+                entry.response_body_size = sz;
+            }
+        }
+    }
+
+    fn on_loading_failed(&mut self, params: &Value) {
+        let request_id = match params.get("requestId").and_then(|v| v.as_str()) {
+            Some(id) if !id.is_empty() => id,
+            _ => return,
+        };
+        if let Some(entry) = self.entries.iter_mut().rev().find(|e| e.request_id == request_id) {
+            if entry.status.is_none() {
+                entry.status = Some(0);
+                entry.status_text = params.get("errorText").and_then(|v| v.as_str()).unwrap_or("Failed").to_string();
+            }
+            entry.loading_finished_timestamp = params.get("timestamp").and_then(|v| v.as_f64());
+        }
+    }
+}
+
+fn har_apply_response(entry: &mut HarEntry, resp: &Value) {
+    entry.status = resp.get("status").and_then(|v| v.as_i64());
+    entry.status_text = resp.get("statusText").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    entry.mime_type = resp.get("mimeType").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    entry.http_version = resp.get("protocol").and_then(|v| v.as_str())
+        .map(har_cdp_protocol_to_http_version)
+        .unwrap_or_else(|| "HTTP/1.1".to_string());
+    entry.response_headers = har_extract_headers(resp.get("headers"));
+    entry.redirect_url = entry.response_headers.iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("location"))
+        .map(|(_, v)| v.clone())
+        .unwrap_or_default();
+    if let Some(sz) = resp.get("encodedDataLength").and_then(|v| v.as_i64()) {
+        entry.response_body_size = sz;
+    }
+}
+
+fn har_cdp_protocol_to_http_version(protocol: &str) -> String {
+    match protocol.to_ascii_lowercase().as_str() {
+        "h2" => "HTTP/2.0".to_string(),
+        "h3" => "HTTP/3.0".to_string(),
+        "http/1.0" => "HTTP/1.0".to_string(),
+        _ => "HTTP/1.1".to_string(),
+    }
+}
+
+fn har_extract_headers(headers_val: Option<&Value>) -> Vec<(String, String)> {
+    headers_val.and_then(|v| v.as_object())
+        .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string())).collect())
+        .unwrap_or_default()
+}
+
+type TabHarRecorders = Arc<Mutex<HashMap<String, HarRecorder>>>;
+
 #[derive(Debug, Clone, Default)]
 pub struct NetworkRequestsFilter {
     pub url_substring: Option<String>,
@@ -299,6 +453,9 @@ pub struct CdpSession {
     /// the bridge/extension routes by that. Local/cloud sessions keep the
     /// normal CDP flat-session protocol.
     is_extension_bridge: Arc<std::sync::atomic::AtomicBool>,
+    /// Per-tab HAR recorders, keyed by CDP flat-session ID.
+    /// Present in the map only while `har_start` is active for that tab.
+    tab_har_recorders: TabHarRecorders,
 }
 
 impl CdpSession {
@@ -351,6 +508,7 @@ impl CdpSession {
             Arc::new(Mutex::new(HashMap::new()));
         let tab_net_requests: TabNetRequests = Arc::new(Mutex::new(HashMap::new()));
         let is_extension_bridge = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let tab_har_recorders: TabHarRecorders = Arc::new(Mutex::new(HashMap::new()));
 
         let writer_handle = tokio::spawn(Self::writer_loop(ws_writer, writer_rx));
         tokio::spawn(Self::reader_loop(
@@ -364,6 +522,7 @@ impl CdpSession {
             tab_net_requests.clone(),
             max_tracked_requests,
             is_extension_bridge.clone(),
+            tab_har_recorders.clone(),
         ));
 
         Ok(CdpSession {
@@ -378,6 +537,7 @@ impl CdpSession {
             pending_iframe_enables,
             tab_net_requests,
             is_extension_bridge,
+            tab_har_recorders,
         })
     }
 
@@ -904,6 +1064,31 @@ impl CdpSession {
         Ok(resp)
     }
 
+    /// Start HAR recording for the given CDP flat-session ID.
+    ///
+    /// Returns `Err("HAR_ALREADY_RECORDING")` if recording is already active
+    /// for this session. The caller is responsible for enabling `Network.*`
+    /// events on the target before calling this.
+    pub async fn har_start(&self, cdp_session_id: &str) -> Result<(), &'static str> {
+        let mut recorders = self.tab_har_recorders.lock().await;
+        if recorders.contains_key(cdp_session_id) {
+            return Err("HAR_ALREADY_RECORDING");
+        }
+        recorders.insert(cdp_session_id.to_string(), HarRecorder::new());
+        Ok(())
+    }
+
+    /// Stop HAR recording and return all captured entries.
+    ///
+    /// Returns `Err("HAR_NOT_RECORDING")` if no recording was active.
+    pub async fn har_stop(&self, cdp_session_id: &str) -> Result<Vec<HarEntry>, &'static str> {
+        let mut recorders = self.tab_har_recorders.lock().await;
+        match recorders.remove(cdp_session_id) {
+            None => Err("HAR_NOT_RECORDING"),
+            Some(recorder) => Ok(recorder.entries),
+        }
+    }
+
     /// Background task: read WS messages and route responses/events to callers.
     #[allow(clippy::too_many_arguments)]
     async fn reader_loop<S>(
@@ -917,6 +1102,7 @@ impl CdpSession {
         tab_net_requests: TabNetRequests,
         max_tracked_requests: usize,
         is_extension_bridge: Arc<std::sync::atomic::AtomicBool>,
+        tab_har_recorders: TabHarRecorders,
     ) where
         S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
     {
@@ -1060,6 +1246,29 @@ impl CdpSession {
                             }
                         }
                         _ => {}
+                    }
+
+                    // HAR recording: feed network events into any active recorder
+                    // for this CDP session. Independent of the ring-buffer path above.
+                    if let Some(params) = resp.get("params") {
+                        let mut recorders = tab_har_recorders.lock().await;
+                        if let Some(recorder) = recorders.get_mut(session_id) {
+                            match method {
+                                "Network.requestWillBeSent" => {
+                                    recorder.on_request_will_be_sent(params);
+                                }
+                                "Network.responseReceived" => {
+                                    recorder.on_response_received(params);
+                                }
+                                "Network.loadingFinished" => {
+                                    recorder.on_loading_finished(params);
+                                }
+                                "Network.loadingFailed" => {
+                                    recorder.on_loading_failed(params);
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                 }
 
