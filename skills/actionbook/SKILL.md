@@ -1,7 +1,7 @@
 ---
 name: actionbook
 description: Browser action engine. Provides up-to-date action manuals for the modern web — operate any website instantly, one tab or dozens, concurrently.
-version: 1.3.0
+version: 1.4.3
 license: MIT
 platforms: [macos, linux, windows]
 metadata:
@@ -82,6 +82,8 @@ All commands support `--help` for full usage and examples.
 | Network | `network requests`, `network request <id>` | `actionbook browser network requests --help` |
 | Query | `query one\|all\|nth\|count` | `actionbook browser query --help` |
 | Batch | `batch-new-tab`, `batch-snapshot`, `batch-click` | `actionbook browser batch-new-tab --help` |
+| Extension | `extension status`, `extension ping`, `extension install`, `extension uninstall`, `extension path` | `actionbook extension status --help` |
+| Daemon | `daemon restart` | `actionbook daemon restart --help` |
 
 Full command reference: [command-reference.md](references/command-reference.md)
 

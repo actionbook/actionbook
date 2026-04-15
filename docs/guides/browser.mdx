@@ -127,11 +127,12 @@ If you've configured `mode = "extension"` in your config file, you only need to 
 
   <Step title="Verify with any browser command">
     ```bash
-    actionbook browser open "https://example.com"
-    actionbook browser snapshot
+    actionbook browser start --set-session-id s1
+    actionbook browser goto "https://example.com" --session s1 --tab t1
+    actionbook browser snapshot --session s1 --tab t1
     ```
 
-    The bridge auto-starts in the background and the extension auto-connects within a few seconds.
+    The extension bridge (part of the actionbook daemon) auto-starts in the background and the extension auto-connects within a few seconds.
   </Step>
 
   <Step title="Fallback: local debug install (only if Web Store install fails)">
@@ -152,6 +153,20 @@ If you've configured `mode = "extension"` in your config file, you only need to 
   </Step>
 </Steps>
 
+### Extension Commands
+
+The `actionbook extension` commands manage the Chrome extension and its connection to the actionbook daemon.
+
+```bash
+actionbook extension status                   # Bridge status + extension connection state
+actionbook extension ping                     # Measure bridge RTT
+actionbook extension install                  # Install extension to ~/.actionbook/extension/
+actionbook extension install --force          # Force reinstall
+actionbook extension uninstall                # Remove extension from disk
+actionbook extension path                     # Print install path, status, and version
+```
+
+The extension bridge runs inside the actionbook daemon (auto-started by browser commands). `extension status` shows whether the bridge is listening and the extension is connected. `extension ping` tests connectivity by connecting to the bridge WebSocket at `ws://127.0.0.1:19222`.
 
 ## Configuration
 

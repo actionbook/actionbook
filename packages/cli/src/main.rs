@@ -457,6 +457,7 @@ Usage: actionbook <command> [options]
 
 Commands:
   browser           Control browser sessions, tabs, and page interactions
+  extension         Manage the Chrome extension (status, ping, install, uninstall, path)
   daemon restart    Stop the running daemon (next CLI call auto-respawns one)
   setup             Configure actionbook (or --target <agent> for quick skills install)
   help       Show this help

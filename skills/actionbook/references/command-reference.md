@@ -293,6 +293,31 @@ actionbook browser batch-click @e5 @e6 @e7 --session s1 --tab t1
 
 `batch-new-tab` (alias `batch-open`) opens each URL as a new tab. If `--tabs` is provided, its length must match `--urls`. `batch-click` stops on first failure and reports progress. `batch-snapshot` returns per-tab results (ok or error).
 
+## Extension
+
+Manage the Chrome extension used by extension mode. The extension bridge runs inside the actionbook daemon (auto-started by browser commands).
+
+```bash
+actionbook extension status                          # Bridge status + extension connection state
+actionbook extension ping                            # Measure bridge RTT (connects to ws://127.0.0.1:19222)
+actionbook extension install                         # Install extension to ~/.actionbook/extension/
+actionbook extension install --force                 # Force reinstall even if up to date
+actionbook extension uninstall                       # Remove extension from ~/.actionbook/extension/
+actionbook extension path                            # Print install path, installed status, and version
+```
+
+`extension status` returns `bridge` state (`listening`, `not_listening`, or `failed`) and `extension_connected` (boolean). `extension ping` connects directly to the bridge WebSocket and measures round-trip time.
+
+After `extension install`, load the unpacked extension in Chrome via `chrome://extensions` > Developer mode > Load unpacked, pointing to the path from `extension path`.
+
+## Daemon
+
+The actionbook daemon runs in the background and manages browser sessions. It auto-starts on first CLI call.
+
+```bash
+actionbook daemon restart                            # Stop the running daemon (next CLI call respawns)
+```
+
 ## Setup
 
 ```bash
