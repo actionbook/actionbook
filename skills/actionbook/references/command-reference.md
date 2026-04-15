@@ -297,18 +297,18 @@ actionbook browser batch-click @e5 @e6 @e7 --session s1 --tab t1
 
 Manage the Chrome extension used by extension mode. The extension bridge runs inside the actionbook daemon (auto-started by browser commands).
 
+The recommended install method is the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo) (current version: 0.3.0). `actionbook extension install` is a local fallback — after running it, you must manually load the unpacked extension in Chrome via `chrome://extensions` > Developer mode > Load unpacked, pointing to the path from `actionbook extension path`.
+
 ```bash
 actionbook extension status                          # Bridge status + extension connection state
 actionbook extension ping                            # Measure bridge RTT (connects to ws://127.0.0.1:19222)
-actionbook extension install                         # Install extension to ~/Actionbook/extension/
+actionbook extension install                         # Fallback: install to ~/Actionbook/extension/ (requires manual Chrome load)
 actionbook extension install --force                 # Force reinstall even if up to date
 actionbook extension uninstall                       # Remove extension from ~/Actionbook/extension/
 actionbook extension path                            # Print install path, installed status, and version
 ```
 
 `extension status` returns `bridge` state (`listening`, `not_listening`, or `failed`) and `extension_connected` (boolean). `extension ping` connects directly to the bridge WebSocket and measures round-trip time.
-
-After `extension install`, load the unpacked extension in Chrome via `chrome://extensions` > Developer mode > Load unpacked, pointing to the path from `extension path`.
 
 ## Daemon
 

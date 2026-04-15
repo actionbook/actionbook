@@ -119,12 +119,12 @@ Actionbook provides tools for searching and retrieving action manuals. See the [
 
 ### Extension & Daemon
 
-Manage the Chrome extension used by extension mode, and the background daemon that hosts the bridge:
+The recommended way to install the Chrome extension is via the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo) (current version: 0.3.0). `actionbook extension install` is a local fallback — after running it, you must manually load the unpacked extension in Chrome (`chrome://extensions` > Developer mode > Load unpacked).
 
 ```bash
 actionbook extension status          # Bridge status + extension connection state
 actionbook extension ping            # Measure bridge RTT
-actionbook extension install         # Install extension to ~/Actionbook/extension/
+actionbook extension install         # Fallback: install to ~/Actionbook/extension/ (requires manual Chrome load)
 actionbook extension uninstall       # Remove extension
 actionbook extension path            # Print install path, status, and version
 actionbook daemon restart            # Stop the running daemon (next CLI call respawns)

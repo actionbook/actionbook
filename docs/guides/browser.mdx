@@ -157,10 +157,12 @@ If you've configured `mode = "extension"` in your config file, you only need to 
 
 The `actionbook extension` commands manage the Chrome extension and its connection to the actionbook daemon.
 
+The recommended install method is the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo) (current version: 0.3.0). `actionbook extension install` is a local fallback — after running it, you must manually load the unpacked extension in Chrome via `chrome://extensions` > Developer mode > Load unpacked, using the path from `actionbook extension path`.
+
 ```bash
 actionbook extension status                   # Bridge status + extension connection state
 actionbook extension ping                     # Measure bridge RTT
-actionbook extension install                  # Install extension to ~/Actionbook/extension/
+actionbook extension install                  # Fallback: install to ~/Actionbook/extension/ (requires manual Chrome load)
 actionbook extension install --force          # Force reinstall
 actionbook extension uninstall                # Remove extension from disk
 actionbook extension path                     # Print install path, status, and version
