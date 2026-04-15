@@ -7,79 +7,12 @@ assignees: []
 body:
   - type: markdown
     attributes:
-      value: |
-        Have a question? Check our [Documentation](https://actionbook.dev/docs) first.
-        For general discussions, consider using [GitHub Discussions](https://github.com/actionbook/actionbook/discussions) instead.
+      value: Check [Documentation](https://actionbook.dev/docs) or [Discord](https://actionbook.dev/discord) first.
 
   - type: textarea
     id: question
     attributes:
-      label: Your Question
-      description: What would you like to know?
+      label: Your question
       placeholder: How do I...?
     validations:
       required: true
-
-  - type: textarea
-    id: context
-    attributes:
-      label: Context (Optional)
-      description: Provide context about what you're trying to achieve
-      placeholder: |
-        I'm trying to build an AI agent that can operate e-commerce websites...
-        I've looked at the documentation for...
-    validations:
-      required: false
-
-  - type: dropdown
-    id: component
-    attributes:
-      label: Related Component (Optional)
-      options:
-        - "CLI (@actionbookdev/cli)"
-        - "SDK (@actionbookdev/sdk)"
-        - "MCP Server (@actionbookdev/mcp)"
-        - "Tools AI SDK (@actionbookdev/tools-ai-sdk)"
-        - "JSON UI (@actionbookdev/json-ui)"
-        - "Dify Plugin (@actionbookdev/dify-plugin)"
-        - "General / Platform"
-        - "Documentation"
-        - "Other"
-    validations:
-      required: false
-
-  - type: textarea
-    id: what-tried
-    attributes:
-      label: What I've Tried (Optional)
-      description: What have you already attempted?
-      placeholder: |
-        I tried...
-        But it didn't work because...
-    validations:
-      required: false
-
-  - type: textarea
-    id: code-sample
-    attributes:
-      label: Relevant Code (Optional)
-      description: Share any relevant code snippets
-      placeholder: |
-        ```typescript
-        // Your code here
-        ```
-      render: typescript
-    validations:
-      required: false
-
-  - type: textarea
-    id: additional-context
-    attributes:
-      label: Additional Context (Optional)
-      description: Any other relevant information
-      placeholder: |
-        - Environment: Node.js/Browser/etc.
-        - Use case: Production/Development/Research
-        - Links to related documentation
-    validations:
-      required: false
