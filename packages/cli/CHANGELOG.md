@@ -1,5 +1,20 @@
 # @actionbookdev/cli
 
+## 1.4.3
+
+### Patch Changes
+
+- Extension mode multi-tab support, eval improvements, and CLI enhancements.
+
+  - **Extension protocol 0.3.0**: concurrent multi-tab debugging with explicit `tabId` routing — fixes silent tab mis-routing where `snapshot --tab t1` could return data from the wrong tab. Breaking: extension must be reloaded after CLI upgrade.
+  - **Extension commands restored**: `extension install`, `uninstall`, `status`, `ping`, `path` — manage the Chrome extension lifecycle from the CLI. Extension files are now bundled in the binary.
+  - **Eval scope isolation** (default): repeated `let`/`const` declarations on the same tab no longer throw `SyntaxError`. Use `--no-isolate` for the old behavior. Eval responses now include `pre_url`, `pre_origin`, `pre_readyState` context and structured error details.
+  - **Select diagnostics**: `browser select` now shows available values, visible texts, and match mode when an option is not found.
+  - **Network enhancements**: `browser start --max-tracked-requests N` for configurable buffer size (default 500), `browser network requests --dump --out <dir>` to export requests with response bodies to disk.
+  - **Daemon restart**: new `actionbook daemon restart` command with lazy bridge start and port-holder diagnosis.
+  - **Extension bridge health check**: startup waits for bridge readiness to prevent connect/disconnect loops.
+  - Expanded CDP allowlist with 14 additional methods (DOM.resolveNode, Runtime.callFunctionOn, Accessibility.queryAXTree, etc.) that were previously silently rejected in extension mode.
+
 ## 1.4.2
 
 ### Patch Changes
