@@ -23,7 +23,7 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str, unique_session, url_cursor_fixture, wait_page_ready,
+    stdout_str, unique_session, url_a, url_cursor_fixture, wait_page_ready,
 };
 
 const URL_A: &str = "https://actionbook.dev";
@@ -447,7 +447,10 @@ fn snap_compact_flag_reduces_nodes() {
     if skip() {
         return;
     }
-    let (sid, tid) = start_session(URL_A);
+    // Use a local static page so both snapshot calls see identical content —
+    // `actionbook.dev` loads dynamic content between calls, causing the
+    // compact snapshot to occasionally have MORE nodes than the full one.
+    let (sid, tid) = start_session(&url_a());
     let _guard = SessionGuard::new(&sid);
 
     // Full snapshot
