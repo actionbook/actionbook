@@ -117,6 +117,19 @@ Explore real-world examples in the [Examples Documentation](https://actionbook.d
 
 Actionbook provides tools for searching and retrieving action manuals. See the [CLI Reference](https://actionbook.dev/docs/api-reference/cli) for the full command list. If you're using the MCP integration, see the [MCP Tools Reference](https://actionbook.dev/docs/api-reference/mcp-tools).
 
+### Extension & Daemon
+
+Manage the Chrome extension used by extension mode, and the background daemon that hosts the bridge:
+
+```bash
+actionbook extension status          # Bridge status + extension connection state
+actionbook extension ping            # Measure bridge RTT
+actionbook extension install         # Install extension to ~/.actionbook/extension/
+actionbook extension uninstall       # Remove extension
+actionbook extension path            # Print install path, status, and version
+actionbook daemon restart            # Stop the running daemon (next CLI call respawns)
+```
+
 
 ## Documentation
 
