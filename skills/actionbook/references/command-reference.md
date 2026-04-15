@@ -300,9 +300,9 @@ Manage the Chrome extension used by extension mode. The extension bridge runs in
 ```bash
 actionbook extension status                          # Bridge status + extension connection state
 actionbook extension ping                            # Measure bridge RTT (connects to ws://127.0.0.1:19222)
-actionbook extension install                         # Install extension to ~/.actionbook/extension/
+actionbook extension install                         # Install extension to ~/Actionbook/extension/
 actionbook extension install --force                 # Force reinstall even if up to date
-actionbook extension uninstall                       # Remove extension from ~/.actionbook/extension/
+actionbook extension uninstall                       # Remove extension from ~/Actionbook/extension/
 actionbook extension path                            # Print install path, installed status, and version
 ```
 

@@ -16,7 +16,7 @@ Chrome extension that bridges the Actionbook CLI with your browser for AI-powere
 actionbook extension install
 ```
 
-On a default install, this writes the unpacked extension to `~/.actionbook/extension/`.
+On a default install, this writes the unpacked extension to `~/Actionbook/extension/`.
 If you use a custom `ACTIONBOOK_HOME`, it stays inside that custom tree.
 
 ### Option 3: Manual download
