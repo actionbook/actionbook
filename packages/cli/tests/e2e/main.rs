@@ -25,6 +25,7 @@ mod interaction;
 mod logs;
 mod navigation;
 mod network;
+mod network_har;
 mod page_info;
 mod pdf;
 mod query;
