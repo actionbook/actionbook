@@ -176,13 +176,13 @@ pub async fn execute_stop(cmd: &StopCmd, registry: &SharedRegistry) -> ActionRes
         None => default_har_path(),
     };
 
-    if let Some(parent) = out_path.parent() {
-        if let Err(e) = std::fs::create_dir_all(parent) {
-            return ActionResult::fatal(
-                "IO_ERROR",
-                format!("failed to create HAR output directory: {e}"),
-            );
-        }
+    if let Some(parent) = out_path.parent()
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        return ActionResult::fatal(
+            "IO_ERROR",
+            format!("failed to create HAR output directory: {e}"),
+        );
     }
 
     let har = serialize_har(entries);

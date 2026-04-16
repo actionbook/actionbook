@@ -102,15 +102,14 @@ impl HarRecorder {
         // Handle redirect: the redirectResponse field carries the HTTP response
         // for the *previous* request that issued the redirect (e.g. status 302).
         // Finalize the existing entry for this requestId with the redirect data.
-        if let Some(rr) = params.get("redirectResponse") {
-            if let Some(entry) = self
+        if let Some(rr) = params.get("redirectResponse")
+            && let Some(entry) = self
                 .entries
                 .iter_mut()
                 .rev()
                 .find(|e| e.request_id == request_id)
-            {
-                har_apply_response(entry, rr);
-            }
+        {
+            har_apply_response(entry, rr);
         }
 
         let req = params.get("request");
