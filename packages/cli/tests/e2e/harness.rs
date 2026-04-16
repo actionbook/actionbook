@@ -3,6 +3,7 @@
 //! Provides environment isolation, CLI invocation helpers, local HTTP server,
 //! per-test session isolation, and common assertions.
 
+#[cfg(not(windows))]
 use assert_cmd::Command;
 use std::env;
 use std::fs;
@@ -809,11 +810,6 @@ Promise.all([
 /// Base URL for the mock API server (for search/manual e2e tests).
 pub fn api_base_url() -> String {
     format!("http://127.0.0.1:{}", local_server().port)
-}
-
-/// URL for the echo API endpoint (echoes back method, headers, body).
-pub fn url_echo() -> String {
-    format!("http://127.0.0.1:{}/api/echo", local_server().port)
 }
 
 /// URL for page A (primary test page).

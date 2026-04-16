@@ -32,7 +32,6 @@ mod pdf;
 mod query;
 mod screenshot;
 mod search;
-mod send;
 mod snapshot;
 mod storage;
 mod tab_management;
