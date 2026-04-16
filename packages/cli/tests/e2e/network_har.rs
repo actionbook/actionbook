@@ -537,7 +537,9 @@ fn har_per_tab_independent_recording() {
         "tab A HAR should not include XHR fixture requests from tab B"
     );
     assert!(
-        urls_b.iter().any(|url| url.contains("/api/data?source=fetch")),
+        urls_b
+            .iter()
+            .any(|url| url.contains("/api/data?source=fetch")),
         "tab B HAR should include its own XHR/fetch requests"
     );
 }
@@ -565,8 +567,13 @@ fn har_cross_session_independent_recording() {
     assert_success(
         &headless_json(
             &[
-                "browser", "goto", &url_network_load(),
-                "--session", &sid1, "--tab", &tid1,
+                "browser",
+                "goto",
+                &url_network_load(),
+                "--session",
+                &sid1,
+                "--tab",
+                &tid1,
             ],
             20,
         ),
@@ -577,8 +584,13 @@ fn har_cross_session_independent_recording() {
     assert_success(
         &headless_json(
             &[
-                "browser", "goto", &url_network_xhr(),
-                "--session", &sid2, "--tab", &tid2,
+                "browser",
+                "goto",
+                &url_network_xhr(),
+                "--session",
+                &sid2,
+                "--tab",
+                &tid2,
             ],
             20,
         ),
@@ -586,8 +598,14 @@ fn har_cross_session_independent_recording() {
     );
     wait_requests_done(&sid2, &tid2);
 
-    assert_success(&har_stop_with_out(&sid1, &tid1, &har_s1), "har stop session 1");
-    assert_success(&har_stop_with_out(&sid2, &tid2, &har_s2), "har stop session 2");
+    assert_success(
+        &har_stop_with_out(&sid1, &tid1, &har_s1),
+        "har stop session 1",
+    );
+    assert_success(
+        &har_stop_with_out(&sid2, &tid2, &har_s2),
+        "har stop session 2",
+    );
 
     let har_json_s1 = har_json_from_file(&har_s1);
     let har_json_s2 = har_json_from_file(&har_s2);
@@ -608,7 +626,9 @@ fn har_cross_session_independent_recording() {
     );
     // Session 2 should contain its own XHR/fetch requests.
     assert!(
-        urls_s2.iter().any(|url| url.contains("/api/data?source=fetch")),
+        urls_s2
+            .iter()
+            .any(|url| url.contains("/api/data?source=fetch")),
         "session 2 HAR should include its own fetch requests"
     );
     // Session 1 should have entries (the static page load).

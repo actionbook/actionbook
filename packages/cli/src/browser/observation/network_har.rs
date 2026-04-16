@@ -70,8 +70,11 @@ pub async fn execute_start(cmd: &StartCmd, registry: &SharedRegistry) -> ActionR
         None => {
             return ActionResult::fatal(
                 "INTERNAL_ERROR",
-                format!("no CDP session for tab '{}' (target {})", cmd.tab, target_id),
-            )
+                format!(
+                    "no CDP session for tab '{}' (target {})",
+                    cmd.tab, target_id
+                ),
+            );
         }
     };
 
@@ -145,8 +148,11 @@ pub async fn execute_stop(cmd: &StopCmd, registry: &SharedRegistry) -> ActionRes
         None => {
             return ActionResult::fatal(
                 "INTERNAL_ERROR",
-                format!("no CDP session for tab '{}' (target {})", cmd.tab, target_id),
-            )
+                format!(
+                    "no CDP session for tab '{}' (target {})",
+                    cmd.tab, target_id
+                ),
+            );
         }
     };
 
@@ -159,7 +165,7 @@ pub async fn execute_stop(cmd: &StopCmd, registry: &SharedRegistry) -> ActionRes
             return ActionResult::fatal(
                 "HAR_NOT_RECORDING",
                 format!("no HAR recording is active for tab '{}'", cmd.tab),
-            )
+            );
         }
         Err(other) => return ActionResult::fatal("INTERNAL_ERROR", other.to_string()),
     };
@@ -217,19 +223,27 @@ fn serialize_har(entries: Vec<HarEntry>) -> serde_json::Value {
 fn har_entry_to_json(e: HarEntry) -> serde_json::Value {
     let started_date_time = wall_time_to_rfc3339(e.wall_time);
 
-    let req_headers: Vec<serde_json::Value> = e.request_headers.iter()
+    let req_headers: Vec<serde_json::Value> = e
+        .request_headers
+        .iter()
         .map(|(k, v)| json!({ "name": k, "value": v }))
         .collect();
-    let request_cookies = e.request_headers.iter()
+    let request_cookies = e
+        .request_headers
+        .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case("cookie"))
         .map(|(_, v)| parse_request_cookies(v))
         .unwrap_or_default();
     let query_string = parse_query_string(&e.url);
 
-    let resp_headers: Vec<serde_json::Value> = e.response_headers.iter()
+    let resp_headers: Vec<serde_json::Value> = e
+        .response_headers
+        .iter()
         .map(|(k, v)| json!({ "name": k, "value": v }))
         .collect();
-    let resp_cookies: Vec<serde_json::Value> = e.response_headers.iter()
+    let resp_cookies: Vec<serde_json::Value> = e
+        .response_headers
+        .iter()
         .filter(|(k, _)| k.eq_ignore_ascii_case("set-cookie"))
         .map(|(_, v)| {
             let name_value = v.split(';').next().unwrap_or("");
@@ -238,9 +252,12 @@ fn har_entry_to_json(e: HarEntry) -> serde_json::Value {
         })
         .collect();
 
-    let (timings, total_time) = compute_timings(e.cdp_timing.as_ref(), e.loading_finished_timestamp);
+    let (timings, total_time) =
+        compute_timings(e.cdp_timing.as_ref(), e.loading_finished_timestamp);
 
-    let content_type = e.request_headers.iter()
+    let content_type = e
+        .request_headers
+        .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
         .map(|(_, v)| v.as_str())
         .unwrap_or("text/plain")
@@ -297,30 +314,57 @@ fn compute_timings(
     loading_finished_ts: Option<f64>,
 ) -> (serde_json::Value, f64) {
     let Some(t) = cdp_timing else {
-        return (json!({ "blocked": -1, "dns": -1, "connect": -1, "ssl": -1, "send": 0, "wait": 0, "receive": 0 }), 0.0);
+        return (
+            json!({ "blocked": -1, "dns": -1, "connect": -1, "ssl": -1, "send": 0, "wait": 0, "receive": 0 }),
+            0.0,
+        );
     };
 
     let get = |key: &str| t.get(key).and_then(|v| v.as_f64()).unwrap_or(-1.0);
 
     let request_time = get("requestTime");
-    let dns_start    = get("dnsStart");
-    let dns_end      = get("dnsEnd");
+    let dns_start = get("dnsStart");
+    let dns_end = get("dnsEnd");
     let connect_start = get("connectStart");
-    let connect_end  = get("connectEnd");
-    let ssl_start    = get("sslStart");
-    let ssl_end      = get("sslEnd");
-    let send_start   = get("sendStart");
-    let send_end     = get("sendEnd");
+    let connect_end = get("connectEnd");
+    let ssl_start = get("sslStart");
+    let ssl_end = get("sslEnd");
+    let send_start = get("sendStart");
+    let send_end = get("sendEnd");
     let recv_headers_start = get("receiveHeadersStart");
-    let recv_headers_end   = get("receiveHeadersEnd");
+    let recv_headers_end = get("receiveHeadersEnd");
 
-    let dns = if dns_start >= 0.0 && dns_end >= 0.0 { dns_end - dns_start } else { -1.0 };
-    let connect = if connect_start >= 0.0 && connect_end >= 0.0 { connect_end - connect_start } else { -1.0 };
-    let ssl = if ssl_start >= 0.0 && ssl_end >= 0.0 { ssl_end - ssl_start } else { -1.0 };
-    let send = if send_start >= 0.0 && send_end >= 0.0 { (send_end - send_start).max(0.0) } else { 0.0 };
+    let dns = if dns_start >= 0.0 && dns_end >= 0.0 {
+        dns_end - dns_start
+    } else {
+        -1.0
+    };
+    let connect = if connect_start >= 0.0 && connect_end >= 0.0 {
+        connect_end - connect_start
+    } else {
+        -1.0
+    };
+    let ssl = if ssl_start >= 0.0 && ssl_end >= 0.0 {
+        ssl_end - ssl_start
+    } else {
+        -1.0
+    };
+    let send = if send_start >= 0.0 && send_end >= 0.0 {
+        (send_end - send_start).max(0.0)
+    } else {
+        0.0
+    };
 
-    let wait_end = if recv_headers_start >= 0.0 { recv_headers_start } else { recv_headers_end };
-    let wait = if send_end >= 0.0 && wait_end >= send_end { wait_end - send_end } else { 0.0 };
+    let wait_end = if recv_headers_start >= 0.0 {
+        recv_headers_start
+    } else {
+        recv_headers_end
+    };
+    let wait = if send_end >= 0.0 && wait_end >= send_end {
+        wait_end - send_end
+    } else {
+        0.0
+    };
 
     let receive = loading_finished_ts
         .filter(|_| request_time >= 0.0 && recv_headers_end >= 0.0)
@@ -347,7 +391,9 @@ fn compute_timings(
         send,
         wait,
         receive,
-    ].iter().sum();
+    ]
+    .iter()
+    .sum();
 
     let timings = json!({
         "blocked": blocked,
@@ -408,10 +454,13 @@ fn unix_secs_to_rfc3339(secs: u64, millis: u64) -> String {
 }
 
 fn parse_request_cookies(cookie_header: &str) -> Vec<serde_json::Value> {
-    cookie_header.split(';')
+    cookie_header
+        .split(';')
         .filter_map(|pair| {
             let pair = pair.trim();
-            if pair.is_empty() { return None; }
+            if pair.is_empty() {
+                return None;
+            }
             let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
             Some(json!({ "name": name.trim(), "value": value.trim() }))
         })
@@ -425,7 +474,9 @@ fn parse_query_string(url_str: &str) -> Vec<serde_json::Value> {
     }
     qs.split('&')
         .filter_map(|pair| {
-            if pair.is_empty() { return None; }
+            if pair.is_empty() {
+                return None;
+            }
             let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
             let decode = |s: &str| s.replace('+', " ");
             Some(json!({ "name": decode(k), "value": decode(v) }))

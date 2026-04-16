@@ -88,7 +88,9 @@ pub struct HarRecorder {
 
 impl HarRecorder {
     fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
     fn on_request_will_be_sent(&mut self, params: &Value) {
@@ -101,18 +103,41 @@ impl HarRecorder {
         // for the *previous* request that issued the redirect (e.g. status 302).
         // Finalize the existing entry for this requestId with the redirect data.
         if let Some(rr) = params.get("redirectResponse") {
-            if let Some(entry) = self.entries.iter_mut().rev().find(|e| e.request_id == request_id) {
+            if let Some(entry) = self
+                .entries
+                .iter_mut()
+                .rev()
+                .find(|e| e.request_id == request_id)
+            {
                 har_apply_response(entry, rr);
             }
         }
 
         let req = params.get("request");
-        let url = req.and_then(|r| r.get("url")).and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let method = req.and_then(|r| r.get("method")).and_then(|v| v.as_str()).unwrap_or("GET").to_string();
-        let wall_time = params.get("wallTime").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let resource_type = params.get("type").and_then(|v| v.as_str()).unwrap_or("Other").to_string();
+        let url = req
+            .and_then(|r| r.get("url"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let method = req
+            .and_then(|r| r.get("method"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("GET")
+            .to_string();
+        let wall_time = params
+            .get("wallTime")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let resource_type = params
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Other")
+            .to_string();
         let request_headers = har_extract_headers(req.and_then(|r| r.get("headers")));
-        let post_data = req.and_then(|r| r.get("postData")).and_then(|v| v.as_str()).map(|s| s.to_string());
+        let post_data = req
+            .and_then(|r| r.get("postData"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         let request_body_size = post_data.as_ref().map(|s| s.len() as i64).unwrap_or(0);
 
         self.entries.push(HarEntry {
@@ -141,7 +166,12 @@ impl HarRecorder {
             Some(id) if !id.is_empty() => id,
             _ => return,
         };
-        if let Some(entry) = self.entries.iter_mut().rev().find(|e| e.request_id == request_id && e.status.is_none()) {
+        if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .rev()
+            .find(|e| e.request_id == request_id && e.status.is_none())
+        {
             let resp = params.get("response").unwrap_or(&Value::Null);
             har_apply_response(entry, resp);
             entry.cdp_timing = resp.get("timing").cloned();
@@ -153,7 +183,12 @@ impl HarRecorder {
             Some(id) if !id.is_empty() => id,
             _ => return,
         };
-        if let Some(entry) = self.entries.iter_mut().rev().find(|e| e.request_id == request_id) {
+        if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .rev()
+            .find(|e| e.request_id == request_id)
+        {
             entry.loading_finished_timestamp = params.get("timestamp").and_then(|v| v.as_f64());
             if let Some(sz) = params.get("encodedDataLength").and_then(|v| v.as_i64()) {
                 entry.response_body_size = sz;
@@ -166,10 +201,19 @@ impl HarRecorder {
             Some(id) if !id.is_empty() => id,
             _ => return,
         };
-        if let Some(entry) = self.entries.iter_mut().rev().find(|e| e.request_id == request_id) {
+        if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .rev()
+            .find(|e| e.request_id == request_id)
+        {
             if entry.status.is_none() {
                 entry.status = Some(0);
-                entry.status_text = params.get("errorText").and_then(|v| v.as_str()).unwrap_or("Failed").to_string();
+                entry.status_text = params
+                    .get("errorText")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Failed")
+                    .to_string();
             }
             entry.loading_finished_timestamp = params.get("timestamp").and_then(|v| v.as_f64());
         }
@@ -178,13 +222,25 @@ impl HarRecorder {
 
 fn har_apply_response(entry: &mut HarEntry, resp: &Value) {
     entry.status = resp.get("status").and_then(|v| v.as_i64());
-    entry.status_text = resp.get("statusText").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    entry.mime_type = resp.get("mimeType").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    entry.http_version = resp.get("protocol").and_then(|v| v.as_str())
+    entry.status_text = resp
+        .get("statusText")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    entry.mime_type = resp
+        .get("mimeType")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    entry.http_version = resp
+        .get("protocol")
+        .and_then(|v| v.as_str())
         .map(har_cdp_protocol_to_http_version)
         .unwrap_or_else(|| "HTTP/1.1".to_string());
     entry.response_headers = har_extract_headers(resp.get("headers"));
-    entry.redirect_url = entry.response_headers.iter()
+    entry.redirect_url = entry
+        .response_headers
+        .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case("location"))
         .map(|(_, v)| v.clone())
         .unwrap_or_default();
@@ -203,8 +259,13 @@ fn har_cdp_protocol_to_http_version(protocol: &str) -> String {
 }
 
 fn har_extract_headers(headers_val: Option<&Value>) -> Vec<(String, String)> {
-    headers_val.and_then(|v| v.as_object())
-        .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string())).collect())
+    headers_val
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.iter()
+                .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
