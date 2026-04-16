@@ -264,10 +264,25 @@ fn har_entry_has_request_response() {
         return;
     }
 
-    let (sid, tid) = start_session(&url_network_xhr());
+    let (sid, tid) = start_session("about:blank");
     let _guard = SessionGuard::new(&sid);
 
     assert_success(&har_start(&sid, &tid), "har start");
+    assert_success(
+        &headless_json(
+            &[
+                "browser",
+                "goto",
+                &url_network_xhr(),
+                "--session",
+                &sid,
+                "--tab",
+                &tid,
+            ],
+            20,
+        ),
+        "goto network xhr",
+    );
     wait_requests_done(&sid, &tid);
 
     let stop_v = parse_json(&har_stop(&sid, &tid));
