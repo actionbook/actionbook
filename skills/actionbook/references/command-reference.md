@@ -301,7 +301,7 @@ The recommended install method is the [Chrome Web Store](https://chromewebstore.
 
 ```bash
 actionbook extension status                          # Bridge status + extension connection state
-actionbook extension ping                            # Measure bridge RTT (connects to ws://127.0.0.1:19222)
+actionbook extension ping                            # Measure bridge RTT (connects to ws://localhost:19222)
 actionbook extension install                         # Fallback: install to ~/Actionbook/extension/ (requires manual Chrome load)
 actionbook extension install --force                 # Force reinstall even if up to date
 actionbook extension uninstall                       # Remove extension from ~/Actionbook/extension/
