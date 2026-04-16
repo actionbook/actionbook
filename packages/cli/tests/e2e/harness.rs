@@ -127,16 +127,18 @@ fn run_cli_with_timeout(
         }
 
         let mut child = cmd.spawn().expect("failed to spawn command");
-        let status = match wait_timeout::ChildExt::wait_timeout(
-            &mut child,
-            Duration::from_secs(timeout_secs),
-        ) {
-            Ok(Some(status)) => status,
-            Ok(None) => {
-                let _ = child.kill();
-                child.wait().expect("failed to wait after kill")
+        let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
+        let status = loop {
+            match child.try_wait().expect("try_wait failed") {
+                Some(s) => break s,
+                None => {
+                    if std::time::Instant::now() >= deadline {
+                        let _ = child.kill();
+                        break child.wait().expect("wait after kill");
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
             }
-            Err(e) => panic!("wait_timeout error: {e}"),
         };
 
         let stdout = std::fs::read(&stdout_path).unwrap_or_default();
