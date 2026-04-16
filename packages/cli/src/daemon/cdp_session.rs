@@ -59,6 +59,7 @@ type TabNetRequests = Arc<Mutex<HashMap<String, VecDeque<TrackedRequest>>>>;
 
 /// A single HTTP request/response pair captured for HAR 1.2 output.
 /// Fields map directly to HAR 1.2 entries; all timing values are in ms.
+#[derive(Clone)]
 pub struct HarEntry {
     pub request_id: String,
     pub wall_time: f64,
@@ -718,6 +719,9 @@ impl CdpSession {
         // Clean up tracked network requests for this session.
         self.tab_net_requests.lock().await.remove(&session_id);
 
+        // Clean up any active HAR recorder for this session.
+        self.tab_har_recorders.lock().await.remove(&session_id);
+
         // Clean up all event subscriptions for this session.
         self.unsubscribe_all(&session_id).await;
 
@@ -1080,13 +1084,23 @@ impl CdpSession {
 
     /// Stop HAR recording and return all captured entries.
     ///
+    /// The recorder is **not** removed yet — call `har_commit` after successfully
+    /// writing the file to release it.  This ensures that an I/O failure in the
+    /// caller does not silently destroy the captured data.
+    ///
     /// Returns `Err("HAR_NOT_RECORDING")` if no recording was active.
     pub async fn har_stop(&self, cdp_session_id: &str) -> Result<Vec<HarEntry>, &'static str> {
-        let mut recorders = self.tab_har_recorders.lock().await;
-        match recorders.remove(cdp_session_id) {
+        let recorders = self.tab_har_recorders.lock().await;
+        match recorders.get(cdp_session_id) {
             None => Err("HAR_NOT_RECORDING"),
-            Some(recorder) => Ok(recorder.entries),
+            Some(recorder) => Ok(recorder.entries.clone()),
         }
+    }
+
+    /// Remove the HAR recorder after the caller has successfully persisted the
+    /// entries returned by `har_stop`.
+    pub async fn har_commit(&self, cdp_session_id: &str) {
+        self.tab_har_recorders.lock().await.remove(cdp_session_id);
     }
 
     /// Background task: read WS messages and route responses/events to callers.

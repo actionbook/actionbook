@@ -150,6 +150,9 @@ pub async fn execute_stop(cmd: &StopCmd, registry: &SharedRegistry) -> ActionRes
         }
     };
 
+    // Peek at entries without removing the recorder yet.  The recorder is
+    // only committed (removed) after the file has been written successfully,
+    // so an I/O failure leaves the data intact and the user can retry.
     let entries = match cdp.har_stop(&cdp_session_id).await {
         Ok(entries) => entries,
         Err("HAR_NOT_RECORDING") => {
@@ -185,6 +188,9 @@ pub async fn execute_stop(cmd: &StopCmd, registry: &SharedRegistry) -> ActionRes
     if let Err(e) = std::fs::write(&out_path, har_str) {
         return ActionResult::fatal("IO_ERROR", format!("failed to write HAR file: {e}"));
     }
+
+    // File written successfully — release the recorder from memory.
+    cdp.har_commit(&cdp_session_id).await;
 
     ActionResult::ok(json!({
         "path": out_path.to_string_lossy().as_ref(),
