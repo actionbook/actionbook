@@ -229,6 +229,8 @@ pub fn format_text(
                     | "browser session-storage clear"
                     | "browser network requests"
                     | "browser network request"
+                    | "browser network har start"
+                    | "browser network har stop"
                     | "extension install"
                     | "extension uninstall"
             );
@@ -856,6 +858,36 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
                     };
                     lines.push(format!("body: {preview}"));
                 }
+            }
+        }
+        "browser network har start" => {
+            if let Some(rt) = data.get("resource_types").and_then(|v| v.as_str()) {
+                lines.push(format!("resource_types: {rt}"));
+            }
+            if let Some(n) = data.get("max_entries").and_then(|v| v.as_u64()) {
+                lines.push(format!("max_entries: {n}"));
+            }
+            if let Some(n) = data.get("max_body_size").and_then(|v| v.as_u64()) {
+                lines.push(format!("max_body_size: {n}"));
+            }
+            if let Some(b) = data.get("capture_bodies").and_then(|v| v.as_bool()) {
+                lines.push(format!("capture_bodies: {b}"));
+            }
+            if let Some(dir) = data.get("output_dir").and_then(|v| v.as_str()) {
+                lines.push(format!("output_dir: {dir} (default; override at stop with --out <path>)"));
+            }
+        }
+        "browser network har stop" => {
+            if let Some(path) = data.get("path").and_then(|v| v.as_str()) {
+                lines.push(format!("path: {path}"));
+            }
+            if let Some(n) = data.get("count").and_then(|v| v.as_u64()) {
+                lines.push(format!("count: {n}"));
+            }
+            if let Some(n) = data.get("dropped").and_then(|v| v.as_u64())
+                && n > 0
+            {
+                lines.push(format!("dropped: {n}"));
             }
         }
         "browser logs console" | "browser logs errors" => {

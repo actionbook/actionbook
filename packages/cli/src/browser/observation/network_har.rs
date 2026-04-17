@@ -143,6 +143,15 @@ pub async fn execute_start(cmd: &StartCmd, registry: &SharedRegistry) -> ActionR
     };
 
     let resource_types = parse_resource_types(&cmd.resource_types);
+    // Echo the canonical filter list back to the agent so it can tell at a
+    // glance whether the alias ("all", "xhr,fetch") was expanded correctly.
+    let resource_types_echo = if resource_types.is_empty() {
+        "all".to_string()
+    } else {
+        let mut v: Vec<&str> = resource_types.iter().map(String::as_str).collect();
+        v.sort_unstable();
+        v.join(",")
+    };
 
     match cdp
         .har_start(
@@ -155,7 +164,17 @@ pub async fn execute_start(cmd: &StartCmd, registry: &SharedRegistry) -> ActionR
         )
         .await
     {
-        Ok(()) => ActionResult::ok(json!({ "recording": true })),
+        Ok(()) => ActionResult::ok(json!({
+            "recording": true,
+            "resource_types": resource_types_echo,
+            "max_entries": cmd.max_entries,
+            "max_body_size": cmd.max_body_size,
+            "capture_bodies": !cmd.no_bodies,
+            // Agents need to know where stop will write by default. The actual
+            // filename is only decided at stop time (timestamped), so we
+            // surface the directory — the stop response returns the full path.
+            "output_dir": default_har_dir().to_string_lossy().as_ref(),
+        })),
         Err("HAR_ALREADY_RECORDING") => ActionResult::fatal(
             "HAR_ALREADY_RECORDING",
             format!("HAR recording is already active for tab '{}'", cmd.tab),
@@ -582,11 +601,15 @@ fn parse_query_string(url_str: &str) -> Vec<serde_json::Value> {
         .collect()
 }
 
-fn default_har_path() -> PathBuf {
-    let dir = dirs::home_dir()
+fn default_har_dir() -> PathBuf {
+    dirs::home_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join(".actionbook")
-        .join("har");
+        .join("har")
+}
+
+fn default_har_path() -> PathBuf {
+    let dir = default_har_dir();
     let _ = std::fs::create_dir_all(&dir);
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
