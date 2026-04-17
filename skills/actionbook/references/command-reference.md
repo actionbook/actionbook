@@ -56,7 +56,29 @@ actionbook browser restart --session s1                    # Restart a session
 
 Supported cloud providers: `driver` (`DRIVER_API_KEY`), `hyperbrowser` (`HYPERBROWSER_API_KEY`), `browseruse` (`BROWSER_USE_API_KEY`). `-p` is mutually exclusive with `--cdp-endpoint` and `--mode local/extension`.
 
-`--auto-connect` (env: `ACTIONBOOK_AUTO_CONNECT`) auto-discovers a locally running Chrome with remote debugging enabled. Discovery order: Chrome's `DevToolsActivePort` file, then probe ports `[9222, 9229]`. Mutually exclusive with `--cdp-endpoint`, `-p/--provider`, `--mode cloud`, and `--mode extension`. `browser close` only detaches — it does not kill the external Chrome. Error codes: `CHROME_AUTO_CONNECT_NOT_FOUND` (no Chrome found), `CHROME_CDP_UNREACHABLE` (port found but CDP unreachable).
+`--auto-connect` (env: `ACTIONBOOK_AUTO_CONNECT`) attaches to a Chrome you've started with remote debugging enabled. **Prerequisite**: start Chrome with `--remote-debugging-port`:
+
+```bash
+# macOS
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
+
+# Linux
+google-chrome --remote-debugging-port=9222
+
+# Windows
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
+```
+
+Then attach:
+
+```bash
+actionbook browser start --auto-connect --session s1
+actionbook browser list-tabs --session s1                  # See existing Chrome tabs
+actionbook browser snapshot --session s1 --tab t1
+actionbook browser close --session s1                      # Detach only — Chrome stays running
+```
+
+Discovery order: Chrome's `DevToolsActivePort` file, then probe ports `[9222, 9229]`. Mutually exclusive with `--cdp-endpoint`, `-p/--provider`, `--mode cloud`, and `--mode extension`. Error codes: `CHROME_AUTO_CONNECT_NOT_FOUND` (no Chrome found), `CHROME_CDP_UNREACHABLE` (port found but CDP unreachable).
 
 ## Tab
 

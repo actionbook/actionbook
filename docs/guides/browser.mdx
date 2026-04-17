@@ -42,17 +42,55 @@ When done, close the browser:
 actionbook browser close --session s1
 ```
 
-### Attach to a Running Chrome
+### Attach to a Running Chrome (Auto-Connect)
 
-If Chrome is already running with remote debugging enabled, use `--auto-connect` to attach without launching a new instance:
+Use `--auto-connect` to attach to a Chrome instance you've already started — useful when you need your existing login sessions, extensions, or a specific Chrome configuration.
 
-```bash
-actionbook browser start --auto-connect --session s1
-actionbook browser snapshot --session s1 --tab t1
-```
+<Steps>
+  <Step title="Start Chrome with remote debugging enabled">
+    ```bash
+    # macOS
+    /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
+
+    # Linux
+    google-chrome --remote-debugging-port=9222
+
+    # Windows
+    "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
+    ```
+
+    You can also add `--user-data-dir=/tmp/chrome-debug` for a clean profile, or omit it to use your default profile with all your logged-in sessions.
+  </Step>
+
+  <Step title="Attach Actionbook to the running Chrome">
+    ```bash
+    actionbook browser start --auto-connect --session s1
+    ```
+
+    Actionbook auto-discovers the running Chrome by reading the `DevToolsActivePort` file, then probing ports `[9222, 9229]`. No manual endpoint configuration needed.
+  </Step>
+
+  <Step title="Use browser commands as usual">
+    ```bash
+    actionbook browser list-tabs --session s1
+    actionbook browser snapshot --session s1 --tab t1
+    actionbook browser click @e5 --session s1 --tab t1
+    ```
+
+    All browser commands work the same way. Existing tabs in Chrome are available immediately.
+  </Step>
+
+  <Step title="Detach when done">
+    ```bash
+    actionbook browser close --session s1
+    ```
+
+    This only detaches the Actionbook session — it does **not** kill the external Chrome process. Your Chrome stays running with all tabs intact.
+  </Step>
+</Steps>
 
 <Note>
-  `--auto-connect` (env: `ACTIONBOOK_AUTO_CONNECT`) discovers Chrome by reading the `DevToolsActivePort` file, then probing ports `[9222, 9229]`. It is mutually exclusive with `--cdp-endpoint`, `-p/--provider`, `--mode cloud`, and `--mode extension`. `browser close` only detaches the session — it does not kill the external Chrome process.
+  `--auto-connect` (env: `ACTIONBOOK_AUTO_CONNECT`) is mutually exclusive with `--cdp-endpoint`, `-p/--provider`, `--mode cloud`, and `--mode extension`. Error codes: `CHROME_AUTO_CONNECT_NOT_FOUND` (no running Chrome found), `CHROME_CDP_UNREACHABLE` (Chrome found but CDP unreachable — verify `--remote-debugging-port` was set).
 </Note>
 
 ## Cloud Providers
