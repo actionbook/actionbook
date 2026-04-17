@@ -1,7 +1,7 @@
 ---
 name: actionbook
 description: Browser action engine. Provides up-to-date action manuals for the modern web — operate any website instantly, one tab or dozens, concurrently.
-version: 1.4.3
+version: 1.5.0
 license: MIT
 platforms: [macos, linux, windows]
 metadata:
@@ -77,6 +77,8 @@ All commands support `--help` for full usage and examples.
 
 | Category | Key commands | Help |
 |----------|-------------|------|
+| Search | `search` | `actionbook search --help` |
+| Manual | `manual` (alias: `man`) | `actionbook manual --help` |
 | Session | `start`, `close`, `restart`, `list-sessions`, `status` | `actionbook browser start --help` |
 | Tab | `new-tab`, `close-tab`, `list-tabs` | `actionbook browser new-tab --help` |
 | Navigation | `goto`, `back`, `forward`, `reload` | `actionbook browser goto --help` |

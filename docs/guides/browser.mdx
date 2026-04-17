@@ -170,7 +170,7 @@ If you've configured `mode = "extension"` in your config file, you only need to 
 
 The `actionbook extension` commands manage the Chrome extension and its connection to the actionbook daemon.
 
-The recommended install method is the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo) (current version: 0.3.0). `actionbook extension install` is a local fallback — after running it, you must manually load the unpacked extension in Chrome via `chrome://extensions` > Developer mode > Load unpacked, using the path from `actionbook extension path`.
+The recommended install method is the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo) (current version: 0.4.0). `actionbook extension install` is a local fallback — after running it, you must manually load the unpacked extension in Chrome via `chrome://extensions` > Developer mode > Load unpacked, using the path from `actionbook extension path`.
 
 ```bash
 actionbook extension status                   # Bridge status + extension connection state
@@ -182,6 +182,10 @@ actionbook extension path                     # Print install path, status, and 
 ```
 
 The extension bridge runs inside the actionbook daemon (auto-started by browser commands). `extension status` shows whether the bridge is listening and the extension is connected. `extension ping` tests connectivity by connecting to the bridge WebSocket at `ws://127.0.0.1:19222`.
+
+<Note>
+  **Extension 0.4.0:** Tabs opened by Actionbook are automatically grouped into a Chrome "Actionbook" tab group (toggleable via extension popup). `list-tabs` in extension mode now returns only Actionbook-managed tabs — other user tabs are hidden. Extensions below 0.4.0 are rejected at handshake.
+</Note>
 
 ## Configuration
 
@@ -271,6 +275,10 @@ actionbook browser wait navigation --session s1 --tab t1
 actionbook browser wait network-idle --session s1 --tab t1
 actionbook browser wait condition "document.readyState === 'complete'" --session s1 --tab t1
 ```
+
+<Tip>
+  `wait network-idle` automatically falls back to **relaxed** mode on pages with persistent background traffic (analytics pings, health-checks). Relaxed mode tolerates low-rate background requests instead of requiring absolute silence. The response includes `mode` ("strict" or "relaxed").
+</Tip>
 
 ### Observation & Export
 
