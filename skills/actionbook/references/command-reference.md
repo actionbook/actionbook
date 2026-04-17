@@ -18,18 +18,18 @@ Selectors accept CSS, XPath, or snapshot refs (`@eN` from `snapshot` output).
 ## Search
 
 ```bash
-actionbook search "airbnb"                                 # Search for action manuals by keyword
-actionbook search "google login" --json                    # Search with JSON output
+actionbook search "youtube"                                # Search for action manuals by keyword
+actionbook search "youtube upload" --json                  # Search with JSON output
 ```
 
 ## Manual
 
 ```bash
-actionbook manual notion                                   # Overview of a site (groups & actions)
-actionbook manual notion pages                             # Actions in a group
-actionbook manual notion pages create_page                 # Detailed action documentation
-actionbook manual notion --json                            # JSON output
-actionbook man notion                                      # Alias for manual
+actionbook manual youtube                                  # Overview of a site (groups & actions)
+actionbook manual youtube videos                           # Actions in a group
+actionbook manual youtube videos search                    # Detailed action documentation
+actionbook manual youtube --json                           # JSON output
+actionbook man youtube                                     # Alias for manual
 ```
 
 ## Session

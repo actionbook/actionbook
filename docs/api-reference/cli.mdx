@@ -19,12 +19,12 @@ actionbook search [query]
 
 **Arguments:**
 
-- `query`: The search keyword (e.g., "airbnb", "google login").
+- `query`: The search keyword (e.g., "youtube", "youtube upload").
 
 **Example:**
 
 ```bash
-actionbook search "airbnb search"
+actionbook search "youtube"
 ```
 
 ## `actionbook get`
@@ -59,17 +59,17 @@ actionbook manual [site] [group] [action]
 
 **Arguments:**
 
-- `site`: Site name (e.g., "notion", "airbnb"). If omitted, lists available sites.
-- `group`: Group name within the site (e.g., "pages").
-- `action`: Action name within the group (e.g., "create_page").
+- `site`: Site name (e.g., "youtube", "airbnb"). If omitted, lists available sites.
+- `group`: Group name within the site (e.g., "videos").
+- `action`: Action name within the group (e.g., "search").
 
 **Examples:**
 
 ```bash
-actionbook manual notion                          # Overview of a site
-actionbook manual notion pages                    # Actions in a group
-actionbook manual notion pages create_page        # Detailed action docs
-actionbook man notion --json                      # Alias with JSON output
+actionbook manual youtube                         # Overview of a site
+actionbook manual youtube videos                  # Actions in a group
+actionbook manual youtube videos search           # Detailed action docs
+actionbook man youtube --json                     # Alias with JSON output
 ```
 
 ## `actionbook setup`
