@@ -104,6 +104,7 @@ Start or attach a browser session. Entry point for all modes including cloud pro
 | `--profile <name>` | Profile name |
 | `--stealth` / `--no-stealth` | Anti-detection mode (default: enabled) |
 | `--max-tracked-requests <N>` | Network request buffer size per tab (default: 500, range: 1–100000) |
+| `--auto-connect` | Auto-discover and attach to a locally running Chrome (env: `ACTIONBOOK_AUTO_CONNECT`) |
 
 **Examples:**
 
@@ -112,7 +113,12 @@ actionbook browser start --set-session-id s1
 actionbook browser start --session s1 --open-url https://google.com
 actionbook browser start -p hyperbrowser --session s1
 actionbook browser start --mode cloud --cdp-endpoint wss://browser.example.com/ws
+actionbook browser start --auto-connect --session s1
 ```
+
+<Note>
+  `--auto-connect` discovers a locally running Chrome by reading Chrome's `DevToolsActivePort` file, then probing ports `[9222, 9229]`. It is mutually exclusive with `--cdp-endpoint`, `-p/--provider`, `--mode cloud`, and `--mode extension`. `browser close` only detaches the session — it does not kill the external Chrome process. Error codes: `CHROME_AUTO_CONNECT_NOT_FOUND`, `CHROME_CDP_UNREACHABLE`.
+</Note>
 
 <Note>
   `-p` is mutually exclusive with `--cdp-endpoint` and `--mode local/extension`.
