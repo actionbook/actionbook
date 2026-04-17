@@ -4,6 +4,7 @@ Complete reference for all `actionbook` CLI commands.
 
 Every browser command requires `--session <SID>`. Most also require `--tab <TID>`.
 Session-level commands (start, close, restart, status, list-sessions) need only `--session` or nothing.
+Session IDs accept lowercase letters, digits, hyphens, and underscores (e.g., `s1`, `my-session`, `task_01`).
 
 Selectors accept CSS, XPath, or snapshot refs (`@eN` from `snapshot` output).
 
@@ -12,6 +13,23 @@ Selectors accept CSS, XPath, or snapshot refs (`@eN` from `snapshot` output).
 ```
 --json            Output as JSON envelope
 --timeout <ms>    Command timeout in milliseconds
+```
+
+## Search
+
+```bash
+actionbook search "youtube"                                # Search for action manuals by keyword
+actionbook search "youtube upload" --json                  # Search with JSON output
+```
+
+## Manual
+
+```bash
+actionbook manual youtube                                  # Overview of a site (groups & actions)
+actionbook manual youtube videos                           # Actions in a group
+actionbook manual youtube videos search                    # Detailed action documentation
+actionbook manual youtube --json                           # JSON output
+actionbook man youtube                                     # Alias for manual
 ```
 
 ## Session
@@ -262,6 +280,8 @@ actionbook browser wait condition "document.readyState === 'complete'" --session
 
 Default timeout for all wait commands: 30000ms. Override with `--timeout <ms>`.
 
+`wait network-idle` uses two modes automatically. **Strict**: zero in-flight requests for 500ms. **Relaxed** (fallback): when pages have persistent background traffic (analytics pings, health-checks), relaxed mode kicks in — requires fewer than 5 new requests in a 10s sliding window with ≤5 pending, sustained for 3s. The response includes `mode` ("strict" or "relaxed") so callers know which condition was satisfied.
+
 ## Cookies
 
 Cookie commands operate at session level (no `--tab` required).
@@ -316,7 +336,7 @@ actionbook browser batch-click @e5 @e6 @e7 --session s1 --tab t1
 
 Manage the Chrome extension used by extension mode. The extension bridge runs inside the actionbook daemon (auto-started by browser commands).
 
-The recommended install method is the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo) (current version: 0.3.0). `actionbook extension install` is a local fallback — after running it, you must manually load the unpacked extension in Chrome via `chrome://extensions` > Developer mode > Load unpacked, pointing to the path from `actionbook extension path`.
+The recommended install method is the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo) (current version: 0.4.0). `actionbook extension install` is a local fallback — after running it, you must manually load the unpacked extension in Chrome via `chrome://extensions` > Developer mode > Load unpacked, pointing to the path from `actionbook extension path`.
 
 ```bash
 actionbook extension status                          # Bridge status + extension connection state
@@ -328,6 +348,8 @@ actionbook extension path                            # Print install path, insta
 ```
 
 `extension status` returns `bridge` state (`listening`, `not_listening`, or `failed`) and `extension_connected` (boolean). `extension ping` connects directly to the bridge WebSocket and measures round-trip time.
+
+**Extension 0.4.0 changes:** Tabs opened by Actionbook are automatically grouped into a Chrome tab group titled "Actionbook" (toggleable via extension popup). In extension mode, `list-tabs` returns only Actionbook-managed tabs (debugger-attached or in the Actionbook tab group) — other user tabs are hidden. Local/cloud modes are unaffected. Extensions below 0.4.0 are rejected at handshake with a protocol mismatch error.
 
 ## Daemon
 

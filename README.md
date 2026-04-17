@@ -117,7 +117,7 @@ Actionbook provides tools for searching and retrieving action manuals. See the [
 
 ### Extension & Daemon
 
-The recommended way to install the Chrome extension is via the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo) (current version: 0.3.0). `actionbook extension install` is a local fallback — after running it, you must manually load the unpacked extension in Chrome (`chrome://extensions` > Developer mode > Load unpacked).
+The recommended way to install the Chrome extension is via the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo) (current version: 0.4.0). `actionbook extension install` is a local fallback — after running it, you must manually load the unpacked extension in Chrome (`chrome://extensions` > Developer mode > Load unpacked).
 
 ```bash
 actionbook extension status          # Bridge status + extension connection state
