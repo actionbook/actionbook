@@ -216,7 +216,6 @@ async fn handle_browser(
                         open_url: None,
                         tab_id: None,
                         cdp_endpoint: None,
-                        auto_connect: false,
                         provider: None,
                         header: vec![],
                         session: None,
@@ -497,7 +496,6 @@ Session-level commands need only --session. Start and list-sessions need neither
 
 Session:
   start                              Start or attach a browser session
-  start --auto-connect               Attach to a locally running Chrome (auto-discover)
   list-sessions                      List all active sessions
   status              --session      Show session status
   close               --session      Close a session (alias: stop)

@@ -42,19 +42,6 @@ When done, close the browser:
 actionbook browser close --session s1
 ```
 
-### Attach to a Running Chrome
-
-If Chrome is already running with remote debugging enabled, use `--auto-connect` to attach without launching a new instance:
-
-```bash
-actionbook browser start --auto-connect --session s1
-actionbook browser snapshot --session s1 --tab t1
-```
-
-<Note>
-  `--auto-connect` (env: `ACTIONBOOK_AUTO_CONNECT`) discovers Chrome by reading the `DevToolsActivePort` file, then probing ports `[9222, 9229]`. It is mutually exclusive with `--cdp-endpoint`, `-p/--provider`, `--mode cloud`, and `--mode extension`. `browser close` only detaches the session — it does not kill the external Chrome process.
-</Note>
-
 ## Cloud Providers
 
 Cloud mode lets you run browser sessions on a remote provider instead of launching a local Chrome. Use the `-p` (or `--provider`) flag with `browser start`:

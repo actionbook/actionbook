@@ -211,7 +211,6 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         // tab id is gone after debugger detach, so don't carry it through.
         tab_id: None,
         cdp_endpoint: effective_cdp_endpoint,
-        auto_connect: false,
         provider: effective_provider,
         header: effective_headers,
         session: None,

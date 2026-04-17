@@ -4,14 +4,12 @@
 
 ### Minor Changes
 
-- Release 1.5.0: network HAR recording, auto-connect, search/manual commands, and extension-mode hardening.
+- Release 1.5.0: network HAR recording, search/manual commands, and extension-mode hardening.
 
-  - **Network HAR recording (ACT-936)**: new `browser network har start` / `har stop` commands capture HTTP traffic to a HAR file. Works in both local and extension bridge modes; isolated per session.
-  - **`browser start --auto-connect`**: attach to an already-running Chrome instead of spawning a new one, so users can reuse their signed-in profile and open tabs.
+  - **Network HAR recording**: new `browser network har start` / `har stop` commands capture HTTP traffic to a HAR file. Works in both local and extension bridge modes; isolated per session.
   - **Relaxed network-idle mode**: new `wait --relaxed-idle` for pages with persistent background traffic (websockets, long-poll); considers the page idle while at most N requests are in flight.
   - **`search` / `manual` top-level commands**: search Actionbook actions and fetch action manuals directly from the CLI; both now listed in top-level help.
-  - **`browser send` removed**: deprecated in favor of explicit per-tab addressing.
-  - **Session IDs may contain underscores (ACT-845)**.
+  - **Session IDs may contain underscores**.
   - **Extension-mode fixes**:
     - Enable CDP `Network` domain on attach (and re-enable after self-heal reattach) so HAR captures traffic in extension bridge mode.
     - `list-tabs` / filter honors Actionbook-managed tab scoping (protocol 0.4.0).
