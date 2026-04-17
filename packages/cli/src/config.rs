@@ -410,6 +410,7 @@ mod tests {
             open_url: None,
             tab_id: None,
             cdp_endpoint: None,
+            auto_connect: false,
             provider: None,
             header: vec![],
             session: None,
