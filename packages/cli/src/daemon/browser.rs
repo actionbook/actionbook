@@ -276,3 +276,217 @@ fn parse_endpoint_port(endpoint: &str) -> Result<u16, CliError> {
         CliError::InvalidArgument(format!("invalid endpoint port in {endpoint}: {port_str}"))
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::path::{Path, PathBuf};
+    use std::thread;
+    use tempfile::tempdir;
+
+    #[test]
+    fn parse_devtools_active_port_accepts_first_numeric_line() {
+        assert_eq!(
+            parse_devtools_active_port("9222\n/devtools/browser/abc123\n"),
+            Some(9222)
+        );
+    }
+
+    #[test]
+    fn parse_devtools_active_port_rejects_empty_content() {
+        assert_eq!(parse_devtools_active_port(""), None);
+        assert_eq!(parse_devtools_active_port("\n"), None);
+    }
+
+    #[test]
+    fn parse_devtools_active_port_rejects_junk_content() {
+        assert_eq!(
+            parse_devtools_active_port("/devtools/browser/abc123\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_devtools_active_port_rejects_non_numeric_port() {
+        assert_eq!(parse_devtools_active_port("not-a-port\nhash\n"), None);
+    }
+
+    #[test]
+    fn devtools_active_port_candidates_cover_default_platform_paths() {
+        let mac = devtools_active_port_candidates_for(
+            "macos",
+            Path::new("/Users/alice"),
+            Some(Path::new("/Users/alice/AppData/Local")),
+        );
+        assert_eq!(
+            mac,
+            vec![PathBuf::from(
+                "/Users/alice/Library/Application Support/Google/Chrome/DevToolsActivePort",
+            )]
+        );
+
+        let linux = devtools_active_port_candidates_for(
+            "linux",
+            Path::new("/home/alice"),
+            Some(Path::new("/home/alice/.local/share")),
+        );
+        assert_eq!(
+            linux,
+            vec![PathBuf::from(
+                "/home/alice/.config/google-chrome/DevToolsActivePort",
+            )]
+        );
+
+        let windows = devtools_active_port_candidates_for(
+            "windows",
+            Path::new("C:\\Users\\Alice"),
+            Some(Path::new("C:\\Users\\Alice\\AppData\\Local")),
+        );
+        assert_eq!(
+            windows,
+            vec![PathBuf::from(
+                "C:\\Users\\Alice\\AppData\\Local\\Google\\Chrome\\User Data\\DevToolsActivePort",
+            )]
+        );
+    }
+
+    enum MockVersionBehavior {
+        Ok { ws_url: &'static str },
+        Status500,
+        Timeout,
+    }
+
+    fn reserve_unused_port() -> u16 {
+        TcpListener::bind("127.0.0.1:0")
+            .expect("bind ephemeral port")
+            .local_addr()
+            .expect("local addr")
+            .port()
+    }
+
+    fn spawn_json_version_server(behavior: MockVersionBehavior) -> (u16, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
+        let port = listener.local_addr().expect("local addr").port();
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept /json/version request");
+            match behavior {
+                MockVersionBehavior::Ok { ws_url } => {
+                    let mut req_buf = [0_u8; 1024];
+                    let _ = stream.read(&mut req_buf);
+                    let body = serde_json::json!({
+                        "Browser": "Chrome/136.0.0.0",
+                        "webSocketDebuggerUrl": ws_url,
+                    })
+                    .to_string();
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    stream
+                        .write_all(response.as_bytes())
+                        .expect("write 200 response");
+                }
+                MockVersionBehavior::Status500 => {
+                    let mut req_buf = [0_u8; 1024];
+                    let _ = stream.read(&mut req_buf);
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                        )
+                        .expect("write 500 response");
+                }
+                MockVersionBehavior::Timeout => {
+                    thread::sleep(Duration::from_millis(250));
+                }
+            }
+        });
+        (port, handle)
+    }
+
+    #[tokio::test]
+    async fn auto_discover_uses_json_version_probe_when_available() {
+        let (port, server) = spawn_json_version_server(MockVersionBehavior::Ok {
+            ws_url: "ws://127.0.0.1:9222/devtools/browser/mock-browser-id",
+        });
+
+        let result = auto_discover_chrome_from_candidates(&[], &[port], Duration::from_millis(50))
+            .await
+            .expect("auto-discover should succeed from /json/version");
+        assert_eq!(
+            result,
+            (
+                "ws://127.0.0.1:9222/devtools/browser/mock-browser-id".to_string(),
+                port,
+            )
+        );
+
+        server.join().expect("join mock server");
+    }
+
+    #[tokio::test]
+    async fn auto_discover_falls_through_http_500_and_timeout_to_next_probe() {
+        let (port_500, server_500) = spawn_json_version_server(MockVersionBehavior::Status500);
+        let (port_timeout, server_timeout) =
+            spawn_json_version_server(MockVersionBehavior::Timeout);
+        let (port_ok, server_ok) = spawn_json_version_server(MockVersionBehavior::Ok {
+            ws_url: "ws://127.0.0.1:9229/devtools/browser/fallback-id",
+        });
+
+        let result = auto_discover_chrome_from_candidates(
+            &[],
+            &[port_500, port_timeout, port_ok],
+            Duration::from_millis(50),
+        )
+        .await
+        .expect("auto-discover should fall through to a later successful probe");
+        assert_eq!(
+            result,
+            (
+                "ws://127.0.0.1:9229/devtools/browser/fallback-id".to_string(),
+                port_ok,
+            )
+        );
+
+        server_500.join().expect("join 500 mock server");
+        server_timeout.join().expect("join timeout mock server");
+        server_ok.join().expect("join success mock server");
+    }
+
+    #[tokio::test]
+    async fn auto_discover_returns_not_found_when_no_candidates_work() {
+        let port_a = reserve_unused_port();
+        let port_b = reserve_unused_port();
+
+        let err =
+            auto_discover_chrome_from_candidates(&[], &[port_a, port_b], Duration::from_millis(50))
+                .await
+                .expect_err("auto-discover should fail when no Chrome candidates are reachable");
+
+        assert_eq!(err.error_code(), "CHROME_AUTO_CONNECT_NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn auto_discover_stale_devtools_active_port_falls_through_then_reports_unreachable() {
+        let temp = tempdir().expect("tempdir");
+        let stale_port = reserve_unused_port();
+        let path = temp.path().join("DevToolsActivePort");
+        std::fs::write(&path, format!("{stale_port}\n/devtools/browser/stale\n"))
+            .expect("write stale DevToolsActivePort");
+
+        let fallback_a = reserve_unused_port();
+        let fallback_b = reserve_unused_port();
+
+        let err = auto_discover_chrome_from_candidates(
+            &[path],
+            &[fallback_a, fallback_b],
+            Duration::from_millis(50),
+        )
+        .await
+        .expect_err("stale DevToolsActivePort should fall through, then fail as unreachable");
+
+        assert_eq!(err.error_code(), "CHROME_CDP_UNREACHABLE");
+    }
+}

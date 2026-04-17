@@ -9,6 +9,7 @@
 //! Run with:
 //!   RUN_E2E_TESTS=true cargo test --test e2e -- --test-threads=1 --nocapture
 
+mod auto_connect;
 mod batch_snapshot;
 mod bridge;
 mod browser_lifecycle;
