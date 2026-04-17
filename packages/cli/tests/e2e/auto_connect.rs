@@ -359,3 +359,78 @@ fn close_attached_auto_connect_session_does_not_kill_chrome() {
         "external Chrome should still expose /json/version after session close"
     );
 }
+
+#[test]
+#[cfg_attr(windows, ignore)]
+fn auto_connect_ignores_existing_local_session_reuse() {
+    // Regression test for P1: --auto-connect must not silently reuse an existing
+    // local session just because the profile matches.  It must always go through
+    // the auto-discover path and fail with NOT_FOUND when no external Chrome is
+    // reachable — never return the running local session.
+    if skip() {
+        return;
+    }
+    if json_version_is_reachable(9222) || json_version_is_reachable(9229) {
+        eprintln!("skipping: probe ports already in use, cannot isolate auto-connect discovery");
+        return;
+    }
+
+    let env = SoloEnv::new();
+
+    // Start a regular local session first.
+    let start1 = env.headless_json(&["browser", "start"], 30);
+    let v1 = parse_json(&start1);
+    if v1["status"].as_str() != Some("ok") {
+        eprintln!("skipping: local session start failed (Chrome may not be available)");
+        return;
+    }
+    let first_session_id = v1["data"]["session"]["session_id"]
+        .as_str()
+        .expect("session id from first start")
+        .to_string();
+    let _guard = SoloSessionGuard::new(&env, first_session_id.clone());
+
+    // Use a fake HOME so no DevToolsActivePort file is found.
+    // With no external Chrome on 9222/9229 either, auto-connect must fail with
+    // NOT_FOUND — not silently reuse the running local session.
+    let fake_home = tempfile::tempdir().expect("temp home for P1 regression test");
+    let extra_env = auto_connect_env_vars(fake_home.path());
+    let env_refs = [
+        ("HOME", extra_env[0].1.as_str()),
+        ("LOCALAPPDATA", extra_env[1].1.as_str()),
+    ];
+
+    let out = env.headless_json_with_env(&["browser", "start", "--auto-connect"], &env_refs, 10);
+    assert_failure(
+        &out,
+        "--auto-connect with no external Chrome must fail, not reuse the local session",
+    );
+    let v = parse_json(&out);
+    assert_error_envelope(&v, "CHROME_AUTO_CONNECT_NOT_FOUND");
+}
+
+#[test]
+fn auto_connect_conflicts_with_config_cdp_endpoint() {
+    // Regression test for P2: --auto-connect must be rejected when a CDP endpoint
+    // is provided via config or ACTIONBOOK_BROWSER_CDP_ENDPOINT, not silently
+    // bypassed.
+    if skip() {
+        return;
+    }
+
+    let env = SoloEnv::new();
+    let out = env.headless_json_with_env(
+        &["browser", "start", "--auto-connect"],
+        &[(
+            "ACTIONBOOK_BROWSER_CDP_ENDPOINT",
+            "ws://127.0.0.1:9999/devtools/browser/fake",
+        )],
+        10,
+    );
+    assert_failure(
+        &out,
+        "--auto-connect with ACTIONBOOK_BROWSER_CDP_ENDPOINT set should return INVALID_ARGUMENT",
+    );
+    let v = parse_json(&out);
+    assert_error_envelope(&v, "INVALID_ARGUMENT");
+}

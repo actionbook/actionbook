@@ -245,6 +245,18 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         );
     }
 
+    // --auto-connect is also incompatible with a CDP endpoint resolved from
+    // config or ACTIONBOOK_BROWSER_CDP_ENDPOINT (not just --cdp-endpoint on
+    // the CLI, which clap's conflicts_with catches).
+    if cmd.auto_connect && cdp_endpoint.is_some() {
+        return ActionResult::fatal_with_hint(
+            "INVALID_ARGUMENT",
+            "--auto-connect cannot be used when a CDP endpoint is configured".to_string(),
+            "remove cdp_endpoint from your config file or unset ACTIONBOOK_BROWSER_CDP_ENDPOINT, \
+             or use --cdp-endpoint directly without --auto-connect",
+        );
+    }
+
     if provider_name.is_some() && matches!(cmd.mode, Some(Mode::Local) | Some(Mode::Extension)) {
         return ActionResult::fatal_with_hint(
             "INVALID_ARGUMENT",
@@ -507,6 +519,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         let mut reg = registry.lock().await;
 
         if cdp_endpoint.is_none()
+            && !cmd.auto_connect
             && effective_set_id.is_none()
             && mode == Mode::Local
             && let Some(existing) = reg.find_local_session_by_profile(profile_name, mode)
