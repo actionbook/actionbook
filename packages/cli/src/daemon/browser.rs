@@ -277,6 +277,120 @@ fn parse_endpoint_port(endpoint: &str) -> Result<u16, CliError> {
     })
 }
 
+// ── Auto-connect: discover a locally running Chrome ───────────────────────────
+
+/// Parse the port number from a `DevToolsActivePort` file's content.
+///
+/// The file's first line is the port number; the second line is a hash path.
+/// Returns `None` if the content is empty, non-numeric, or malformed.
+pub fn parse_devtools_active_port(content: &str) -> Option<u16> {
+    content.lines().next()?.trim().parse::<u16>().ok()
+}
+
+/// Return the platform-specific candidate paths for Chrome's `DevToolsActivePort` file.
+///
+/// `os` matches `std::env::consts::OS` values ("macos", "linux", "windows").
+/// `home` is the user's home directory. `local_appdata` is `%LOCALAPPDATA%` on Windows.
+pub fn devtools_active_port_candidates_for(
+    os: &str,
+    home: &std::path::Path,
+    local_appdata: Option<&std::path::Path>,
+) -> Vec<std::path::PathBuf> {
+    match os {
+        "macos" => vec![home.join("Library/Application Support/Google/Chrome/DevToolsActivePort")],
+        "linux" => vec![home.join(".config/google-chrome/DevToolsActivePort")],
+        "windows" => local_appdata
+            .map(|p| {
+                // Use explicit Windows path separators so the result is correct
+                // on all host platforms (PathBuf::join uses the host separator).
+                let base = p.to_string_lossy();
+                vec![std::path::PathBuf::from(format!(
+                    "{}\\Google\\Chrome\\User Data\\DevToolsActivePort",
+                    base
+                ))]
+            })
+            .unwrap_or_default(),
+        _ => vec![],
+    }
+}
+
+/// Probe a single port's `/json/version` endpoint with a quick timeout.
+async fn probe_json_version(port: u16, timeout: Duration) -> Option<String> {
+    let url = format!("http://127.0.0.1:{port}/json/version");
+    let result = tokio::time::timeout(timeout, reqwest::get(&url)).await;
+    match result {
+        Ok(Ok(resp)) if resp.status().is_success() => {
+            resp.json::<serde_json::Value>().await.ok().and_then(|j| {
+                j.get("webSocketDebuggerUrl")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Discover a running Chrome by checking `DevToolsActivePort` file candidates and
+/// then probing `probe_ports` directly.
+///
+/// Returns `(ws_url, port)` for the first reachable instance.
+///
+/// Error codes:
+/// - `CHROME_CDP_UNREACHABLE`: a `DevToolsActivePort` file was found but the
+///   indicated port is unreachable (Chrome may have crashed, leaving a stale file).
+/// - `CHROME_AUTO_CONNECT_NOT_FOUND`: no file found and no probe port is listening
+///   (Chrome is not running or was not started with `--remote-debugging-port`).
+pub async fn auto_discover_chrome_from_candidates(
+    candidates: &[std::path::PathBuf],
+    probe_ports: &[u16],
+    timeout: Duration,
+) -> Result<(String, u16), crate::error::CliError> {
+    let mut found_active_port_file = false;
+
+    // Phase 1: DevToolsActivePort file candidates (Chrome writes this on startup).
+    for path in candidates {
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let port = match parse_devtools_active_port(&content) {
+            Some(p) => p,
+            None => continue,
+        };
+        found_active_port_file = true;
+        if let Some(ws_url) = probe_json_version(port, timeout).await {
+            return Ok((ws_url, port));
+        }
+        // Stale file — fall through to probe_ports below.
+    }
+
+    // Phase 2: probe well-known ports.
+    for &port in probe_ports {
+        if let Some(ws_url) = probe_json_version(port, timeout).await {
+            return Ok((ws_url, port));
+        }
+    }
+
+    if found_active_port_file {
+        Err(crate::error::CliError::ChromeCdpUnreachable(
+            "DevToolsActivePort file found but Chrome is unreachable on the indicated port"
+                .to_string(),
+        ))
+    } else {
+        Err(crate::error::CliError::ChromeAutoConnectNotFound)
+    }
+}
+
+/// Discover a running Chrome using platform-default paths and ports [9222, 9229].
+pub async fn auto_discover_chrome() -> Result<(String, u16), crate::error::CliError> {
+    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+    let local_appdata = dirs::data_local_dir();
+    let candidates =
+        devtools_active_port_candidates_for(std::env::consts::OS, &home, local_appdata.as_deref());
+    auto_discover_chrome_from_candidates(&candidates, &[9222, 9229], Duration::from_millis(500))
+        .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -74,6 +74,12 @@ pub struct Cmd {
     /// Connect to existing CDP endpoint
     #[arg(long)]
     pub cdp_endpoint: Option<String>,
+    /// Auto-discover and connect to a locally running Chrome with remote debugging enabled.
+    /// Reads Chrome's DevToolsActivePort file, then probes ports 9222 and 9229.
+    /// Mutually exclusive with --cdp-endpoint, --provider, and --mode cloud/extension.
+    #[arg(long, env = "ACTIONBOOK_AUTO_CONNECT", conflicts_with = "cdp_endpoint")]
+    #[serde(default)]
+    pub auto_connect: bool,
     /// Cloud browser provider (implies --mode cloud).
     ///
     /// `-p <name>` is mutually exclusive with `--cdp-endpoint` and
@@ -222,6 +228,20 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             "INVALID_ARGUMENT",
             "--provider cannot be used together with --cdp-endpoint".to_string(),
             "use --provider by itself, or use --mode cloud --cdp-endpoint to connect to an existing remote browser",
+        );
+    }
+
+    if cmd.auto_connect && (provider_name.is_some() || mode == Mode::Cloud) {
+        return ActionResult::fatal(
+            "INVALID_ARGUMENT",
+            "--auto-connect is not supported with --provider or --mode cloud",
+        );
+    }
+
+    if cmd.auto_connect && mode == Mode::Extension {
+        return ActionResult::fatal(
+            "INVALID_ARGUMENT",
+            "--auto-connect is not supported with --mode extension",
         );
     }
 
@@ -620,6 +640,34 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     // stored here so it survives the if-else scope and reaches the registry.
     #[cfg(windows)]
     let mut chrome_job: Option<crate::daemon::chrome_reaper::ChromeJobObject> = None;
+
+    // ── Auto-connect: discover a locally running Chrome ──
+    // Resolve before the cdp_endpoint branch so the discovered URL can be
+    // treated identically to an explicit --cdp-endpoint (chrome_process = None,
+    // so `browser close` will not kill the external Chrome).
+    let auto_connect_ws: Option<String> = if cmd.auto_connect && cdp_endpoint.is_none() {
+        match browser::auto_discover_chrome().await {
+            Ok((ws_url, _port)) => Some(ws_url),
+            Err(crate::error::CliError::ChromeAutoConnectNotFound) => {
+                return fail_reserved_start_with_hint(
+                    registry,
+                    &session_id,
+                    "CHROME_AUTO_CONNECT_NOT_FOUND",
+                    "no running Chrome with remote debugging was found".to_string(),
+                    "start Chrome with remote debugging enabled, e.g. \
+                     `google-chrome --remote-debugging-port=9222`, then retry --auto-connect",
+                )
+                .await;
+            }
+            Err(e) => {
+                return fail_reserved_start(registry, &session_id, e.error_code(), e.to_string())
+                    .await;
+            }
+        }
+    } else {
+        None
+    };
+    let cdp_endpoint = auto_connect_ws.as_deref().or(cdp_endpoint);
 
     let (mut chrome_process, port, ws_url, mut targets) = if let Some(endpoint) = cdp_endpoint {
         let (ws_url, port) = match browser::resolve_cdp_endpoint(endpoint).await {
@@ -2052,6 +2100,7 @@ mod provider_start_tests {
                 open_url: None,
                 tab_id: None,
                 cdp_endpoint: None,
+                auto_connect: false,
                 provider: Some("hyperbrowser".to_string()),
                 header: vec![],
                 session: None,
@@ -2114,6 +2163,7 @@ mod provider_start_tests {
                 open_url: None,
                 tab_id: None,
                 cdp_endpoint: None,
+                auto_connect: false,
                 provider: Some("hyperbrowser".to_string()),
                 header: vec![],
                 session: None,
@@ -2167,6 +2217,7 @@ mod provider_start_tests {
                 open_url: None,
                 tab_id: None,
                 cdp_endpoint: None,
+                auto_connect: false,
                 provider: Some("browseruse".to_string()),
                 header: vec![],
                 session: None,

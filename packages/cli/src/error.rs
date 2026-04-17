@@ -61,6 +61,10 @@ pub enum CliError {
     ApiServerError(String),
     #[error("internal error: {0}")]
     Internal(String),
+    #[error("chrome auto-connect: no running Chrome with remote debugging found")]
+    ChromeAutoConnectNotFound,
+    #[error("chrome auto-connect: Chrome remote debugging unreachable: {0}")]
+    ChromeCdpUnreachable(String),
 }
 
 impl CliError {
@@ -95,6 +99,8 @@ impl CliError {
             CliError::ApiRateLimited(_) => "API_RATE_LIMITED",
             CliError::ApiServerError(_) => "API_SERVER_ERROR",
             CliError::Internal(_) => "INTERNAL_ERROR",
+            CliError::ChromeAutoConnectNotFound => "CHROME_AUTO_CONNECT_NOT_FOUND",
+            CliError::ChromeCdpUnreachable(_) => "CHROME_CDP_UNREACHABLE",
         }
     }
 
@@ -132,6 +138,11 @@ impl CliError {
             }
             CliError::ApiServerError(_) => {
                 "the provider service returned a 5xx error — retry after a short delay or check the provider's status page"
+                    .to_string()
+            }
+            CliError::ChromeAutoConnectNotFound => {
+                "start Chrome with remote debugging enabled, e.g. \
+                 `google-chrome --remote-debugging-port=9222`, then retry with --auto-connect"
                     .to_string()
             }
             _ => String::new(),
