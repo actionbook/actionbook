@@ -142,7 +142,12 @@ actionbook browser start --auto-connect --session s1
 ```
 
 <Note>
-  `--auto-connect` discovers a locally running Chrome by reading Chrome's `DevToolsActivePort` file, then probing ports `[9222, 9229]`. It is mutually exclusive with `--cdp-endpoint`, `-p/--provider`, `--mode cloud`, and `--mode extension`. `browser close` only detaches the session — it does not kill the external Chrome process. Error codes: `CHROME_AUTO_CONNECT_NOT_FOUND`, `CHROME_CDP_UNREACHABLE`.
+  `--auto-connect` requires **Chrome 144+**. For older versions, use extension mode instead. Start Chrome with remote debugging enabled first:
+  ```bash
+  google-chrome --remote-debugging-port=9222   # Linux
+  # macOS: /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
+  ```
+  Actionbook discovers Chrome by reading the `DevToolsActivePort` file, then probing ports `[9222, 9229]`. Mutually exclusive with `--cdp-endpoint`, `-p/--provider`, `--mode cloud`, and `--mode extension`. `browser close` only detaches — it does not kill the external Chrome. Error codes: `CHROME_AUTO_CONNECT_NOT_FOUND`, `CHROME_CDP_UNREACHABLE`. See [Attach to a Running Chrome](/guides/browser#attach-to-a-running-chrome-auto-connect) for a step-by-step guide.
 </Note>
 
 <Note>
