@@ -28,6 +28,7 @@ actionbook browser start --open-url https://example.com    # Open URL on start
 actionbook browser start --profile myprofile               # Use named profile
 actionbook browser start --no-stealth                      # Disable anti-detection mode
 actionbook browser start --max-tracked-requests 1000       # Custom network buffer size (default 500, range 1-100000)
+actionbook browser start --auto-connect                    # Auto-discover and attach to a locally running Chrome
 
 actionbook browser list-sessions                           # List all active sessions (includes max_tracked_requests)
 actionbook browser status --session s1                     # Show session status
@@ -36,6 +37,8 @@ actionbook browser restart --session s1                    # Restart a session
 ```
 
 Supported cloud providers: `driver` (`DRIVER_API_KEY`), `hyperbrowser` (`HYPERBROWSER_API_KEY`), `browseruse` (`BROWSER_USE_API_KEY`). `-p` is mutually exclusive with `--cdp-endpoint` and `--mode local/extension`.
+
+`--auto-connect` (env: `ACTIONBOOK_AUTO_CONNECT`) auto-discovers a locally running Chrome with remote debugging enabled. Discovery order: Chrome's `DevToolsActivePort` file, then probe ports `[9222, 9229]`. Mutually exclusive with `--cdp-endpoint`, `-p/--provider`, `--mode cloud`, and `--mode extension`. `browser close` only detaches — it does not kill the external Chrome. Error codes: `CHROME_AUTO_CONNECT_NOT_FOUND` (no Chrome found), `CHROME_CDP_UNREACHABLE` (port found but CDP unreachable).
 
 ## Tab
 

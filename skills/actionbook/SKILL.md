@@ -52,6 +52,7 @@ Every browser command is **stateless** — pass `--session` and `--tab` explicit
 
 ```bash
 actionbook browser start --set-session-id s1
+actionbook browser start --auto-connect --session s1   # Attach to a locally running Chrome
 ```
 
 ### Core workflow: snapshot, act, wait
