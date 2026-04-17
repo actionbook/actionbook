@@ -932,15 +932,52 @@ impl CdpSession {
     ///   - `reader_loop` to bucket incoming events carrying the bridge's
     ///     root-level `tabId` field
     ///
-    /// Idempotent: calling again for the same `native_id` is a no-op.
+    /// Idempotent: calling again for the same `native_id` is a no-op for the
+    /// routing map; `Network.enable` is still sent only once per tab.
+    ///
+    /// Also fires `Network.enable` on first registration so the extension
+    /// forwards `Network.requestWillBeSent` / `responseReceived` /
+    /// `loadingFinished` events — required by HAR recording and network
+    /// request tracking. Local/cloud mode does this from `attach()`, but
+    /// extension mode skips that path, so without this call the Network
+    /// domain stays dormant and HAR captures nothing.
     pub async fn register_extension_tab(&self, native_id: &str) {
         self.is_extension_bridge
             .store(true, std::sync::atomic::Ordering::Release);
         let key = format!("tab:{native_id}");
-        self.tab_sessions
+        let was_new = self
+            .tab_sessions
             .lock()
             .await
-            .insert(native_id.to_string(), key);
+            .insert(native_id.to_string(), key)
+            .is_none();
+
+        if !was_new {
+            return;
+        }
+
+        // Best-effort: enable the Network domain in the extension-attached tab.
+        // Failure here shouldn't block tab registration — the tab may not have
+        // debugger attached yet (discovered via listTabs but never attached),
+        // or the extension may have been reloaded. Commands that strictly need
+        // Network events will surface the gap themselves.
+        let tab_id: u64 = match native_id.parse() {
+            Ok(v) => v,
+            Err(_) => {
+                tracing::warn!(
+                    "register_extension_tab: non-numeric native_id '{native_id}', skipping Network.enable"
+                );
+                return;
+            }
+        };
+        if let Err(e) = self
+            .execute_extension_tab(tab_id, "Network.enable", json!({}))
+            .await
+        {
+            tracing::warn!(
+                "register_extension_tab: Network.enable failed for tab {native_id}: {e}"
+            );
+        }
     }
 
     /// Detach from a CDP target (tab).

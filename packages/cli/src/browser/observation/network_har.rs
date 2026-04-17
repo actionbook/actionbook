@@ -288,6 +288,11 @@ pub async fn execute_stop(cmd: &StopCmd, registry: &SharedRegistry) -> ActionRes
         Some(p) => PathBuf::from(p),
         None => default_har_path(),
     };
+    // Resolve to an absolute path so the response is unambiguous regardless of
+    // the daemon's CWD (daemon may have been spawned from a different dir than
+    // the CLI invocation). std::path::absolute doesn't require the file to
+    // exist yet, so run it before the write.
+    let out_path = std::path::absolute(&out_path).unwrap_or(out_path);
 
     if let Some(parent) = out_path.parent()
         && let Err(e) = std::fs::create_dir_all(parent)

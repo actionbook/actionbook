@@ -50,6 +50,12 @@ const CDP_ALLOWLIST = {
   'Network.getCookies': 'L1',
   'Network.getAllCookies': 'L1',
   'Network.getResponseBody': 'L1',
+  // Network.enable is required before Chrome emits Network.requestWillBeSent /
+  // responseReceived / loadingFinished events. HAR recording (`browser network
+  // har start`) depends on those events — without enabling the Network domain
+  // the recorder sees zero traffic and har stop returns count=0.
+  'Network.enable': 'L1',
+  'Network.disable': 'L1',
 
   // L2 - Page modification (auto-approved with logging)
   'Runtime.evaluate': 'L2',
