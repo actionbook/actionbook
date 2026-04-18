@@ -860,6 +860,33 @@ setTimeout(() => {{
         return;
     }
 
+    if path == "/sse-stream" {
+        // Keep the SSE connection open without sending events.
+        // Used to simulate a pre-existing persistent connection (tests edge-triggered semantics).
+        let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nAccess-Control-Allow-Origin: *\r\nConnection: keep-alive\r\n\r\n";
+        let _ = stream.write_all(headers.as_bytes());
+        std::thread::sleep(Duration::from_secs(12));
+        return;
+    }
+
+    if path == "/network-idle-sse-page" {
+        let port = local_server().port;
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Network Idle SSE Page</title></head>
+<body>
+<img src="http://127.0.0.1:{port}/fixture-image.svg" width="16" height="16">
+<script>new EventSource("http://127.0.0.1:{port}/sse-stream");</script>
+</body></html>"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
     // Cross-origin iframe parent: embeds child from a different port
     if path.starts_with("/iframe-xo-parent") {
         let xo_port = path
@@ -1050,6 +1077,14 @@ pub fn url_network_idle_lazy_scroll() -> String {
 pub fn url_network_idle_lazy_in_viewport() -> String {
     format!(
         "http://127.0.0.1:{}/network-idle-lazy-in-viewport",
+        local_server().port
+    )
+}
+
+/// URL for a page that opens a persistent SSE connection before idle is checked.
+pub fn url_network_idle_sse_page() -> String {
+    format!(
+        "http://127.0.0.1:{}/network-idle-sse-page",
         local_server().port
     )
 }

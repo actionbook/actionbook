@@ -5,7 +5,8 @@ use crate::harness::{
     headless_json, parse_json, skip, stdout_str, unique_session, url_a, url_b,
     url_delayed_redirect, url_delayed_redirect_long, url_fast_redirect, url_home_no_trailing_slash,
     url_network_idle_lazy_in_viewport, url_network_idle_lazy_offscreen,
-    url_network_idle_lazy_scroll, url_network_idle_non_lazy_blocked, wait_page_ready,
+    url_network_idle_lazy_scroll, url_network_idle_non_lazy_blocked, url_network_idle_sse_page,
+    wait_page_ready,
 };
 
 const ELEMENT_SELECTOR: &str = "#loaded";
@@ -766,6 +767,46 @@ fn wait_network_idle_blocks_on_in_viewport_lazy_image_still_loading() {
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
     assert_error_envelope(&v, "TIMEOUT");
+}
+
+// Verifies that a pre-existing persistent connection (SSE) does not block
+// `wait network-idle`.  Edge-triggered implementation: SSE is counted in
+// baseline_pending at command start, so above_baseline stays 0 throughout.
+// Old level-triggered implementation: SSE keeps pending=1 → relaxed mode
+// requires 10 s sliding window + 3 s quiet → times out within 5 000 ms.
+#[test]
+fn wait_network_idle_unblocked_by_preexisting_sse() {
+    if skip() {
+        return;
+    }
+
+    let (sid, _) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let tid = open_new_tab(&sid, &url_network_idle_sse_page());
+    wait_page_ready(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "network-idle",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "5000",
+        ],
+        10,
+    );
+    assert_success(
+        &out,
+        "wait network-idle must not block on a pre-existing SSE connection",
+    );
+    let v = parse_json(&out);
+    assert_eq!(v["command"], "browser wait network-idle");
+    assert_eq!(v["data"]["kind"], "network-idle");
+    assert_eq!(v["data"]["satisfied"], true);
 }
 
 #[test]
