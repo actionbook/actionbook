@@ -536,6 +536,28 @@ setTimeout(() => {{
         return;
     }
 
+    if path == "/redirect-delayed-long" {
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Redirect Delayed Long</title></head>
+<body>
+<h1>Redirect Delayed Long</h1>
+<script>
+setTimeout(() => {{
+  window.location.href = "http://127.0.0.1:{}/page-b";
+}}, 600);
+</script>
+</body></html>"#,
+            local_server().port
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
     // ── Mock API for search/manual e2e tests ──────────────────────────
 
     if path.starts_with("/api/search") {
@@ -835,6 +857,19 @@ pub fn url_fast_redirect() -> String {
 /// URL that redirects to page B after a short client-side delay.
 pub fn url_delayed_redirect() -> String {
     format!("http://127.0.0.1:{}/redirect-delayed", local_server().port)
+}
+
+/// URL that redirects to page B after a longer client-side delay.
+pub fn url_delayed_redirect_long() -> String {
+    format!(
+        "http://127.0.0.1:{}/redirect-delayed-long",
+        local_server().port
+    )
+}
+
+/// Root URL without a trailing slash. Browsers normalize this to `/`.
+pub fn url_home_no_trailing_slash() -> String {
+    format!("http://127.0.0.1:{}", local_server().port)
 }
 
 /// URL for a slow page used to verify CLI-level timeouts.
