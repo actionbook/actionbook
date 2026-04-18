@@ -3,7 +3,8 @@
 use crate::harness::{
     SessionGuard, assert_error_envelope, assert_failure, assert_meta, assert_success, headless,
     headless_json, parse_json, skip, stdout_str, unique_session, url_a, url_b,
-    url_delayed_redirect, url_fast_redirect, wait_page_ready,
+    url_delayed_redirect, url_delayed_redirect_long, url_fast_redirect, url_home_no_trailing_slash,
+    wait_page_ready,
 };
 
 const ELEMENT_SELECTOR: &str = "#loaded";
@@ -88,6 +89,15 @@ fn schedule_navigation_to(sid: &str, tid: &str, destination_url: &str) {
         10,
     );
     assert_success(&out, "schedule delayed navigation");
+}
+
+fn open_new_tab(sid: &str, url: &str) -> String {
+    let out = headless_json(&["browser", "new-tab", url, "--session", sid], 30);
+    assert_success(&out, "open new tab");
+    parse_json(&out)["data"]["tab"]["tab_id"]
+        .as_str()
+        .unwrap()
+        .to_string()
 }
 
 #[test]
@@ -333,6 +343,95 @@ fn wait_navigation_detects_fast_redirect_when_final_url_is_already_loaded() {
 }
 
 #[test]
+fn wait_navigation_accepts_stable_complete_state_at_current_url() {
+    if skip() {
+        return;
+    }
+
+    let (sid, _tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let tid = open_new_tab(&sid, &url_a());
+    wait_page_ready(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "navigation",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "1500",
+        ],
+        10,
+    );
+    assert_success(&out, "wait navigation after page already settled");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser wait navigation");
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["kind"], "navigation");
+    assert_eq!(v["data"]["satisfied"], true);
+    assert!(
+        v["data"]["observed_value"]["url"]
+            .as_str()
+            .unwrap_or("")
+            .contains("page-a"),
+        "observed_value.url must stay on page-a: {}",
+        v["data"]["observed_value"]
+    );
+    assert_eq!(v["data"]["observed_value"]["ready_state"], "complete");
+}
+
+#[test]
+fn wait_navigation_keeps_root_url_without_trailing_slash_regression_green() {
+    if skip() {
+        return;
+    }
+
+    let (sid, _tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let tid = open_new_tab(&sid, &url_home_no_trailing_slash());
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "navigation",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "3000",
+        ],
+        10,
+    );
+    assert_success(
+        &out,
+        "wait navigation after root url without trailing slash",
+    );
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser wait navigation");
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["kind"], "navigation");
+    assert_eq!(v["data"]["satisfied"], true);
+    assert_eq!(v["context"]["title"], "Home");
+    assert_eq!(v["data"]["observed_value"]["ready_state"], "complete");
+    assert!(
+        v["data"]["observed_value"]["url"]
+            .as_str()
+            .unwrap_or("")
+            .ends_with('/'),
+        "root URL should normalize to trailing slash: {}",
+        v["data"]["observed_value"]
+    );
+}
+
+#[test]
 fn wait_navigation_detects_delayed_redirect_via_real_page_navigation() {
     if skip() {
         return;
@@ -386,6 +485,47 @@ fn wait_navigation_detects_delayed_redirect_via_real_page_navigation() {
             .unwrap_or("")
             .contains("page-b"),
         "observed_value.url must point at page-b: {}",
+        v["data"]["observed_value"]
+    );
+}
+
+#[test]
+fn wait_navigation_does_not_accept_intermediate_complete_url_before_long_redirect() {
+    if skip() {
+        return;
+    }
+
+    let (sid, _tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let tid = open_new_tab(&sid, &url_delayed_redirect_long());
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "navigation",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "5000",
+        ],
+        10,
+    );
+    assert_success(&out, "wait navigation after long delayed redirect");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser wait navigation");
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["kind"], "navigation");
+    assert_eq!(v["data"]["satisfied"], true);
+    assert!(
+        v["data"]["observed_value"]["url"]
+            .as_str()
+            .unwrap_or("")
+            .contains("page-b"),
+        "wait must accept only the final redirect URL: {}",
         v["data"]["observed_value"]
     );
 }
