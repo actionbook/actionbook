@@ -5,8 +5,7 @@ use crate::harness::{
     headless_json, parse_json, skip, stdout_str, unique_session, url_a, url_b,
     url_delayed_redirect, url_delayed_redirect_long, url_fast_redirect, url_home_no_trailing_slash,
     url_network_idle_lazy_in_viewport, url_network_idle_lazy_offscreen,
-    url_network_idle_lazy_scroll,
-    url_network_idle_non_lazy_blocked, wait_page_ready,
+    url_network_idle_lazy_scroll, url_network_idle_non_lazy_blocked, wait_page_ready,
 };
 
 const ELEMENT_SELECTOR: &str = "#loaded";
