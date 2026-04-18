@@ -13,12 +13,19 @@ use crate::output::ResponseContext;
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const POLL_INTERVAL_MS: u64 = 100;
 
-/// After detecting `url != prev_url + readyState=complete` we require the URL
-/// to remain stable (same value, still complete) for this many milliseconds
-/// before accepting.  This window must exceed the longest intermediate-redirect
-/// delay we expect to encounter so that delayed-redirect chains are not
-/// prematurely accepted at an intermediate page.
+/// After detecting `readyState=complete` with a URL that differs from the
+/// registry baseline, require the URL to remain stable (same value, still
+/// complete) for this many milliseconds before accepting.  Short because when
+/// the URL has already changed we mainly want confirmation that it settled.
 const URL_STABILITY_MS: u64 = 300;
+
+/// Stability window when the observed URL matches the registry baseline.
+/// Must exceed the longest JS-redirect delay we expect to encounter: the
+/// `Page.frameNavigated` event from a pending redirect will reset the tracker
+/// before this window expires, preventing premature acceptance of intermediate
+/// pages.  When no redirect fires the window expires and we accept the page as
+/// already-completed.
+const URL_STABILITY_SAME_URL_MS: u64 = 800;
 
 const READY_STATE_JS: &str =
     "(function(){ return { url: location.href, ready_state: document.readyState }; })()";
@@ -130,8 +137,6 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let start = Instant::now();
 
     // Read the tab URL recorded when the previous command completed.
-    // Used as the baseline: if the live URL already differs from this on the
-    // first poll, navigation completed between the last command and now.
     let prev_url = {
         let reg = registry.lock().await;
         reg.get_tab_url_title(&cmd.session, &cmd.tab)
@@ -167,10 +172,12 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     let mut poll_interval = tokio::time::interval(Duration::from_millis(POLL_INTERVAL_MS));
     poll_interval.tick().await; // consume the immediate first tick
 
-    // Time-based stability tracker for the "already-navigated" fast-redirect case.
-    // When we first detect `current_url != prev_url + readyState=complete` we start
-    // the clock.  We accept only when the URL remains stable for URL_STABILITY_MS.
-    // Any intervening frameNavigated event or non-complete readyState resets this.
+    // Time-based stability tracker.  When readyState first becomes "complete" we
+    // start the clock.  The required stability window depends on whether the current
+    // URL matches the registry baseline: a matching URL may have a pending JS redirect
+    // so we use a longer window (URL_STABILITY_SAME_URL_MS); a differing URL just needs
+    // short confirmation (URL_STABILITY_MS).  Any intervening frameNavigated event or
+    // non-complete readyState resets this.
     let mut stable_since: Option<(Instant, String)> = None;
 
     loop {
@@ -229,17 +236,23 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                     return build_ok(elapsed_ms, &current_url, &title);
                 }
 
-                // Weak-signal path: URL differs from registry baseline.
-                // We can't immediately accept because this might be an intermediate
-                // page in a redirect chain.  Require URL_STABILITY_MS of continuous
-                // stability (same URL + complete) before accepting.
-                if current_url != prev_url && ready_state == "complete" {
+                // Weak-signal path: page is complete — accept after the appropriate
+                // stability window has elapsed with the same URL.  When the observed URL
+                // matches the registry baseline we use the longer window so that a pending
+                // JS redirect (which resets the tracker via frameNavigated) fires before
+                // we accept the intermediate page.
+                if ready_state == "complete" {
+                    let threshold_ms = if current_url == prev_url {
+                        URL_STABILITY_SAME_URL_MS
+                    } else {
+                        URL_STABILITY_MS
+                    };
                     match &stable_since {
                         None => {
                             stable_since = Some((Instant::now(), current_url));
                         }
                         Some((since, tracked_url)) if *tracked_url == current_url => {
-                            if since.elapsed().as_millis() >= URL_STABILITY_MS as u128 {
+                            if since.elapsed().as_millis() >= threshold_ms as u128 {
                                 let title = nav_helpers::get_tab_title(&cdp, &target_id).await;
                                 let elapsed_ms = start.elapsed().as_millis() as u64;
                                 return build_ok(elapsed_ms, &current_url, &title);
@@ -252,7 +265,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                         }
                     }
                 } else {
-                    // Page is in motion (loading or still at prev_url) → reset stability.
+                    // Page is in motion (not yet complete) → reset stability.
                     stable_since = None;
                 }
             }
