@@ -735,6 +735,100 @@ Promise.all([
         return;
     }
 
+    if path == "/fixture-image.svg" {
+        let body = r##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#4f46e5"/></svg>"##;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: image/svg+xml\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    if path == "/fixture-image-delayed-short.svg" {
+        std::thread::sleep(Duration::from_millis(400));
+        let body = r##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#16a34a"/></svg>"##;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: image/svg+xml\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    if path == "/fixture-image-delayed-long.svg" {
+        std::thread::sleep(Duration::from_millis(5_000));
+        let body = r##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#dc2626"/></svg>"##;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: image/svg+xml\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    if path == "/network-idle-lazy-offscreen" {
+        let port = local_server().port;
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Network Idle Lazy Offscreen</title></head>
+<body style="margin:0">
+<h1>Network Idle Lazy Offscreen</h1>
+<img id="hero-image" src="http://127.0.0.1:{port}/fixture-image.svg" alt="hero" width="16" height="16">
+<div style="height: 4000px;"></div>
+<img id="lazy-target" loading="lazy" src="http://127.0.0.1:{port}/fixture-image-delayed-long.svg" alt="lazy" width="16" height="16">
+</body></html>"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    if path == "/network-idle-non-lazy-blocked" {
+        let port = local_server().port;
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Network Idle Non Lazy Blocked</title></head>
+<body style="margin:0">
+<h1>Network Idle Non Lazy Blocked</h1>
+<img id="hero-image" src="http://127.0.0.1:{port}/fixture-image.svg" alt="hero" width="16" height="16">
+<img id="blocking-image" src="http://127.0.0.1:{port}/fixture-image-delayed-long.svg" alt="blocking" width="16" height="16">
+</body></html>"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    if path == "/network-idle-lazy-scroll" {
+        let port = local_server().port;
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Network Idle Lazy Scroll</title></head>
+<body style="margin:0">
+<h1>Network Idle Lazy Scroll</h1>
+<img id="hero-image" src="http://127.0.0.1:{port}/fixture-image.svg" alt="hero" width="16" height="16">
+<div style="height: 4000px;"></div>
+<img id="lazy-target" loading="lazy" src="http://127.0.0.1:{port}/fixture-image-delayed-short.svg" alt="lazy" width="16" height="16">
+</body></html>"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
     // Cross-origin iframe parent: embeds child from a different port
     if path.starts_with("/iframe-xo-parent") {
         let xo_port = path
@@ -895,6 +989,30 @@ pub fn url_network_load() -> String {
 /// URL for a page that performs fetch + XHR requests and marks completion.
 pub fn url_network_xhr() -> String {
     format!("http://127.0.0.1:{}/network-xhr", local_server().port)
+}
+
+/// URL for a page with an off-screen lazy image that should not block idle detection.
+pub fn url_network_idle_lazy_offscreen() -> String {
+    format!(
+        "http://127.0.0.1:{}/network-idle-lazy-offscreen",
+        local_server().port
+    )
+}
+
+/// URL for a page whose non-lazy image never completes within the test timeout.
+pub fn url_network_idle_non_lazy_blocked() -> String {
+    format!(
+        "http://127.0.0.1:{}/network-idle-non-lazy-blocked",
+        local_server().port
+    )
+}
+
+/// URL for a page whose lazy image starts loading only after scrolling it into view.
+pub fn url_network_idle_lazy_scroll() -> String {
+    format!(
+        "http://127.0.0.1:{}/network-idle-lazy-scroll",
+        local_server().port
+    )
 }
 
 // ── Cross-origin server (second port for OOPIF tests) ─────────────

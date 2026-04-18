@@ -4,7 +4,8 @@ use crate::harness::{
     SessionGuard, assert_error_envelope, assert_failure, assert_meta, assert_success, headless,
     headless_json, parse_json, skip, stdout_str, unique_session, url_a, url_b,
     url_delayed_redirect, url_delayed_redirect_long, url_fast_redirect, url_home_no_trailing_slash,
-    wait_page_ready,
+    url_network_idle_lazy_offscreen, url_network_idle_lazy_scroll,
+    url_network_idle_non_lazy_blocked, wait_page_ready,
 };
 
 const ELEMENT_SELECTOR: &str = "#loaded";
@@ -606,6 +607,128 @@ fn wait_network_idle_json_happy_path() {
     assert_eq!(v["data"]["kind"], "network-idle");
     assert_eq!(v["data"]["satisfied"], true);
     assert!(v["data"]["elapsed_ms"].as_u64().is_some());
+    assert_eq!(v["data"]["observed_value"]["idle"], true);
+}
+
+#[test]
+fn wait_network_idle_ignores_offscreen_lazy_images() {
+    if skip() {
+        return;
+    }
+
+    let (sid, _) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let tid = open_new_tab(&sid, &url_network_idle_lazy_offscreen());
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "network-idle",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "3500",
+        ],
+        10,
+    );
+    assert_success(
+        &out,
+        "wait network-idle should ignore off-screen lazy image",
+    );
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser wait network-idle");
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["kind"], "network-idle");
+    assert_eq!(v["data"]["satisfied"], true);
+    assert_eq!(v["data"]["observed_value"]["idle"], true);
+}
+
+#[test]
+fn wait_network_idle_times_out_for_non_lazy_incomplete_images() {
+    if skip() {
+        return;
+    }
+
+    let (sid, _) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let tid = open_new_tab(&sid, &url_network_idle_non_lazy_blocked());
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "network-idle",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "1200",
+        ],
+        10,
+    );
+    assert_failure(
+        &out,
+        "wait network-idle should still block on non-lazy image",
+    );
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser wait network-idle");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "TIMEOUT");
+}
+
+#[test]
+fn wait_network_idle_accepts_lazy_images_after_scroll_into_view() {
+    if skip() {
+        return;
+    }
+
+    let (sid, _) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let tid = open_new_tab(&sid, &url_network_idle_lazy_scroll());
+    wait_page_ready(&sid, &tid);
+
+    let scroll_out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "document.getElementById('lazy-target').scrollIntoView({block:'center'}); void 0",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&scroll_out, "scroll lazy image into view");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "network-idle",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "5000",
+        ],
+        10,
+    );
+    assert_success(&out, "wait network-idle after scrolling lazy image");
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser wait network-idle");
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["kind"], "network-idle");
+    assert_eq!(v["data"]["satisfied"], true);
     assert_eq!(v["data"]["observed_value"]["idle"], true);
 }
 
