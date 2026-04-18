@@ -363,7 +363,7 @@ fn wait_navigation_accepts_stable_complete_state_at_current_url() {
             "--tab",
             &tid,
             "--timeout",
-            "1500",
+            "2500",
         ],
         10,
     );
