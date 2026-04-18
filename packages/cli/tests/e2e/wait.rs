@@ -2,11 +2,12 @@
 
 use crate::harness::{
     SessionGuard, assert_error_envelope, assert_failure, assert_meta, assert_success, headless,
-    headless_json, parse_json, skip, stdout_str, unique_session, url_a, url_b,
-    url_delayed_redirect, url_delayed_redirect_long, url_fast_redirect, url_home_no_trailing_slash,
-    url_network_idle_lazy_in_viewport, url_network_idle_lazy_offscreen,
-    url_network_idle_lazy_scroll, url_network_idle_non_lazy_blocked, url_network_idle_sse_page,
-    wait_page_ready,
+    headless_json, parse_json, skip, stdout_str, unique_session, url_a, url_api_data_delayed_short,
+    url_api_fail_reset, url_b, url_delayed_redirect, url_delayed_redirect_long,
+    url_fast_redirect, url_home_no_trailing_slash,
+    url_network_idle_lazy_in_viewport, url_network_idle_lazy_offscreen, url_network_idle_lazy_scroll,
+    url_network_idle_non_lazy_blocked, url_network_idle_post_start_non_lazy_blocked,
+    url_network_idle_sse_page, wait_page_ready,
 };
 
 const ELEMENT_SELECTOR: &str = "#loaded";
@@ -100,6 +101,15 @@ fn open_new_tab(sid: &str, url: &str) -> String {
         .as_str()
         .unwrap()
         .to_string()
+}
+
+fn schedule_fetch_after_delay(sid: &str, tid: &str, url: &str) {
+    let js = format!(
+        "setTimeout(() => {{ fetch({}).catch(() => {{}}); }}, 100); void 0",
+        serde_json::to_string(url).unwrap()
+    );
+    let out = headless_json(&["browser", "eval", &js, "--session", sid, "--tab", tid], 10);
+    assert_success(&out, "schedule delayed fetch");
 }
 
 #[test]
@@ -807,6 +817,155 @@ fn wait_network_idle_unblocked_by_preexisting_sse() {
     assert_eq!(v["command"], "browser wait network-idle");
     assert_eq!(v["data"]["kind"], "network-idle");
     assert_eq!(v["data"]["satisfied"], true);
+}
+
+#[test]
+fn wait_network_idle_waits_for_post_start_fetch_batch_to_finish() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    schedule_fetch_after_delay(&sid, &tid, &url_api_data_delayed_short());
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "network-idle",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "4000",
+        ],
+        10,
+    );
+    assert_success(
+        &out,
+        "wait network-idle should block until a post-start fetch batch completes",
+    );
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser wait network-idle");
+    assert_eq!(v["data"]["kind"], "network-idle");
+    assert_eq!(v["data"]["satisfied"], true);
+    assert!(
+        v["data"]["elapsed_ms"].as_u64().unwrap_or_default() >= 1_000,
+        "elapsed_ms should include the delayed fetch plus quiet window"
+    );
+}
+
+#[test]
+fn wait_network_idle_treats_post_start_failed_fetch_as_settled() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    schedule_fetch_after_delay(&sid, &tid, &url_api_fail_reset());
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "network-idle",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "3000",
+        ],
+        10,
+    );
+    assert_success(
+        &out,
+        "wait network-idle should treat a post-start failed fetch as settled once loadingFailed arrives",
+    );
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser wait network-idle");
+    assert_eq!(v["data"]["kind"], "network-idle");
+    assert_eq!(v["data"]["satisfied"], true);
+}
+
+#[test]
+fn wait_network_idle_succeeds_after_quiet_window_when_no_new_requests() {
+    if skip() {
+        return;
+    }
+
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "network-idle",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "2000",
+        ],
+        10,
+    );
+    assert_success(
+        &out,
+        "wait network-idle should succeed after the quiet window when no new requests start",
+    );
+    let v = parse_json(&out);
+    let elapsed_ms = v["data"]["elapsed_ms"].as_u64().unwrap_or_default();
+
+    assert_eq!(v["command"], "browser wait network-idle");
+    assert_eq!(v["data"]["kind"], "network-idle");
+    assert_eq!(v["data"]["satisfied"], true);
+    assert!(
+        elapsed_ms >= 500 && elapsed_ms < 1_500,
+        "elapsed_ms should reflect the fixed quiet window, got {elapsed_ms}"
+    );
+}
+
+#[test]
+fn wait_network_idle_times_out_for_post_start_non_lazy_incomplete_image() {
+    if skip() {
+        return;
+    }
+
+    let (sid, _) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let tid = open_new_tab(&sid, &url_network_idle_post_start_non_lazy_blocked());
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "network-idle",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "1500",
+        ],
+        10,
+    );
+    assert_failure(
+        &out,
+        "wait network-idle should still time out if a post-start non-lazy image never completes",
+    );
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser wait network-idle");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "TIMEOUT");
 }
 
 #[test]

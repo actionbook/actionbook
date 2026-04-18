@@ -656,6 +656,29 @@ setTimeout(() => {{
         return;
     }
 
+    if path.starts_with("/api/delayed-data-short") {
+        std::thread::sleep(Duration::from_millis(1_000));
+        let source = path
+            .split("source=")
+            .nth(1)
+            .and_then(|value| value.split('&').next())
+            .unwrap_or("delayed");
+        let body = format!(r#"{{"ok":true,"source":"{source}","delay_ms":1000}}"#);
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-Ab-Fixture: api-data-delayed-short\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    if path == "/api/fail-reset" {
+        // Drop the TCP connection without sending an HTTP response so the browser
+        // reports a network failure (`loadingFailed`) instead of a completed response.
+        return;
+    }
+
     if path == "/network-fixture.css" {
         let body = "body { background: rgb(245, 248, 255); }";
         let response = format!(
@@ -887,6 +910,36 @@ setTimeout(() => {{
         return;
     }
 
+    if path == "/network-idle-post-start-non-lazy-blocked" {
+        let port = local_server().port;
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Network Idle Post Start Non Lazy Blocked</title></head>
+<body style="margin:0">
+<h1>Network Idle Post Start Non Lazy Blocked</h1>
+<img id="hero-image" src="http://127.0.0.1:{port}/fixture-image.svg" alt="hero" width="16" height="16">
+<div id="image-host"></div>
+<script>
+setTimeout(() => {{
+  const img = document.createElement('img');
+  img.id = 'post-start-blocking-image';
+  img.alt = 'post-start-blocking-image';
+  img.width = 16;
+  img.height = 16;
+  img.src = 'http://127.0.0.1:{port}/fixture-image-delayed-long.svg';
+  document.getElementById('image-host').appendChild(img);
+}}, 100);
+</script>
+</body></html>"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
     // Cross-origin iframe parent: embeds child from a different port
     if path.starts_with("/iframe-xo-parent") {
         let xo_port = path
@@ -1049,6 +1102,19 @@ pub fn url_network_xhr() -> String {
     format!("http://127.0.0.1:{}/network-xhr", local_server().port)
 }
 
+/// URL for a delayed JSON response used to verify post-start request tracking.
+pub fn url_api_data_delayed_short() -> String {
+    format!(
+        "http://127.0.0.1:{}/api/delayed-data-short?source=post-start",
+        local_server().port
+    )
+}
+
+/// URL that drops the connection to force a request failure / loadingFailed.
+pub fn url_api_fail_reset() -> String {
+    format!("http://127.0.0.1:{}/api/fail-reset", local_server().port)
+}
+
 /// URL for a page with an off-screen lazy image that should not block idle detection.
 pub fn url_network_idle_lazy_offscreen() -> String {
     format!(
@@ -1085,6 +1151,14 @@ pub fn url_network_idle_lazy_in_viewport() -> String {
 pub fn url_network_idle_sse_page() -> String {
     format!(
         "http://127.0.0.1:{}/network-idle-sse-page",
+        local_server().port
+    )
+}
+
+/// URL for a page that injects a non-lazy image after idle waiting has begun.
+pub fn url_network_idle_post_start_non_lazy_blocked() -> String {
+    format!(
+        "http://127.0.0.1:{}/network-idle-post-start-non-lazy-blocked",
         local_server().port
     )
 }
