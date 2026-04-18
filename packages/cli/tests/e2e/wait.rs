@@ -4,7 +4,8 @@ use crate::harness::{
     SessionGuard, assert_error_envelope, assert_failure, assert_meta, assert_success, headless,
     headless_json, parse_json, skip, stdout_str, unique_session, url_a, url_b,
     url_delayed_redirect, url_delayed_redirect_long, url_fast_redirect, url_home_no_trailing_slash,
-    url_network_idle_lazy_offscreen, url_network_idle_lazy_scroll,
+    url_network_idle_lazy_in_viewport, url_network_idle_lazy_offscreen,
+    url_network_idle_lazy_scroll,
     url_network_idle_non_lazy_blocked, wait_page_ready,
 };
 
@@ -730,6 +731,42 @@ fn wait_network_idle_accepts_lazy_images_after_scroll_into_view() {
     assert_eq!(v["data"]["kind"], "network-idle");
     assert_eq!(v["data"]["satisfied"], true);
     assert_eq!(v["data"]["observed_value"]["idle"], true);
+}
+
+#[test]
+fn wait_network_idle_blocks_on_in_viewport_lazy_image_still_loading() {
+    if skip() {
+        return;
+    }
+
+    let (sid, _) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let tid = open_new_tab(&sid, &url_network_idle_lazy_in_viewport());
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "network-idle",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "3500",
+        ],
+        10,
+    );
+    assert_failure(
+        &out,
+        "wait network-idle should block on in-viewport lazy image while it is still loading",
+    );
+    let v = parse_json(&out);
+
+    assert_eq!(v["command"], "browser wait network-idle");
+    assert_eq!(v["context"]["session_id"], sid);
+    assert_eq!(v["context"]["tab_id"], tid);
+    assert_error_envelope(&v, "TIMEOUT");
 }
 
 #[test]

@@ -829,6 +829,37 @@ Promise.all([
         return;
     }
 
+    if path == "/network-idle-lazy-in-viewport" {
+        let port = local_server().port;
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Network Idle Lazy In Viewport</title></head>
+<body style="margin:0">
+<h1>Network Idle Lazy In Viewport</h1>
+<img id="hero-image" src="http://127.0.0.1:{port}/fixture-image.svg" alt="hero" width="16" height="16">
+<div id="lazy-host"></div>
+<script>
+setTimeout(() => {{
+  const img = document.createElement('img');
+  img.id = 'lazy-target';
+  img.loading = 'lazy';
+  img.alt = 'lazy-visible';
+  img.width = 16;
+  img.height = 16;
+  img.src = 'http://127.0.0.1:{port}/fixture-image-delayed-long.svg';
+  document.getElementById('lazy-host').appendChild(img);
+}}, 100);
+</script>
+</body></html>"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
     // Cross-origin iframe parent: embeds child from a different port
     if path.starts_with("/iframe-xo-parent") {
         let xo_port = path
@@ -1011,6 +1042,14 @@ pub fn url_network_idle_non_lazy_blocked() -> String {
 pub fn url_network_idle_lazy_scroll() -> String {
     format!(
         "http://127.0.0.1:{}/network-idle-lazy-scroll",
+        local_server().port
+    )
+}
+
+/// URL for a page whose lazy image is already in the viewport and still loading.
+pub fn url_network_idle_lazy_in_viewport() -> String {
+    format!(
+        "http://127.0.0.1:{}/network-idle-lazy-in-viewport",
         local_server().port
     )
 }
