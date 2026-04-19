@@ -432,11 +432,11 @@ fn tab_new_tab_multi_url_awaits_navigation() {
     // stored requested URL), so this catches the race where new-tab returned
     // before the tab transitioned away from about:blank.
     for tab_id in ["sa", "sb", "sc"] {
-        let text_out = headless_json(
-            &["browser", "text", "--session", &sid, "--tab", tab_id],
-            30,
+        let text_out = headless_json(&["browser", "text", "--session", &sid, "--tab", tab_id], 30);
+        assert_success(
+            &text_out,
+            &format!("text on {tab_id} after multi-url new-tab"),
         );
-        assert_success(&text_out, &format!("text on {tab_id} after multi-url new-tab"));
         let v = parse_json(&text_out);
         let url = v["context"]["url"].as_str().unwrap_or("");
         assert!(
