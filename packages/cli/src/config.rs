@@ -143,6 +143,53 @@ pub fn session_data_dir(session_id: &str) -> PathBuf {
     sessions_dir().join(session_id)
 }
 
+/// Housekeeping sweep for `~/.actionbook/sessions/`:
+///
+/// - Remove subdirectories that are empty. `browser session start` eagerly
+///   creates per-session data dirs; sessions closed via `browser session
+///   close` remove them, but short-lived flows (e.g. single-shot `new-tab
+///   → text → close-tab` without an explicit `session close`) leave empty
+///   orphan dirs behind.
+/// - Remove stale `__fetch_{pid}__.json` files from a removed `actionbook-rs`
+///   code path (browser fetch sub-command). The code that created these
+///   was ripped out, but the CLI still runs into leftovers on machines
+///   that used pre-0.8 versions.
+///
+/// Best-effort: all I/O errors are swallowed — this is a maintenance
+/// pass, not a critical operation.
+pub fn sweep_session_orphans() {
+    let base = sessions_dir();
+    let Ok(entries) = fs::read_dir(&base) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        // Stale `__fetch_{pid}__.json` files from the removed browser-fetch
+        // subcommand (actionbook-rs 0.7→0.8). Drop regardless of PID state
+        // — we're only in this sweep on daemon shutdown / startup, so any
+        // in-flight fetch that was still writing would be the daemon's own,
+        // and it's not using this pattern anymore.
+        if name.starts_with("__fetch_") && name.ends_with("__.json") && path.is_file() {
+            let _ = fs::remove_file(&path);
+            continue;
+        }
+        // Empty session-data subdirs. Only rmdir truly empty ones so a
+        // session that wrote artifacts but wasn't explicitly closed
+        // doesn't lose them.
+        if path.is_dir() {
+            let empty = fs::read_dir(&path)
+                .map(|mut rd| rd.next().is_none())
+                .unwrap_or(false);
+            if empty {
+                let _ = fs::remove_dir(&path);
+            }
+        }
+    }
+}
+
 fn ensure_actionbook_home() -> Result<PathBuf, CliError> {
     let dir = actionbook_home();
     fs::create_dir_all(&dir)?;
@@ -720,5 +767,60 @@ base_url = "  https://config-api.example.com  "
             std::path::PathBuf::from("/test-user-profile/.actionbook"),
             "should use USERPROFILE when HOME is not set"
         );
+    }
+
+    // Housekeeping sweep tests for sessions dir orphans.
+
+    #[test]
+    fn sweep_removes_empty_session_dirs() {
+        let _lock = test_lock();
+        let (_tmp, _guard) = make_home();
+        let sessions = sessions_dir();
+        fs::create_dir_all(&sessions).unwrap();
+        let empty = sessions.join("research-empty-x");
+        fs::create_dir_all(&empty).unwrap();
+        let non_empty = sessions.join("research-has-stuff");
+        fs::create_dir_all(&non_empty).unwrap();
+        fs::write(non_empty.join("snapshot.yaml"), "x").unwrap();
+
+        sweep_session_orphans();
+
+        assert!(!empty.exists(), "empty session dir must be swept");
+        assert!(non_empty.exists(), "non-empty session dir must be preserved");
+        assert!(non_empty.join("snapshot.yaml").exists());
+    }
+
+    #[test]
+    fn sweep_removes_stale_fetch_json_files() {
+        let _lock = test_lock();
+        let (_tmp, _guard) = make_home();
+        let sessions = sessions_dir();
+        fs::create_dir_all(&sessions).unwrap();
+        let stale_a = sessions.join("__fetch_1234__.json");
+        let stale_b = sessions.join("__fetch_99999__.json");
+        let keep = sessions.join("actionbook@default.json");
+        fs::write(&stale_a, r#"{"pid":1234}"#).unwrap();
+        fs::write(&stale_b, r#"{"pid":99999}"#).unwrap();
+        fs::write(&keep, r#"{"profile":"default"}"#).unwrap();
+
+        sweep_session_orphans();
+
+        assert!(!stale_a.exists());
+        assert!(!stale_b.exists());
+        assert!(keep.exists(), "non-__fetch__ session files must be preserved");
+    }
+
+    #[test]
+    fn sweep_is_best_effort_on_missing_sessions_dir() {
+        let _lock = test_lock();
+        let (_tmp, _guard) = make_home();
+        // sessions_dir() exists only when ensure_actionbook_home has run;
+        // the sweep must not panic if it's missing (early daemon start).
+        let sessions = sessions_dir();
+        if sessions.exists() {
+            let _ = fs::remove_dir_all(&sessions);
+        }
+        sweep_session_orphans();
+        // No panic, no side effect — pass.
     }
 }

@@ -236,6 +236,11 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
         std::process::id(),
         crate::BUILD_VERSION
     );
+    // Startup housekeeping: remove session-dir / fetch-file orphans from
+    // previous daemons that exited ungracefully (SIGKILL, panic=abort, or
+    // a hard crash that bypassed the shutdown sweep). Safe because we
+    // hold no state yet — any empty dir was orphaned by a prior run.
+    crate::config::sweep_session_orphans();
     let path = socket_path();
     let pid_file = pid_path();
     let ready_path = path.with_extension("ready");
@@ -416,6 +421,11 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::remove_file(version_path()).ok();
     std::fs::remove_file(&pid_file).ok();
 
+    // Sweep empty session data dirs + stale __fetch_*.json files left by
+    // previous short-lived flows or the removed browser-fetch subcommand.
+    // Best-effort — any I/O error is swallowed inside the helper.
+    crate::config::sweep_session_orphans();
+
     info!("daemon shutdown complete (pid={})", std::process::id());
 
     // `pid_file_fd` is dropped here → kernel releases flock
@@ -435,6 +445,8 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
         std::process::id(),
         crate::BUILD_VERSION
     );
+    // Startup sweep (same rationale as the unix path).
+    crate::config::sweep_session_orphans();
     let pid_file = pid_path();
     let port_file = port_path();
     let lock_file = lock_path();
@@ -581,6 +593,10 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::remove_file(version_path()).ok();
     std::fs::remove_file(&pid_file).ok();
     std::fs::remove_file(&lock_file).ok();
+
+    // Sweep empty session data dirs + stale __fetch_*.json files (same
+    // housekeeping as the unix path).
+    crate::config::sweep_session_orphans();
 
     info!("daemon shutdown complete (pid={})", std::process::id());
     // Drop the lock fd — Windows releases the byte-range lock when the fd closes.
