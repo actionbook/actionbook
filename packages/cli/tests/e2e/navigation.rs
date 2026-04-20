@@ -7,7 +7,7 @@
 
 use crate::harness::{
     SessionGuard, assert_error_envelope, assert_failure, assert_meta, assert_success, headless,
-    headless_json, parse_json, skip, start_session, stdout_str, url_a, url_b,
+    headless_json, parse_json, skip, start_session, stderr_str, stdout_str, url_a, url_b,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -231,7 +231,7 @@ fn nav_goto_session_not_found_text() {
         10,
     );
     assert_failure(&out, "goto nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain error SESSION_NOT_FOUND: got {text}"
@@ -291,7 +291,7 @@ fn nav_goto_tab_not_found_text() {
         10,
     );
     assert_failure(&out, "goto nonexistent tab text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error TAB_NOT_FOUND:"),
         "text must contain error TAB_NOT_FOUND: got {text}"

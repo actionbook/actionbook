@@ -23,7 +23,7 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str, unique_session, url_a, url_cursor_fixture, wait_page_ready,
+    stderr_str, stdout_str, unique_session, url_a, url_cursor_fixture, wait_page_ready,
 };
 
 const URL_A: &str = "https://actionbook.dev";
@@ -918,7 +918,7 @@ fn snap_session_not_found_text() {
         10,
     );
     assert_failure(&out, "snapshot nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain error SESSION_NOT_FOUND: got {text}"
@@ -983,7 +983,7 @@ fn snap_tab_not_found_text() {
         10,
     );
     assert_failure(&out, "snapshot nonexistent tab text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error TAB_NOT_FOUND:"),
         "text must contain error TAB_NOT_FOUND: got {text}"

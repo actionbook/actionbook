@@ -7,7 +7,7 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str, unique_session, wait_page_ready,
+    stderr_str, stdout_str, unique_session, wait_page_ready,
 };
 
 const URL_A: &str = "https://actionbook.dev";
@@ -248,7 +248,7 @@ fn title_session_not_found_text() {
         10,
     );
     assert_failure(&out, "title nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain 'error SESSION_NOT_FOUND:' got {text}"
@@ -464,7 +464,7 @@ fn url_session_not_found_text() {
         10,
     );
     assert_failure(&out, "url nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain 'error SESSION_NOT_FOUND:' got {text}"
@@ -691,7 +691,7 @@ fn viewport_session_not_found_text() {
         10,
     );
     assert_failure(&out, "viewport nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain 'error SESSION_NOT_FOUND:' got {text}"

@@ -7,7 +7,7 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str, unique_session, wait_page_ready,
+    stderr_str, stdout_str, unique_session, wait_page_ready,
 };
 
 const TEST_URL: &str = "https://example.com";
@@ -1796,7 +1796,7 @@ fn click_session_not_found_text() {
         10,
     );
     assert_failure(&out, "click nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain error SESSION_NOT_FOUND: got {text}"
@@ -1858,7 +1858,7 @@ fn click_tab_not_found_text() {
         10,
     );
     assert_failure(&out, "click nonexistent tab text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error TAB_NOT_FOUND:"),
         "text must contain error TAB_NOT_FOUND: got {text}"
@@ -1924,7 +1924,7 @@ fn click_missing_selector_text() {
         15,
     );
     assert_failure(&out, "click missing selector text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
 
     assert!(
         text.contains(&format!("[{sid} {tid}]")),
@@ -2258,7 +2258,7 @@ fn type_session_not_found_text() {
         10,
     );
     assert_failure(&out, "type nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain error SESSION_NOT_FOUND: got {text}"
@@ -2322,7 +2322,7 @@ fn type_tab_not_found_text() {
         10,
     );
     assert_failure(&out, "type nonexistent tab text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error TAB_NOT_FOUND:"),
         "text must contain error TAB_NOT_FOUND: got {text}"
@@ -2390,7 +2390,7 @@ fn type_missing_selector_text() {
         15,
     );
     assert_failure(&out, "type missing selector text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
 
     assert!(
         text.contains(&format!("[{sid} {tid}]")),
@@ -2741,7 +2741,7 @@ fn fill_session_not_found_text() {
         10,
     );
     assert_failure(&out, "fill nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain error SESSION_NOT_FOUND: got {text}"
@@ -2805,7 +2805,7 @@ fn fill_tab_not_found_text() {
         10,
     );
     assert_failure(&out, "fill nonexistent tab text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error TAB_NOT_FOUND:"),
         "text must contain error TAB_NOT_FOUND: got {text}"
@@ -2873,7 +2873,7 @@ fn fill_missing_selector_text() {
         15,
     );
     assert_failure(&out, "fill missing selector text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
 
     assert!(
         text.contains(&format!("[{sid} {tid}]")),
@@ -3402,7 +3402,7 @@ fn select_session_not_found_text() {
         10,
     );
     assert_failure(&out, "select nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain error SESSION_NOT_FOUND: got {text}"
@@ -3466,7 +3466,7 @@ fn select_tab_not_found_text() {
         10,
     );
     assert_failure(&out, "select nonexistent tab text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error TAB_NOT_FOUND:"),
         "text must contain error TAB_NOT_FOUND: got {text}"
@@ -3534,7 +3534,7 @@ fn select_missing_selector_text() {
         15,
     );
     assert_failure(&out, "select missing selector text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
 
     assert!(
         text.contains(&format!("[{sid} {tid}]")),
@@ -3685,7 +3685,7 @@ fn hover_session_not_found_text() {
         10,
     );
     assert_failure(&out, "hover nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain error SESSION_NOT_FOUND: got {text}"
@@ -3747,7 +3747,7 @@ fn hover_tab_not_found_text() {
         10,
     );
     assert_failure(&out, "hover nonexistent tab text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error TAB_NOT_FOUND:"),
         "text must contain error TAB_NOT_FOUND: got {text}"
@@ -3813,7 +3813,7 @@ fn hover_missing_selector_text() {
         15,
     );
     assert_failure(&out, "hover missing selector text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
 
     assert!(
         text.contains(&format!("[{sid} {tid}]")),
@@ -3953,7 +3953,7 @@ fn focus_session_not_found_text() {
         10,
     );
     assert_failure(&out, "focus nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain error SESSION_NOT_FOUND: got {text}"
@@ -4015,7 +4015,7 @@ fn focus_tab_not_found_text() {
         10,
     );
     assert_failure(&out, "focus nonexistent tab text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error TAB_NOT_FOUND:"),
         "text must contain error TAB_NOT_FOUND: got {text}"
@@ -4081,7 +4081,7 @@ fn focus_missing_selector_text() {
         15,
     );
     assert_failure(&out, "focus missing selector text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
 
     assert!(
         text.contains(&format!("[{sid} {tid}]")),
@@ -4408,7 +4408,7 @@ fn press_session_not_found_text() {
         10,
     );
     assert_failure(&out, "press nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain error SESSION_NOT_FOUND: got {text}"
@@ -4470,7 +4470,7 @@ fn press_tab_not_found_text() {
         10,
     );
     assert_failure(&out, "press nonexistent tab text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error TAB_NOT_FOUND:"),
         "text must contain error TAB_NOT_FOUND: got {text}"
@@ -4532,7 +4532,7 @@ fn press_invalid_chord_text() {
         10,
     );
     assert_failure(&out, "press invalid chord text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
 
     assert!(
         text.contains(&format!("[{sid} {tid}]")),
@@ -4702,7 +4702,7 @@ fn drag_session_not_found_text() {
         10,
     );
     assert_failure(&out, "drag nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain error SESSION_NOT_FOUND: got {text}"
@@ -4766,7 +4766,7 @@ fn drag_tab_not_found_text() {
         10,
     );
     assert_failure(&out, "drag nonexistent tab text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error TAB_NOT_FOUND:"),
         "text must contain error TAB_NOT_FOUND: got {text}"
@@ -4834,7 +4834,7 @@ fn drag_missing_source_text() {
         15,
     );
     assert_failure(&out, "drag missing source text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
 
     assert!(
         text.contains(&format!("[{sid} {tid}]")),
@@ -4905,7 +4905,7 @@ fn drag_invalid_destination_coordinates_text() {
         10,
     );
     assert_failure(&out, "drag invalid destination coordinates text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
 
     assert!(
         text.contains(&format!("[{sid} {tid}]")),
@@ -5074,7 +5074,7 @@ fn upload_session_not_found_text() {
         10,
     );
     assert_failure(&out, "upload nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain error SESSION_NOT_FOUND: got {text}"
@@ -5146,7 +5146,7 @@ fn upload_tab_not_found_text() {
         10,
     );
     assert_failure(&out, "upload nonexistent tab text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error TAB_NOT_FOUND:"),
         "text must contain error TAB_NOT_FOUND: got {text}"
@@ -5216,7 +5216,7 @@ fn upload_missing_selector_text() {
         15,
     );
     assert_failure(&out, "upload missing selector text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
 
     assert!(
         text.contains(&format!("[{sid} {tid}]")),
@@ -5287,7 +5287,7 @@ fn upload_relative_path_text() {
         10,
     );
     assert_failure(&out, "upload relative path text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
 
     assert!(
         text.contains(&format!("[{sid} {tid}]")),
@@ -5467,7 +5467,7 @@ fn eval_session_not_found_text() {
         10,
     );
     assert_failure(&out, "eval nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain error SESSION_NOT_FOUND: got {text}"
@@ -5529,7 +5529,7 @@ fn eval_tab_not_found_text() {
         10,
     );
     assert_failure(&out, "eval nonexistent tab text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error TAB_NOT_FOUND:"),
         "text must contain error TAB_NOT_FOUND: got {text}"
@@ -5602,7 +5602,7 @@ fn eval_exception_text() {
         10,
     );
     assert_failure(&out, "eval exception text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
 
     assert!(
         text.contains(&format!("[{sid} {tid}]")),
@@ -5995,7 +5995,7 @@ fn mouse_move_session_not_found_text() {
         10,
     );
     assert_failure(&out, "mouse-move nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain error SESSION_NOT_FOUND: got {text}"
@@ -6057,7 +6057,7 @@ fn mouse_move_tab_not_found_text() {
         10,
     );
     assert_failure(&out, "mouse-move nonexistent tab text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error TAB_NOT_FOUND:"),
         "text must contain error TAB_NOT_FOUND: got {text}"
@@ -6119,7 +6119,7 @@ fn mouse_move_invalid_coordinates_text() {
         10,
     );
     assert_failure(&out, "mouse-move invalid coordinates text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
 
     assert!(
         text.contains(&format!("[{sid} {tid}]")),
@@ -6288,7 +6288,7 @@ fn cursor_position_session_not_found_text() {
         10,
     );
     assert_failure(&out, "cursor-position nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain error SESSION_NOT_FOUND: got {text}"
@@ -6348,7 +6348,7 @@ fn cursor_position_tab_not_found_text() {
         10,
     );
     assert_failure(&out, "cursor-position nonexistent tab text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error TAB_NOT_FOUND:"),
         "text must contain error TAB_NOT_FOUND: got {text}"
@@ -6664,7 +6664,7 @@ fn scroll_session_not_found_text() {
         10,
     );
     assert_failure(&out, "scroll nonexistent session text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error SESSION_NOT_FOUND:"),
         "text must contain error SESSION_NOT_FOUND: got {text}"
@@ -6728,7 +6728,7 @@ fn scroll_tab_not_found_text() {
         10,
     );
     assert_failure(&out, "scroll nonexistent tab text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("error TAB_NOT_FOUND:"),
         "text must contain error TAB_NOT_FOUND: got {text}"
@@ -6798,7 +6798,7 @@ fn scroll_missing_container_text() {
         10,
     );
     assert_failure(&out, "scroll missing container text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
 
     assert!(
         text.contains(&format!("[{sid} {tid}]")),
@@ -6873,7 +6873,7 @@ fn scroll_into_view_missing_target_text() {
         10,
     );
     assert_failure(&out, "scroll into-view missing target text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
 
     assert!(
         text.contains(&format!("[{sid} {tid}]")),

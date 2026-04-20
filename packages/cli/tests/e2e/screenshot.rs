@@ -5,7 +5,7 @@
 
 use crate::harness::{
     SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stdout_str, unique_session, wait_page_ready,
+    stderr_str, stdout_str, unique_session, wait_page_ready,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -473,7 +473,7 @@ fn screenshot_session_not_found_text() {
         10,
     );
     assert_failure(&out, "screenshot session not found text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(
         text.contains("SESSION_NOT_FOUND"),
         "text must contain SESSION_NOT_FOUND: got {text:.200}"

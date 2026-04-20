@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use crate::harness::{
     SessionGuard, SoloEnv, assert_failure, assert_native_tab_id, assert_success, assert_tab_id,
-    headless, headless_json, new_tab_json, parse_json, skip, start_session, stdout_str,
+    headless, headless_json, new_tab_json, parse_json, skip, start_session, stderr_str, stdout_str,
     unique_session, url_a, url_b, wait_url_contains,
 };
 
@@ -473,7 +473,7 @@ fn lifecycle_double_close_text() {
 
     let out = headless(&["browser", "close", "--session", &sid], 30);
     assert_failure(&out, "second close text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(text.contains("error SESSION_NOT_FOUND:"));
 }
 
@@ -507,7 +507,7 @@ fn lifecycle_status_nonexistent_text() {
 
     let out = headless(&["browser", "status", "--session", "nonexistent"], 10);
     assert_failure(&out, "status nonexistent text");
-    let text = stdout_str(&out);
+    let text = stderr_str(&out);
     assert!(text.contains("error SESSION_NOT_FOUND:"));
 }
 
