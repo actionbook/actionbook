@@ -331,6 +331,12 @@ async fn open_one_tab(
         return Err(cdp_error_to_result(e, "CDP_ERROR"));
     }
 
+    // Wait for navigation to commit (issue #004).
+    // Target.createTarget kicks off navigation async but returns before the
+    // main frame has moved away from about:blank. Without this wait, any
+    // immediately-subsequent read command (text / eval) sees the blank page.
+    await_navigation_committed(cdp, &target_id, final_url).await;
+
     let short_tab_id = {
         let mut reg = registry.lock().await;
         match reg.get_mut(session_id) {
@@ -431,9 +437,94 @@ fn failure_json(url: &str, result: &ActionResult) -> serde_json::Value {
     }
 }
 
+/// Poll document.URL until the tab has navigated away from about:blank.
+///
+/// Target.createTarget with a `url` argument kicks off navigation but returns
+/// before the main frame commits. Without this wait, a read command issued
+/// immediately after `new-tab` sees the blank page. Issue #004.
+///
+/// - Skips the wait when the requested URL is itself an internal page (about:*,
+///   chrome://*, javascript:, etc.) — user intent was a blank/internal tab.
+/// - Polls every 50 ms, gives up after 3 s. On timeout we return without
+///   error: the tab is still usable and the caller's subsequent `wait network-idle`
+///   or `text` will surface the issue if navigation genuinely failed.
+async fn await_navigation_committed(cdp: &CdpSession, target_id: &str, requested_url: &str) {
+    // URL schemes are case-insensitive per RFC 3986 §3.1. Lower-case the
+    // prefix so `ABOUT:blank`, `Chrome://newtab`, etc. bypass the polling
+    // loop the same way `about:blank` does.
+    if url_has_internal_scheme(requested_url) {
+        return;
+    }
+
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_millis(3000);
+    let tick = std::time::Duration::from_millis(50);
+
+    loop {
+        let current = crate::browser::navigation::get_tab_url(cdp, target_id).await;
+        let is_blank = current.is_empty() || observed_is_blank(&current);
+        if !is_blank {
+            return;
+        }
+        if start.elapsed() >= timeout {
+            return;
+        }
+        tokio::time::sleep(tick).await;
+    }
+}
+
+/// True for requested URLs that name an internal page. Case-insensitive.
+fn url_has_internal_scheme(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.starts_with("about:")
+        || lower.starts_with("chrome:")
+        || lower.starts_with("javascript:")
+        || lower.starts_with("data:")
+}
+
+/// True for observed URLs that the browser considers "not yet navigated".
+/// Lowercased so the browser's case-normalized scheme still matches if it
+/// ever starts echoing the user's casing.
+fn observed_is_blank(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.starts_with("about:") || lower.starts_with("chrome://newtab")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn internal_scheme_detection_is_case_insensitive() {
+        // RFC 3986: URL schemes are case-insensitive. If we miss uppercase
+        // variants we'd pay a 3s polling stall before timing out for tabs
+        // that are intentionally internal.
+        assert!(url_has_internal_scheme("about:blank"));
+        assert!(url_has_internal_scheme("ABOUT:blank"));
+        assert!(url_has_internal_scheme("About:blank"));
+        assert!(url_has_internal_scheme("chrome://newtab"));
+        assert!(url_has_internal_scheme("Chrome://newtab"));
+        assert!(url_has_internal_scheme("CHROME://newtab"));
+        assert!(url_has_internal_scheme("javascript:alert(1)"));
+        assert!(url_has_internal_scheme("JavaScript:alert(1)"));
+        assert!(url_has_internal_scheme("data:text/html,hi"));
+        assert!(url_has_internal_scheme("DATA:text/html,hi"));
+
+        // Non-internal schemes stay out.
+        assert!(!url_has_internal_scheme("https://example.com"));
+        assert!(!url_has_internal_scheme("HTTPS://EXAMPLE.COM"));
+        assert!(!url_has_internal_scheme("file:///tmp/page.html"));
+    }
+
+    #[test]
+    fn observed_blank_detection_is_case_insensitive() {
+        assert!(observed_is_blank("about:blank"));
+        assert!(observed_is_blank("ABOUT:blank"));
+        assert!(observed_is_blank("chrome://newtab"));
+        assert!(observed_is_blank("Chrome://newtab"));
+        assert!(!observed_is_blank("https://example.com"));
+        assert!(!observed_is_blank("chrome://extensions"));
+    }
 
     #[test]
     fn append_skipped_failures_records_remaining_urls() {

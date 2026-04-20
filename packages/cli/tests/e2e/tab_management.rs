@@ -9,7 +9,7 @@ use crate::harness::{
     SessionGuard, assert_context_object, assert_context_with_session, assert_error_envelope,
     assert_failure, assert_meta, assert_native_tab_id, assert_success, assert_tab_id, headless,
     headless_json, new_tab_json, parse_json, skip, start_named_session, start_session, stdout_str,
-    unique_session, url_a, url_b, url_c,
+    unique_session, url_a, url_b, url_c, url_slow,
 };
 
 // ===========================================================================
@@ -387,6 +387,67 @@ fn tab_new_tab_multiple_urls_partial_failure_text() {
     let text = stdout_str(&out);
     assert!(text.contains(&format!("1/2 tabs opened in session {sid}")));
     assert!(text.contains("[failed] javascript:alert(1) - INVALID_ARGUMENT:"));
+}
+
+#[test]
+fn tab_new_tab_multi_url_awaits_navigation() {
+    // Regression test for issue #004.
+    //
+    // `browser new-tab` with multiple URLs used to return before the tabs had
+    // navigated away from about:blank. That broke the parallel-research
+    // pattern because a subsequent `list-tabs` (or any immediate per-tab
+    // command) would see stale about:blank state.
+    //
+    // Uses /slow fixture (250 ms response delay) per URL so the race is
+    // reliably visible without the fix.
+    if skip() {
+        return;
+    }
+    let (sid, _t1) = start_session(&url_a());
+    let _guard = SessionGuard::new(&sid);
+
+    let slow = url_slow();
+    let out = headless_json(
+        &[
+            "browser",
+            "new-tab",
+            &slow,
+            &slow,
+            &slow,
+            "--session",
+            &sid,
+            "--tab",
+            "sa",
+            "--tab",
+            "sb",
+            "--tab",
+            "sc",
+        ],
+        30,
+    );
+    assert_success(&out, "new-tab multi-url awaits navigation");
+
+    // Immediately — no sleep, no extra wait — call `text` on each tab.
+    // `text` reports context.url from live document.URL (not the registry's
+    // stored requested URL), so this catches the race where new-tab returned
+    // before the tab transitioned away from about:blank.
+    for tab_id in ["sa", "sb", "sc"] {
+        let text_out = headless_json(&["browser", "text", "--session", &sid, "--tab", tab_id], 30);
+        assert_success(
+            &text_out,
+            &format!("text on {tab_id} after multi-url new-tab"),
+        );
+        let v = parse_json(&text_out);
+        let url = v["context"]["url"].as_str().unwrap_or("");
+        assert!(
+            !url.starts_with("about:"),
+            "tab {tab_id}: context.url is still {url}; new-tab returned before navigation committed"
+        );
+        assert!(
+            url.contains("/slow"),
+            "tab {tab_id}: context.url does not reflect /slow fixture: {url}"
+        );
+    }
 }
 
 // ===========================================================================
