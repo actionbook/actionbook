@@ -448,10 +448,12 @@ async function ensureTabInActionbookGroup(tabId) {
       windowId: tab.windowId,
     });
 
+    let groupId;
     if (existing && existing.length > 0) {
-      await chrome.tabs.group({ groupId: existing[0].id, tabIds: [tabId] });
+      groupId = existing[0].id;
+      await chrome.tabs.group({ groupId, tabIds: [tabId] });
     } else {
-      const groupId = await chrome.tabs.group({
+      groupId = await chrome.tabs.group({
         tabIds: [tabId],
         createProperties: { windowId: tab.windowId },
       });
@@ -459,6 +461,22 @@ async function ensureTabInActionbookGroup(tabId) {
         title: ACTIONBOOK_GROUP_TITLE,
         color: ACTIONBOOK_GROUP_COLOR,
       });
+    }
+    // Pin the Actionbook group to the leftmost position of the window so
+    // agent-driven tabs are always findable in the same spot. We move the
+    // underlying tabs (not the group) because chrome.tabGroups.move has
+    // known issues moving single-tab groups to index 0 in some Chrome
+    // builds. Chrome automatically clamps past any pinned tabs.
+    try {
+      const groupTabs = await chrome.tabs.query({ groupId });
+      const tabIdsToMove = groupTabs
+        .sort((a, b) => a.index - b.index)
+        .map((t) => t.id);
+      if (tabIdsToMove.length > 0) {
+        await chrome.tabs.move(tabIdsToMove, { index: 0 });
+      }
+    } catch (err) {
+      console.warn("[actionbook] pin group to leftmost failed:", err?.message || err);
     }
   } catch (err) {
     debugLog("[actionbook] ensureTabInActionbookGroup failed:", err?.message || err);
