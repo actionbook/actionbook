@@ -1,5 +1,11 @@
 # @actionbookdev/extension
 
+## 0.4.1
+
+### Patch Changes
+
+- [`12669c9`](https://github.com/actionbook/actionbook/commit/12669c9aaf696733453ee668d5322ac4b5a60ae3) Thanks [@mcfn](https://github.com/mcfn)! - Simplify tab ownership model: `Extension.listTabs` now returns only tabs in the Actionbook group (drag in = appears, drag out = disappears). `Extension.attachTab` always moves the tab into the group. Remove the unused `ACTIONBOOK_GROUP_ATTACH` flag.
+
 ## 0.4.0
 
 ### Minor Changes
