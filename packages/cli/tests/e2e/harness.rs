@@ -238,81 +238,119 @@ impl SoloEnv {
 
 impl Drop for SoloEnv {
     fn drop(&mut self) {
-        // Kill this env's daemon and Chrome processes, wait for exit,
-        // then clean up socket/ready/pid files (SIGKILL prevents daemon's
-        // own cleanup path from running).
-        let dir = std::path::Path::new(&self.actionbook_home);
-        let pid_path = dir.join("daemon.pid");
-        if let Ok(pid_str) = std::fs::read_to_string(&pid_path)
-            && let Ok(pid) = pid_str.trim().parse::<u32>()
+        reap_daemon_and_chromes(std::path::Path::new(&self.actionbook_home));
+    }
+}
+
+/// Kill the daemon that's running against `home` (if any), wait for it to
+/// exit, pkill any Chrome processes still holding the `profiles/` user-data
+/// directory, then unlink the daemon's sentinel files. Called from both
+/// `SoloEnv::drop` (per-test) and the at-exit hook that catches the
+/// shared-env leak (see `__e2e_shared_env_cleanup` below).
+///
+/// Safe to call on a partially-initialised home — every step swallows
+/// "file/process missing" errors.
+pub(crate) fn reap_daemon_and_chromes(dir: &std::path::Path) {
+    // Kill this env's daemon and Chrome processes, wait for exit, then
+    // clean up socket/ready/pid files (SIGKILL prevents the daemon's own
+    // cleanup path from running).
+    let pid_path = dir.join("daemon.pid");
+    if let Ok(pid_str) = std::fs::read_to_string(&pid_path)
+        && let Ok(pid) = pid_str.trim().parse::<u32>()
+    {
+        #[cfg(unix)]
         {
-            #[cfg(unix)]
-            {
-                let _ = std::process::Command::new("kill")
-                    .args(["-9", &pid.to_string()])
+            let _ = std::process::Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .output();
+            // Wait for the process to actually exit before cleaning up files.
+            let start = std::time::Instant::now();
+            while start.elapsed() < Duration::from_secs(3) {
+                let status = std::process::Command::new("kill")
+                    .args(["-0", &pid.to_string()])
                     .output();
-                // Wait for the process to actually exit before cleaning up files.
-                let start = std::time::Instant::now();
-                while start.elapsed() < Duration::from_secs(3) {
-                    let status = std::process::Command::new("kill")
-                        .args(["-0", &pid.to_string()])
-                        .output();
-                    if status.is_err() || !status.unwrap().status.success() {
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_millis(50));
+                if status.is_err() || !status.unwrap().status.success() {
+                    break;
                 }
-            }
-            #[cfg(windows)]
-            {
-                let _ = std::process::Command::new("taskkill")
-                    .args(["/F", "/PID", &pid.to_string()])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
-                let start = std::time::Instant::now();
-                while start.elapsed() < Duration::from_secs(3) {
-                    let status = std::process::Command::new("tasklist")
-                        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-                        .output();
-                    match status {
-                        Ok(out) => {
-                            let stdout = String::from_utf8_lossy(&out.stdout);
-                            if !stdout.contains(&pid.to_string()) {
-                                break;
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                    std::thread::sleep(Duration::from_millis(50));
-                }
+                std::thread::sleep(Duration::from_millis(50));
             }
         }
-        let profiles_dir = dir.join("profiles");
-        if profiles_dir.exists() {
-            #[cfg(unix)]
-            {
-                let _ = std::process::Command::new("pkill")
-                    .args(["-f", &format!("--user-data-dir={}", profiles_dir.display())])
-                    .output();
-            }
-            #[cfg(windows)]
-            {
-                // On Windows, use wmic to find and kill Chrome processes
-                // with matching user-data-dir argument.
-                let _ = std::process::Command::new("taskkill")
-                    .args(["/F", "/IM", "chrome.exe"])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
-            }
-        }
-        // Clean up daemon files that SIGKILL leaves behind.
-        let _ = std::fs::remove_file(dir.join("daemon.sock"));
-        let _ = std::fs::remove_file(dir.join("daemon.ready"));
-        let _ = std::fs::remove_file(dir.join("daemon.pid"));
         #[cfg(windows)]
-        let _ = std::fs::remove_file(dir.join("daemon.port"));
+        {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/F", "/PID", &pid.to_string()])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+            let start = std::time::Instant::now();
+            while start.elapsed() < Duration::from_secs(3) {
+                let status = std::process::Command::new("tasklist")
+                    .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+                    .output();
+                match status {
+                    Ok(out) => {
+                        let stdout = String::from_utf8_lossy(&out.stdout);
+                        if !stdout.contains(&pid.to_string()) {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+    }
+    let profiles_dir = dir.join("profiles");
+    if profiles_dir.exists() {
+        #[cfg(unix)]
+        {
+            let _ = std::process::Command::new("pkill")
+                .args(["-f", &format!("--user-data-dir={}", profiles_dir.display())])
+                .output();
+        }
+        #[cfg(windows)]
+        {
+            // On Windows, use wmic to find and kill Chrome processes
+            // with matching user-data-dir argument.
+            let _ = std::process::Command::new("taskkill")
+                .args(["/F", "/IM", "chrome.exe"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+        }
+    }
+    // Clean up daemon files that SIGKILL leaves behind.
+    let _ = std::fs::remove_file(dir.join("daemon.sock"));
+    let _ = std::fs::remove_file(dir.join("daemon.ready"));
+    let _ = std::fs::remove_file(dir.join("daemon.pid"));
+    #[cfg(windows)]
+    let _ = std::fs::remove_file(dir.join("daemon.port"));
+}
+
+/// Mirror `SoloEnv`'s cleanup for the shared env. Because `ENV` is a
+/// `static OnceLock<IsolatedEnv>`, Rust will never run `Drop` on the
+/// `IsolatedEnv` it contains at process exit — a fact this impl documents
+/// but does not rely on. The real teardown runs via `#[ctor::dtor]` below.
+impl Drop for IsolatedEnv {
+    fn drop(&mut self) {
+        reap_daemon_and_chromes(std::path::Path::new(&self.actionbook_home));
+    }
+}
+
+/// At-exit hook that closes the shared-env leak. Rust's static destructors
+/// do NOT run on `std::process::exit` or on a normal return from `main`,
+/// so `IsolatedEnv::drop` is never reached for the `ENV` singleton. We
+/// register this via libc's `atexit(3)` (provided by the `ctor` crate) so
+/// it fires after every test binary exits — including panics that unwind
+/// to the top, and Ctrl+C once the signal handler runs to completion.
+///
+/// Caveat: `SIGKILL` and abort-style terminations still bypass us (kernel
+/// does not give userland a chance). For those, `actionbook clean-leaked-profiles`
+/// is the external sweeper — see the issue report.
+#[ctor::dtor]
+fn __e2e_shared_env_cleanup() {
+    if let Some(env) = ENV.get() {
+        reap_daemon_and_chromes(std::path::Path::new(&env.actionbook_home));
     }
 }
 
@@ -1437,4 +1475,77 @@ pub fn new_tab_json(session_id: &str, url: &str) -> String {
     assert_tab_id(&v["data"]["tab"]["tab_id"]);
     assert_native_tab_id(&v["data"]["tab"]["native_tab_id"]);
     v["data"]["tab"]["tab_id"].as_str().unwrap().to_string()
+}
+
+// ── Cleanup-helper unit tests ────────────────────────────────────────
+//
+// These don't need `RUN_E2E_TESTS=true` — they exercise the pure
+// filesystem behavior of `reap_daemon_and_chromes`. They guard the
+// "safe-on-missing" invariant that lets us wire the helper into the
+// at-exit hook and a `Drop` without risking a panic on an
+// already-cleaned / never-used home.
+
+#[cfg(test)]
+mod reap_tests {
+    use super::reap_daemon_and_chromes;
+
+    #[test]
+    fn reap_on_nonexistent_dir_is_noop() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ghost = tmp.path().join("never-existed");
+        // Must not panic and must not create anything.
+        reap_daemon_and_chromes(&ghost);
+        assert!(!ghost.exists());
+    }
+
+    #[test]
+    fn reap_on_empty_home_tolerates_missing_pid_and_socket() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("actionbook-home");
+        std::fs::create_dir_all(&home).unwrap();
+        // No daemon.pid, no daemon.sock, no profiles/ — should just return.
+        reap_daemon_and_chromes(&home);
+        // Home still exists (we don't rm -rf it — that's the outer TempDir's job).
+        assert!(home.exists());
+    }
+
+    #[test]
+    fn reap_cleans_sentinel_files_when_present() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("actionbook-home");
+        std::fs::create_dir_all(&home).unwrap();
+        // A bogus pid file with a non-existent PID — kill will fail silently.
+        std::fs::write(home.join("daemon.pid"), "999999999").unwrap();
+        std::fs::write(home.join("daemon.sock"), "").unwrap();
+        std::fs::write(home.join("daemon.ready"), "").unwrap();
+
+        reap_daemon_and_chromes(&home);
+
+        assert!(
+            !home.join("daemon.pid").exists(),
+            "pid file should be unlinked"
+        );
+        assert!(
+            !home.join("daemon.sock").exists(),
+            "sock file should be unlinked"
+        );
+        assert!(
+            !home.join("daemon.ready").exists(),
+            "ready file should be unlinked"
+        );
+    }
+
+    #[test]
+    fn reap_handles_malformed_pid_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("actionbook-home");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(home.join("daemon.pid"), "not-a-number").unwrap();
+
+        // Must not panic on parse failure.
+        reap_daemon_and_chromes(&home);
+
+        // Sentinel file still gets unlinked at the end.
+        assert!(!home.join("daemon.pid").exists());
+    }
 }

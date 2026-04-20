@@ -70,6 +70,7 @@ windows-sys = { version = "0.59", features = [
 
 [dev-dependencies]
 assert_cmd = "2"
+ctor = "0.2"
 tempfile = "3"
 serde_json = "1"
 tokio = { version = "1", features = ["test-util"] }

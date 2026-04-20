@@ -233,7 +233,7 @@ async fn handle_browser(
                     println!("{}", serde_json::to_string(&envelope)?);
                 } else {
                     let text = output::format_text("browser start", &context, &result);
-                    println!("{text}");
+                    eprintln!("{text}");
                 }
                 flush_and_exit(1);
             }
@@ -265,7 +265,7 @@ async fn handle_browser(
                 println!("{}", serde_json::to_string(&envelope)?);
             } else {
                 let text = output::format_text(&command_name, &context, &result);
-                println!("{text}");
+                eprintln!("{text}");
             }
             flush_and_exit(1);
         }
@@ -293,7 +293,7 @@ async fn handle_browser(
                     println!("{}", serde_json::to_string(&envelope)?);
                 } else {
                     let text = output::format_text(&command_name, &context, &result);
-                    println!("{text}");
+                    eprintln!("{text}");
                 }
                 flush_and_exit(1);
             }
@@ -312,7 +312,11 @@ async fn handle_browser(
         println!("{}", serde_json::to_string(&envelope)?);
     } else {
         let text = output::format_text(&command_name, &context, &result);
-        println!("{text}");
+        if result.is_ok() {
+            println!("{text}");
+        } else {
+            eprintln!("{text}");
+        }
     }
 
     if !result.is_ok() {
@@ -424,7 +428,11 @@ async fn handle_extension(
         println!("{}", serde_json::to_string(&envelope)?);
     } else {
         let text = output::format_text(command_name, &None, &result);
-        println!("{text}");
+        if result.is_ok() {
+            println!("{text}");
+        } else {
+            eprintln!("{text}");
+        }
     }
 
     if !result.is_ok() {
