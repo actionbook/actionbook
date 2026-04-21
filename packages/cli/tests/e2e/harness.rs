@@ -694,6 +694,29 @@ setTimeout(() => {{
         return;
     }
 
+    if path.starts_with("/api/delayed-data-short") {
+        std::thread::sleep(Duration::from_millis(1_000));
+        let source = path
+            .split("source=")
+            .nth(1)
+            .and_then(|value| value.split('&').next())
+            .unwrap_or("delayed");
+        let body = format!(r#"{{"ok":true,"source":"{source}","delay_ms":1000}}"#);
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-Ab-Fixture: api-data-delayed-short\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    if path == "/api/fail-reset" {
+        // Drop the TCP connection without sending an HTTP response so the browser
+        // reports a network failure (`loadingFailed`) instead of a completed response.
+        return;
+    }
+
     if path == "/network-fixture.css" {
         let body = "body { background: rgb(245, 248, 255); }";
         let response = format!(
@@ -898,6 +921,115 @@ setTimeout(() => {{
         return;
     }
 
+    if path == "/sse-stream" {
+        // Keep the SSE connection open without sending events.
+        // Used to simulate a pre-existing persistent connection (tests edge-triggered semantics).
+        let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nAccess-Control-Allow-Origin: *\r\nConnection: keep-alive\r\n\r\n";
+        let _ = stream.write_all(headers.as_bytes());
+        std::thread::sleep(Duration::from_secs(12));
+        return;
+    }
+
+    if path == "/network-idle-sse-page" {
+        let port = local_server().port;
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Network Idle SSE Page</title></head>
+<body>
+<img src="http://127.0.0.1:{port}/fixture-image.svg" width="16" height="16">
+<script>new EventSource("http://127.0.0.1:{port}/sse-stream");</script>
+</body></html>"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    if path == "/network-idle-preexisting-fetch-page" {
+        let port = local_server().port;
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Network Idle Preexisting Fetch Page</title></head>
+<body>
+<img id="hero-image" src="http://127.0.0.1:{port}/fixture-image.svg" width="16" height="16">
+<script>
+window.addEventListener('DOMContentLoaded', () => {{
+  fetch("http://127.0.0.1:{port}/api/delayed-data-short?source=preexisting").catch(() => {{}});
+}});
+</script>
+</body></html>"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    if path == "/network-idle-post-start-setinterval-page" {
+        // Fires 8 same-origin fetches 400ms apart after DOMContentLoaded, covering
+        // ~2.8s so that at least one fetch reliably fires after wait's cmd_start
+        // regardless of subprocess-spawn jitter (eval subprocess shutdown +
+        // wait subprocess startup can drift 500-2000ms).
+        let port = local_server().port;
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Network Idle Post-Start SetInterval Page</title></head>
+<body>
+<script>
+window.addEventListener('DOMContentLoaded', () => {{
+  let count = 0;
+  const id = setInterval(() => {{
+    if (count >= 8) {{ clearInterval(id); return; }}
+    count++;
+    fetch("http://127.0.0.1:{port}/api/delayed-data-short?source=post-start&n=" + count).catch(() => {{}});
+  }}, 400);
+}});
+</script>
+</body></html>"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    if path == "/network-idle-post-start-non-lazy-blocked" {
+        let port = local_server().port;
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Network Idle Post Start Non Lazy Blocked</title></head>
+<body style="margin:0">
+<h1>Network Idle Post Start Non Lazy Blocked</h1>
+<img id="hero-image" src="http://127.0.0.1:{port}/fixture-image.svg" alt="hero" width="16" height="16">
+<div id="image-host"></div>
+<script>
+setTimeout(() => {{
+  const img = document.createElement('img');
+  img.id = 'post-start-blocking-image';
+  img.alt = 'post-start-blocking-image';
+  img.width = 16;
+  img.height = 16;
+  img.src = 'http://127.0.0.1:{port}/fixture-image-delayed-long.svg';
+  document.getElementById('image-host').appendChild(img);
+}}, 100);
+</script>
+</body></html>"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
     // Cross-origin iframe parent: embeds child from a different port
     if path.starts_with("/iframe-xo-parent") {
         let xo_port = path
@@ -1060,6 +1192,11 @@ pub fn url_network_xhr() -> String {
     format!("http://127.0.0.1:{}/network-xhr", local_server().port)
 }
 
+/// URL that drops the connection to force a request failure / loadingFailed.
+pub fn url_api_fail_reset() -> String {
+    format!("http://127.0.0.1:{}/api/fail-reset", local_server().port)
+}
+
 /// URL for a page with an off-screen lazy image that should not block idle detection.
 pub fn url_network_idle_lazy_offscreen() -> String {
     format!(
@@ -1088,6 +1225,40 @@ pub fn url_network_idle_lazy_scroll() -> String {
 pub fn url_network_idle_lazy_in_viewport() -> String {
     format!(
         "http://127.0.0.1:{}/network-idle-lazy-in-viewport",
+        local_server().port
+    )
+}
+
+/// URL for a page that opens a persistent SSE connection before idle is checked.
+pub fn url_network_idle_sse_page() -> String {
+    format!(
+        "http://127.0.0.1:{}/network-idle-sse-page",
+        local_server().port
+    )
+}
+
+/// URL for a page that starts a same-origin delayed fetch before the wait begins.
+pub fn url_network_idle_preexisting_fetch_page() -> String {
+    format!(
+        "http://127.0.0.1:{}/network-idle-preexisting-fetch-page",
+        local_server().port
+    )
+}
+
+/// URL for a page that fires 8 same-origin delayed fetches 400ms apart after
+/// DOMContentLoaded. Guarantees at least one fetch fires after wait's
+/// cmd_start regardless of subprocess-spawn jitter.
+pub fn url_network_idle_post_start_setinterval_page() -> String {
+    format!(
+        "http://127.0.0.1:{}/network-idle-post-start-setinterval-page",
+        local_server().port
+    )
+}
+
+/// URL for a page that injects a non-lazy image after idle waiting has begun.
+pub fn url_network_idle_post_start_non_lazy_blocked() -> String {
+    format!(
+        "http://127.0.0.1:{}/network-idle-post-start-non-lazy-blocked",
         local_server().port
     )
 }

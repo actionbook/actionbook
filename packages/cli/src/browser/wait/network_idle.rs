@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use clap::Args;
@@ -13,23 +12,31 @@ use crate::output::ResponseContext;
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const POLL_INTERVAL_MS: u64 = 100;
-/// Strict idle: zero in-flight requests for this long.
-const STRICT_IDLE_QUIET_MS: u64 = 500;
-/// Relaxed idle: fewer than RELAXED_MAX_REQUESTS new requests in the sliding
-/// window, sustained for this long.  Used when a page has persistent
-/// background activity (analytics pings, health-checks, etc.) that would
-/// otherwise prevent the strict condition from ever being satisfied.
-const RELAXED_IDLE_QUIET_MS: u64 = 3_000;
-/// Sliding-window length for the relaxed-idle request-rate check.
-const RELAXED_WINDOW_MS: u64 = 10_000;
-/// Max new requests allowed inside the sliding window to qualify as relaxed idle.
-const RELAXED_MAX_REQUESTS: usize = 5;
+/// Both the load gate and the post-start network gate must be satisfied
+/// continuously for this long before declaring idle.
+const IDLE_QUIET_MS: u64 = 500;
 
-/// Wait for network activity to become idle
+/// Wait for the page to settle: readyState=complete, images loaded, and any
+/// fetch/XHR requests *started after this command began* have finished.
+///
+/// Edge-triggered: only requests whose `requestWillBeSent` fires strictly
+/// after `cmd_start` count toward the pending set.  Pre-existing background
+/// connections (WebSocket, SSE, in-flight analytics, in-flight API calls)
+/// never block idle.  Persistent connection types are additionally filtered
+/// at the CDP-session level, and orphaned cross-origin iframe requests are
+/// evicted after 3 s by the tab-level pending map.  This is an agent-friendly
+/// settle signal, not a guarantee of global network silence.
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
 #[command(after_help = "\
 Examples:
-  actionbook browser wait network-idle --session s1 --tab t1 --timeout 10000")]
+  actionbook browser wait network-idle --session s1 --tab t1 --timeout 10000
+
+Notes:
+  Only tracks fetch/XHR requests started after the command begins.
+  Pre-existing background connections (SSE, WebSocket, in-flight fetches)
+  are ignored and do not block.
+  Intended as an agent-friendly settle signal, not a guarantee that all
+  background activity has stopped.")]
 pub struct Cmd {
     /// Session ID
     #[arg(long)]
@@ -86,11 +93,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     let timeout_ms = cmd.timeout.unwrap_or(DEFAULT_TIMEOUT_MS);
+    // Edge trigger: only block on requests whose requestWillBeSent fires
+    // strictly after this instant. Any entries already in the tab's pending
+    // map at this point are pre-existing and must not block.
     let start = Instant::now();
 
-    // Resolve the CDP flat-session ID.  `attach()` already called `Network.enable`
-    // on this session, so `tab_net_pending` tracks ALL requests since tab attachment —
-    // including those that started before this `wait network-idle` call.
     let cdp_session_id = match cdp.get_cdp_session_id(&target_id).await {
         Some(sid) => sid,
         None => {
@@ -126,40 +133,17 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         return { ready: true, unloaded_imgs: unloaded };
     })()"#;
 
-    // --- idle tracking state ---
-    // Timestamps of request-start events within the relaxed sliding window.
-    // Each time `pending` increases we push one entry per new request.
-    let mut request_events: VecDeque<Instant> = VecDeque::new();
-    let mut prev_pending: i64 = 0;
-    // When the idle condition first becomes true, record when it started so we
-    // can enforce the required quiet window before declaring success.
+    // Wait for post-start in-flight fetch/XHR to drain. Persistent connection
+    // types (WebSocket, SSE/EventSource) are excluded at CDP event ingest.
+    // Orphaned iframe requests are evicted after 3 s by the tab-level pending
+    // map.  We filter to requests whose requestWillBeSent timestamp is
+    // strictly after cmd_start — equivalent to a req-id-set snapshot — so
+    // pre-existing requests never block.
     let mut quiet_start: Option<Instant> = None;
-    // Whether the current quiet window is running in relaxed mode.
-    let mut quiet_is_relaxed = false;
 
     loop {
-        // Read the live in-flight counter maintained by reader_loop.
-        let pending = cdp.network_pending(&cdp_session_id).await;
+        let pending = cdp.network_pending_since(&cdp_session_id, start).await;
 
-        // Track new request starts: any increase in `pending` means at least that
-        // many requests were initiated since the last poll.
-        if pending > prev_pending {
-            let new_reqs = (pending - prev_pending) as usize;
-            let now = Instant::now();
-            for _ in 0..new_reqs {
-                request_events.push_back(now);
-            }
-        }
-        prev_pending = pending;
-
-        // Evict events that have aged out of the sliding window.
-        let window_cutoff = Instant::now() - Duration::from_millis(RELAXED_WINDOW_MS);
-        while request_events.front().is_some_and(|t| *t < window_cutoff) {
-            request_events.pop_front();
-        }
-        let recent_requests = request_events.len();
-
-        // JS fallback: readyState + DOM-attached img.complete.
         let js_idle = cdp
             .execute_on_tab(
                 &target_id,
@@ -179,55 +163,29 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             })
             .unwrap_or(false);
 
-        // Determine which idle mode (if any) applies this tick.
-        let strict_idle = pending == 0 && js_idle;
-        // Relaxed idle: page is done (js_idle), the request rate over the last
-        // 10 s is below the threshold, AND there are no more than that many
-        // requests currently in-flight.  The `pending` guard prevents declaring
-        // idle when long-lived connections aged out of the sliding window but
-        // are still genuinely open (e.g. 10 WebSocket connections all started
-        // > 10 s ago would show recent_requests=0 but pending still > 0).
-        let relaxed_idle = js_idle
-            && recent_requests < RELAXED_MAX_REQUESTS
-            && pending <= RELAXED_MAX_REQUESTS as i64;
-
-        if strict_idle || relaxed_idle {
-            let required_quiet = if strict_idle {
-                STRICT_IDLE_QUIET_MS
-            } else {
-                RELAXED_IDLE_QUIET_MS
-            };
-            // If we just switched from relaxed→strict (or newly entered idle),
-            // reset the quiet window so strict mode gets a fresh 500 ms run.
-            let mode_changed = quiet_start.is_some() && quiet_is_relaxed && strict_idle;
-            if quiet_start.is_none() || mode_changed {
+        if js_idle && pending == 0 {
+            if quiet_start.is_none() {
                 quiet_start = Some(Instant::now());
-                quiet_is_relaxed = !strict_idle;
             }
             let quiet_elapsed_ms = quiet_start.unwrap().elapsed().as_millis() as u64;
-            if quiet_elapsed_ms >= required_quiet {
+            if quiet_elapsed_ms >= IDLE_QUIET_MS {
                 let elapsed_ms = start.elapsed().as_millis() as u64;
                 let url = navigation::get_tab_url(&cdp, &target_id).await;
                 let title = navigation::get_tab_title(&cdp, &target_id).await;
-                let mode = if strict_idle { "strict" } else { "relaxed" };
                 return ActionResult::ok(json!({
                     "kind": "network-idle",
                     "satisfied": true,
-                    "mode": mode,
                     "elapsed_ms": elapsed_ms,
                     "observed_value": {
                         "idle": true,
                         "pending": pending,
-                        "recent_requests_10s": recent_requests,
                     },
                     "__ctx_url": url,
                     "__ctx_title": title,
                 }));
             }
         } else {
-            // Not idle — reset the quiet window entirely.
             quiet_start = None;
-            quiet_is_relaxed = false;
         }
 
         let elapsed = start.elapsed().as_millis() as u64;
