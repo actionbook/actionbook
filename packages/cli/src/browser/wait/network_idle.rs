@@ -16,22 +16,25 @@ const POLL_INTERVAL_MS: u64 = 100;
 /// continuously for this long before declaring idle.
 const IDLE_QUIET_MS: u64 = 500;
 
-/// Wait for the page to settle: readyState=complete, images loaded, and all
-/// tracked in-flight fetch/XHR requests finished.
+/// Wait for the page to settle: readyState=complete, images loaded, and any
+/// fetch/XHR requests *started after this command began* have finished.
 ///
-/// Persistent connections (WebSocket, SSE/EventSource, favicon, data: URLs)
-/// are excluded at the CDP-session level and never block idle.  Orphaned
-/// cross-origin iframe requests are evicted after 3 s by the tab-level
-/// pending set.  This is an agent-friendly settle signal, not a guarantee of
-/// global network silence.
+/// Edge-triggered: only requests whose `requestWillBeSent` fires strictly
+/// after `cmd_start` count toward the pending set.  Pre-existing background
+/// connections (WebSocket, SSE, in-flight analytics, in-flight API calls)
+/// never block idle.  Persistent connection types are additionally filtered
+/// at the CDP-session level, and orphaned cross-origin iframe requests are
+/// evicted after 3 s by the tab-level pending map.  This is an agent-friendly
+/// settle signal, not a guarantee of global network silence.
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
 #[command(after_help = "\
 Examples:
   actionbook browser wait network-idle --session s1 --tab t1 --timeout 10000
 
 Notes:
-  Waits for all tracked in-flight fetch/XHR requests to settle.
-  Persistent connections (WebSocket, SSE) are excluded and do not block.
+  Only tracks fetch/XHR requests started after the command begins.
+  Pre-existing background connections (SSE, WebSocket, in-flight fetches)
+  are ignored and do not block.
   Intended as an agent-friendly settle signal, not a guarantee that all
   background activity has stopped.")]
 pub struct Cmd {
@@ -90,6 +93,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     let timeout_ms = cmd.timeout.unwrap_or(DEFAULT_TIMEOUT_MS);
+    // Edge trigger: only block on requests whose requestWillBeSent fires
+    // strictly after this instant. Any entries already in the tab's pending
+    // map at this point are pre-existing and must not block.
     let start = Instant::now();
 
     let cdp_session_id = match cdp.get_cdp_session_id(&target_id).await {
@@ -127,14 +133,16 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         return { ready: true, unloaded_imgs: unloaded };
     })()"#;
 
-    // Wait for tracked in-flight fetch/XHR to drain. Persistent connection
-    // types (WebSocket, SSE/EventSource) are excluded at CDP event ingest,
-    // so they never appear in the pending set. Orphaned iframe requests are
-    // evicted after 3 s by the tab-level pending map.
+    // Wait for post-start in-flight fetch/XHR to drain. Persistent connection
+    // types (WebSocket, SSE/EventSource) are excluded at CDP event ingest.
+    // Orphaned iframe requests are evicted after 3 s by the tab-level pending
+    // map.  We filter to requests whose requestWillBeSent timestamp is
+    // strictly after cmd_start — equivalent to a req-id-set snapshot — so
+    // pre-existing requests never block.
     let mut quiet_start: Option<Instant> = None;
 
     loop {
-        let pending = cdp.network_pending(&cdp_session_id).await;
+        let pending = cdp.network_pending_since(&cdp_session_id, start).await;
 
         let js_idle = cdp
             .execute_on_tab(

@@ -1178,6 +1178,29 @@ impl CdpSession {
         }
     }
 
+    /// Return the count of in-flight network requests for this session whose
+    /// `requestWillBeSent` timestamp is strictly after `since`.  Used by
+    /// `wait network-idle` to get edge-triggered semantics: pre-existing
+    /// fetches (captured before the command started) never contribute.
+    ///
+    /// Same 3 s stale-eviction policy as [`network_pending`] — a request whose
+    /// `loadingFinished` fires on a different CDP session (cross-origin
+    /// iframe) is not permitted to block forever.
+    pub async fn network_pending_since(
+        &self,
+        cdp_session_id: &str,
+        since: std::time::Instant,
+    ) -> i64 {
+        let mut tp = self.tab_net_pending.lock().await;
+        if let Some(map) = tp.get_mut(cdp_session_id) {
+            let cutoff = std::time::Instant::now() - std::time::Duration::from_secs(3);
+            map.retain(|_, ts| *ts > cutoff);
+            map.values().filter(|ts| **ts > since).count() as i64
+        } else {
+            0
+        }
+    }
+
     /// Return all tracked network requests for a tab's CDP session, applying optional filters.
     pub async fn network_requests(
         &self,
