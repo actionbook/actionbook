@@ -284,7 +284,7 @@ actionbook browser upload "<selector>" /path/to/file.pdf --session s1 --tab t1
 
   **CLI-layer errors** (before any browser interaction):
   - `EVAL_ARGS_CONFLICT` — multiple input sources, or no source at all
-  - `EVAL_FILE_NOT_FOUND` — `--file` path unreadable (not found, permission denied)
+  - `EVAL_FILE_NOT_FOUND` — `--file` path unreadable (not found, permission denied, invalid data)
   - `EVAL_STDIN_TTY` — positional `-` but stdin is a terminal
   - `EVAL_STDIN_EMPTY` — stdin read produced empty or whitespace-only input
 
