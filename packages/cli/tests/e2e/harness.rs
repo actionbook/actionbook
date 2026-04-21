@@ -1152,11 +1152,6 @@ pub fn api_base_url() -> String {
 }
 
 /// URL for page A (primary test page).
-pub fn api_base_url() -> String {
-    format!("http://127.0.0.1:{}", local_server().port)
-}
-
-/// URL for page A (primary test page).
 pub fn url_a() -> String {
     format!("http://127.0.0.1:{}/page-a", local_server().port)
 }
