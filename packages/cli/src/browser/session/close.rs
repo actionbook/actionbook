@@ -238,6 +238,7 @@ mod tests {
     use super::*;
     use crate::browser::session::provider::{ProviderEnv, ProviderSession};
     use crate::daemon::registry::{SessionEntry, SessionState, new_shared_registry};
+    use crate::output::JsonEnvelope;
     use crate::types::{Mode, SessionId};
 
     fn spawn_single_response_server(
@@ -320,6 +321,182 @@ mod tests {
         entry.provider = Some(provider_session.provider.clone());
         entry.provider_session = Some(provider_session);
         registry.lock().await.insert(entry);
+    }
+
+    async fn insert_running_session(
+        registry: &crate::daemon::registry::SharedRegistry,
+        session_id: &str,
+        status: SessionState,
+    ) {
+        let mut entry = SessionEntry::starting(
+            SessionId::new(session_id).expect("session id"),
+            Mode::Cloud,
+            true,
+            true,
+            "profile".to_string(),
+        );
+        entry.status = status;
+        registry.lock().await.insert(entry);
+    }
+
+    #[tokio::test]
+    async fn browser_close_unknown_session_returns_ok_with_warning() {
+        let registry = new_shared_registry();
+        let cmd = Cmd {
+            session: "missing-session".to_string(),
+        };
+
+        let result = execute(&cmd, &registry).await;
+        let envelope = JsonEnvelope::from_result(
+            COMMAND_NAME,
+            context(&cmd, &result),
+            &result,
+            Duration::from_millis(1),
+        );
+
+        let data = match result {
+            ActionResult::Ok { data } => data,
+            other => panic!("expected ok result, got {other:?}"),
+        };
+
+        assert_eq!(data["status"], "closed");
+        assert_eq!(data["closed_tabs"], 0);
+        let warnings = data["__warnings"]
+            .as_array()
+            .expect("warnings array should exist on raw success data");
+        assert!(
+            warnings.iter().any(|w| {
+                w.as_str()
+                    .map(|s| s.contains("not found") || s.contains("already closed"))
+                    .unwrap_or(false)
+            }),
+            "raw warnings should describe missing/closed session: {warnings:?}",
+        );
+
+        assert!(envelope.ok);
+        assert_eq!(envelope.data["status"], "closed");
+        assert_eq!(envelope.data["closed_tabs"], 0);
+        assert!(
+            envelope.data.get("__warnings").is_none(),
+            "__warnings should be stripped from public data envelope"
+        );
+        assert!(
+            envelope
+                .meta
+                .warnings
+                .iter()
+                .any(|w| w.contains("not found") || w.contains("already closed")),
+            "meta warnings should carry missing-session warning: {:?}",
+            envelope.meta.warnings
+        );
+    }
+
+    #[tokio::test]
+    async fn browser_close_active_session_still_works() {
+        let registry = new_shared_registry();
+        insert_running_session(&registry, "s1", SessionState::Running).await;
+
+        let result = execute(
+            &Cmd {
+                session: "s1".to_string(),
+            },
+            &registry,
+        )
+        .await;
+
+        let data = match result {
+            ActionResult::Ok { data } => data,
+            other => panic!("expected ok result, got {other:?}"),
+        };
+        assert_eq!(data["status"], "closed");
+        assert_eq!(data["closed_tabs"], 0);
+        assert!(
+            data.get("__warnings").is_none(),
+            "active close should not emit warning"
+        );
+        assert!(
+            registry.lock().await.get("s1").is_none(),
+            "session should be removed after successful close"
+        );
+    }
+
+    #[tokio::test]
+    async fn browser_close_unknown_session_after_phase_two_returns_ok_with_warning() {
+        let (base_url, request_handle) = spawn_single_response_server_with_delay(
+            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n",
+            Duration::from_millis(300),
+        );
+        let registry = new_shared_registry();
+        insert_cloud_session(
+            &registry,
+            "hyp1",
+            make_provider_session(
+                "hyperbrowser",
+                "hb-session-1",
+                ProviderEnv::from([
+                    ("HYPERBROWSER_API_KEY".to_string(), "hb-key".to_string()),
+                    ("HYPERBROWSER_API_URL".to_string(), base_url.clone()),
+                ]),
+            ),
+        )
+        .await;
+
+        let reg_for_execute = registry.clone();
+        let handle = tokio::spawn(async move {
+            execute(
+                &Cmd {
+                    session: "hyp1".to_string(),
+                },
+                &reg_for_execute,
+            )
+            .await
+        });
+
+        tokio::time::sleep(Duration::from_millis(75)).await;
+        let removed = registry.lock().await.remove("hyp1");
+        assert!(removed.is_some(), "test setup should evict session mid-close");
+
+        let result = handle.await.expect("close join");
+
+        let data = match result {
+            ActionResult::Ok { data } => data,
+            other => panic!("expected ok result, got {other:?}"),
+        };
+        assert_eq!(data["status"], "closed");
+        assert_eq!(data["closed_tabs"], 0);
+        let warnings = data["__warnings"]
+            .as_array()
+            .expect("warnings array should exist on raw success data");
+        assert!(
+            warnings.iter().any(|w| {
+                w.as_str()
+                    .map(|s| s.contains("not found") || s.contains("already closed"))
+                    .unwrap_or(false)
+            }),
+            "phase-3 miss should warn instead of silently succeeding: {warnings:?}",
+        );
+
+        let request = request_handle.join().expect("request join");
+        assert!(request.starts_with("PUT /api/session/hb-session-1/stop HTTP/1.1"));
+    }
+
+    #[tokio::test]
+    async fn browser_close_midflight_second_caller_still_gets_closing_fatal() {
+        let registry = new_shared_registry();
+        insert_running_session(&registry, "s1", SessionState::Closing).await;
+
+        let result = execute(
+            &Cmd {
+                session: "s1".to_string(),
+            },
+            &registry,
+        )
+        .await;
+
+        match result {
+            ActionResult::Fatal { code, .. } => assert_eq!(code, "SESSION_CLOSING"),
+            other => panic!("expected SESSION_CLOSING fatal, got {other:?}"),
+        }
     }
 
     #[tokio::test]
