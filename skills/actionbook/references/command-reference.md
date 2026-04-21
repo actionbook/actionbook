@@ -277,7 +277,7 @@ actionbook browser wait condition "document.readyState === 'complete'" --session
 
 Default timeout for all wait commands: 30000ms. Override with `--timeout <ms>`.
 
-`wait network-idle` uses two modes automatically. **Strict**: zero in-flight requests for 500ms. **Relaxed** (fallback): when pages have persistent background traffic (analytics pings, health-checks), relaxed mode kicks in — requires fewer than 5 new requests in a 10s sliding window with ≤5 pending, sustained for 3s. The response includes `mode` ("strict" or "relaxed") so callers know which condition was satisfied.
+`wait network-idle` is edge-triggered: it only tracks fetch/XHR requests started after the command begins. Pre-existing background connections (SSE, WebSocket, in-flight fetches, analytics pings) are ignored and do not block. This is an agent-friendly settle signal, not a guarantee of global network silence.
 
 ## Cookies
 
