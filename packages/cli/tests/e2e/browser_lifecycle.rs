@@ -485,6 +485,11 @@ fn lifecycle_double_close_text() {
     let text = stdout_str(&out);
     assert!(text.contains("ok browser close"));
     assert!(text.contains("closed_tabs: 0"), "text: {text}");
+    assert!(text.contains("warning:"), "text: {text}");
+    assert!(
+        text.contains("not found") || text.contains("already closed"),
+        "text: {text}"
+    );
 }
 
 // ===========================================================================

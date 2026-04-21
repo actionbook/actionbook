@@ -415,6 +415,11 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
             if let Some(tabs) = data.get("closed_tabs").and_then(|v| v.as_u64()) {
                 lines.push(format!("closed_tabs: {tabs}"));
             }
+            if let Some(warnings) = data.get("__warnings").and_then(|v| v.as_array()) {
+                for warning in warnings.iter().filter_map(|v| v.as_str()) {
+                    lines.push(format!("warning: {warning}"));
+                }
+            }
         }
         "browser restart" => {
             if let Some(status) = data
@@ -1274,6 +1279,26 @@ mod tests {
         assert_eq!(
             text,
             "path: /Users/test/.actionbook/extension\ninstalled: false\nrequired_version: >= 0.4.0\n  (check version at chrome://extensions/)"
+        );
+    }
+
+    #[test]
+    fn browser_close_text_renders_warning_lines() {
+        let result = ActionResult::ok(json!({
+            "session_id": "sid",
+            "status": "closed",
+            "closed_tabs": 0,
+            "__warnings": ["session 'sid' not found; treating as already closed"],
+        }));
+
+        let text = format_text("browser close", &None, &result);
+
+        assert!(text.contains("ok browser close"), "text: {text}");
+        assert!(text.contains("closed_tabs: 0"), "text: {text}");
+        assert!(text.contains("warning:"), "text: {text}");
+        assert!(
+            text.contains("not found") || text.contains("already closed"),
+            "text: {text}"
         );
     }
 }
