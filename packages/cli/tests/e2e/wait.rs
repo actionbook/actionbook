@@ -7,7 +7,7 @@ use crate::harness::{
     url_fast_redirect, url_home_no_trailing_slash,
     url_network_idle_lazy_in_viewport, url_network_idle_lazy_offscreen, url_network_idle_lazy_scroll,
     url_network_idle_non_lazy_blocked, url_network_idle_post_start_non_lazy_blocked,
-    url_network_idle_sse_page, wait_page_ready,
+    url_network_idle_preexisting_fetch_page, url_network_idle_sse_page, wait_page_ready,
 };
 
 const ELEMENT_SELECTOR: &str = "#loaded";
@@ -812,6 +812,41 @@ fn wait_network_idle_unblocked_by_preexisting_sse() {
     assert_success(
         &out,
         "wait network-idle must not block on a pre-existing SSE connection",
+    );
+    let v = parse_json(&out);
+    assert_eq!(v["command"], "browser wait network-idle");
+    assert_eq!(v["data"]["kind"], "network-idle");
+    assert_eq!(v["data"]["satisfied"], true);
+}
+
+#[test]
+fn wait_network_idle_unblocked_by_preexisting_same_origin_fetch() {
+    if skip() {
+        return;
+    }
+
+    let (sid, _) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let tid = open_new_tab(&sid, &url_network_idle_preexisting_fetch_page());
+    wait_page_ready(&sid, &tid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "wait",
+            "network-idle",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+            "--timeout",
+            "1200",
+        ],
+        10,
+    );
+    assert_success(
+        &out,
+        "wait network-idle must not block on a same-origin fetch that was already in-flight before the command began",
     );
     let v = parse_json(&out);
     assert_eq!(v["command"], "browser wait network-idle");

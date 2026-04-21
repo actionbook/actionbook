@@ -910,6 +910,28 @@ setTimeout(() => {{
         return;
     }
 
+    if path == "/network-idle-preexisting-fetch-page" {
+        let port = local_server().port;
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Network Idle Preexisting Fetch Page</title></head>
+<body>
+<img id="hero-image" src="http://127.0.0.1:{port}/fixture-image.svg" width="16" height="16">
+<script>
+window.addEventListener('DOMContentLoaded', () => {{
+  fetch("http://127.0.0.1:{port}/api/delayed-data-short?source=preexisting").catch(() => {{}});
+}});
+</script>
+</body></html>"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
     if path == "/network-idle-post-start-non-lazy-blocked" {
         let port = local_server().port;
         let body = format!(
@@ -1151,6 +1173,14 @@ pub fn url_network_idle_lazy_in_viewport() -> String {
 pub fn url_network_idle_sse_page() -> String {
     format!(
         "http://127.0.0.1:{}/network-idle-sse-page",
+        local_server().port
+    )
+}
+
+/// URL for a page that starts a same-origin delayed fetch before the wait begins.
+pub fn url_network_idle_preexisting_fetch_page() -> String {
+    format!(
+        "http://127.0.0.1:{}/network-idle-preexisting-fetch-page",
         local_server().port
     )
 }
