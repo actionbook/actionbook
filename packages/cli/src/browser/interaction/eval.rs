@@ -1,3 +1,6 @@
+use std::io::{IsTerminal, Read};
+use std::path::{Path, PathBuf};
+
 use clap::Args;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -22,10 +25,16 @@ enum EvalErrorCode {
     ResponseNotJson,
     ResponseNotOk,
     Timeout,
+    ArgsConflict,
+    FileNotFound,
+    StdinTty,
+    StdinEmpty,
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
 impl EvalErrorCode {
+    // Client-layer codes (ArgsConflict, FileNotFound, StdinTty, StdinEmpty) are
+    // never emitted by CDP, so they are intentionally absent here.
     fn from_wire_code(raw: &str) -> Option<Self> {
         match raw {
             "EVAL_RUNTIME_ERROR" | "RUNTIME_ERROR" => Some(EvalErrorCode::RuntimeError),
@@ -44,6 +53,10 @@ impl EvalErrorCode {
             EvalErrorCode::ResponseNotJson => "EVAL_RESPONSE_NOT_JSON",
             EvalErrorCode::ResponseNotOk => "EVAL_RESPONSE_NOT_OK",
             EvalErrorCode::Timeout => "EVAL_TIMEOUT",
+            EvalErrorCode::ArgsConflict => "EVAL_ARGS_CONFLICT",
+            EvalErrorCode::FileNotFound => "EVAL_FILE_NOT_FOUND",
+            EvalErrorCode::StdinTty => "EVAL_STDIN_TTY",
+            EvalErrorCode::StdinEmpty => "EVAL_STDIN_EMPTY",
         }
     }
 
@@ -56,6 +69,16 @@ impl EvalErrorCode {
             EvalErrorCode::ResponseNotJson => "Check content-type before parsing JSON",
             EvalErrorCode::ResponseNotOk => "Handle non-2xx responses before decoding the body",
             EvalErrorCode::Timeout => "Reduce work or raise --timeout",
+            EvalErrorCode::ArgsConflict => {
+                "Provide exactly one of: positional expression, --file, or stdin (`-`)"
+            }
+            EvalErrorCode::FileNotFound => "Verify --file points to a readable script path",
+            EvalErrorCode::StdinTty => {
+                "Pipe the expression via stdin, e.g. echo 'expr' | actionbook browser eval -"
+            }
+            EvalErrorCode::StdinEmpty => {
+                "stdin was read but produced no expression; verify the upstream command or pipeline"
+            }
         }
     }
 }
@@ -300,6 +323,104 @@ fn eval_timeout_result(timeout_ms: u64) -> ActionResult {
     )
 }
 
+fn build_eval_args_error(code: EvalErrorCode, message: String, reason: &str) -> ActionResult {
+    ActionResult::fatal_with_details(
+        code.code(),
+        message,
+        code.default_hint(),
+        json!({ "stage": "eval", "reason": reason }),
+    )
+}
+
+fn build_file_not_found(path: &Path, io_reason: &str) -> ActionResult {
+    ActionResult::fatal_with_details(
+        EvalErrorCode::FileNotFound.code(),
+        format!("eval script file not found: {}", path.display()),
+        EvalErrorCode::FileNotFound.default_hint(),
+        json!({
+            "stage": "eval",
+            "reason": io_reason,
+            "path": path.display().to_string(),
+        }),
+    )
+}
+
+/// Resolve the eval expression from one of three mutually-exclusive sources:
+/// a positional expression, `--file <path>`, or stdin (positional `-`).
+/// All failure envelopes are arg-layer — no CDP round-trip has happened yet,
+/// so no pre-page context (pre_url, pre_origin, pre_readyState) is attached.
+///
+/// Must be called on the CLI side before the command is forwarded to the
+/// daemon, because stdin and the file's relative path belong to the CLI
+/// process, not the daemon's.
+pub fn resolve_eval_source(cmd: &Cmd) -> Result<String, ActionResult> {
+    let positional_is_stdin = matches!(cmd.expression.as_deref(), Some("-"));
+    let has_stdin = positional_is_stdin;
+    let has_inline = cmd.expression.is_some() && !positional_is_stdin;
+    let has_file = cmd.file.is_some();
+
+    let source_count = u8::from(has_inline) + u8::from(has_file) + u8::from(has_stdin);
+    if source_count > 1 {
+        let reason = match (has_inline, has_file, has_stdin) {
+            (true, true, false) => "positional+file",
+            (true, false, true) => "positional+stdin",
+            (false, true, true) => "file+stdin",
+            (true, true, true) => "positional+file+stdin",
+            _ => "multiple_sources",
+        };
+        return Err(build_eval_args_error(
+            EvalErrorCode::ArgsConflict,
+            "multiple eval input sources provided".to_string(),
+            reason,
+        ));
+    }
+
+    if has_stdin {
+        if std::io::stdin().is_terminal() {
+            return Err(build_eval_args_error(
+                EvalErrorCode::StdinTty,
+                "stdin is a terminal; no expression piped".to_string(),
+                "stdin_is_tty",
+            ));
+        }
+        let mut buf = String::new();
+        if let Err(err) = std::io::stdin().read_to_string(&mut buf) {
+            return Err(build_eval_args_error(
+                EvalErrorCode::StdinEmpty,
+                format!("failed to read stdin: {err}"),
+                "read_error",
+            ));
+        }
+        if buf.trim().is_empty() {
+            let reason = if buf.is_empty() {
+                "pipe_closed"
+            } else {
+                "whitespace_only"
+            };
+            return Err(build_eval_args_error(
+                EvalErrorCode::StdinEmpty,
+                "stdin expression is empty".to_string(),
+                reason,
+            ));
+        }
+        return Ok(buf);
+    }
+
+    if let Some(path) = &cmd.file {
+        return std::fs::read_to_string(path)
+            .map_err(|err| build_file_not_found(path, &err.to_string()));
+    }
+
+    match &cmd.expression {
+        Some(expr) => Ok(expr.clone()),
+        None => Err(build_eval_args_error(
+            EvalErrorCode::ArgsConflict,
+            "no eval input provided".to_string(),
+            "no_source",
+        )),
+    }
+}
+
 pub fn timeout_result(timeout_ms: u64) -> ActionResult {
     eval_timeout_result(timeout_ms)
 }
@@ -324,8 +445,12 @@ Note: Multi-statement expressions that contain 'await' (e.g.
 isolated mode — use --no-isolate or wrap the body in an explicit async arrow:
   actionbook browser eval \"(async () => { let x = await f(); return x + 1; })()\" ...")]
 pub struct Cmd {
-    /// JavaScript expression
-    pub expression: String,
+    /// JavaScript expression, or `-` to read the expression from stdin
+    pub expression: Option<String>,
+    /// Read the JavaScript expression from a file
+    #[arg(long)]
+    #[serde(default)]
+    pub file: Option<PathBuf>,
     /// Session ID
     #[arg(long)]
     #[serde(rename = "session_id")]
@@ -371,6 +496,11 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
+    let source_expression = match resolve_eval_source(cmd) {
+        Ok(s) => s,
+        Err(err) => return err,
+    };
+
     let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
         Ok(v) => v,
         Err(e) => return e,
@@ -405,16 +535,20 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     //
     // With --no-isolate, pass the expression directly (old behavior).
     let expression = if cmd.no_isolate {
-        cmd.expression.clone()
+        source_expression.clone()
     } else {
         // Detect top-level `await` anywhere in the expression (not just at start).
         // e.g. `(await Promise.resolve(42)) + 1` has await after `(`.
         // Sync expressions work fine inside async functions too (awaitPromise unwraps).
-        let has_await = cmd.expression.contains("await ") || cmd.expression.contains("await(");
+        let has_await =
+            source_expression.contains("await ") || source_expression.contains("await(");
         if has_await {
-            format!("(async function(){{ return (\n{}\n); }})()", cmd.expression)
+            format!(
+                "(async function(){{ return (\n{}\n); }})()",
+                source_expression
+            )
         } else {
-            let escaped = serde_json::to_string(&cmd.expression).unwrap_or_default();
+            let escaped = serde_json::to_string(&source_expression).unwrap_or_default();
             format!("(function(){{ return eval({}); }})()", escaped)
         }
     };
@@ -440,7 +574,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                         &reason,
                         "CdpError",
                         &Map::new(),
-                        &cmd.expression,
+                        &source_expression,
                         &pre_origin,
                     );
                     build_eval_error_result(
@@ -484,8 +618,13 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             } else {
                 Map::new()
             };
-            let code =
-                classify_eval_error(emsg, &error_type, &properties, &cmd.expression, &pre_origin);
+            let code = classify_eval_error(
+                emsg,
+                &error_type,
+                &properties,
+                &source_expression,
+                &pre_origin,
+            );
             let reason = string_property(&properties, "reason")
                 .unwrap_or(emsg)
                 .to_string();

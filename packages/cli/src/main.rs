@@ -246,6 +246,33 @@ async fn handle_browser(
                 actionbook_cli::browser::session::provider::collect_provider_env_from_process();
             BrowserCommands::Restart(cmd)
         }
+        BrowserCommands::Eval(mut cmd) => {
+            // stdin and the file's relative path belong to the CLI process,
+            // not the daemon's — resolve here so that positional `-` reads
+            // the user's pipe and --file is opened against the user's cwd.
+            match interaction::eval::resolve_eval_source(&cmd) {
+                Ok(expr) => {
+                    cmd.expression = Some(expr);
+                    cmd.file = None;
+                    BrowserCommands::Eval(cmd)
+                }
+                Err(result) => {
+                    let failed_command = BrowserCommands::Eval(cmd);
+                    let duration = start.elapsed();
+                    let context = failed_command.context(&result);
+                    let command_name = failed_command.command_name().to_string();
+                    if json_mode {
+                        let envelope =
+                            JsonEnvelope::from_result(&command_name, context, &result, duration);
+                        println!("{}", serde_json::to_string(&envelope)?);
+                    } else {
+                        let text = output::format_text(&command_name, &context, &result);
+                        eprintln!("{text}");
+                    }
+                    flush_and_exit(1);
+                }
+            }
+        }
         other => other,
     };
 
