@@ -253,6 +253,8 @@ actionbook browser scroll top --session s1 --tab t1
 actionbook browser eval "document.title" --session s1 --tab t1
 actionbook browser eval "document.querySelectorAll('a').length" --session s1 --tab t1
 actionbook browser eval "await fetch('/api/data').then(r => r.json())" --no-isolate --session s1 --tab t1
+actionbook browser eval --file script.js --session s1 --tab t1
+echo 'document.title' | actionbook browser eval - --session s1 --tab t1
 
 # File upload
 actionbook browser upload "<selector>" /path/to/file.pdf --session s1 --tab t1
@@ -267,12 +269,24 @@ actionbook browser upload "<selector>" /path/to/file.pdf --session s1 --tab t1
 </Tip>
 
 <Note>
+  `eval` accepts the expression from three mutually-exclusive sources: a positional argument, `--file <path>`, or stdin (`-`). Providing more than one (or none) returns `EVAL_ARGS_CONFLICT`.
+</Note>
+
+<Note>
   On failure, `eval` returns a structured error envelope with `error.code` set to one of:
+
+  **Runtime errors** (after browser execution):
   - `EVAL_RUNTIME_ERROR` — JS exception (ReferenceError, TypeError, etc.)
   - `EVAL_CROSS_ORIGIN` — cross-origin fetch or SecurityError
   - `EVAL_RESPONSE_NOT_JSON` — response Content-Type is not JSON
   - `EVAL_RESPONSE_NOT_OK` — HTTP status is not 2xx
   - `EVAL_TIMEOUT` — expression did not resolve within `--timeout`
+
+  **CLI-layer errors** (before any browser interaction):
+  - `EVAL_ARGS_CONFLICT` — multiple input sources, or no source at all
+  - `EVAL_FILE_NOT_FOUND` — `--file` path unreadable (not found, permission denied)
+  - `EVAL_STDIN_TTY` — positional `-` but stdin is a terminal
+  - `EVAL_STDIN_EMPTY` — stdin read produced empty or whitespace-only input
 
   Each error includes `error.hint` and `error.details` with diagnostic fields (`reason`, and for fetch errors: `status`, `content_type`, `body_head`). Read `error.code` to branch on the failure class instead of parsing the message string.
 </Note>

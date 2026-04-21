@@ -132,7 +132,16 @@ actionbook browser upload "<selector>" /path/to/file.pdf --session s1 --tab t1
 actionbook browser eval "document.title" --session s1 --tab t1
 actionbook browser eval "document.querySelectorAll('a').length" --session s1 --tab t1
 actionbook browser eval "await fetch('/api/data').then(r => r.json())" --no-isolate --session s1 --tab t1
+actionbook browser eval --file script.js --session s1 --tab t1
+echo 'document.title' | actionbook browser eval - --session s1 --tab t1
 ```
+
+**eval input sources:** The expression comes from exactly one of three mutually-exclusive sources:
+- **Positional argument** (default): `actionbook browser eval "expr" ...`
+- **`--file <path>`**: read expression from a local file: `actionbook browser eval --file script.js ...`
+- **Stdin (`-`)**: pipe the expression via stdin: `echo 'expr' | actionbook browser eval - ...`
+
+Providing more than one source (or none) returns `EVAL_ARGS_CONFLICT`.
 
 **eval scope isolation:** By default, `eval` wraps `let`/`const` declarations in an isolated scope so they don't leak across calls. Use `--no-isolate` to disable this — needed for multi-statement async expressions or when you want shared scope.
 
@@ -147,8 +156,14 @@ actionbook browser eval "await fetch('/api/data').then(r => r.json())" --no-isol
 | `EVAL_RESPONSE_NOT_JSON` | `Content-Type` is not JSON when JSON was expected | Check content-type before parsing JSON | `reason`, `status`, `content_type`, `body_head` |
 | `EVAL_RESPONSE_NOT_OK` | HTTP status is not 2xx | Handle non-2xx responses before decoding the body | `reason`, `status`, `content_type`, `body_head` |
 | `EVAL_TIMEOUT` | Expression did not resolve within `--timeout` | Reduce work or raise --timeout | `reason` |
+| `EVAL_ARGS_CONFLICT` | Multiple input sources, or no source at all | Provide exactly one of: positional expression, --file, or stdin (`-`) | `reason` |
+| `EVAL_FILE_NOT_FOUND` | `--file` path unreadable (not found, permission denied, invalid data) | Verify --file points to a readable script path | `reason`, `path` |
+| `EVAL_STDIN_TTY` | Positional `-` but stdin is a terminal (not piped) | Pipe the expression via stdin, e.g. `echo 'expr' \| actionbook browser eval -` | `reason` |
+| `EVAL_STDIN_EMPTY` | Stdin read produced empty or whitespace-only input | Verify the upstream command or pipeline produces output | `reason` |
 
-Read `error.code` to branch on the failure class. For `EVAL_RESPONSE_NOT_OK` and `EVAL_RESPONSE_NOT_JSON`, inspect `error.details.body_head` to distinguish 403 / challenge pages / CORS errors before deciding whether to retry.
+The first 5 codes are **runtime errors** (after CDP execution). The last 4 are **CLI-layer errors** (before any browser interaction) — they carry `details.stage` and `details.reason` but no page context (`pre_url`, `pre_origin`, etc.).
+
+Read `error.code` to branch on the failure class. For `EVAL_RESPONSE_NOT_OK` and `EVAL_RESPONSE_NOT_JSON`, inspect `error.details.body_head` to distinguish 403 / challenge pages / CORS errors before deciding whether to retry. The `details.reason` field is an observability signal — branch on `error.code`, not on `details.reason`.
 
 **fill vs type:** `fill` clears the field and sets the value directly (like pasting). `type` simulates individual keystrokes and appends to existing content.
 

@@ -121,6 +121,13 @@ actionbook browser click @e7 --session s1 --tab t1
 actionbook browser wait navigation --session s1 --tab t1
 ```
 
+## Eval Input Sources
+
+`browser eval` accepts the expression from three mutually-exclusive sources:
+- **Positional**: `actionbook browser eval "expr" ...`
+- **`--file`**: `actionbook browser eval --file script.js ...`
+- **Stdin**: `echo 'expr' | actionbook browser eval - ...`
+
 ## Eval Error Handling
 
 `browser eval` returns structured error codes on failure — branch on `error.code` instead of parsing the message:
@@ -129,6 +136,10 @@ actionbook browser wait navigation --session s1 --tab t1
 - `EVAL_CROSS_ORIGIN` — cross-origin fetch or CSP block. Proxy the request server-side.
 - `EVAL_RESPONSE_NOT_JSON` / `EVAL_RESPONSE_NOT_OK` — read `error.details.body_head` (first ≤256 chars of the response body) to distinguish 403 / challenge pages / CORS errors. Do not blindly retry.
 - `EVAL_TIMEOUT` — expression exceeded `--timeout`. Reduce work or raise the timeout.
+- `EVAL_ARGS_CONFLICT` — multiple input sources or none. Provide exactly one.
+- `EVAL_FILE_NOT_FOUND` — `--file` path unreadable. Verify the path.
+- `EVAL_STDIN_TTY` — `-` but stdin is a terminal. Pipe the expression.
+- `EVAL_STDIN_EMPTY` — stdin produced empty input. Verify the upstream pipeline.
 
 ## Selectors
 

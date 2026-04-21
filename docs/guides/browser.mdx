@@ -443,7 +443,11 @@ Extension mode connects via a local WebSocket bridge with the following guarante
 
 ## Eval Error Handling
 
+`browser eval` accepts the expression from three mutually-exclusive sources: a positional argument, `--file <path>`, or stdin (`-`).
+
 `browser eval` returns structured error codes on failure. Branch on `error.code` instead of parsing the message string:
+
+**Runtime errors** (after browser execution):
 
 | Code | Meaning | Best practice |
 |------|---------|---------------|
@@ -452,6 +456,15 @@ Extension mode connects via a local WebSocket bridge with the following guarante
 | `EVAL_RESPONSE_NOT_JSON` | Non-JSON response body | Read `error.details.content_type` and `body_head` before retrying |
 | `EVAL_RESPONSE_NOT_OK` | Non-2xx HTTP status | Read `error.details.status` and `body_head` to distinguish 403 / challenge / CORS |
 | `EVAL_TIMEOUT` | Expression exceeded `--timeout` | Reduce work or increase timeout |
+
+**CLI-layer errors** (before any browser interaction):
+
+| Code | Meaning | Best practice |
+|------|---------|---------------|
+| `EVAL_ARGS_CONFLICT` | Multiple input sources or none | Provide exactly one of: positional, `--file`, or stdin `-` |
+| `EVAL_FILE_NOT_FOUND` | `--file` path unreadable | Verify the path resolves and is readable |
+| `EVAL_STDIN_TTY` | `-` but stdin is a terminal | Pipe the expression: `echo 'expr' \| actionbook browser eval -` |
+| `EVAL_STDIN_EMPTY` | Stdin produced empty input | Verify the upstream command or pipeline |
 
 <Tip>
   For `EVAL_RESPONSE_NOT_OK` and `EVAL_RESPONSE_NOT_JSON`, inspect `error.details.body_head` (first ≤256 chars of the response body) to decide whether to retry — a 403 challenge page is not worth retrying blindly.
