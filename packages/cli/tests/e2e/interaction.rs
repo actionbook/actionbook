@@ -6441,6 +6441,138 @@ fn browser_eval_stdin_whitespace_only_pipe_is_structured() {
     close_session(&sid);
 }
 
+// Piping the literal `-` character via stdin must NOT cause the daemon to
+// re-read its own stdin. CLI pre-flight resolves stdin to Some("-"); if the
+// daemon re-invokes the same resolver it would re-interpret the expression
+// as the stdin sentinel and either hang or produce a spurious EVAL_STDIN_*
+// envelope instead of forwarding `-` to CDP as a JavaScript expression.
+#[test]
+fn browser_eval_stdin_dash_literal_does_not_retry_stdin_on_daemon() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let env = shared_env();
+    let bin = cargo_bin("actionbook");
+    let mut cmd = std::process::Command::new(&bin);
+    cmd.env("ACTIONBOOK_HOME", &env.actionbook_home)
+        .arg("--json")
+        .arg("browser")
+        .arg("eval")
+        .arg("-")
+        .arg("--session")
+        .arg(&sid)
+        .arg("--tab")
+        .arg(&tid)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().expect("spawn browser eval stdin command");
+    {
+        let stdin = child.stdin.as_mut().expect("stdin pipe");
+        stdin.write_all(b"-").expect("write literal dash to stdin");
+    }
+    let out = child
+        .wait_with_output()
+        .expect("wait for browser eval stdin command");
+
+    let v = parse_json(&out);
+    let code = v["error"]["code"].as_str().unwrap_or("");
+    assert_ne!(
+        code, "EVAL_STDIN_TTY",
+        "daemon must not re-resolve literal `-` as stdin sentinel: got EVAL_STDIN_TTY"
+    );
+    assert_ne!(
+        code, "EVAL_STDIN_EMPTY",
+        "daemon must not re-resolve literal `-` as stdin sentinel: got EVAL_STDIN_EMPTY (envelope={v})"
+    );
+
+    close_session(&sid);
+}
+
+#[cfg(unix)]
+#[test]
+fn browser_eval_file_permission_denied_is_structured_with_reason() {
+    if skip() {
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let script = tempfile::NamedTempFile::new().expect("create eval temp file");
+    std::fs::write(script.path(), "(() => 1)()").expect("write eval file");
+    std::fs::set_permissions(script.path(), std::fs::Permissions::from_mode(0o000))
+        .expect("chmod 000 the eval file");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "--file",
+            script.path().to_str().expect("utf8 path"),
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+
+    // Restore perms so TempFile drop can clean up.
+    let _ = std::fs::set_permissions(script.path(), std::fs::Permissions::from_mode(0o600));
+
+    assert_failure(&out, "browser eval --file permission denied");
+    let v = parse_json(&out);
+    assert_error_envelope(&v, "EVAL_FILE_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["reason"].as_str(),
+        Some("permission_denied"),
+        "details.reason must map io::ErrorKind::PermissionDenied to 'permission_denied' (envelope={v})"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_file_invalid_utf8_is_structured_with_reason() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let script = tempfile::NamedTempFile::new().expect("create eval temp file");
+    // Raw bytes that are not valid UTF-8: 0xff is never a valid start byte.
+    std::fs::write(script.path(), [0xff, 0xfe, 0xfd]).expect("write invalid utf-8");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "--file",
+            script.path().to_str().expect("utf8 path"),
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+
+    assert_failure(&out, "browser eval --file invalid utf-8");
+    let v = parse_json(&out);
+    assert_error_envelope(&v, "EVAL_FILE_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["reason"].as_str(),
+        Some("invalid_data"),
+        "details.reason must map io::ErrorKind::InvalidData to 'invalid_data' (envelope={v})"
+    );
+
+    close_session(&sid);
+}
+
 // ========================================================================
 // Group 20: mouse-move — command wiring, success path, and error path
 // ========================================================================
