@@ -282,6 +282,13 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
         write!(&pid_file_fd, "{}", std::process::id())?;
     }
 
+    // Housekeeping under lock ownership: remove session-dir / fetch-file
+    // orphans from previous daemons that exited ungracefully (SIGKILL,
+    // panic=abort). Gated behind lock acquisition so a non-owner daemon
+    // that's about to bail out on lock failure can't mistake the real
+    // owner's empty session dirs for orphans.
+    crate::config::sweep_session_orphans();
+
     // Remove stale socket (verify it's actually a socket, not a symlink to something else)
     if path.exists() {
         let meta = std::fs::symlink_metadata(&path)?;
@@ -416,6 +423,11 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::remove_file(version_path()).ok();
     std::fs::remove_file(&pid_file).ok();
 
+    // Sweep empty session data dirs + stale __fetch_*.json files left by
+    // previous short-lived flows or the removed browser-fetch subcommand.
+    // Best-effort — any I/O error is swallowed inside the helper.
+    crate::config::sweep_session_orphans();
+
     info!("daemon shutdown complete (pid={})", std::process::id());
 
     // `pid_file_fd` is dropped here → kernel releases flock
@@ -477,6 +489,11 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
     // Write our PID to a separate (unlocked) file so the client can target us
     // with taskkill on version mismatch.
     std::fs::write(&pid_file, std::process::id().to_string())?;
+
+    // Housekeeping under lock ownership: same rationale as the unix path.
+    // Must run AFTER lock acquisition so a losing daemon can't mistake the
+    // winner's empty session dirs for orphans.
+    crate::config::sweep_session_orphans();
 
     // Bind TCP listener; OS assigns an ephemeral port in the dynamic range.
     let listener = TcpListener::bind("127.0.0.1:0").await?;
@@ -581,6 +598,10 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::remove_file(version_path()).ok();
     std::fs::remove_file(&pid_file).ok();
     std::fs::remove_file(&lock_file).ok();
+
+    // Sweep empty session data dirs + stale __fetch_*.json files (same
+    // housekeeping as the unix path).
+    crate::config::sweep_session_orphans();
 
     info!("daemon shutdown complete (pid={})", std::process::id());
     // Drop the lock fd — Windows releases the byte-range lock when the fd closes.
