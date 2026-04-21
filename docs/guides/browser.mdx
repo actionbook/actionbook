@@ -264,7 +264,7 @@ actionbook browser wait condition "document.readyState === 'complete'" --session
 ```
 
 <Tip>
-  `wait network-idle` automatically falls back to **relaxed** mode on pages with persistent background traffic (analytics pings, health-checks). Relaxed mode tolerates low-rate background requests instead of requiring absolute silence. The response includes `mode` ("strict" or "relaxed").
+  `wait network-idle` is edge-triggered: it only tracks fetch/XHR requests started after the command begins. Pre-existing background connections (SSE, WebSocket, analytics pings) are ignored and do not block. This is an agent-friendly settle signal, not a guarantee of global network silence.
 </Tip>
 
 ### Observation & Export
