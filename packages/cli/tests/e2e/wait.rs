@@ -4,10 +4,10 @@ use crate::harness::{
     SessionGuard, assert_error_envelope, assert_failure, assert_meta, assert_success, headless,
     headless_json, parse_json, skip, stdout_str, unique_session, url_a, url_api_fail_reset, url_b,
     url_delayed_redirect, url_delayed_redirect_long, url_fast_redirect, url_home_no_trailing_slash,
-    url_network_idle_lazy_in_viewport, url_network_idle_lazy_offscreen, url_network_idle_lazy_scroll,
-    url_network_idle_non_lazy_blocked, url_network_idle_post_start_non_lazy_blocked,
-    url_network_idle_post_start_setinterval_page, url_network_idle_preexisting_fetch_page,
-    url_network_idle_sse_page, wait_page_ready,
+    url_network_idle_lazy_in_viewport, url_network_idle_lazy_offscreen,
+    url_network_idle_lazy_scroll, url_network_idle_non_lazy_blocked,
+    url_network_idle_post_start_non_lazy_blocked, url_network_idle_post_start_setinterval_page,
+    url_network_idle_preexisting_fetch_page, url_network_idle_sse_page, wait_page_ready,
 };
 
 const ELEMENT_SELECTOR: &str = "#loaded";
@@ -108,7 +108,10 @@ fn schedule_fetch_after_delay(sid: &str, tid: &str, url: &str) {
         "setTimeout(() => {{ fetch({}).catch(() => {{}}); }}, 100); void 0",
         serde_json::to_string(url).unwrap()
     );
-    let out = headless_json(&["browser", "eval", &js, "--session", sid, "--tab", tid], 10);
+    let out = headless_json(
+        &["browser", "eval", &js, "--session", sid, "--tab", tid],
+        10,
+    );
     assert_success(&out, "schedule delayed fetch");
 }
 
