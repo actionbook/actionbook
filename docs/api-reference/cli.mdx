@@ -266,6 +266,17 @@ actionbook browser upload "<selector>" /path/to/file.pdf --session s1 --tab t1
   `eval` isolates `let`/`const` scope by default. Use `--no-isolate` for multi-statement async expressions or when you need shared scope across calls.
 </Tip>
 
+<Note>
+  On failure, `eval` returns a structured error envelope with `error.code` set to one of:
+  - `EVAL_RUNTIME_ERROR` — JS exception (ReferenceError, TypeError, etc.)
+  - `EVAL_CROSS_ORIGIN` — cross-origin fetch or SecurityError
+  - `EVAL_RESPONSE_NOT_JSON` — response Content-Type is not JSON
+  - `EVAL_RESPONSE_NOT_OK` — HTTP status is not 2xx
+  - `EVAL_TIMEOUT` — expression did not resolve within `--timeout`
+
+  Each error includes `error.hint` and `error.details` with diagnostic fields (`reason`, and for fetch errors: `status`, `content_type`, `body_head`). Read `error.code` to branch on the failure class instead of parsing the message string.
+</Note>
+
 ### Wait
 
 ```bash

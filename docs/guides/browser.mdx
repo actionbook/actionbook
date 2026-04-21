@@ -275,7 +275,7 @@ actionbook browser snapshot --interactive --session s1 --tab t1     # only inter
 actionbook browser screenshot output.png --session s1 --tab t1
 actionbook browser screenshot output.png --full --session s1 --tab t1
 actionbook browser pdf report.pdf --session s1 --tab t1
-actionbook browser eval "document.title" --session s1 --tab t1
+actionbook browser eval "document.title" --session s1 --tab t1      # JS eval (structured errors)
 actionbook browser html --session s1 --tab t1
 actionbook browser text --session s1 --tab t1
 actionbook browser title --session s1 --tab t1
@@ -440,6 +440,22 @@ Extension mode connects via a local WebSocket bridge with the following guarante
 - No token or pairing is required; local origin is sufficient for authentication
 - The extension identifies itself via a WebSocket handshake with role and version fields
 - The bridge validates the connection source (origin + extension ID) before accepting commands
+
+## Eval Error Handling
+
+`browser eval` returns structured error codes on failure. Branch on `error.code` instead of parsing the message string:
+
+| Code | Meaning | Best practice |
+|------|---------|---------------|
+| `EVAL_RUNTIME_ERROR` | JS exception | Check expression syntax and referenced variables |
+| `EVAL_CROSS_ORIGIN` | Cross-origin or CSP block | Use same-origin fetch or proxy server-side |
+| `EVAL_RESPONSE_NOT_JSON` | Non-JSON response body | Read `error.details.content_type` and `body_head` before retrying |
+| `EVAL_RESPONSE_NOT_OK` | Non-2xx HTTP status | Read `error.details.status` and `body_head` to distinguish 403 / challenge / CORS |
+| `EVAL_TIMEOUT` | Expression exceeded `--timeout` | Reduce work or increase timeout |
+
+<Tip>
+  For `EVAL_RESPONSE_NOT_OK` and `EVAL_RESPONSE_NOT_JSON`, inspect `error.details.body_head` (first ≤256 chars of the response body) to decide whether to retry — a 403 challenge page is not worth retrying blindly.
+</Tip>
 
 ## Troubleshooting
 

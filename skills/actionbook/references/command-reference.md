@@ -136,7 +136,19 @@ actionbook browser eval "await fetch('/api/data').then(r => r.json())" --no-isol
 
 **eval scope isolation:** By default, `eval` wraps `let`/`const` declarations in an isolated scope so they don't leak across calls. Use `--no-isolate` to disable this — needed for multi-statement async expressions or when you want shared scope.
 
-**eval response fields:** Success includes `pre_url`, `pre_origin`, `pre_readyState` (page state before execution) and `post_url`, `post_title` (page state after). On failure, `details` contains `{stage, pre_url, pre_origin, pre_readyState, error_type}` for diagnostics.
+**eval response fields:** Success includes `pre_url`, `pre_origin`, `pre_readyState` (page state before execution) and `post_url`, `post_title` (page state after). On failure, `error.details` contains `{stage, pre_url, pre_origin, pre_readyState, error_type, reason}` plus optional `status`, `content_type`, and `body_head` (≤256 chars, UTF-8 boundary safe) for fetch-related errors.
+
+**eval error codes:** On failure, `error.code` is one of:
+
+| Code | When | Hint | `error.details` extras |
+|------|------|------|------------------------|
+| `EVAL_RUNTIME_ERROR` | JS exception (ReferenceError, TypeError, etc.) | Inspect the expression and referenced variables before retrying | `reason` |
+| `EVAL_CROSS_ORIGIN` | Cross-origin fetch or SecurityError | Use same-origin fetch or proxy the request server-side | `reason` |
+| `EVAL_RESPONSE_NOT_JSON` | `Content-Type` is not JSON when JSON was expected | Check content-type before parsing JSON | `reason`, `status`, `content_type`, `body_head` |
+| `EVAL_RESPONSE_NOT_OK` | HTTP status is not 2xx | Handle non-2xx responses before decoding the body | `reason`, `status`, `content_type`, `body_head` |
+| `EVAL_TIMEOUT` | Expression did not resolve within `--timeout` | Reduce work or raise --timeout | `reason` |
+
+Read `error.code` to branch on the failure class. For `EVAL_RESPONSE_NOT_OK` and `EVAL_RESPONSE_NOT_JSON`, inspect `error.details.body_head` to distinguish 403 / challenge pages / CORS errors before deciding whether to retry.
 
 **fill vs type:** `fill` clears the field and sets the value directly (like pasting). `type` simulates individual keystrokes and appends to existing content.
 

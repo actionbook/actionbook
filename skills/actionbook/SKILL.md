@@ -121,6 +121,15 @@ actionbook browser click @e7 --session s1 --tab t1
 actionbook browser wait navigation --session s1 --tab t1
 ```
 
+## Eval Error Handling
+
+`browser eval` returns structured error codes on failure — branch on `error.code` instead of parsing the message:
+
+- `EVAL_RUNTIME_ERROR` — JS exception. Inspect the expression before retrying.
+- `EVAL_CROSS_ORIGIN` — cross-origin fetch or CSP block. Proxy the request server-side.
+- `EVAL_RESPONSE_NOT_JSON` / `EVAL_RESPONSE_NOT_OK` — read `error.details.body_head` (first ≤256 chars of the response body) to distinguish 403 / challenge pages / CORS errors. Do not blindly retry.
+- `EVAL_TIMEOUT` — expression exceeded `--timeout`. Reduce work or raise the timeout.
+
 ## Selectors
 
 Selectors should come from `actionbook browser snapshot` — not from prior knowledge or memory. Always snapshot first to get current refs, then use those refs to interact with the page.
