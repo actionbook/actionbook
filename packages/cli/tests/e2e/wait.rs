@@ -972,7 +972,7 @@ fn wait_network_idle_succeeds_after_quiet_window_when_no_new_requests() {
     assert_eq!(v["data"]["kind"], "network-idle");
     assert_eq!(v["data"]["satisfied"], true);
     assert!(
-        elapsed_ms >= 500 && elapsed_ms < 1_500,
+        (500..1_500).contains(&elapsed_ms),
         "elapsed_ms should reflect the fixed quiet window, got {elapsed_ms}"
     );
 }
