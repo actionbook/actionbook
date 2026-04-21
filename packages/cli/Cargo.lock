@@ -17,6 +17,7 @@ dependencies = [
  "fs2",
  "futures-util",
  "indicatif",
+ "libc",
  "regex",
  "reqwest",
  "serde",

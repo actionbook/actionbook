@@ -6296,6 +6296,151 @@ fn browser_eval_file_and_expression_conflict_is_structured() {
     close_session(&sid);
 }
 
+#[cfg(unix)]
+#[test]
+fn browser_eval_stdin_dash_on_tty_is_structured() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    // openpty gives us a master/slave pair whose slave fd reports
+    // is_terminal() == true.  Hand the slave as the child's stdin so the
+    // TTY fast-path fires before any read would block on the un-driven
+    // master.  Closing master after the child exits releases the pair.
+    use std::os::unix::io::FromRawFd;
+    let (master_fd, slave_fd) = unsafe {
+        let mut master: libc::c_int = 0;
+        let mut slave: libc::c_int = 0;
+        let rc = libc::openpty(
+            &mut master as *mut _,
+            &mut slave as *mut _,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
+        assert_eq!(rc, 0, "openpty must succeed");
+        (master, slave)
+    };
+
+    let slave_stdin = unsafe { Stdio::from_raw_fd(slave_fd) };
+    let env = shared_env();
+    let bin = cargo_bin("actionbook");
+    let out = std::process::Command::new(&bin)
+        .env("ACTIONBOOK_HOME", &env.actionbook_home)
+        .arg("--json")
+        .arg("browser")
+        .arg("eval")
+        .arg("-")
+        .arg("--session")
+        .arg(&sid)
+        .arg("--tab")
+        .arg(&tid)
+        .stdin(slave_stdin)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("run browser eval with pty stdin");
+
+    unsafe {
+        libc::close(master_fd);
+    }
+
+    assert_failure(&out, "browser eval stdin on tty");
+    let v = parse_json(&out);
+    assert_error_envelope(&v, "EVAL_STDIN_TTY");
+    assert!(
+        v["error"]["details"]["reason"].as_str().is_some(),
+        "details.reason must exist for EVAL_STDIN_TTY"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_stdin_empty_pipe_is_structured() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let env = shared_env();
+    let bin = cargo_bin("actionbook");
+    let out = std::process::Command::new(&bin)
+        .env("ACTIONBOOK_HOME", &env.actionbook_home)
+        .arg("--json")
+        .arg("browser")
+        .arg("eval")
+        .arg("-")
+        .arg("--session")
+        .arg(&sid)
+        .arg("--tab")
+        .arg(&tid)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("run browser eval with null stdin");
+
+    assert_failure(&out, "browser eval stdin empty pipe");
+    let v = parse_json(&out);
+    assert_error_envelope(&v, "EVAL_STDIN_EMPTY");
+    assert!(
+        v["error"]["details"]["reason"].as_str().is_some(),
+        "details.reason must exist for EVAL_STDIN_EMPTY"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_stdin_whitespace_only_pipe_is_structured() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let env = shared_env();
+    let bin = cargo_bin("actionbook");
+    let mut cmd = std::process::Command::new(&bin);
+    cmd.env("ACTIONBOOK_HOME", &env.actionbook_home)
+        .arg("--json")
+        .arg("browser")
+        .arg("eval")
+        .arg("-")
+        .arg("--session")
+        .arg(&sid)
+        .arg("--tab")
+        .arg(&tid)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().expect("spawn browser eval stdin command");
+    {
+        let stdin = child.stdin.as_mut().expect("stdin pipe");
+        stdin
+            .write_all(b"   \n\t\n")
+            .expect("write whitespace-only stdin");
+    }
+    let out = child
+        .wait_with_output()
+        .expect("wait for browser eval stdin command");
+
+    assert_failure(&out, "browser eval stdin whitespace only");
+    let v = parse_json(&out);
+    assert_error_envelope(&v, "EVAL_STDIN_EMPTY");
+    assert!(
+        v["error"]["details"]["reason"].as_str().is_some(),
+        "details.reason must exist for EVAL_STDIN_EMPTY"
+    );
+
+    close_session(&sid);
+}
+
 // ========================================================================
 // Group 20: mouse-move — command wiring, success path, and error path
 // ========================================================================
