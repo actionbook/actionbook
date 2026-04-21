@@ -332,14 +332,28 @@ fn build_eval_args_error(code: EvalErrorCode, message: String, reason: &str) -> 
     )
 }
 
-fn build_file_not_found(path: &Path, io_reason: &str) -> ActionResult {
+/// Classify an `io::Error` from reading an eval script file into a bounded
+/// `details.reason` vocabulary. The wire code stays `EVAL_FILE_NOT_FOUND`
+/// for both missing and permission-denied paths because the remediation
+/// ("verify the path resolves and is readable") is identical across the
+/// sub-cases; the reason field carries the observability signal.
+fn io_kind_to_reason(kind: std::io::ErrorKind) -> &'static str {
+    match kind {
+        std::io::ErrorKind::NotFound => "not_found",
+        std::io::ErrorKind::PermissionDenied => "permission_denied",
+        std::io::ErrorKind::InvalidData => "invalid_data",
+        _ => "other",
+    }
+}
+
+fn build_file_unreadable(path: &Path, err: &std::io::Error) -> ActionResult {
     ActionResult::fatal_with_details(
         EvalErrorCode::FileNotFound.code(),
-        format!("eval script file not found: {}", path.display()),
+        format!("failed to read eval script file: {}", path.display()),
         EvalErrorCode::FileNotFound.default_hint(),
         json!({
             "stage": "eval",
-            "reason": io_reason,
+            "reason": io_kind_to_reason(err.kind()),
             "path": path.display().to_string(),
         }),
     )
@@ -350,9 +364,11 @@ fn build_file_not_found(path: &Path, io_reason: &str) -> ActionResult {
 /// All failure envelopes are arg-layer — no CDP round-trip has happened yet,
 /// so no pre-page context (pre_url, pre_origin, pre_readyState) is attached.
 ///
-/// Must be called on the CLI side before the command is forwarded to the
-/// daemon, because stdin and the file's relative path belong to the CLI
-/// process, not the daemon's.
+/// CLI pre-flight only. Must not be called on the daemon side: after the CLI
+/// has resolved stdin, `cmd.expression` can be `Some("-")` (the user piped a
+/// literal dash) and re-invoking this resolver would misclassify it as the
+/// stdin sentinel and read the daemon's own stdin. The daemon consumes
+/// `cmd.expression` directly.
 pub fn resolve_eval_source(cmd: &Cmd) -> Result<String, ActionResult> {
     let positional_is_stdin = matches!(cmd.expression.as_deref(), Some("-"));
     let has_stdin = positional_is_stdin;
@@ -407,8 +423,7 @@ pub fn resolve_eval_source(cmd: &Cmd) -> Result<String, ActionResult> {
     }
 
     if let Some(path) = &cmd.file {
-        return std::fs::read_to_string(path)
-            .map_err(|err| build_file_not_found(path, &err.to_string()));
+        return std::fs::read_to_string(path).map_err(|err| build_file_unreadable(path, &err));
     }
 
     match &cmd.expression {
@@ -496,9 +511,19 @@ pub fn context(cmd: &Cmd, result: &ActionResult) -> Option<ResponseContext> {
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    let source_expression = match resolve_eval_source(cmd) {
-        Ok(s) => s,
-        Err(err) => return err,
+    // cmd.expression has already been resolved on the CLI side (see
+    // `resolve_eval_source`). Do NOT re-invoke the resolver here — after
+    // resolution the expression can legitimately be the literal `-`, which
+    // the resolver would misread as the stdin sentinel.
+    let source_expression = match &cmd.expression {
+        Some(expr) => expr.clone(),
+        None => {
+            return build_eval_args_error(
+                EvalErrorCode::ArgsConflict,
+                "no eval input provided".to_string(),
+                "no_source",
+            );
+        }
     };
 
     let (cdp, target_id) = match get_cdp_and_target(registry, &cmd.session, &cmd.tab).await {
