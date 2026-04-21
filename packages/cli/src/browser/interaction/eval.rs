@@ -65,6 +65,14 @@ fn truncate_body_head(text: &str) -> String {
     text.chars().take(BODY_HEAD_LIMIT_CHARS).collect()
 }
 
+fn json_value_to_string(value: Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(text) => Some(text),
+        other => Some(other.to_string()),
+    }
+}
+
 fn string_property<'a>(properties: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
     properties.get(key).and_then(|value| value.as_str())
 }
@@ -139,10 +147,67 @@ async fn read_exception_properties(
     properties
 }
 
+fn has_cross_origin_fetch_target(expression: &str, pre_origin: &str) -> bool {
+    if pre_origin.is_empty() || pre_origin == "null" {
+        return false;
+    }
+
+    let expression_lower = expression.to_ascii_lowercase();
+    if !expression_lower.contains("fetch(") && !expression_lower.contains("fetch (") {
+        return false;
+    }
+
+    let Ok(pre_origin_url) = reqwest::Url::parse(pre_origin) else {
+        return false;
+    };
+    let pre_origin = pre_origin_url.origin().ascii_serialization();
+
+    let mut chars = expression.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if !matches!(ch, '"' | '\'' | '`') {
+            continue;
+        }
+
+        let quote = ch;
+        let mut literal = String::new();
+        let mut escaped = false;
+        for ch in chars.by_ref() {
+            if escaped {
+                literal.push(ch);
+                escaped = false;
+                continue;
+            }
+            if ch == '\\' {
+                escaped = true;
+                continue;
+            }
+            if ch == quote {
+                break;
+            }
+            literal.push(ch);
+        }
+
+        if !(literal.starts_with("http://") || literal.starts_with("https://")) {
+            continue;
+        }
+
+        let Ok(url) = reqwest::Url::parse(&literal) else {
+            continue;
+        };
+        if url.origin().ascii_serialization() != pre_origin {
+            return true;
+        }
+    }
+
+    false
+}
+
 fn classify_eval_error(
     description: &str,
     error_type: &str,
     properties: &Map<String, Value>,
+    expression: &str,
+    pre_origin: &str,
 ) -> EvalErrorCode {
     if let Some(code) = string_property(properties, "code").and_then(EvalErrorCode::from_wire_code)
     {
@@ -163,13 +228,14 @@ fn classify_eval_error(
     }
     let haystack = haystack.to_ascii_lowercase();
 
-    if haystack.contains("failed to fetch")
-        || haystack.contains("securityerror")
+    if haystack.contains("securityerror")
         || haystack.contains("cross-origin")
         || haystack.contains("cross origin")
         || haystack.contains("same origin policy")
         || haystack.contains("blocked a frame with origin")
         || haystack.contains("content security policy")
+        || (haystack.contains("failed to fetch")
+            && has_cross_origin_fetch_target(expression, pre_origin))
     {
         EvalErrorCode::CrossOrigin
     } else {
@@ -193,13 +259,16 @@ fn build_eval_error_result(
 ) -> ActionResult {
     properties.remove("code");
     properties.remove("hint");
-
-    let body_head = string_property(&properties, "body_head").map(truncate_body_head);
-    let message = properties
-        .get("reason")
-        .and_then(|value| value.as_str())
-        .unwrap_or(&reason)
-        .to_string();
+    let normalized_reason = properties
+        .remove("reason")
+        .and_then(json_value_to_string)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(reason);
+    let body_head = properties
+        .remove("body_head")
+        .and_then(json_value_to_string)
+        .map(|value| truncate_body_head(&value));
+    let message = normalized_reason.clone();
     let hint = hint.unwrap_or_else(|| code.default_hint().to_string());
 
     let mut details = Map::new();
@@ -208,7 +277,7 @@ fn build_eval_error_result(
     details.insert("pre_origin".to_string(), json!(context.pre_origin));
     details.insert("pre_readyState".to_string(), json!(context.pre_ready_state));
     details.insert("error_type".to_string(), json!(context.error_type));
-    details.insert("reason".to_string(), json!(reason));
+    details.insert("reason".to_string(), json!(normalized_reason));
 
     for (key, value) in properties {
         details.insert(key, value);
@@ -367,7 +436,13 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 }
                 other => {
                     let reason = other.to_string();
-                    let code = classify_eval_error(&reason, "CdpError", &Map::new());
+                    let code = classify_eval_error(
+                        &reason,
+                        "CdpError",
+                        &Map::new(),
+                        &cmd.expression,
+                        &pre_origin,
+                    );
                     build_eval_error_result(
                         code,
                         reason,
@@ -409,7 +484,8 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             } else {
                 Map::new()
             };
-            let code = classify_eval_error(emsg, &error_type, &properties);
+            let code =
+                classify_eval_error(emsg, &error_type, &properties, &cmd.expression, &pre_origin);
             let reason = string_property(&properties, "reason")
                 .unwrap_or(emsg)
                 .to_string();
@@ -481,7 +557,11 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{BODY_HEAD_LIMIT_CHARS, EvalErrorCode, classify_eval_error, truncate_body_head};
+    use super::{
+        BODY_HEAD_LIMIT_CHARS, EvalErrorCode, EvalFailureContext, build_eval_error_result,
+        classify_eval_error, truncate_body_head,
+    };
+    use crate::action_result::ActionResult;
     use serde_json::{Map, json};
 
     #[test]
@@ -524,7 +604,13 @@ mod tests {
         properties.insert("code".to_string(), json!("EVAL_RESPONSE_NOT_JSON"));
 
         assert_eq!(
-            classify_eval_error("ignored", "Object", &properties),
+            classify_eval_error(
+                "ignored",
+                "Object",
+                &properties,
+                "1 + 1",
+                "https://example.com"
+            ),
             EvalErrorCode::ResponseNotJson
         );
     }
@@ -532,12 +618,69 @@ mod tests {
     #[test]
     fn classify_eval_error_detects_cross_origin_fallbacks() {
         assert_eq!(
-            classify_eval_error("TypeError: Failed to fetch", "TypeError", &Map::new()),
+            classify_eval_error(
+                "TypeError: Failed to fetch",
+                "TypeError",
+                &Map::new(),
+                r#"fetch("http://127.0.0.1:8080/api/data")"#,
+                "https://example.com",
+            ),
             EvalErrorCode::CrossOrigin
         );
         assert_eq!(
-            classify_eval_error("SecurityError: Blocked", "DOMException", &Map::new()),
+            classify_eval_error(
+                "SecurityError: Blocked",
+                "DOMException",
+                &Map::new(),
+                "document.cookie",
+                "https://example.com",
+            ),
             EvalErrorCode::CrossOrigin
         );
+    }
+
+    #[test]
+    fn classify_eval_error_does_not_promote_generic_failed_fetch_without_cross_origin_target() {
+        assert_eq!(
+            classify_eval_error(
+                "TypeError: Failed to fetch",
+                "TypeError",
+                &Map::new(),
+                r#"fetch("/api/data")"#,
+                "https://example.com",
+            ),
+            EvalErrorCode::RuntimeError
+        );
+    }
+
+    #[test]
+    fn build_eval_error_result_normalizes_reason_to_string() {
+        let mut properties = Map::new();
+        properties.insert("reason".to_string(), json!({ "kind": "bad-shape" }));
+
+        let result = build_eval_error_result(
+            EvalErrorCode::RuntimeError,
+            "fallback".to_string(),
+            None,
+            EvalFailureContext {
+                pre_url: "about:blank",
+                pre_origin: "null",
+                pre_ready_state: "complete",
+                error_type: "Object",
+            },
+            properties,
+        );
+
+        let ActionResult::Fatal {
+            message,
+            details: Some(serde_json::Value::Object(details)),
+            ..
+        } = result
+        else {
+            panic!("expected fatal result with details");
+        };
+
+        assert_eq!(message, r#"{"kind":"bad-shape"}"#);
+        assert_eq!(details["reason"], json!(r#"{"kind":"bad-shape"}"#));
     }
 }
