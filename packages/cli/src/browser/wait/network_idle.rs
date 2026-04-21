@@ -16,21 +16,22 @@ const POLL_INTERVAL_MS: u64 = 100;
 /// continuously for this long before declaring idle.
 const IDLE_QUIET_MS: u64 = 500;
 
-/// Wait for the page to settle: readyState=complete, images loaded, and any
-/// network requests started *after* this command begins have finished.
+/// Wait for the page to settle: readyState=complete, images loaded, and all
+/// tracked in-flight fetch/XHR requests finished.
 ///
-/// Pre-existing connections (SSE, WebSocket, long-poll) do not block idle —
-/// only requests whose `requestWillBeSent` event arrives after the command
-/// starts are tracked.  This is an agent-friendly settle signal, not a
-/// guarantee of global network silence.
+/// Persistent connections (WebSocket, SSE/EventSource, favicon, data: URLs)
+/// are excluded at the CDP-session level and never block idle.  Orphaned
+/// cross-origin iframe requests are evicted after 3 s by the tab-level
+/// pending set.  This is an agent-friendly settle signal, not a guarantee of
+/// global network silence.
 #[derive(Args, Debug, Clone, Serialize, Deserialize)]
 #[command(after_help = "\
 Examples:
   actionbook browser wait network-idle --session s1 --tab t1 --timeout 10000
 
 Notes:
-  Only tracks requests started after the command begins.
-  Pre-existing background connections (SSE, WebSocket, analytics) are ignored.
+  Waits for all tracked in-flight fetch/XHR requests to settle.
+  Persistent connections (WebSocket, SSE) are excluded and do not block.
   Intended as an agent-friendly settle signal, not a guarantee that all
   background activity has stopped.")]
 pub struct Cmd {
@@ -126,24 +127,14 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         return { ready: true, unloaded_imgs: unloaded };
     })()"#;
 
-    // Edge-triggered pending: snapshot in-flight count at command start.
-    // Any increase above effective_baseline represents a post-start request.
-    // effective_baseline can only decrease (when pre-existing requests finish),
-    // so pre-existing connections never inflate above_baseline.
-    let baseline_pending = cdp.network_pending(&cdp_session_id).await;
-    let mut effective_baseline: i64 = baseline_pending;
+    // Wait for tracked in-flight fetch/XHR to drain. Persistent connection
+    // types (WebSocket, SSE/EventSource) are excluded at CDP event ingest,
+    // so they never appear in the pending set. Orphaned iframe requests are
+    // evicted after 3 s by the tab-level pending map.
     let mut quiet_start: Option<Instant> = None;
 
     loop {
         let pending = cdp.network_pending(&cdp_session_id).await;
-
-        // Lower effective_baseline when pre-existing requests finish.
-        if pending < effective_baseline {
-            effective_baseline = pending;
-        }
-
-        // Requests started after the command began: any pending above the baseline.
-        let above_baseline = pending - effective_baseline;
 
         let js_idle = cdp
             .execute_on_tab(
@@ -164,7 +155,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             })
             .unwrap_or(false);
 
-        if js_idle && above_baseline == 0 {
+        if js_idle && pending == 0 {
             if quiet_start.is_none() {
                 quiet_start = Some(Instant::now());
             }

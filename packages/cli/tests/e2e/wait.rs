@@ -819,14 +819,22 @@ fn wait_network_idle_unblocked_by_preexisting_sse() {
     assert_eq!(v["data"]["satisfied"], true);
 }
 
+// Fetch initiator must be same-origin with the API target: Chrome's Private
+// Network Access policy blocks a fetch from an `about:blank` (null origin)
+// page to `http://127.0.0.1` with `corsError='InsecureLocalNetwork'`, so the
+// fetch fails instantly and never contributes to the in-flight count.  Opening
+// the tab on a local-server page moves the initiator onto 127.0.0.1, making
+// the delayed fetch same-origin and observable.
 #[test]
 fn wait_network_idle_waits_for_post_start_fetch_batch_to_finish() {
     if skip() {
         return;
     }
 
-    let (sid, tid) = start_session("about:blank");
+    let (sid, _) = start_session("about:blank");
     let _guard = SessionGuard::new(&sid);
+    let tid = open_new_tab(&sid, &url_a());
+    wait_page_ready(&sid, &tid);
     schedule_fetch_after_delay(&sid, &tid, &url_api_data_delayed_short());
 
     let out = headless_json(
