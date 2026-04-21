@@ -1170,6 +1170,23 @@ mod tests {
     }
 
     #[test]
+    fn try_parse_from_accepts_browser_eval_file_flag() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "eval",
+            "--file",
+            "/tmp/script.js",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+        ]);
+
+        assert!(cli.is_ok(), "browser eval should accept --file");
+    }
+
+    #[test]
     fn try_parse_from_accepts_browser_mouse_move_command() {
         let cli = Cli::try_parse_from([
             "actionbook",
