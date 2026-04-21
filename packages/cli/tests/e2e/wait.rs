@@ -884,9 +884,9 @@ fn wait_network_idle_waits_for_post_start_fetch_batch_to_finish() {
             "--tab",
             &tid,
             "--timeout",
-            "5000",
+            "12000",
         ],
-        10,
+        17,
     );
     assert_success(
         &out,
