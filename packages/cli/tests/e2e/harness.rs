@@ -932,6 +932,36 @@ window.addEventListener('DOMContentLoaded', () => {{
         return;
     }
 
+    if path == "/network-idle-post-start-setinterval-page" {
+        // Fires 8 same-origin fetches 400ms apart after DOMContentLoaded, covering
+        // ~2.8s so that at least one fetch reliably fires after wait's cmd_start
+        // regardless of subprocess-spawn jitter (eval subprocess shutdown +
+        // wait subprocess startup can drift 500-2000ms).
+        let port = local_server().port;
+        let body = format!(
+            r#"<!DOCTYPE html><html><head><title>Network Idle Post-Start SetInterval Page</title></head>
+<body>
+<script>
+window.addEventListener('DOMContentLoaded', () => {{
+  let count = 0;
+  const id = setInterval(() => {{
+    if (count >= 8) {{ clearInterval(id); return; }}
+    count++;
+    fetch("http://127.0.0.1:{port}/api/delayed-data-short?source=post-start&n=" + count).catch(() => {{}});
+  }}, 400);
+}});
+</script>
+</body></html>"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
     if path == "/network-idle-post-start-non-lazy-blocked" {
         let port = local_server().port;
         let body = format!(
@@ -1124,14 +1154,6 @@ pub fn url_network_xhr() -> String {
     format!("http://127.0.0.1:{}/network-xhr", local_server().port)
 }
 
-/// URL for a delayed JSON response used to verify post-start request tracking.
-pub fn url_api_data_delayed_short() -> String {
-    format!(
-        "http://127.0.0.1:{}/api/delayed-data-short?source=post-start",
-        local_server().port
-    )
-}
-
 /// URL that drops the connection to force a request failure / loadingFailed.
 pub fn url_api_fail_reset() -> String {
     format!("http://127.0.0.1:{}/api/fail-reset", local_server().port)
@@ -1181,6 +1203,16 @@ pub fn url_network_idle_sse_page() -> String {
 pub fn url_network_idle_preexisting_fetch_page() -> String {
     format!(
         "http://127.0.0.1:{}/network-idle-preexisting-fetch-page",
+        local_server().port
+    )
+}
+
+/// URL for a page that fires 8 same-origin delayed fetches 400ms apart after
+/// DOMContentLoaded. Guarantees at least one fetch fires after wait's
+/// cmd_start regardless of subprocess-spawn jitter.
+pub fn url_network_idle_post_start_setinterval_page() -> String {
+    format!(
+        "http://127.0.0.1:{}/network-idle-post-start-setinterval-page",
         local_server().port
     )
 }

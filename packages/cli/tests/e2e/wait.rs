@@ -2,12 +2,12 @@
 
 use crate::harness::{
     SessionGuard, assert_error_envelope, assert_failure, assert_meta, assert_success, headless,
-    headless_json, parse_json, skip, stdout_str, unique_session, url_a, url_api_data_delayed_short,
-    url_api_fail_reset, url_b, url_delayed_redirect, url_delayed_redirect_long,
-    url_fast_redirect, url_home_no_trailing_slash,
+    headless_json, parse_json, skip, stdout_str, unique_session, url_a, url_api_fail_reset, url_b,
+    url_delayed_redirect, url_delayed_redirect_long, url_fast_redirect, url_home_no_trailing_slash,
     url_network_idle_lazy_in_viewport, url_network_idle_lazy_offscreen, url_network_idle_lazy_scroll,
     url_network_idle_non_lazy_blocked, url_network_idle_post_start_non_lazy_blocked,
-    url_network_idle_preexisting_fetch_page, url_network_idle_sse_page, wait_page_ready,
+    url_network_idle_post_start_setinterval_page, url_network_idle_preexisting_fetch_page,
+    url_network_idle_sse_page, wait_page_ready,
 };
 
 const ELEMENT_SELECTOR: &str = "#loaded";
@@ -854,12 +854,12 @@ fn wait_network_idle_unblocked_by_preexisting_same_origin_fetch() {
     assert_eq!(v["data"]["satisfied"], true);
 }
 
-// Fetch initiator must be same-origin with the API target: Chrome's Private
-// Network Access policy blocks a fetch from an `about:blank` (null origin)
-// page to `http://127.0.0.1` with `corsError='InsecureLocalNetwork'`, so the
-// fetch fails instantly and never contributes to the in-flight count.  Opening
-// the tab on a local-server page moves the initiator onto 127.0.0.1, making
-// the delayed fetch same-origin and observable.
+// Fixture page fires a sustained burst of same-origin fetches (8 × 400ms after
+// DOMContentLoaded) so at least one `requestWillBeSent` is guaranteed to land
+// after `cmd_start`, regardless of subprocess-spawn jitter (eval shutdown +
+// wait subprocess startup can drift 500-2000ms). A single `setTimeout` cannot
+// reliably hit `[cmd_start, cmd_start + IDLE_QUIET_MS]`: too short and the
+// fetch is pre-existing, too long and the quiet window completes first.
 #[test]
 fn wait_network_idle_waits_for_post_start_fetch_batch_to_finish() {
     if skip() {
@@ -868,9 +868,8 @@ fn wait_network_idle_waits_for_post_start_fetch_batch_to_finish() {
 
     let (sid, _) = start_session("about:blank");
     let _guard = SessionGuard::new(&sid);
-    let tid = open_new_tab(&sid, &url_a());
+    let tid = open_new_tab(&sid, &url_network_idle_post_start_setinterval_page());
     wait_page_ready(&sid, &tid);
-    schedule_fetch_after_delay(&sid, &tid, &url_api_data_delayed_short());
 
     let out = headless_json(
         &[
@@ -882,7 +881,7 @@ fn wait_network_idle_waits_for_post_start_fetch_batch_to_finish() {
             "--tab",
             &tid,
             "--timeout",
-            "4000",
+            "5000",
         ],
         10,
     );
@@ -896,8 +895,8 @@ fn wait_network_idle_waits_for_post_start_fetch_batch_to_finish() {
     assert_eq!(v["data"]["kind"], "network-idle");
     assert_eq!(v["data"]["satisfied"], true);
     assert!(
-        v["data"]["elapsed_ms"].as_u64().unwrap_or_default() >= 1_000,
-        "elapsed_ms should include the delayed fetch plus quiet window"
+        v["data"]["elapsed_ms"].as_u64().unwrap_or_default() >= 1_200,
+        "elapsed_ms should include the post-start fetch batch plus quiet window"
     );
 }
 
