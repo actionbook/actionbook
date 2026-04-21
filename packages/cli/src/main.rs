@@ -6,6 +6,7 @@ use serde_json::json;
 
 use actionbook_cli::action::Action;
 use actionbook_cli::action_result::ActionResult;
+use actionbook_cli::browser::interaction;
 use actionbook_cli::cli::{BrowserCommands, Cli, Commands, DaemonCommands, ExtensionCommands};
 use actionbook_cli::config;
 use actionbook_cli::output::{self, JsonEnvelope};
@@ -280,11 +281,15 @@ async fn handle_browser(
         match tokio::time::timeout(Duration::from_millis(timeout_ms), execution).await {
             Ok(result) => result?,
             Err(_) => {
-                let result = ActionResult::fatal_with_hint(
-                    "TIMEOUT",
-                    format!("{command_name} timed out after {timeout_ms}ms"),
-                    "increase --timeout or retry the command",
-                );
+                let result = if command_name == interaction::eval::COMMAND_NAME {
+                    interaction::eval::timeout_result(timeout_ms)
+                } else {
+                    ActionResult::fatal_with_hint(
+                        "TIMEOUT",
+                        format!("{command_name} timed out after {timeout_ms}ms"),
+                        "increase --timeout or retry the command",
+                    )
+                };
                 let duration = start.elapsed();
                 let context = command.context(&result);
                 if json_mode {

@@ -587,8 +587,16 @@ fn assert_browser_eval_structured_failure(v: &serde_json::Value, expected_code: 
     assert_eq!(v["command"], "browser eval");
     assert_error_envelope(v, expected_code);
     assert!(
-        v["error"]["details"]["reason"].is_string(),
-        "structured eval failures must expose details.reason"
+        v["error"]["hint"]
+            .as_str()
+            .is_some_and(|hint| !hint.is_empty()),
+        "structured eval failures must expose a non-empty error.hint"
+    );
+    assert!(
+        v["error"]["details"]["reason"]
+            .as_str()
+            .is_some_and(|reason| !reason.is_empty()),
+        "structured eval failures must expose a non-empty details.reason"
     );
 }
 
@@ -5574,7 +5582,7 @@ fn eval_exception_json() {
     assert!(v["context"].is_object(), "context must be present on error");
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
-    assert_error_envelope(&v, "EVAL_FAILED");
+    assert_error_envelope(&v, "EVAL_RUNTIME_ERROR");
     assert!(
         v["error"]["message"]
             .as_str()
@@ -5618,8 +5626,8 @@ fn eval_exception_text() {
         "header must contain [session_id tab_id]: got {text}"
     );
     assert!(
-        text.contains("error EVAL_FAILED:"),
-        "text must contain error EVAL_FAILED: got {text}"
+        text.contains("error EVAL_RUNTIME_ERROR:"),
+        "text must contain error EVAL_RUNTIME_ERROR: got {text}"
     );
 
     close_session(&sid);
@@ -5709,7 +5717,7 @@ fn eval_no_isolate_flag() {
 
     let third = eval_failure_json_with_flags(&sid, &tid, "let x = 1", &["--no-isolate"]);
     assert_eq!(third["command"], "browser eval");
-    assert_error_envelope(&third, "EVAL_FAILED");
+    assert_error_envelope(&third, "EVAL_RUNTIME_ERROR");
     assert!(
         third["error"]["message"]
             .as_str()
@@ -5776,7 +5784,7 @@ fn eval_error_details_syntax() {
 
     let v = eval_failure_json_with_flags(&sid, &tid, "{{{invalid", &[]);
     assert_eq!(v["command"], "browser eval");
-    assert_error_envelope(&v, "EVAL_FAILED");
+    assert_error_envelope(&v, "EVAL_RUNTIME_ERROR");
     assert_eq!(v["error"]["details"]["stage"], "eval");
     assert_eq!(v["error"]["details"]["pre_url"], "about:blank");
     assert_eq!(v["error"]["details"]["pre_origin"], "null");
@@ -5802,7 +5810,7 @@ fn eval_error_details_runtime() {
 
     let v = eval_failure_json_with_flags(&sid, &tid, "nonExistentVariable.foo", &[]);
     assert_eq!(v["command"], "browser eval");
-    assert_error_envelope(&v, "EVAL_FAILED");
+    assert_error_envelope(&v, "EVAL_RUNTIME_ERROR");
     assert_eq!(v["error"]["details"]["stage"], "eval");
     assert!(
         v["error"]["details"]["pre_url"]
@@ -5830,7 +5838,7 @@ fn eval_error_details_has_context() {
 
     let v = eval_failure_json_with_flags(&sid, &tid, "{{{invalid", &[]);
     assert_eq!(v["command"], "browser eval");
-    assert_error_envelope(&v, "EVAL_FAILED");
+    assert_error_envelope(&v, "EVAL_RUNTIME_ERROR");
     assert!(
         v["error"]["details"]["pre_url"]
             .as_str()
@@ -5934,9 +5942,7 @@ fn browser_eval_cross_origin_fetch_failure_is_structured() {
     return "unexpected-success";
   }} catch (e) {{
     throw {{
-      code: "EVAL_CROSS_ORIGIN",
-      reason: String(e),
-      hint: "Use same-origin fetch or proxy the request server-side"
+      reason: String(e)
     }};
   }}
 }})()"#,
@@ -5952,6 +5958,38 @@ fn browser_eval_cross_origin_fetch_failure_is_structured() {
             .contains("fetch"),
         "reason must preserve the blocked fetch details"
     );
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_body_head_is_truncated_at_utf8_boundary() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let v = eval_failure_json_with_flags(
+        &sid,
+        &tid,
+        r#"(() => {
+  throw {
+    code: "EVAL_RESPONSE_NOT_JSON",
+    reason: "Expected JSON but got text/plain; charset=utf-8",
+    status: 200,
+    content_type: "text/plain; charset=utf-8",
+    body_head: "中".repeat(300)
+  };
+})()"#,
+        &[],
+    );
+    assert_browser_eval_structured_failure(&v, "EVAL_RESPONSE_NOT_JSON");
+    let body_head = v["error"]["details"]["body_head"]
+        .as_str()
+        .expect("body_head must be a string");
+    assert_eq!(body_head.chars().count(), 256);
+    assert!(body_head.chars().all(|ch| ch == '中'));
 
     close_session(&sid);
 }
