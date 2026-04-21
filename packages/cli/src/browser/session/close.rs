@@ -22,6 +22,8 @@ pub struct Cmd {
 }
 
 pub const COMMAND_NAME: &str = "browser close";
+const SESSION_NOT_FOUND_WARNING: &str =
+    "session not found in daemon — already closed or daemon restarted";
 
 pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
     Some(ResponseContext {
@@ -31,6 +33,15 @@ pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
         url: None,
         title: None,
     })
+}
+
+fn already_closed_result(session_id: &str) -> ActionResult {
+    ActionResult::ok(json!({
+        "session_id": session_id,
+        "status": "closed",
+        "closed_tabs": 0,
+        "__warnings": [SESSION_NOT_FOUND_WARNING],
+    }))
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
@@ -48,11 +59,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         let entry = match reg.get_mut(&cmd.session) {
             Some(e) => e,
             None => {
-                return ActionResult::fatal_with_hint(
-                    "SESSION_NOT_FOUND",
-                    format!("session '{}' not found", cmd.session),
-                    "run `actionbook browser list-sessions` to see available sessions",
-                );
+                return already_closed_result(&cmd.session);
             }
         };
         if entry.status == SessionState::Closing {
@@ -109,12 +116,9 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 // Phase 1 set status=Closing, so this should be unreachable
                 // under normal operation — another path would have to forcibly
                 // evict the entry while we were in Phase 2. Treat it as success
-                // from the caller's perspective: the remote is already stopped.
-                return ActionResult::ok(json!({
-                    "session_id": cmd.session,
-                    "status": "closed",
-                    "closed_tabs": 0,
-                }));
+                // from the caller's perspective and surface the same warning
+                // as the Phase 1 miss branch for idempotent close semantics.
+                return already_closed_result(&cmd.session);
             }
         };
         let tabs = entry.tabs_count();
@@ -454,7 +458,10 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(75)).await;
         let removed = registry.lock().await.remove("hyp1");
-        assert!(removed.is_some(), "test setup should evict session mid-close");
+        assert!(
+            removed.is_some(),
+            "test setup should evict session mid-close"
+        );
 
         let result = handle.await.expect("close join");
 
