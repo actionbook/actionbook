@@ -16,7 +16,7 @@ const L3_CONFIRM_TIMEOUT_MS = 30000;
 // users can tell agent-driven tabs apart at a glance and collapse/close them
 // in bulk. The group is looked up by title in the tab's own window — we do
 // NOT persist groupId, since it's unstable across sessions and windows.
-const ACTIONBOOK_GROUP_TITLE = "Actionbook";
+const ACTIONBOOK_GROUP_TITLE = "⋈ Actionbook";
 const ACTIONBOOK_GROUP_COLOR = "grey";
 // User-facing toggle (chrome.storage.local key: "groupTabs"). Default on.
 let groupingEnabled = true;
