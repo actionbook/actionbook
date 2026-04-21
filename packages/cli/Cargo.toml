@@ -76,6 +76,9 @@ serde_json = "1"
 tokio = { version = "1", features = ["test-util"] }
 wiremock = "0.6"
 
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"
+
 [[test]]
 name = "e2e"
 path = "tests/e2e/main.rs"

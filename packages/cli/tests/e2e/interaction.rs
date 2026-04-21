@@ -5,9 +5,14 @@
 //! `browser fill`, and `browser select`,
 //! per api-reference.md §11.
 
+use std::io::Write;
+use std::process::Stdio;
+
+use assert_cmd::cargo::cargo_bin;
+
 use crate::harness::{
     SessionGuard, api_base_url, assert_failure, assert_success, headless, headless_json,
-    parse_json, skip, stderr_str, stdout_str, unique_session, wait_page_ready,
+    parse_json, shared_env, skip, stderr_str, stdout_str, unique_session, wait_page_ready,
 };
 
 const TEST_URL: &str = "https://example.com";
@@ -598,6 +603,37 @@ fn assert_browser_eval_structured_failure(v: &serde_json::Value, expected_code: 
             .is_some_and(|reason| !reason.is_empty()),
         "structured eval failures must expose a non-empty details.reason"
     );
+}
+
+fn eval_json_with_stdin(session_id: &str, tab_id: &str, stdin_expr: &str) -> serde_json::Value {
+    let env = shared_env();
+    let bin = cargo_bin("actionbook");
+    let mut cmd = std::process::Command::new(&bin);
+    cmd.env("ACTIONBOOK_HOME", &env.actionbook_home)
+        .arg("--json")
+        .arg("browser")
+        .arg("eval")
+        .arg("-")
+        .arg("--session")
+        .arg(session_id)
+        .arg("--tab")
+        .arg(tab_id)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().expect("spawn browser eval stdin command");
+    {
+        let stdin = child.stdin.as_mut().expect("stdin pipe");
+        stdin
+            .write_all(stdin_expr.as_bytes())
+            .expect("write stdin expression");
+    }
+    let out = child
+        .wait_with_output()
+        .expect("wait for browser eval stdin command");
+    assert_success(&out, "browser eval stdin");
+    parse_json(&out)
 }
 
 fn install_click_fixture(session_id: &str, tab_id: &str) {
@@ -5967,7 +6003,7 @@ fn browser_eval_body_head_is_truncated_at_utf8_boundary() {
     if skip() {
         return;
     }
-    let (sid, tid) = start_session("about:blank");
+    let (sid, tid) = start_session(TEST_URL);
     let _guard = SessionGuard::new(&sid);
 
     let v = eval_failure_json_with_flags(
@@ -6115,6 +6151,423 @@ fn browser_eval_timeout_is_structured() {
             .unwrap_or("")
             .contains("timed out"),
         "timeout reason must preserve the timeout failure"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_file_basic_executes_expression() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let script = tempfile::NamedTempFile::new().expect("create eval temp file");
+    std::fs::write(script.path(), "(() => ({ a: 1, ok: true }))()").expect("write eval file");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "--file",
+            script.path().to_str().expect("utf8 path"),
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "browser eval --file basic");
+    let v = parse_json(&out);
+    assert_eq!(v["data"]["value"]["a"], 1);
+    assert_eq!(v["data"]["value"]["ok"], true);
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_file_preserves_complex_javascript() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let script = tempfile::NamedTempFile::new().expect("create eval temp file");
+    std::fs::write(
+        script.path(),
+        r#"(() => ({ regex: /\w+/.toString(), text: "quote:\" slash:\\" }))()"#,
+    )
+    .expect("write complex eval file");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "--file",
+            script.path().to_str().expect("utf8 path"),
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_success(&out, "browser eval --file complex");
+    let v = parse_json(&out);
+    assert_eq!(v["data"]["value"]["regex"], "/\\w+/");
+    assert_eq!(v["data"]["value"]["text"], r#"quote:" slash:\"#);
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_stdin_dash_reads_expression() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let v = eval_json_with_stdin(&sid, &tid, "(() => ({ via: 'stdin', value: 1 }))()");
+    assert_eq!(v["data"]["value"]["via"], "stdin");
+    assert_eq!(v["data"]["value"]["value"], 1);
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_file_missing_is_structured() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "--file",
+            "/tmp/actionbook-eval-file-missing.js",
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "browser eval --file missing");
+    let v = parse_json(&out);
+    assert_error_envelope(&v, "EVAL_FILE_NOT_FOUND");
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_file_and_expression_conflict_is_structured() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let script = tempfile::NamedTempFile::new().expect("create eval temp file");
+    std::fs::write(script.path(), "(() => 1)()").expect("write eval file");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "(() => 2)()",
+            "--file",
+            script.path().to_str().expect("utf8 path"),
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+    assert_failure(&out, "browser eval positional + file conflict");
+    let v = parse_json(&out);
+    assert_error_envelope(&v, "EVAL_ARGS_CONFLICT");
+
+    close_session(&sid);
+}
+
+#[cfg(unix)]
+#[test]
+fn browser_eval_stdin_dash_on_tty_is_structured() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    // openpty gives us a master/slave pair whose slave fd reports
+    // is_terminal() == true.  Hand the slave as the child's stdin so the
+    // TTY fast-path fires before any read would block on the un-driven
+    // master.  Closing master after the child exits releases the pair.
+    use std::os::unix::io::FromRawFd;
+    let (master_fd, slave_fd) = unsafe {
+        let mut master: libc::c_int = 0;
+        let mut slave: libc::c_int = 0;
+        let rc = libc::openpty(
+            &mut master as *mut _,
+            &mut slave as *mut _,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
+        assert_eq!(rc, 0, "openpty must succeed");
+        (master, slave)
+    };
+
+    let slave_stdin = unsafe { Stdio::from_raw_fd(slave_fd) };
+    let env = shared_env();
+    let bin = cargo_bin("actionbook");
+    let out = std::process::Command::new(&bin)
+        .env("ACTIONBOOK_HOME", &env.actionbook_home)
+        .arg("--json")
+        .arg("browser")
+        .arg("eval")
+        .arg("-")
+        .arg("--session")
+        .arg(&sid)
+        .arg("--tab")
+        .arg(&tid)
+        .stdin(slave_stdin)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("run browser eval with pty stdin");
+
+    unsafe {
+        libc::close(master_fd);
+    }
+
+    assert_failure(&out, "browser eval stdin on tty");
+    let v = parse_json(&out);
+    assert_error_envelope(&v, "EVAL_STDIN_TTY");
+    assert!(
+        v["error"]["details"]["reason"].as_str().is_some(),
+        "details.reason must exist for EVAL_STDIN_TTY"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_stdin_empty_pipe_is_structured() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let env = shared_env();
+    let bin = cargo_bin("actionbook");
+    let out = std::process::Command::new(&bin)
+        .env("ACTIONBOOK_HOME", &env.actionbook_home)
+        .arg("--json")
+        .arg("browser")
+        .arg("eval")
+        .arg("-")
+        .arg("--session")
+        .arg(&sid)
+        .arg("--tab")
+        .arg(&tid)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("run browser eval with null stdin");
+
+    assert_failure(&out, "browser eval stdin empty pipe");
+    let v = parse_json(&out);
+    assert_error_envelope(&v, "EVAL_STDIN_EMPTY");
+    assert!(
+        v["error"]["details"]["reason"].as_str().is_some(),
+        "details.reason must exist for EVAL_STDIN_EMPTY"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_stdin_whitespace_only_pipe_is_structured() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let env = shared_env();
+    let bin = cargo_bin("actionbook");
+    let mut cmd = std::process::Command::new(&bin);
+    cmd.env("ACTIONBOOK_HOME", &env.actionbook_home)
+        .arg("--json")
+        .arg("browser")
+        .arg("eval")
+        .arg("-")
+        .arg("--session")
+        .arg(&sid)
+        .arg("--tab")
+        .arg(&tid)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().expect("spawn browser eval stdin command");
+    {
+        let stdin = child.stdin.as_mut().expect("stdin pipe");
+        stdin
+            .write_all(b"   \n\t\n")
+            .expect("write whitespace-only stdin");
+    }
+    let out = child
+        .wait_with_output()
+        .expect("wait for browser eval stdin command");
+
+    assert_failure(&out, "browser eval stdin whitespace only");
+    let v = parse_json(&out);
+    assert_error_envelope(&v, "EVAL_STDIN_EMPTY");
+    assert!(
+        v["error"]["details"]["reason"].as_str().is_some(),
+        "details.reason must exist for EVAL_STDIN_EMPTY"
+    );
+
+    close_session(&sid);
+}
+
+// Piping the literal `-` character via stdin must NOT cause the daemon to
+// re-read its own stdin. CLI pre-flight resolves stdin to Some("-"); if the
+// daemon re-invokes the same resolver it would re-interpret the expression
+// as the stdin sentinel and either hang or produce a spurious EVAL_STDIN_*
+// envelope instead of forwarding `-` to CDP as a JavaScript expression.
+#[test]
+fn browser_eval_stdin_dash_literal_does_not_retry_stdin_on_daemon() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let env = shared_env();
+    let bin = cargo_bin("actionbook");
+    let mut cmd = std::process::Command::new(&bin);
+    cmd.env("ACTIONBOOK_HOME", &env.actionbook_home)
+        .arg("--json")
+        .arg("browser")
+        .arg("eval")
+        .arg("-")
+        .arg("--session")
+        .arg(&sid)
+        .arg("--tab")
+        .arg(&tid)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().expect("spawn browser eval stdin command");
+    {
+        let stdin = child.stdin.as_mut().expect("stdin pipe");
+        stdin.write_all(b"-").expect("write literal dash to stdin");
+    }
+    let out = child
+        .wait_with_output()
+        .expect("wait for browser eval stdin command");
+
+    let v = parse_json(&out);
+    let code = v["error"]["code"].as_str().unwrap_or("");
+    assert_ne!(
+        code, "EVAL_STDIN_TTY",
+        "daemon must not re-resolve literal `-` as stdin sentinel: got EVAL_STDIN_TTY"
+    );
+    assert_ne!(
+        code, "EVAL_STDIN_EMPTY",
+        "daemon must not re-resolve literal `-` as stdin sentinel: got EVAL_STDIN_EMPTY (envelope={v})"
+    );
+
+    close_session(&sid);
+}
+
+#[cfg(unix)]
+#[test]
+fn browser_eval_file_permission_denied_is_structured_with_reason() {
+    if skip() {
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let script = tempfile::NamedTempFile::new().expect("create eval temp file");
+    std::fs::write(script.path(), "(() => 1)()").expect("write eval file");
+    std::fs::set_permissions(script.path(), std::fs::Permissions::from_mode(0o000))
+        .expect("chmod 000 the eval file");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "--file",
+            script.path().to_str().expect("utf8 path"),
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+
+    // Restore perms so TempFile drop can clean up.
+    let _ = std::fs::set_permissions(script.path(), std::fs::Permissions::from_mode(0o600));
+
+    assert_failure(&out, "browser eval --file permission denied");
+    let v = parse_json(&out);
+    assert_error_envelope(&v, "EVAL_FILE_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["reason"].as_str(),
+        Some("permission_denied"),
+        "details.reason must map io::ErrorKind::PermissionDenied to 'permission_denied' (envelope={v})"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_file_invalid_utf8_is_structured_with_reason() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+    let script = tempfile::NamedTempFile::new().expect("create eval temp file");
+    // Raw bytes that are not valid UTF-8: 0xff is never a valid start byte.
+    std::fs::write(script.path(), [0xff, 0xfe, 0xfd]).expect("write invalid utf-8");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "eval",
+            "--file",
+            script.path().to_str().expect("utf8 path"),
+            "--session",
+            &sid,
+            "--tab",
+            &tid,
+        ],
+        10,
+    );
+
+    assert_failure(&out, "browser eval --file invalid utf-8");
+    let v = parse_json(&out);
+    assert_error_envelope(&v, "EVAL_FILE_NOT_FOUND");
+    assert_eq!(
+        v["error"]["details"]["reason"].as_str(),
+        Some("invalid_data"),
+        "details.reason must map io::ErrorKind::InvalidData to 'invalid_data' (envelope={v})"
     );
 
     close_session(&sid);
