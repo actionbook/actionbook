@@ -829,9 +829,18 @@ mod tests {
         ]);
         let current = env_with(&[("ACTIONBOOK_PROXY_COUNTRY", "JP")]);
         let merged = merge_provider_env(saved, current);
-        assert_eq!(merged.get("HYPERBROWSER_API_KEY").map(String::as_str), Some("saved-key"));
-        assert_eq!(merged.get("HYPERBROWSER_USE_PROXY").map(String::as_str), Some("true"));
-        assert_eq!(merged.get("ACTIONBOOK_PROXY_COUNTRY").map(String::as_str), Some("JP"));
+        assert_eq!(
+            merged.get("HYPERBROWSER_API_KEY").map(String::as_str),
+            Some("saved-key")
+        );
+        assert_eq!(
+            merged.get("HYPERBROWSER_USE_PROXY").map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            merged.get("ACTIONBOOK_PROXY_COUNTRY").map(String::as_str),
+            Some("JP")
+        );
     }
 
     #[test]
@@ -839,14 +848,20 @@ mod tests {
         let saved = env_with(&[("HYPERBROWSER_API_KEY", "old-key")]);
         let current = env_with(&[("HYPERBROWSER_API_KEY", "new-key")]);
         let merged = merge_provider_env(saved, current);
-        assert_eq!(merged.get("HYPERBROWSER_API_KEY").map(String::as_str), Some("new-key"));
+        assert_eq!(
+            merged.get("HYPERBROWSER_API_KEY").map(String::as_str),
+            Some("new-key")
+        );
     }
 
     #[test]
     fn merge_provider_env_falls_back_to_saved_when_current_is_empty() {
         let saved = env_with(&[("HYPERBROWSER_API_KEY", "saved-key")]);
         let merged = merge_provider_env(saved, ProviderEnv::new());
-        assert_eq!(merged.get("HYPERBROWSER_API_KEY").map(String::as_str), Some("saved-key"));
+        assert_eq!(
+            merged.get("HYPERBROWSER_API_KEY").map(String::as_str),
+            Some("saved-key")
+        );
     }
 
     #[test]
