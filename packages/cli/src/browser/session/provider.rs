@@ -56,6 +56,22 @@ pub fn collect_provider_env_from_process() -> ProviderEnv {
         .collect()
 }
 
+/// Merge the provider env we saved at session-start time with whatever the
+/// caller's current shell just forwarded. Used by `restart` so:
+/// - A new `*_API_KEY` in the current shell wins over the saved one
+///   (credential rotation).
+/// - A shell that only exports a non-credential tweak (e.g. the cross-provider
+///   `ACTIONBOOK_PROXY_COUNTRY`) layers onto the saved snapshot instead of
+///   wiping it — otherwise the restart would lose its API key and fail.
+/// - An empty current shell falls back entirely to the saved snapshot.
+pub fn merge_provider_env(saved: ProviderEnv, current: ProviderEnv) -> ProviderEnv {
+    let mut merged = saved;
+    for (name, value) in current {
+        merged.insert(name, value);
+    }
+    merged
+}
+
 /// HTTP request timeout for cloud provider control-plane API calls.
 /// Provider APIs occasionally hang; without an explicit timeout the daemon
 /// thread is stuck indefinitely waiting on `connect_provider`.
@@ -799,6 +815,38 @@ mod tests {
     fn read_proxy_country_returns_none_when_both_missing() {
         let env = ProviderEnv::new();
         assert_eq!(read_proxy_country(&env, "HYPERBROWSER_PROXY_COUNTRY"), None);
+    }
+
+    #[test]
+    fn merge_provider_env_preserves_saved_creds_when_current_only_has_cross_provider_tweak() {
+        // Regression: before merge-based restart, a shell that only exported
+        // `ACTIONBOOK_PROXY_COUNTRY` (non-credential) would wipe the saved
+        // `*_API_KEY` and break restart. The merge must keep the saved key and
+        // layer the country on top.
+        let saved = env_with(&[
+            ("HYPERBROWSER_API_KEY", "saved-key"),
+            ("HYPERBROWSER_USE_PROXY", "true"),
+        ]);
+        let current = env_with(&[("ACTIONBOOK_PROXY_COUNTRY", "JP")]);
+        let merged = merge_provider_env(saved, current);
+        assert_eq!(merged.get("HYPERBROWSER_API_KEY").map(String::as_str), Some("saved-key"));
+        assert_eq!(merged.get("HYPERBROWSER_USE_PROXY").map(String::as_str), Some("true"));
+        assert_eq!(merged.get("ACTIONBOOK_PROXY_COUNTRY").map(String::as_str), Some("JP"));
+    }
+
+    #[test]
+    fn merge_provider_env_lets_current_override_saved_for_credential_rotation() {
+        let saved = env_with(&[("HYPERBROWSER_API_KEY", "old-key")]);
+        let current = env_with(&[("HYPERBROWSER_API_KEY", "new-key")]);
+        let merged = merge_provider_env(saved, current);
+        assert_eq!(merged.get("HYPERBROWSER_API_KEY").map(String::as_str), Some("new-key"));
+    }
+
+    #[test]
+    fn merge_provider_env_falls_back_to_saved_when_current_is_empty() {
+        let saved = env_with(&[("HYPERBROWSER_API_KEY", "saved-key")]);
+        let merged = merge_provider_env(saved, ProviderEnv::new());
+        assert_eq!(merged.get("HYPERBROWSER_API_KEY").map(String::as_str), Some("saved-key"));
     }
 
     #[test]
