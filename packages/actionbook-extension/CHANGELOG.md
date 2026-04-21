@@ -1,5 +1,11 @@
 # @actionbookdev/extension
 
+## 0.4.2
+
+### Patch Changes
+
+- [#570](https://github.com/actionbook/actionbook/pull/570) [`78c7840`](https://github.com/actionbook/actionbook/commit/78c78401557f2b4e5dd8e97f27429ed0e17f06cf) Thanks [@mcfn](https://github.com/mcfn)! - Prefix the Actionbook Chrome tab-group title with the bowtie logo ⋈ so agent-driven tabs are identifiable at a glance (ACT-994). Existing installs will create a new "⋈ Actionbook" group on upgrade; any previously-named "Actionbook" group becomes orphaned and can be closed manually.
+
 ## 0.4.1
 
 ### Patch Changes
