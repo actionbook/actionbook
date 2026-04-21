@@ -144,6 +144,82 @@ chrome.storage.local.get("bridgeToken", (result) => {
   }
 });
 
+// --- Cloud mode UI ---
+
+const modeSelect = document.getElementById("modeSelect");
+const deviceRow = document.getElementById("deviceRow");
+const deviceLabel = document.getElementById("deviceLabel");
+const cloudActionRow = document.getElementById("cloudActionRow");
+const cloudSignOutRow = document.getElementById("cloudSignOutRow");
+const cloudSignInBtn = document.getElementById("cloudSignInBtn");
+const cloudSignOutBtn = document.getElementById("cloudSignOutBtn");
+
+// Shown only when mode=cloud.
+function renderCloudSection(mode, cloudToken, deviceId) {
+  if (mode !== "cloud") {
+    deviceRow.classList.add("hidden");
+    cloudActionRow.classList.add("hidden");
+    cloudSignOutRow.classList.add("hidden");
+    return;
+  }
+  // Device row always shown in cloud mode (even if not signed in — shows "--")
+  deviceRow.classList.remove("hidden");
+  deviceLabel.textContent = deviceId
+    ? deviceId.slice(0, 10) + (deviceId.length > 10 ? "…" : "")
+    : "—";
+
+  if (cloudToken) {
+    cloudActionRow.classList.add("hidden");
+    cloudSignOutRow.classList.remove("hidden");
+  } else {
+    cloudActionRow.classList.remove("hidden");
+    cloudSignOutRow.classList.add("hidden");
+  }
+}
+
+async function refreshCloudUi() {
+  const { mode, cloudToken, deviceId } = await chrome.storage.local.get([
+    "mode",
+    "cloudToken",
+    "deviceId",
+  ]);
+  const current = mode === "cloud" ? "cloud" : "local";
+  modeSelect.value = current;
+  renderCloudSection(current, cloudToken, deviceId);
+}
+
+modeSelect.addEventListener("change", () => {
+  chrome.runtime.sendMessage({ type: "setMode", mode: modeSelect.value });
+  // Re-render shortly so the UI reflects the new mode
+  setTimeout(refreshCloudUi, 100);
+});
+
+cloudSignInBtn?.addEventListener("click", () => {
+  // Default pair URL; override via chrome.storage.local.cloudPairUrl if needed.
+  // OAuth module owns /pair, so this URL is part of the cross-module contract.
+  chrome.storage.local.get(["cloudPairUrl"], ({ cloudPairUrl }) => {
+    const base = cloudPairUrl || "https://edge.actionbook.dev/pair";
+    const url = `${base}?extensionId=${encodeURIComponent(chrome.runtime.id)}`;
+    chrome.tabs.create({ url });
+  });
+});
+
+cloudSignOutBtn?.addEventListener("click", () => {
+  chrome.runtime.sendMessage({ type: "cloud_sign_out" });
+  setTimeout(refreshCloudUi, 100);
+});
+
+// Refresh when storage changes (e.g. callback.html stored a fresh token)
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes.cloudToken || changes.mode || changes.deviceId) {
+    refreshCloudUi();
+  }
+});
+
+// Initial render
+refreshCloudUi();
+
 // Tab-grouping toggle — reflects and writes background's in-memory
 // groupingEnabled flag; background persists to chrome.storage.local.
 const groupTabsToggle = document.getElementById("groupTabsToggle");

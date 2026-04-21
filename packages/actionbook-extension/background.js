@@ -1,7 +1,12 @@
 // Actionbook Browser Bridge - Background Service Worker
-// Connects to the CLI bridge server via WebSocket and executes browser commands
+// Connects to either the local CLI bridge (`local` mode) or the Cloudflare
+// edge-server (`cloud` mode) via WebSocket and executes browser commands.
+//
+// Mode is read from chrome.storage.local.mode; default "local" preserves
+// backward compatibility with pre-0.5 behavior.
 
-const BRIDGE_URL = "ws://127.0.0.1:19222";
+const LOCAL_BRIDGE_URL = "ws://127.0.0.1:19222";
+const DEFAULT_CLOUD_ENDPOINT = "wss://edge.actionbook.dev/extension/ws";
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const MAX_RETRIES = 8;
@@ -9,6 +14,9 @@ const BRIDGE_PROBE_TIMEOUT_MS = 750;
 
 const HANDSHAKE_TIMEOUT_MS = 2000;
 const L3_CONFIRM_TIMEOUT_MS = 30000;
+
+// Protocol version reported in the hello frame. Bumped to 0.5.0 for cloud mode.
+const PROTOCOL_VERSION = "0.5.0";
 
 // --- Tab Group Config ---
 // All tabs opened by Actionbook (via Extension.createTab or the reuse-empty-tab
@@ -155,8 +163,41 @@ function logStateTransition(newState, detail) {
   }
 }
 
+// Resolve the current connection mode + URL from chrome.storage.local.
+// Returns { mode, url, token, deviceId } — token/deviceId are undefined in local mode.
+// Default mode is "local" to preserve pre-0.5 behavior for existing installs.
+async function getConnectionConfig() {
+  const { mode, cloudEndpoint, cloudToken, deviceId } = await chrome.storage.local.get([
+    "mode",
+    "cloudEndpoint",
+    "cloudToken",
+    "deviceId",
+  ]);
+  if (mode === "cloud") {
+    return {
+      mode: "cloud",
+      url: cloudEndpoint || DEFAULT_CLOUD_ENDPOINT,
+      token: cloudToken || null,
+      deviceId: deviceId || null,
+    };
+  }
+  return { mode: "local", url: LOCAL_BRIDGE_URL, token: null, deviceId: null };
+}
+
 async function getEffectiveBridgeUrl() {
-  return BRIDGE_URL;
+  const cfg = await getConnectionConfig();
+  return cfg.url;
+}
+
+// Lazily generate and persist a per-install deviceId (only used in cloud mode).
+async function ensureDeviceId() {
+  const { deviceId } = await chrome.storage.local.get("deviceId");
+  if (deviceId) return deviceId;
+  const fresh = (self.crypto && typeof self.crypto.randomUUID === "function")
+    ? `d_${self.crypto.randomUUID()}`
+    : `d_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  await chrome.storage.local.set({ deviceId: fresh });
+  return fresh;
 }
 
 function getBridgeHealthUrl(bridgeUrl) {
@@ -196,16 +237,31 @@ async function connect() {
   logStateTransition("connecting");
   broadcastState();
 
+  const cfg = await getConnectionConfig();
+
+  // Cloud mode requires a token. If missing, wait for popup-driven login
+  // instead of retrying pointlessly. State "pairing_required" already signals
+  // this in the popup UI.
+  if (cfg.mode === "cloud" && !cfg.token) {
+    connectionState = "pairing_required";
+    logStateTransition("pairing_required", "cloud mode without token");
+    broadcastState();
+    return;
+  }
+
   try {
-    const bridgeUrl = await getEffectiveBridgeUrl();
-    if (!(await canReachBridge(bridgeUrl))) {
+    // Skip healthz probe in cloud mode: the endpoint is always up (Cloudflare
+    // hosted) and HEAD /healthz may not be implemented. Go straight to WS.
+    if (cfg.mode === "local" && !(await canReachBridge(cfg.url))) {
       connectionState = "disconnected";
       logStateTransition("disconnected", "bridge not listening");
       broadcastState();
       scheduleReconnect();
       return;
     }
-    ws = new WebSocket(bridgeUrl);
+    ws = cfg.mode === "cloud"
+      ? new WebSocket(cfg.url, ["bearer", cfg.token])
+      : new WebSocket(cfg.url);
   } catch (err) {
     connectionState = "disconnected";
     logStateTransition("disconnected", "WebSocket constructor error");
@@ -217,17 +273,20 @@ async function connect() {
   handshakeCompleted = false;
   let wsOpened = false;
 
-  ws.onopen = () => {
+  ws.onopen = async () => {
     wsOpened = true;
-    // Send hello handshake (tokenless - server validates via origin + extension ID).
-    // Protocol 0.4.0 narrows `Extension.listTabs` to Actionbook-managed tabs
-    // (debugger-attached OR in the "Actionbook" tab group), making session
-    // ownership first-class instead of returning every open Chrome tab.
-    wsSend({
+    // Local mode: tokenless, origin-validated. Cloud mode: token already went
+    // up via Sec-WebSocket-Protocol at upgrade; hello is used to report the
+    // per-install deviceId for device registry.
+    const hello = {
       type: "hello",
       role: "extension",
-      version: "0.4.0",
-    });
+      version: PROTOCOL_VERSION,
+    };
+    if (cfg.mode === "cloud") {
+      hello.deviceId = await ensureDeviceId();
+    }
+    wsSend(hello);
 
     // Start handshake timeout - if no hello_ack within this window, treat as auth failure
     handshakeTimer = setTimeout(() => {
@@ -1016,6 +1075,17 @@ function isSenderPopup(sender) {
   );
 }
 
+// Validate that a message sender is the extension's own callback page
+// (callback.html is loaded from chrome-extension://<id>/callback.html after
+// the OAuth module redirects the user back).
+function isSenderCallback(sender) {
+  return (
+    sender.id === chrome.runtime.id &&
+    sender.url &&
+    sender.url.includes("callback.html")
+  );
+}
+
 // Listen for messages from popup and offscreen document
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "getState") {
@@ -1087,6 +1157,55 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!isSenderPopup(sender)) return false;
     groupingEnabled = message.enabled === true;
     chrome.storage.local.set({ groupTabs: groupingEnabled });
+    return false;
+  }
+  // Cloud mode: popup asks to switch between local / cloud. We close the
+  // current WS and reconnect with the new config.
+  if (message.type === "setMode") {
+    if (!isSenderPopup(sender)) return false;
+    const mode = message.mode === "cloud" ? "cloud" : "local";
+    chrome.storage.local.set({ mode }, () => {
+      wasReplaced = false;
+      retryCount = 0;
+      reconnectDelay = RECONNECT_BASE_MS;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      if (ws) {
+        try { ws.close(); } catch (_) {}
+        ws = null;
+      }
+      connect();
+    });
+    return false;
+  }
+  // Cloud mode: callback.html received a token from the OAuth redirect and
+  // stashed it into storage. Trigger a reconnect so we pick it up.
+  if (message.type === "cloud_auth_updated") {
+    if (!isSenderCallback(sender) && !isSenderPopup(sender)) return false;
+    wasReplaced = false;
+    retryCount = 0;
+    reconnectDelay = RECONNECT_BASE_MS;
+    if (ws) {
+      try { ws.close(); } catch (_) {}
+      ws = null;
+    }
+    connect();
+    return false;
+  }
+  // Cloud mode: popup asks to sign out — clear token and disconnect.
+  if (message.type === "cloud_sign_out") {
+    if (!isSenderPopup(sender)) return false;
+    chrome.storage.local.remove(["cloudToken"], () => {
+      if (ws) {
+        try { ws.close(); } catch (_) {}
+        ws = null;
+      }
+      connectionState = "pairing_required";
+      logStateTransition("pairing_required", "user signed out");
+      broadcastState();
+    });
     return false;
   }
   return false;
