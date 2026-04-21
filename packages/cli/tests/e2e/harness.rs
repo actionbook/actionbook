@@ -711,9 +711,31 @@ setTimeout(() => {{
         return;
     }
 
+    if path == "/api/eval-json-403" {
+        let body = r#"{"error":"forbidden","provider":"fixture"}"#;
+        let response = format!(
+            "HTTP/1.1 403 Forbidden\r\nContent-Type: application/json; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
     if path == "/api/fail-reset" {
         // Drop the TCP connection without sending an HTTP response so the browser
         // reports a network failure (`loadingFailed`) instead of a completed response.
+        return;
+    }
+
+    if path == "/api/eval-html-403" {
+        let body = "<!DOCTYPE html><html><head><title>Denied</title></head><body><h1>Access denied</h1><p>challenge</p></body></html>";
+        let response = format!(
+            "HTTP/1.1 403 Forbidden\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
         return;
     }
 
