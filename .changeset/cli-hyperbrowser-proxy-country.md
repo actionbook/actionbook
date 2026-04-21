@@ -2,7 +2,4 @@
 "@actionbookdev/cli": minor
 ---
 
-Add proxy-country configuration to the Hyperbrowser provider and introduce a cross-provider fallback env var.
-
-- New vendor-specific env var `HYPERBROWSER_PROXY_COUNTRY` — forwarded as `proxyCountry` on Hyperbrowser's create-session request. When unset, the field is omitted so Hyperbrowser's own default applies.
-- New cross-provider env var `ACTIONBOOK_PROXY_COUNTRY` — acts as a fallback for all three providers when their vendor-specific name isn't set. An agent can now set one variable and have it map to `proxyCountry` (Hyperbrowser), `proxyCountryCode` (Browser Use), or `country` (driver.dev) automatically. Vendor-specific env vars still take precedence.
+Add optional `HYPERBROWSER_PROXY_COUNTRY` env var to pin the Hyperbrowser proxy exit region (ISO country code, e.g. `US`, `JP`). Forwarded as `proxyCountry` on the create-session request; when unset, the field is omitted and Hyperbrowser's own default applies. Matches the existing per-provider pattern (`DRIVER_DEV_COUNTRY`, `BROWSER_USE_PROXY_COUNTRY_CODE`).

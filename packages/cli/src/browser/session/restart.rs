@@ -190,13 +190,14 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         };
 
     // Stateful restart needs provider env to mint a fresh remote session.
-    // Merge the saved snapshot (from start time) with the current shell's env,
-    // letting the current shell override individual keys — see
-    // `merge_provider_env` for the rationale.
-    let effective_provider_env = super::provider::merge_provider_env(
-        saved_provider_env.unwrap_or_default(),
-        cmd.provider_env.clone(),
-    );
+    // Prefer the env the user supplied with the restart call (latest shell
+    // state) so credential rotation works; fall back to the snapshot we saved
+    // at start time so restarts from a different shell don't break.
+    let effective_provider_env = if !cmd.provider_env.is_empty() {
+        cmd.provider_env.clone()
+    } else {
+        saved_provider_env.unwrap_or_default()
+    };
 
     let start_cmd = super::start::Cmd {
         mode: Some(mode),

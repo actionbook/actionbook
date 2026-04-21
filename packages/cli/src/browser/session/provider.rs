@@ -35,41 +35,17 @@ pub type ProviderEnv = BTreeMap<String, String>;
 /// forward them in the IPC payload.
 pub const PROVIDER_ENV_PREFIXES: &[&str] = &["DRIVER_", "HYPERBROWSER_", "BROWSER_USE_"];
 
-/// Cross-provider env vars that aren't tied to any specific vendor prefix but
-/// still need to travel from the client shell to the daemon. Kept as an
-/// explicit allowlist so we don't open the floodgates on the broader
-/// `ACTIONBOOK_*` namespace (API keys, browser mode, etc. are read
-/// client-side and must not leak into `ProviderEnv`).
-pub const PROVIDER_ENV_NAMES: &[&str] = &["ACTIONBOOK_PROXY_COUNTRY"];
-
-/// Collect every env var on the current process that matches either a known
-/// provider prefix or the cross-provider allowlist. Called from the CLI client
-/// (NOT the daemon) right before sending a Start/Restart action.
+/// Collect every env var on the current process whose name starts with one of
+/// the provider prefixes. Called from the CLI client (NOT the daemon) right
+/// before sending a Start/Restart action.
 pub fn collect_provider_env_from_process() -> ProviderEnv {
     std::env::vars()
         .filter(|(name, _)| {
             PROVIDER_ENV_PREFIXES
                 .iter()
                 .any(|prefix| name.starts_with(prefix))
-                || PROVIDER_ENV_NAMES.contains(&name.as_str())
         })
         .collect()
-}
-
-/// Merge the provider env we saved at session-start time with whatever the
-/// caller's current shell just forwarded. Used by `restart` so:
-/// - A new `*_API_KEY` in the current shell wins over the saved one
-///   (credential rotation).
-/// - A shell that only exports a non-credential tweak (e.g. the cross-provider
-///   `ACTIONBOOK_PROXY_COUNTRY`) layers onto the saved snapshot instead of
-///   wiping it — otherwise the restart would lose its API key and fail.
-/// - An empty current shell falls back entirely to the saved snapshot.
-pub fn merge_provider_env(saved: ProviderEnv, current: ProviderEnv) -> ProviderEnv {
-    let mut merged = saved;
-    for (name, value) in current {
-        merged.insert(name, value);
-    }
-    merged
 }
 
 /// HTTP request timeout for cloud provider control-plane API calls.
@@ -340,7 +316,7 @@ async fn connect_driver_dev(
     // Build optional session-creation body. Empty `{}` is valid; only set fields
     // when the user actually configured them.
     let mut body = json!({});
-    if let Some(country) = read_proxy_country(env, "DRIVER_DEV_COUNTRY") {
+    if let Some(country) = read_trimmed_env(env, "DRIVER_DEV_COUNTRY") {
         body["country"] = json!(country);
     }
     if let Some(node_id) = read_trimmed_env(env, "DRIVER_DEV_NODE_ID") {
@@ -433,7 +409,7 @@ async fn connect_hyperbrowser(
     let api_base = read_trimmed_env(env, "HYPERBROWSER_API_URL")
         .unwrap_or_else(|| HYPERBROWSER_API_BASE.to_string());
     let use_proxy = parse_env_bool(env, "HYPERBROWSER_USE_PROXY").unwrap_or(false);
-    let proxy_country = read_proxy_country(env, "HYPERBROWSER_PROXY_COUNTRY");
+    let proxy_country = read_trimmed_env(env, "HYPERBROWSER_PROXY_COUNTRY");
     let persist_changes = parse_env_bool(env, "HYPERBROWSER_PERSIST_CHANGES").unwrap_or(true);
     let profile_id = read_trimmed_env(env, "HYPERBROWSER_PROFILE_ID")
         .or_else(|| non_default_profile(profile_name));
@@ -520,7 +496,7 @@ async fn connect_browser_use(
         .unwrap_or_else(|| BROWSER_USE_API_BASE.to_string());
 
     let mut body = json!({});
-    if let Some(value) = read_proxy_country(env, "BROWSER_USE_PROXY_COUNTRY_CODE") {
+    if let Some(value) = read_trimmed_env(env, "BROWSER_USE_PROXY_COUNTRY_CODE") {
         body["proxyCountryCode"] = json!(value);
     }
     if let Some(value) = read_trimmed_env(env, "BROWSER_USE_PROFILE_ID")
@@ -600,18 +576,6 @@ fn read_trimmed_env(env: &ProviderEnv, name: &str) -> Option<String> {
 fn read_required_env(env: &ProviderEnv, name: &str) -> Result<String, CliError> {
     read_trimmed_env(env, name)
         .ok_or_else(|| CliError::InvalidArgument(format!("{name} environment variable is not set")))
-}
-
-/// Resolve the proxy-country value a caller wants for this session. Each
-/// provider exposes its own vendor-specific env var (e.g. `proxyCountry` on
-/// Hyperbrowser, `proxyCountryCode` on Browser Use, `country` on driver.dev)
-/// — we read that first so existing setups keep working unchanged. When the
-/// vendor-specific name is absent, fall back to the cross-provider
-/// `ACTIONBOOK_PROXY_COUNTRY` so an agent can set one env var and have it
-/// apply regardless of which provider handles the session.
-fn read_proxy_country(env: &ProviderEnv, provider_specific: &str) -> Option<String> {
-    read_trimmed_env(env, provider_specific)
-        .or_else(|| read_trimmed_env(env, "ACTIONBOOK_PROXY_COUNTRY"))
 }
 
 fn parse_env_bool(env: &ProviderEnv, name: &str) -> Option<bool> {
@@ -779,89 +743,6 @@ mod tests {
         let env = ProviderEnv::new();
         let err = read_required_env(&env, "DRIVER_API_KEY").unwrap_err();
         assert!(matches!(err, CliError::InvalidArgument(_)));
-    }
-
-    #[test]
-    fn read_proxy_country_prefers_vendor_specific_over_cross_provider() {
-        let env = env_with(&[
-            ("HYPERBROWSER_PROXY_COUNTRY", "JP"),
-            ("ACTIONBOOK_PROXY_COUNTRY", "US"),
-        ]);
-        assert_eq!(
-            read_proxy_country(&env, "HYPERBROWSER_PROXY_COUNTRY"),
-            Some("JP".to_string())
-        );
-    }
-
-    #[test]
-    fn read_proxy_country_falls_back_to_cross_provider() {
-        let env = env_with(&[("ACTIONBOOK_PROXY_COUNTRY", "DE")]);
-        assert_eq!(
-            read_proxy_country(&env, "HYPERBROWSER_PROXY_COUNTRY"),
-            Some("DE".to_string())
-        );
-        // Works for the other providers' vendor-specific names too.
-        assert_eq!(
-            read_proxy_country(&env, "DRIVER_DEV_COUNTRY"),
-            Some("DE".to_string())
-        );
-        assert_eq!(
-            read_proxy_country(&env, "BROWSER_USE_PROXY_COUNTRY_CODE"),
-            Some("DE".to_string())
-        );
-    }
-
-    #[test]
-    fn read_proxy_country_returns_none_when_both_missing() {
-        let env = ProviderEnv::new();
-        assert_eq!(read_proxy_country(&env, "HYPERBROWSER_PROXY_COUNTRY"), None);
-    }
-
-    #[test]
-    fn merge_provider_env_preserves_saved_creds_when_current_only_has_cross_provider_tweak() {
-        // Regression: before merge-based restart, a shell that only exported
-        // `ACTIONBOOK_PROXY_COUNTRY` (non-credential) would wipe the saved
-        // `*_API_KEY` and break restart. The merge must keep the saved key and
-        // layer the country on top.
-        let saved = env_with(&[
-            ("HYPERBROWSER_API_KEY", "saved-key"),
-            ("HYPERBROWSER_USE_PROXY", "true"),
-        ]);
-        let current = env_with(&[("ACTIONBOOK_PROXY_COUNTRY", "JP")]);
-        let merged = merge_provider_env(saved, current);
-        assert_eq!(
-            merged.get("HYPERBROWSER_API_KEY").map(String::as_str),
-            Some("saved-key")
-        );
-        assert_eq!(
-            merged.get("HYPERBROWSER_USE_PROXY").map(String::as_str),
-            Some("true")
-        );
-        assert_eq!(
-            merged.get("ACTIONBOOK_PROXY_COUNTRY").map(String::as_str),
-            Some("JP")
-        );
-    }
-
-    #[test]
-    fn merge_provider_env_lets_current_override_saved_for_credential_rotation() {
-        let saved = env_with(&[("HYPERBROWSER_API_KEY", "old-key")]);
-        let current = env_with(&[("HYPERBROWSER_API_KEY", "new-key")]);
-        let merged = merge_provider_env(saved, current);
-        assert_eq!(
-            merged.get("HYPERBROWSER_API_KEY").map(String::as_str),
-            Some("new-key")
-        );
-    }
-
-    #[test]
-    fn merge_provider_env_falls_back_to_saved_when_current_is_empty() {
-        let saved = env_with(&[("HYPERBROWSER_API_KEY", "saved-key")]);
-        let merged = merge_provider_env(saved, ProviderEnv::new());
-        assert_eq!(
-            merged.get("HYPERBROWSER_API_KEY").map(String::as_str),
-            Some("saved-key")
-        );
     }
 
     #[test]
@@ -1118,12 +999,10 @@ mod tests {
         // Smoke test: should never panic, should not include unrelated vars.
         let env = collect_provider_env_from_process();
         for name in env.keys() {
-            let prefix_match = PROVIDER_ENV_PREFIXES
-                .iter()
-                .any(|prefix| name.starts_with(prefix));
-            let allowlist_match = PROVIDER_ENV_NAMES.contains(&name.as_str());
             assert!(
-                prefix_match || allowlist_match,
+                PROVIDER_ENV_PREFIXES
+                    .iter()
+                    .any(|prefix| name.starts_with(prefix)),
                 "unexpected env var leaked into provider env: {name}"
             );
         }
