@@ -189,6 +189,68 @@ async function getEffectiveBridgeUrl() {
   return cfg.url;
 }
 
+// Try to refresh the cloud access token using the stored refresh_token.
+// Returns the new access_token (and persists it), or null if refresh failed
+// (missing refresh_token, network error, Clerk rejection — caller should then
+// force the user through sign-in again).
+//
+// Called opportunistically before a connect when the stored token is close to
+// or past expiry, and reactively if a connect attempt fails with auth-related
+// errors.
+async function refreshCloudTokenIfNeeded({ force = false } = {}) {
+  const { cloudToken, cloudRefreshToken, cloudTokenExpiresAt } = await chrome.storage.local.get([
+    "cloudToken",
+    "cloudRefreshToken",
+    "cloudTokenExpiresAt",
+  ]);
+  if (!cloudRefreshToken) return cloudToken || null;
+
+  // Refresh 60s before expiry to avoid mid-connect expiry.
+  const REFRESH_SKEW_MS = 60_000;
+  const needsRefresh =
+    force ||
+    !cloudToken ||
+    (typeof cloudTokenExpiresAt === "number" && Date.now() + REFRESH_SKEW_MS >= cloudTokenExpiresAt);
+  if (!needsRefresh) return cloudToken;
+
+  // cloud-config.js constants are not loaded in the service worker (it's a plain
+  // worker, not a module + no importScripts in MV3). Hardcode here; if you
+  // change the Clerk tenant, update both places.
+  const CLERK_TOKEN_URL = "https://clerk.actionbook.dev/oauth/token";
+  const CLERK_CLIENT_ID = "HP91Xj6adCm3TjPr";
+
+  try {
+    const res = await fetch(CLERK_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: cloudRefreshToken,
+        client_id: CLERK_CLIENT_ID,
+      }),
+    });
+    if (!res.ok) {
+      debugLog("[actionbook] refresh failed:", res.status, await res.text());
+      return null;
+    }
+    const tokens = await res.json();
+    if (!tokens.access_token) return null;
+
+    const update = { cloudToken: tokens.access_token };
+    if (typeof tokens.refresh_token === "string") {
+      update.cloudRefreshToken = tokens.refresh_token;
+    }
+    if (typeof tokens.expires_in === "number") {
+      update.cloudTokenExpiresAt = Date.now() + tokens.expires_in * 1000;
+    }
+    await chrome.storage.local.set(update);
+    return tokens.access_token;
+  } catch (err) {
+    debugLog("[actionbook] refresh error:", err?.message || err);
+    return null;
+  }
+}
+
 // Lazily generate and persist a per-install deviceId (only used in cloud mode).
 async function ensureDeviceId() {
   const { deviceId } = await chrome.storage.local.get("deviceId");
@@ -237,7 +299,17 @@ async function connect() {
   logStateTransition("connecting");
   broadcastState();
 
-  const cfg = await getConnectionConfig();
+  let cfg = await getConnectionConfig();
+
+  // Cloud mode: rotate expiring tokens before we even try the WS handshake.
+  // `refreshCloudTokenIfNeeded` is a no-op when the token is fresh. If it
+  // returns null we fall through to the "no token" branch and wait for sign-in.
+  if (cfg.mode === "cloud") {
+    const refreshed = await refreshCloudTokenIfNeeded();
+    if (refreshed && refreshed !== cfg.token) {
+      cfg = await getConnectionConfig();
+    }
+  }
 
   // Cloud mode requires a token. If missing, wait for popup-driven login
   // instead of retrying pointlessly. State "pairing_required" already signals
@@ -366,10 +438,25 @@ async function connect() {
       if (ws) { ws.close(); ws = null; }
 
       if (msg.error === "invalid_token") {
-        connectionState = "disconnected";
-        logStateTransition("disconnected", "invalid token");
-        broadcastState();
-        startBridgePolling();
+        // Cloud mode: try a one-shot refresh before giving up. If refresh
+        // succeeds, kick off a reconnect with the fresh token. If it fails
+        // we drop into pairing_required so popup prompts the user to sign in
+        // again.
+        refreshCloudTokenIfNeeded({ force: true }).then((fresh) => {
+          if (fresh) {
+            connectionState = "disconnected";
+            logStateTransition("disconnected", "token refreshed, reconnecting");
+            broadcastState();
+            retryCount = 0;
+            reconnectDelay = RECONNECT_BASE_MS;
+            connect();
+          } else {
+            connectionState = "pairing_required";
+            logStateTransition("pairing_required", "invalid token, refresh failed");
+            broadcastState();
+            startBridgePolling();
+          }
+        });
       } else {
         connectionState = "failed";
         logStateTransition("failed", msg.message || "handshake rejected by server");
@@ -1194,18 +1281,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     connect();
     return false;
   }
-  // Cloud mode: popup asks to sign out — clear token and disconnect.
+  // Cloud mode: popup asks to sign out — clear token + refresh token + expiry
+  // and disconnect so a subsequent Sign in starts a fresh OAuth flow.
   if (message.type === "cloud_sign_out") {
     if (!isSenderPopup(sender)) return false;
-    chrome.storage.local.remove(["cloudToken"], () => {
-      if (ws) {
-        try { ws.close(); } catch (_) {}
-        ws = null;
-      }
-      connectionState = "pairing_required";
-      logStateTransition("pairing_required", "user signed out");
-      broadcastState();
-    });
+    chrome.storage.local.remove(
+      ["cloudToken", "cloudRefreshToken", "cloudTokenExpiresAt"],
+      () => {
+        if (ws) {
+          try { ws.close(); } catch (_) {}
+          ws = null;
+        }
+        connectionState = "pairing_required";
+        logStateTransition("pairing_required", "user signed out");
+        broadcastState();
+      },
+    );
     return false;
   }
   return false;

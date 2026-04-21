@@ -194,15 +194,65 @@ modeSelect.addEventListener("change", () => {
   setTimeout(refreshCloudUi, 100);
 });
 
-cloudSignInBtn?.addEventListener("click", () => {
-  // Default pair URL; override via chrome.storage.local.cloudPairUrl if needed.
-  // OAuth module owns /pair, so this URL is part of the cross-module contract.
-  chrome.storage.local.get(["cloudPairUrl"], ({ cloudPairUrl }) => {
-    const base = cloudPairUrl || "https://edge.actionbook.dev/pair";
-    const url = `${base}?extensionId=${encodeURIComponent(chrome.runtime.id)}`;
-    chrome.tabs.create({ url });
+// Sign in starts the OAuth 2.1 authorization-code + PKCE flow against Clerk.
+// We generate a PKCE verifier here, stash it in chrome.storage.local keyed by
+// `state`, and open Clerk's authorize URL in a new tab. When Clerk redirects
+// back to chrome-extension://<id>/callback.html?code=...&state=..., callback.js
+// reads the verifier by state, exchanges the code for an access token, and
+// signals background.js to reconnect.
+cloudSignInBtn?.addEventListener("click", async () => {
+  const cfg = self.ACTIONBOOK_CLOUD_CONFIG;
+
+  // Sanity check: warn if dev-build id doesn't match Clerk's whitelisted URI.
+  // Prod / CWS build will have a different id — add it to cloud-config.js then.
+  if (!cfg.EXPECTED_EXTENSION_IDS.includes(chrome.runtime.id)) {
+    console.warn(
+      "[actionbook] unexpected extension id:",
+      chrome.runtime.id,
+      "— Clerk's redirect-URI whitelist may not include this build, sign-in will fail."
+    );
+  }
+
+  const { verifier, challenge } = await generatePkcePair();
+  const state = crypto.randomUUID();
+
+  // Stash by state so callback.js can retrieve the exact verifier used here.
+  // Short TTL is enforced implicitly by the state check — callback.js deletes
+  // the entry after using it, and we don't trust stale entries.
+  await chrome.storage.local.set({
+    [`pkce:${state}`]: { verifier, createdAt: Date.now() },
   });
+
+  const redirectUri = `chrome-extension://${chrome.runtime.id}/callback.html`;
+  const params = new URLSearchParams({
+    client_id: cfg.CLERK_CLIENT_ID,
+    response_type: "code",
+    redirect_uri: redirectUri,
+    scope: cfg.CLERK_SCOPES,
+    state,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+  });
+
+  chrome.tabs.create({ url: `${cfg.CLERK_AUTHORIZE_URL}?${params.toString()}` });
 });
+
+// PKCE helpers: verifier is a 43–128 char random URL-safe string; challenge is
+// base64url(SHA256(verifier)) for S256 flow. RFC 7636.
+async function generatePkcePair() {
+  const verifierBytes = new Uint8Array(32);
+  crypto.getRandomValues(verifierBytes);
+  const verifier = base64Url(verifierBytes);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  const challenge = base64Url(new Uint8Array(digest));
+  return { verifier, challenge };
+}
+
+function base64Url(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
 
 cloudSignOutBtn?.addEventListener("click", () => {
   chrome.runtime.sendMessage({ type: "cloud_sign_out" });
