@@ -6,8 +6,8 @@
 //! per api-reference.md §11.
 
 use crate::harness::{
-    SessionGuard, assert_failure, assert_success, headless, headless_json, parse_json, skip,
-    stderr_str, stdout_str, unique_session, wait_page_ready,
+    SessionGuard, api_base_url, assert_failure, assert_success, headless, headless_json,
+    parse_json, skip, stderr_str, stdout_str, unique_session, wait_page_ready,
 };
 
 const TEST_URL: &str = "https://example.com";
@@ -581,6 +581,15 @@ fn eval_failure_json_with_flags(
 fn eval_value(session_id: &str, tab_id: &str, expression: &str) -> String {
     let v = eval_json_with_flags(session_id, tab_id, expression, &[]);
     v["data"]["value"].as_str().unwrap_or("").to_string()
+}
+
+fn assert_browser_eval_structured_failure(v: &serde_json::Value, expected_code: &str) {
+    assert_eq!(v["command"], "browser eval");
+    assert_error_envelope(v, expected_code);
+    assert!(
+        v["error"]["details"]["reason"].is_string(),
+        "structured eval failures must expose details.reason"
+    );
 }
 
 fn install_click_fixture(session_id: &str, tab_id: &str) {
@@ -5853,6 +5862,221 @@ fn eval_async_trailing_line_comment() {
         v["data"]["value"],
         serde_json::json!(1),
         "async expression with trailing line comment should resolve to 1"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_runtime_error_reference_error_is_structured() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let v = eval_failure_json_with_flags(
+        &sid,
+        &tid,
+        "(() => { throw new ReferenceError('x'); })()",
+        &[],
+    );
+    assert_browser_eval_structured_failure(&v, "EVAL_RUNTIME_ERROR");
+    assert!(
+        v["error"]["details"]["reason"]
+            .as_str()
+            .unwrap_or("")
+            .contains("ReferenceError"),
+        "reason must preserve the runtime error class"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_runtime_error_type_error_is_structured() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let v = eval_failure_json_with_flags(
+        &sid,
+        &tid,
+        "(() => { let x = null; return x.map(() => 1); })()",
+        &[],
+    );
+    assert_browser_eval_structured_failure(&v, "EVAL_RUNTIME_ERROR");
+    assert!(
+        v["error"]["details"]["reason"]
+            .as_str()
+            .unwrap_or("")
+            .contains("TypeError"),
+        "reason must preserve the runtime type error"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_cross_origin_fetch_failure_is_structured() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session(TEST_URL);
+    let _guard = SessionGuard::new(&sid);
+
+    let expression = format!(
+        r#"(async () => {{
+  try {{
+    await fetch("{}/api/data?source=cors").then(r => r.json());
+    return "unexpected-success";
+  }} catch (e) {{
+    throw {{
+      code: "EVAL_CROSS_ORIGIN",
+      reason: String(e),
+      hint: "Use same-origin fetch or proxy the request server-side"
+    }};
+  }}
+}})()"#,
+        api_base_url()
+    );
+
+    let v = eval_failure_json_with_flags(&sid, &tid, &expression, &[]);
+    assert_browser_eval_structured_failure(&v, "EVAL_CROSS_ORIGIN");
+    assert!(
+        v["error"]["details"]["reason"]
+            .as_str()
+            .unwrap_or("")
+            .contains("fetch"),
+        "reason must preserve the blocked fetch details"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_non_json_html_response_is_guarded() {
+    if skip() {
+        return;
+    }
+    let local_page = format!("{}/page-a", api_base_url());
+    let (sid, tid) = start_session(&local_page);
+    let _guard = SessionGuard::new(&sid);
+
+    let expression = format!(
+        r#"(async () => {{
+  const response = await fetch("{}/api/eval-html-403");
+  const contentType = response.headers.get("content-type") || "";
+  const body = await response.text();
+  if (!contentType.includes("application/json")) {{
+    throw {{
+      code: "EVAL_RESPONSE_NOT_JSON",
+      reason: "Expected JSON but got " + contentType,
+      hint: "Check response.headers.get('content-type') before parsing JSON",
+      status: response.status,
+      content_type: contentType,
+      body_head: body.slice(0, 64)
+    }};
+  }}
+  return JSON.parse(body);
+}})()"#,
+        api_base_url()
+    );
+
+    let v = eval_failure_json_with_flags(&sid, &tid, &expression, &[]);
+    assert_browser_eval_structured_failure(&v, "EVAL_RESPONSE_NOT_JSON");
+    assert_eq!(v["error"]["details"]["status"], 403);
+    assert!(
+        v["error"]["details"]["content_type"]
+            .as_str()
+            .unwrap_or("")
+            .starts_with("text/html"),
+        "content_type must preserve the HTML response type"
+    );
+    assert!(
+        v["error"]["details"]["body_head"]
+            .as_str()
+            .unwrap_or("")
+            .starts_with("<!DOCTYPE html>"),
+        "body_head must capture the leading HTML body snippet"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_non_ok_json_response_is_guarded() {
+    if skip() {
+        return;
+    }
+    let local_page = format!("{}/page-a", api_base_url());
+    let (sid, tid) = start_session(&local_page);
+    let _guard = SessionGuard::new(&sid);
+
+    let expression = format!(
+        r#"(async () => {{
+  const response = await fetch("{}/api/eval-json-403");
+  const contentType = response.headers.get("content-type") || "";
+  const body = await response.text();
+  if (!response.ok) {{
+    throw {{
+      code: "EVAL_RESPONSE_NOT_OK",
+      reason: "HTTP " + response.status,
+      hint: "Handle non-2xx fetch responses before decoding the body",
+      status: response.status,
+      content_type: contentType,
+      body_head: body.slice(0, 64)
+    }};
+  }}
+  return JSON.parse(body);
+}})()"#,
+        api_base_url()
+    );
+
+    let v = eval_failure_json_with_flags(&sid, &tid, &expression, &[]);
+    assert_browser_eval_structured_failure(&v, "EVAL_RESPONSE_NOT_OK");
+    assert_eq!(v["error"]["details"]["status"], 403);
+    assert!(
+        v["error"]["details"]["content_type"]
+            .as_str()
+            .unwrap_or("")
+            .starts_with("application/json"),
+        "content_type must preserve the JSON response type"
+    );
+    assert!(
+        v["error"]["details"]["body_head"]
+            .as_str()
+            .unwrap_or("")
+            .contains("forbidden"),
+        "body_head must capture the leading response body"
+    );
+
+    close_session(&sid);
+}
+
+#[test]
+fn browser_eval_timeout_is_structured() {
+    if skip() {
+        return;
+    }
+    let (sid, tid) = start_session("about:blank");
+    let _guard = SessionGuard::new(&sid);
+
+    let v = eval_failure_json_with_flags(
+        &sid,
+        &tid,
+        "await new Promise(() => {})",
+        &["--timeout", "100"],
+    );
+    assert_browser_eval_structured_failure(&v, "EVAL_TIMEOUT");
+    assert!(
+        v["error"]["details"]["reason"]
+            .as_str()
+            .unwrap_or("")
+            .contains("timed out"),
+        "timeout reason must preserve the timeout failure"
     );
 
     close_session(&sid);

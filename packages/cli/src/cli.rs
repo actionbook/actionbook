@@ -1152,6 +1152,24 @@ mod tests {
     }
 
     #[test]
+    fn try_parse_from_accepts_browser_eval_timeout_flag() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "eval",
+            "await Promise.resolve(1)",
+            "--session",
+            "session-1",
+            "--tab",
+            "tab-1",
+            "--timeout",
+            "250",
+        ]);
+
+        assert!(cli.is_ok(), "browser eval should accept --timeout");
+    }
+
+    #[test]
     fn try_parse_from_accepts_browser_mouse_move_command() {
         let cli = Cli::try_parse_from([
             "actionbook",

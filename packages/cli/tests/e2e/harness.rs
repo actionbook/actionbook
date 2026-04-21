@@ -694,6 +694,28 @@ setTimeout(() => {{
         return;
     }
 
+    if path == "/api/eval-json-403" {
+        let body = r#"{"error":"forbidden","provider":"fixture"}"#;
+        let response = format!(
+            "HTTP/1.1 403 Forbidden\r\nContent-Type: application/json; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
+    if path == "/api/eval-html-403" {
+        let body = "<!DOCTYPE html><html><head><title>Denied</title></head><body><h1>Access denied</h1><p>challenge</p></body></html>";
+        let response = format!(
+            "HTTP/1.1 403 Forbidden\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+
     if path == "/network-fixture.css" {
         let body = "body { background: rgb(245, 248, 255); }";
         let response = format!(
