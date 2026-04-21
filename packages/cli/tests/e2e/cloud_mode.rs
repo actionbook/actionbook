@@ -1589,9 +1589,23 @@ fn cloud_double_close_session_json() {
     assert_success(&out, "first close");
 
     let out = headless_json(&["browser", "close", "--session", &sid], 10);
-    assert_failure(&out, "double close");
+    assert_success(&out, "double close idempotent");
     let v = parse_json(&out);
-    assert_error_envelope(&v, "SESSION_NOT_FOUND");
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["status"], "closed");
+    assert_eq!(v["data"]["closed_tabs"], 0);
+    let warnings = v["meta"]["warnings"]
+        .as_array()
+        .expect("meta warnings array should exist");
+    assert!(
+        warnings.iter().any(|w| {
+            w.as_str()
+                .map(|s| s.contains("not found") || s.contains("already closed"))
+                .unwrap_or(false)
+        }),
+        "expected idempotent close warning, got {warnings:?}"
+    );
+    assert!(v["error"].is_null());
 }
 
 // ═══════════════════════════════════════════════════════════════════

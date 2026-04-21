@@ -448,15 +448,24 @@ fn lifecycle_double_close_json() {
     assert_success(&out, "first close");
 
     let out = headless_json(&["browser", "close", "--session", &sid], 30);
-    assert_failure(&out, "second close should fail");
+    assert_success(&out, "second close idempotent");
     let v = parse_json(&out);
-    assert_eq!(v["ok"], false);
+    assert_eq!(v["ok"], true);
     assert_eq!(v["command"], "browser close");
-    assert!(v["data"].is_null());
-    assert_eq!(v["error"]["code"], "SESSION_NOT_FOUND");
-    assert!(v["error"]["message"].is_string());
-    assert!(v["error"]["retryable"].is_boolean());
-    assert!(v["error"]["details"].is_object() || v["error"]["details"].is_null());
+    assert_eq!(v["data"]["status"], "closed");
+    assert_eq!(v["data"]["closed_tabs"], 0);
+    let warnings = v["meta"]["warnings"]
+        .as_array()
+        .expect("meta warnings array should exist");
+    assert!(
+        warnings.iter().any(|w| {
+            w.as_str()
+                .map(|s| s.contains("not found") || s.contains("already closed"))
+                .unwrap_or(false)
+        }),
+        "expected idempotent close warning, got {warnings:?}"
+    );
+    assert!(v["error"].is_null());
     assert!(v["meta"]["duration_ms"].is_number());
 }
 
@@ -472,9 +481,10 @@ fn lifecycle_double_close_text() {
     assert_success(&out, "first close");
 
     let out = headless(&["browser", "close", "--session", &sid], 30);
-    assert_failure(&out, "second close text");
-    let text = stderr_str(&out);
-    assert!(text.contains("error SESSION_NOT_FOUND:"));
+    assert_success(&out, "second close idempotent text");
+    let text = stdout_str(&out);
+    assert!(text.contains("ok browser close"));
+    assert!(text.contains("closed_tabs: 0"), "text: {text}");
 }
 
 // ===========================================================================
@@ -1575,9 +1585,9 @@ fn restart_kills_old_chrome_and_spawns_new() {
     let _ = env.headless_json(&["browser", "close", "--session", "restart-leak"], 30);
 }
 
-/// Closing an already-closed session returns SESSION_NOT_FOUND (no panic/crash).
+/// Closing an already-closed session returns success with a warning (no panic/crash).
 #[test]
-fn double_close_returns_not_found() {
+fn double_close_returns_ok_with_warning() {
     if skip() {
         return;
     }
@@ -1601,11 +1611,25 @@ fn double_close_returns_not_found() {
     let out = env.headless_json(&["browser", "close", "--session", "double-close"], 30);
     assert_success(&out, "first close");
 
-    // Second close returns SESSION_NOT_FOUND
+    // Second close is idempotent and returns success with a warning
     let out = env.headless_json(&["browser", "close", "--session", "double-close"], 30);
-    assert_failure(&out, "second close should fail");
+    assert_success(&out, "second close should be idempotent");
     let v = parse_json(&out);
-    assert_eq!(v["error"]["code"], "SESSION_NOT_FOUND");
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["status"], "closed");
+    assert_eq!(v["data"]["closed_tabs"], 0);
+    let warnings = v["meta"]["warnings"]
+        .as_array()
+        .expect("meta warnings array should exist");
+    assert!(
+        warnings.iter().any(|w| {
+            w.as_str()
+                .map(|s| s.contains("not found") || s.contains("already closed"))
+                .unwrap_or(false)
+        }),
+        "expected idempotent close warning, got {warnings:?}"
+    );
+    assert!(v["error"].is_null());
 }
 
 // ===========================================================================
