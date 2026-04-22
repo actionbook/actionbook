@@ -78,6 +78,49 @@ If you need to switch modes later, run `actionbook setup` again.
 
 See the full command reference in the [main README](../../README.md).
 
+## Cloud Mode (v0.5.0+)
+
+Cloud Mode lets remote AI agents (Claude Desktop, Codex, claude.ai Connectors, etc.) drive your Chrome through the Actionbook edge server — **without running the local CLI daemon**. The extension connects via WebSocket to `edge.actionbook.dev`, authenticated by a short-lived OAuth token.
+
+Local Mode (the default) is unchanged and remains fully offline-capable.
+
+### Setup
+
+1. Click the Actionbook toolbar icon → popup
+2. Switch the **Mode** dropdown from **Local (CLI)** to **Cloud**
+3. Click **Sign in to Actionbook**
+4. A new tab opens the Actionbook sign-in page (Clerk) → sign in → approve the authorization prompt
+5. Back in the popup, the **Bridge** indicator turns green and shows your device ID
+
+Any MCP client pointed at `https://edge.actionbook.dev/mcp` can now drive your Chrome. No CLI daemon needed.
+
+### Example: Claude Desktop
+
+```jsonc
+// ~/Library/Application Support/Claude/claude_desktop_config.json  (macOS)
+{
+  "mcpServers": {
+    "actionbook": {
+      "url": "https://edge.actionbook.dev/mcp"
+    }
+  }
+}
+```
+
+Restart Claude Desktop → it will walk through OAuth sign-in on first use → the `actionbook` tool becomes available in your conversations.
+
+### Switching back to Local
+
+Popup → **Mode** dropdown → **Local (CLI)**. The extension reconnects to `ws://127.0.0.1:19222` as in previous versions. No sign-out required.
+
+### Sign out of Cloud Mode
+
+Popup (while in Cloud mode) → **Sign out**. Clears the stored access/refresh tokens and disconnects. To revoke the session server-side as well, use your account settings on actionbook.dev.
+
+### Privacy summary
+
+In Cloud Mode, CDP commands from your authorized AI agents transit `edge.actionbook.dev` (Cloudflare Workers + Durable Objects). The extension holds only a short-lived Clerk-signed JWT in `chrome.storage.local`; no passwords or long-lived credentials ever leave your machine. See [PRIVACY.md](./PRIVACY.md) for the detailed data-flow breakdown.
+
 ## Releasing a new version
 
 The extension has its own independent release cycle, separate from the CLI.
