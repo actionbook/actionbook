@@ -7,8 +7,10 @@ use serde_json::json;
 use actionbook_cli::action::Action;
 use actionbook_cli::action_result::ActionResult;
 use actionbook_cli::browser::interaction;
+use actionbook_cli::browser::navigation;
 use actionbook_cli::cli::{BrowserCommands, Cli, Commands, DaemonCommands, ExtensionCommands};
 use actionbook_cli::config;
+use actionbook_cli::daemon::cdp_error_classifier::CdpErrorCode;
 use actionbook_cli::output::{self, JsonEnvelope};
 use actionbook_cli::utils::client::DaemonClient;
 
@@ -18,6 +20,13 @@ use actionbook_cli::utils::client::DaemonClient;
 fn flush_and_exit(code: i32) -> ! {
     let _ = std::io::stdout().flush();
     std::process::exit(code);
+}
+
+fn is_navigation_command(command_name: &str) -> bool {
+    command_name == navigation::goto::COMMAND_NAME
+        || command_name == navigation::back::COMMAND_NAME
+        || command_name == navigation::forward::COMMAND_NAME
+        || command_name == navigation::reload::COMMAND_NAME
 }
 
 #[tokio::main]
@@ -112,18 +121,29 @@ async fn main() {
     match result {
         Ok(()) => {}
         Err(e) => {
-            let (code, hint) = match e.downcast_ref::<actionbook_cli::error::CliError>() {
-                Some(cli_err) => (cli_err.error_code().to_string(), cli_err.hint().to_string()),
-                None => ("INTERNAL_ERROR".to_string(), String::new()),
-            };
+            let (code, hint, retryable, details) =
+                match e.downcast_ref::<actionbook_cli::error::CliError>() {
+                    Some(cli_err) => (
+                        cli_err.error_code().to_string(),
+                        cli_err.hint().to_string(),
+                        cli_err.is_retryable(),
+                        cli_err.envelope_details(),
+                    ),
+                    None => (
+                        "INTERNAL_ERROR".to_string(),
+                        String::new(),
+                        false,
+                        serde_json::Value::Null,
+                    ),
+                };
             if json_output && !is_setup_command {
                 let envelope = JsonEnvelope::error(
                     "unknown",
                     None,
                     &code,
                     &e.to_string(),
-                    false,
-                    serde_json::Value::Null,
+                    retryable,
+                    details,
                     &hint,
                     std::time::Duration::ZERO,
                 );
@@ -310,6 +330,14 @@ async fn handle_browser(
             Err(_) => {
                 let result = if command_name == interaction::eval::COMMAND_NAME {
                     interaction::eval::timeout_result(timeout_ms)
+                } else if is_navigation_command(&command_name) {
+                    let reason = format!("{command_name} timed out after {timeout_ms}ms");
+                    ActionResult::fatal_with_details(
+                        CdpErrorCode::NavTimeout.code(),
+                        reason.clone(),
+                        CdpErrorCode::NavTimeout.default_hint(),
+                        json!({ "reason": reason, "timeout_ms": timeout_ms }),
+                    )
                 } else {
                     ActionResult::fatal_with_hint(
                         "TIMEOUT",

@@ -125,8 +125,7 @@ impl JsonEnvelope {
                 hint,
                 details,
             } => {
-                // CloudConnectionLost is retryable despite being Fatal variant
-                let retryable = matches!(code.as_str(), "CLOUD_CONNECTION_LOST" | "TIMEOUT");
+                let retryable = crate::error::is_retryable_code(code);
                 Self::error(
                     command,
                     context,
