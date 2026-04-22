@@ -409,11 +409,15 @@ async fn connect_hyperbrowser(
     let api_base = read_trimmed_env(env, "HYPERBROWSER_API_URL")
         .unwrap_or_else(|| HYPERBROWSER_API_BASE.to_string());
     let use_proxy = parse_env_bool(env, "HYPERBROWSER_USE_PROXY").unwrap_or(false);
+    let proxy_country = read_trimmed_env(env, "HYPERBROWSER_PROXY_COUNTRY");
     let persist_changes = parse_env_bool(env, "HYPERBROWSER_PERSIST_CHANGES").unwrap_or(true);
     let profile_id = read_trimmed_env(env, "HYPERBROWSER_PROFILE_ID")
         .or_else(|| non_default_profile(profile_name));
 
     let mut body = json!({ "useProxy": use_proxy });
+    if let Some(country) = proxy_country {
+        body["proxyCountry"] = json!(country);
+    }
     if let Some(profile_id) = profile_id {
         body["profile"] = json!({
             "id": normalize_hyperbrowser_profile_id(&profile_id)?,
@@ -906,6 +910,52 @@ mod tests {
         let request = request_handle.join().expect("request join");
         assert!(request.starts_with("PUT /api/session/hb-s-1/stop HTTP/1.1"));
         assert!(request.to_ascii_lowercase().contains("content-length: 0"));
+    }
+
+    #[tokio::test]
+    async fn connect_hyperbrowser_omits_proxy_country_when_unset() {
+        let response: &'static str = Box::leak(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 57\r\n\r\n{\"id\":\"hb-s-1\",\"wsEndpoint\":\"wss://hb.test/ws/session-1\"}"
+                .to_string()
+                .into_boxed_str(),
+        );
+        let (base_url, request_handle) = spawn_single_response_server(response);
+        let env = env_with(&[
+            ("HYPERBROWSER_API_URL", &base_url),
+            ("HYPERBROWSER_API_KEY", "hb-key"),
+        ]);
+
+        connect_hyperbrowser(crate::config::DEFAULT_PROFILE, &env)
+            .await
+            .expect("hyperbrowser connect should succeed");
+
+        let request = request_handle.join().expect("request join");
+        assert!(request.starts_with("POST /api/session HTTP/1.1"));
+        // No env var set → keep the CLI out of Hyperbrowser's region-default
+        // decision; absent field lets the provider pick its own default.
+        assert!(!request.contains("proxyCountry"));
+    }
+
+    #[tokio::test]
+    async fn connect_hyperbrowser_forwards_custom_proxy_country() {
+        let response: &'static str = Box::leak(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 57\r\n\r\n{\"id\":\"hb-s-2\",\"wsEndpoint\":\"wss://hb.test/ws/session-2\"}"
+                .to_string()
+                .into_boxed_str(),
+        );
+        let (base_url, request_handle) = spawn_single_response_server(response);
+        let env = env_with(&[
+            ("HYPERBROWSER_API_URL", &base_url),
+            ("HYPERBROWSER_API_KEY", "hb-key"),
+            ("HYPERBROWSER_PROXY_COUNTRY", "  JP  "),
+        ]);
+
+        connect_hyperbrowser(crate::config::DEFAULT_PROFILE, &env)
+            .await
+            .expect("hyperbrowser connect should succeed");
+
+        let request = request_handle.join().expect("request join");
+        assert!(request.contains("\"proxyCountry\":\"JP\""));
     }
 
     #[test]
