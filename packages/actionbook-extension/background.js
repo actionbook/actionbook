@@ -93,6 +93,36 @@ const SENSITIVE_DOMAIN_PATTERNS = [
 ];
 
 let ws = null;
+
+// Cleanly tear down the current WebSocket before reconnecting. Without this,
+// `ws.close()` fires the old socket's onclose asynchronously, which unconditionally
+// mutates module-level state (`ws = null`, `connectionState`, reconnect polling).
+// If a new `connect()` has already created a replacement socket by then, the
+// stale onclose clobbers the new `ws` reference and drives the state machine
+// backwards — especially nasty during mode switches / auth updates / sign-out,
+// all of which close-then-reconnect back-to-back.
+//
+// Solution: detach all handlers first so the old socket's death is silent, then
+// close and null out `ws`. Callers free to call `connect()` immediately after.
+function detachAndCloseWs(reason) {
+  if (!ws) return;
+  const oldWs = ws;
+  ws = null;
+  try {
+    oldWs.onopen = null;
+    oldWs.onmessage = null;
+    oldWs.onerror = null;
+    oldWs.onclose = null;
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    oldWs.close(1000, reason || "replaced");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
 // Set<number> of Chrome tab IDs that the extension currently has
 // chrome.debugger attached to. Multiple tabs can be attached concurrently;
 // every CDP command from the CLI must carry its target `tabId` field.
@@ -203,7 +233,6 @@ async function refreshCloudTokenIfNeeded({ force = false } = {}) {
     "cloudRefreshToken",
     "cloudTokenExpiresAt",
   ]);
-  if (!cloudRefreshToken) return cloudToken || null;
 
   // Refresh 60s before expiry to avoid mid-connect expiry.
   const REFRESH_SKEW_MS = 60_000;
@@ -211,7 +240,18 @@ async function refreshCloudTokenIfNeeded({ force = false } = {}) {
     force ||
     !cloudToken ||
     (typeof cloudTokenExpiresAt === "number" && Date.now() + REFRESH_SKEW_MS >= cloudTokenExpiresAt);
-  if (!needsRefresh) return cloudToken;
+
+  if (!needsRefresh) {
+    // Token still fresh — return it so callers (pre-flight connect) can short-circuit.
+    // A missing refresh_token is fine in this branch: we're not refreshing anyway.
+    return cloudToken;
+  }
+
+  // From here on we actually need a new token. Without a refresh_token we can't
+  // get one; return null so callers (especially the invalid_token path) can
+  // transition to sign-in-required instead of retrying with the same rejected
+  // access token indefinitely.
+  if (!cloudRefreshToken) return null;
 
   // cloud-config.js constants are not loaded in the service worker (it's a plain
   // worker, not a module + no importScripts in MV3). Hardcode here; if you
@@ -435,7 +475,10 @@ async function connect() {
         clearTimeout(handshakeTimer);
         handshakeTimer = null;
       }
-      if (ws) { ws.close(); ws = null; }
+      // Detach handlers before close — the invalid_token branch below will
+      // await a token refresh and then call connect(), and we don't want the
+      // old socket's onclose to race with the new one mid-refresh.
+      detachAndCloseWs("hello_error");
 
       if (msg.error === "invalid_token") {
         // Cloud mode: try a one-shot refresh before giving up. If refresh
@@ -1259,10 +1302,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
-      if (ws) {
-        try { ws.close(); } catch (_) {}
-        ws = null;
-      }
+      // Must detach handlers before closing — otherwise the old socket's
+      // onclose races with the new connection below.
+      detachAndCloseWs("mode_switch");
       connect();
     });
     return false;
@@ -1274,10 +1316,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     wasReplaced = false;
     retryCount = 0;
     reconnectDelay = RECONNECT_BASE_MS;
-    if (ws) {
-      try { ws.close(); } catch (_) {}
-      ws = null;
-    }
+    detachAndCloseWs("token_updated");
     connect();
     return false;
   }
@@ -1288,10 +1327,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.storage.local.remove(
       ["cloudToken", "cloudRefreshToken", "cloudTokenExpiresAt"],
       () => {
-        if (ws) {
-          try { ws.close(); } catch (_) {}
-          ws = null;
-        }
+        detachAndCloseWs("sign_out");
         connectionState = "pairing_required";
         logStateTransition("pairing_required", "user signed out");
         broadcastState();
