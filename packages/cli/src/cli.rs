@@ -6,6 +6,8 @@ use crate::browser::{cookies, interaction, navigation, observation, session, sto
 use crate::output::ResponseContext;
 use crate::setup;
 
+pub mod did_you_mean;
+
 #[derive(Parser, Debug)]
 #[command(
     name = "actionbook",

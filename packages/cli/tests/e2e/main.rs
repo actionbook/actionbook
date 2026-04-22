@@ -37,5 +37,6 @@ mod snapshot;
 mod storage;
 mod tab_management;
 mod timeout;
+mod unknown_subcommand;
 mod wait;
 mod windows_daemon;
