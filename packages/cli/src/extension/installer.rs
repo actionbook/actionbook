@@ -56,6 +56,31 @@ static BUNDLED_EXTENSION: &[(&str, &[u8])] = &[
             "/../actionbook-extension/offscreen.js"
         )),
     ),
+    // Cloud Mode (extension v0.5.0+): PKCE OAuth sign-in flow. Omitting these
+    // would silently produce a broken install for users of `actionbook extension
+    // install` — popup.js would fail to load cloud-config.js and the OAuth
+    // redirect would land on a missing callback.html.
+    (
+        "cloud-config.js",
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../actionbook-extension/cloud-config.js"
+        )),
+    ),
+    (
+        "callback.html",
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../actionbook-extension/callback.html"
+        )),
+    ),
+    (
+        "callback.js",
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../actionbook-extension/callback.js"
+        )),
+    ),
     (
         "icons/icon-16.png",
         include_bytes!(concat!(
