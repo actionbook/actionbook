@@ -175,10 +175,11 @@ jobs:
           ARTIFACT_DIR="${RUNNER_TEMP}/actionbook-binaries"
           mkdir -p "$ARTIFACT_DIR"
 
-          if [[ "${{ matrix.platform-suffix }}" == win32-* ]]; then
-            DEST="$ARTIFACT_DIR/actionbook-${{ matrix.platform-suffix }}.exe"
+          PLATFORM_SUFFIX="${{ matrix.platform-suffix }}"
+          if [[ "$PLATFORM_SUFFIX" == win32-* ]]; then
+            DEST="$ARTIFACT_DIR/actionbook-${PLATFORM_SUFFIX}.exe"
           else
-            DEST="$ARTIFACT_DIR/actionbook-${{ matrix.platform-suffix }}"
+            DEST="$ARTIFACT_DIR/actionbook-${PLATFORM_SUFFIX}"
           fi
           cp "$SRC" "$DEST"
           chmod +x "$DEST"
@@ -354,12 +355,12 @@ jobs:
             LOCAL_VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('${pkg_dir}/package.json','utf8')).version)")
             NPM_VER=$(npm view "${pkg_name}" version 2>/dev/null || echo "0.0.0")
             if [ "$LOCAL_VER" != "$NPM_VER" ]; then
-              TAG_FLAG=""
+              TAG_FLAGS=()
               if [[ "$LOCAL_VER" == *-alpha* ]]; then
-                TAG_FLAG="--tag alpha"
+                TAG_FLAGS=(--tag alpha)
               fi
               echo "Publishing ${pkg_name}@${LOCAL_VER} (npm has ${NPM_VER})..."
-              (cd "${pkg_dir}" && npm publish --access public --provenance $TAG_FLAG)
+              (cd "${pkg_dir}" && npm publish --access public --provenance "${TAG_FLAGS[@]}")
             else
               echo "Skipping ${pkg_name}@${LOCAL_VER} (already published)"
             fi
@@ -390,12 +391,12 @@ jobs:
           LOCAL_VER="${{ steps.version.outputs.version }}"
           NPM_VER=$(npm view @actionbookdev/cli version 2>/dev/null || echo "0.0.0")
           if [ "$LOCAL_VER" != "$NPM_VER" ]; then
-            TAG_FLAG=""
+            TAG_FLAGS=()
             if [[ "$LOCAL_VER" == *-alpha* ]]; then
-              TAG_FLAG="--tag alpha"
+              TAG_FLAGS=(--tag alpha)
             fi
             echo "Publishing @actionbookdev/cli@${LOCAL_VER} (npm has ${NPM_VER})..."
-            (cd packages/cli && npm publish --access public --provenance $TAG_FLAG)
+            (cd packages/cli && npm publish --access public --provenance "${TAG_FLAGS[@]}")
           else
             echo "Skipping @actionbookdev/cli@${LOCAL_VER} (already published)"
           fi
