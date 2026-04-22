@@ -431,6 +431,10 @@ actionbook browser close --session s1       # close a session
 actionbook browser restart --session s1     # restart with same profile/mode
 ```
 
+<Tip>
+  `browser close` is idempotent — closing an unknown or already-closed session returns `ok: true` with a warning in `meta.warnings`, not an error. Safe to call unconditionally during cleanup without checking session existence first. Read `meta.warnings` to distinguish a fresh close from an already-gone session.
+</Tip>
+
 
 ## Extension Security
 
