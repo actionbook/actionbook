@@ -9,6 +9,7 @@ permissions: {}
 jobs:
   notify-discord:
     name: Notify Discord
+    if: ${{ !contains(github.event.release.tag_name, '-alpha') }}
     runs-on: ubuntu-latest
     steps:
       - name: Determine release type metadata
