@@ -15,6 +15,7 @@
 use serde_json::{Value, json};
 
 use crate::action_result::ActionResult;
+use crate::daemon::cdp_error_classifier::CdpErrorCode;
 use crate::daemon::cdp_session::{CdpSession, cdp_error_to_result, get_cdp_and_target};
 use crate::daemon::registry::SharedRegistry;
 use crate::error::CliError;
@@ -372,7 +373,13 @@ async fn get_iframe_offset(
     let backend_node_id = owner
         .pointer("/result/backendNodeId")
         .and_then(|v| v.as_i64())
-        .ok_or_else(|| CliError::CdpError("DOM.getFrameOwner: no backendNodeId".to_string()))?;
+        .ok_or_else(|| {
+            CliError::cdp_with_code(
+                CdpErrorCode::NodeNotFound,
+                "DOM.getFrameOwner: no backendNodeId",
+                None,
+            )
+        })?;
 
     // Get the iframe's box model on the parent page (main tab session)
     let bm = cdp
@@ -386,7 +393,13 @@ async fn get_iframe_offset(
     let content = bm
         .pointer("/result/model/content")
         .and_then(|v| v.as_array())
-        .ok_or_else(|| CliError::CdpError("iframe box model: no content quad".to_string()))?;
+        .ok_or_else(|| {
+            CliError::cdp_with_code(
+                CdpErrorCode::NodeNotFound,
+                "iframe box model: no content quad",
+                None,
+            )
+        })?;
 
     // content quad: [x1,y1, x2,y2, x3,y3, x4,y4] — top-left is (x1, y1)
     let x = content[0].as_f64().unwrap_or(0.0);

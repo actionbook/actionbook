@@ -1672,8 +1672,10 @@ async fn create_tab_via_cdp(
         .pointer("/result/targetId")
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
-            crate::error::CliError::CdpError(
-                "Target.createTarget did not return targetId".to_string(),
+            crate::error::CliError::cdp_with_code(
+                crate::daemon::cdp_error_classifier::CdpErrorCode::ProtocolError,
+                "Target.createTarget did not return targetId",
+                None,
             )
         })?
         .to_string();

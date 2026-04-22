@@ -9,25 +9,84 @@ pub enum CdpErrorCode {
 }
 
 impl CdpErrorCode {
-    pub fn from_wire_code(_raw: &str) -> Option<Self> {
-        unimplemented!("not yet implemented")
+    pub fn from_wire_code(raw: &str) -> Option<Self> {
+        match raw {
+            "CDP_NODE_NOT_FOUND" => Some(Self::NodeNotFound),
+            "CDP_NOT_INTERACTABLE" => Some(Self::NotInteractable),
+            "CDP_NAV_TIMEOUT" => Some(Self::NavTimeout),
+            "CDP_TARGET_CLOSED" => Some(Self::TargetClosed),
+            "CDP_PROTOCOL_ERROR" => Some(Self::ProtocolError),
+            _ => None,
+        }
     }
 
     pub fn code(self) -> &'static str {
-        unimplemented!("not yet implemented")
+        match self {
+            Self::NodeNotFound => "CDP_NODE_NOT_FOUND",
+            Self::NotInteractable => "CDP_NOT_INTERACTABLE",
+            Self::NavTimeout => "CDP_NAV_TIMEOUT",
+            Self::TargetClosed => "CDP_TARGET_CLOSED",
+            Self::ProtocolError => "CDP_PROTOCOL_ERROR",
+            Self::Generic => "CDP_GENERIC",
+        }
     }
 
     pub fn default_hint(self) -> &'static str {
-        unimplemented!("not yet implemented")
+        match self {
+            Self::NodeNotFound => {
+                "the referenced node is stale — call `actionbook browser snapshot` to refresh node references then retry"
+            }
+            Self::NotInteractable => {
+                "the element exists but isn't interactable — scroll it into view, wait for it to become visible, or dismiss any overlay covering it"
+            }
+            Self::NavTimeout => {
+                "navigation exceeded the deadline — increase `--timeout` or verify the target URL is reachable"
+            }
+            Self::TargetClosed => {
+                "the CDP target was closed mid-command (tab navigated away or session torn down) — start a fresh session or re-attach to the tab"
+            }
+            Self::ProtocolError => {
+                "the browser rejected the command — inspect `details.reason` and `details.cdp_code` for the raw protocol error"
+            }
+            Self::Generic => "",
+        }
     }
 
     pub fn is_retryable(self) -> bool {
-        unimplemented!("not yet implemented")
+        matches!(self, Self::NavTimeout | Self::TargetClosed)
     }
 }
 
-pub fn classify(_raw: &str, _cdp_numeric_code: Option<i64>) -> CdpErrorCode {
-    unimplemented!("not yet implemented")
+/// Classify a CDP error into a structured code.
+///
+/// Precedence: message pattern > numeric fallback > Generic. The classifier
+/// stays pure — no site knowledge (that lives in call-site overrides via
+/// `CliError::cdp_with_code`).
+pub fn classify(raw: &str, cdp_numeric_code: Option<i64>) -> CdpErrorCode {
+    let lower = raw.to_lowercase();
+
+    if lower.contains("no node with given id")
+        || lower.contains("cannot find context with specified id")
+    {
+        return CdpErrorCode::NodeNotFound;
+    }
+    if lower.contains("could not compute box model") {
+        return CdpErrorCode::NotInteractable;
+    }
+    if lower.contains("navigation timeout") {
+        return CdpErrorCode::NavTimeout;
+    }
+    if lower.contains("target closed") || lower.contains("response channel dropped") {
+        return CdpErrorCode::TargetClosed;
+    }
+
+    if let Some(n) = cdp_numeric_code
+        && (-32700..=-32000).contains(&n)
+    {
+        return CdpErrorCode::ProtocolError;
+    }
+
+    CdpErrorCode::Generic
 }
 
 #[cfg(test)]

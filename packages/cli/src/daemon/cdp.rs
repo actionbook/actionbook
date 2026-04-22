@@ -5,6 +5,7 @@ use serde_json::json;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
+use crate::daemon::cdp_error_classifier::CdpErrorCode;
 use crate::error::CliError;
 
 fn ws_text(s: String) -> Message {
@@ -31,13 +32,13 @@ pub async fn cdp_runtime_evaluate(ws_url: &str, expression: &str) -> Result<Stri
     });
     ws.send(ws_text(msg.to_string()))
         .await
-        .map_err(|e| CliError::CdpError(e.to_string()))?;
+        .map_err(|e| CliError::cdp_classified(e.to_string(), None))?;
 
     while let Some(raw) = ws.next().await {
-        let raw = raw.map_err(|e| CliError::CdpError(e.to_string()))?;
+        let raw = raw.map_err(|e| CliError::cdp_classified(e.to_string(), None))?;
         if let Some(text) = msg_to_string(&raw) {
-            let resp: serde_json::Value =
-                serde_json::from_str(&text).map_err(|e| CliError::CdpError(e.to_string()))?;
+            let resp: serde_json::Value = serde_json::from_str(&text)
+                .map_err(|e| CliError::cdp_classified(e.to_string(), None))?;
             if resp.get("id").and_then(|v| v.as_u64()) == Some(1) {
                 if let Some(result) = resp.get("result").and_then(|r| r.get("result")) {
                     let value = result
@@ -64,7 +65,13 @@ pub async fn cdp_runtime_evaluate(ws_url: &str, expression: &str) -> Result<Stri
             }
         }
     }
-    Err(CliError::CdpError("no response from CDP".to_string()))
+    // TODO(follow-up): promote pre-target-handshake transport faults to
+    // ConnectionFailed once site-layer disambiguation lands.
+    Err(CliError::cdp_with_code(
+        CdpErrorCode::Generic,
+        "no response from CDP",
+        None,
+    ))
 }
 
 /// CDP Page.navigate via WebSocket.
@@ -76,10 +83,10 @@ pub async fn cdp_navigate(ws_url: &str, url: &str) -> Result<(), CliError> {
     let msg = json!({ "id": 1, "method": "Page.navigate", "params": { "url": url } });
     ws.send(ws_text(msg.to_string()))
         .await
-        .map_err(|e| CliError::CdpError(e.to_string()))?;
+        .map_err(|e| CliError::cdp_classified(e.to_string(), None))?;
 
     while let Some(raw) = ws.next().await {
-        let raw = raw.map_err(|e| CliError::CdpError(e.to_string()))?;
+        let raw = raw.map_err(|e| CliError::cdp_classified(e.to_string(), None))?;
         if let Some(text) = msg_to_string(&raw) {
             let resp: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
             if resp.get("id").and_then(|v| v.as_u64()) == Some(1) {
@@ -103,7 +110,13 @@ pub async fn cdp_navigate(ws_url: &str, url: &str) -> Result<(), CliError> {
             }
         }
     }
-    Err(CliError::CdpError("no response from CDP".to_string()))
+    // TODO(follow-up): promote pre-target-handshake transport faults to
+    // ConnectionFailed once site-layer disambiguation lands.
+    Err(CliError::cdp_with_code(
+        CdpErrorCode::Generic,
+        "no response from CDP",
+        None,
+    ))
 }
 
 /// Get accessibility tree via CDP.
@@ -115,10 +128,10 @@ pub async fn cdp_get_ax_tree(ws_url: &str) -> Result<String, CliError> {
     let msg = json!({ "id": 1, "method": "Accessibility.getFullAXTree", "params": {} });
     ws.send(ws_text(msg.to_string()))
         .await
-        .map_err(|e| CliError::CdpError(e.to_string()))?;
+        .map_err(|e| CliError::cdp_classified(e.to_string(), None))?;
 
     while let Some(raw) = ws.next().await {
-        let raw = raw.map_err(|e| CliError::CdpError(e.to_string()))?;
+        let raw = raw.map_err(|e| CliError::cdp_classified(e.to_string(), None))?;
         if let Some(text) = msg_to_string(&raw) {
             let resp: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
             if resp.get("id").and_then(|v| v.as_u64()) == Some(1) {
@@ -127,7 +140,13 @@ pub async fn cdp_get_ax_tree(ws_url: &str) -> Result<String, CliError> {
             }
         }
     }
-    Err(CliError::CdpError("no response".to_string()))
+    // TODO(follow-up): promote pre-target-handshake transport faults to
+    // ConnectionFailed once site-layer disambiguation lands.
+    Err(CliError::cdp_with_code(
+        CdpErrorCode::Generic,
+        "no response",
+        None,
+    ))
 }
 
 /// Ensure a URL has a scheme prefix. Rejects dangerous protocols.

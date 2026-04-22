@@ -18,6 +18,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http;
 use tracing::warn;
 
+use crate::daemon::cdp_error_classifier::CdpErrorCode;
 use crate::error::CliError;
 
 type PendingResponseTx = oneshot::Sender<Result<Value, CliError>>;
@@ -403,7 +404,9 @@ async fn send_cdp_raw(
             });
             CliError::Timeout
         })?
-        .map_err(|_| CliError::CdpError("response channel dropped".to_string()))??;
+        .map_err(|_| {
+            CliError::cdp_with_code(CdpErrorCode::TargetClosed, "response channel dropped", None)
+        })??;
 
     if let Some(err) = resp.get("error") {
         let code = err.get("code").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -411,7 +414,10 @@ async fn send_cdp_raw(
             .get("message")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown CDP error");
-        return Err(CliError::CdpError(format!("CDP error {code}: {message}")));
+        return Err(CliError::cdp_classified(
+            format!("CDP error {code}: {message}"),
+            Some(code),
+        ));
     }
 
     Ok(resp)
@@ -826,9 +832,11 @@ impl CdpSession {
             .and_then(|r| r.get("sessionId"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| {
-                CliError::CdpError(format!(
-                    "Target.attachToTarget did not return sessionId: {resp}"
-                ))
+                CliError::cdp_with_code(
+                    CdpErrorCode::ProtocolError,
+                    format!("Target.attachToTarget did not return sessionId: {resp}"),
+                    None,
+                )
             })?
             .to_string();
 
@@ -987,7 +995,14 @@ impl CdpSession {
             .lock()
             .await
             .remove(target_id)
-            .ok_or_else(|| CliError::CdpError(format!("no session for target '{target_id}'")))?;
+            .ok_or_else(|| {
+                CliError::cdp_with_code(
+                    CdpErrorCode::TargetClosed,
+                    format!("no session for target '{target_id}'"),
+                    None,
+                )
+                .with_detail("target_id", json!(target_id))
+            })?;
 
         self.execute(
             "Target.detachFromTarget",
@@ -1043,7 +1058,12 @@ impl CdpSession {
             .load(std::sync::atomic::Ordering::Acquire)
         {
             let tab_id: u64 = target_id.parse().map_err(|e| {
-                CliError::CdpError(format!("non-numeric extension tab id '{target_id}': {e}"))
+                CliError::cdp_with_code(
+                    CdpErrorCode::Generic,
+                    format!("non-numeric extension tab id '{target_id}': {e}"),
+                    None,
+                )
+                .with_detail("target_id", json!(target_id))
             })?;
 
             match self
@@ -1051,10 +1071,15 @@ impl CdpSession {
                 .await
             {
                 Ok(v) => Ok(v),
-                Err(CliError::CdpError(ref msg))
-                    // keep in sync with error messages in background.js
+                Err(CliError::CdpError { reason: ref msg, .. })
+                    // Substring guard is load-bearing: this branch opts in to
+                    // the extension self-heal retry only for these two exact
+                    // background.js-emitted messages. Widening to `code ==
+                    // TargetClosed` would enable the retry on unrelated target
+                    // closures (e.g. user-navigated-away tab) and cause an
+                    // unsafe re-attach loop. Keep in sync with background.js
                     // handleCdpCommand ("Tab N not attached") and the
-                    // chrome.debugger catch block ("Debugger detached from tab")
+                    // chrome.debugger catch block ("Debugger detached from tab").
                     if msg.contains(&format!("Tab {tab_id} not attached"))
                         || msg.contains("Debugger detached from tab") =>
                 {
@@ -1088,7 +1113,12 @@ impl CdpSession {
                 .get(target_id)
                 .cloned()
                 .ok_or_else(|| {
-                    CliError::CdpError(format!("no CDP session for target '{target_id}'"))
+                    CliError::cdp_with_code(
+                        CdpErrorCode::TargetClosed,
+                        format!("no CDP session for target '{target_id}'"),
+                        None,
+                    )
+                    .with_detail("target_id", json!(target_id))
                 })?;
             self.execute(method, params, Some(&session_id)).await
         }
@@ -1133,7 +1163,13 @@ impl CdpSession {
                 });
                 CliError::Timeout
             })?
-            .map_err(|_| CliError::CdpError("response channel dropped".to_string()))??;
+            .map_err(|_| {
+                CliError::cdp_with_code(
+                    CdpErrorCode::TargetClosed,
+                    "response channel dropped",
+                    None,
+                )
+            })??;
 
         if let Some(err) = resp.get("error") {
             let code = err.get("code").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -1141,7 +1177,10 @@ impl CdpSession {
                 .get("message")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown CDP error");
-            return Err(CliError::CdpError(format!("CDP error {code}: {message}")));
+            return Err(CliError::cdp_classified(
+                format!("CDP error {code}: {message}"),
+                Some(code),
+            ));
         }
 
         Ok(resp)
@@ -1390,7 +1429,13 @@ impl CdpSession {
                 });
                 CliError::Timeout
             })?
-            .map_err(|_| CliError::CdpError("response channel dropped".to_string()))??;
+            .map_err(|_| {
+                CliError::cdp_with_code(
+                    CdpErrorCode::TargetClosed,
+                    "response channel dropped",
+                    None,
+                )
+            })??;
 
         // Surface CDP-level errors (e.g., method not found, target crashed)
         if let Some(err) = resp.get("error") {
@@ -1399,7 +1444,10 @@ impl CdpSession {
                 .get("message")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown CDP error");
-            return Err(CliError::CdpError(format!("CDP error {code}: {message}")));
+            return Err(CliError::cdp_classified(
+                format!("CDP error {code}: {message}"),
+                Some(code),
+            ));
         }
 
         Ok(resp)

@@ -1,4 +1,7 @@
+use serde_json::{Map, Value};
 use thiserror::Error;
+
+use crate::daemon::cdp_error_classifier::{CdpErrorCode, classify};
 
 #[derive(Debug, Error)]
 pub enum CliError {
@@ -27,8 +30,13 @@ pub enum CliError {
     BrowserLaunchFailed(String),
     #[error("cdp connection failed: {0}")]
     CdpConnectionFailed(String),
-    #[error("cdp error: {0}")]
-    CdpError(String),
+    #[error("cdp error: {reason}")]
+    CdpError {
+        code: CdpErrorCode,
+        reason: String,
+        cdp_code: Option<i64>,
+        details: Map<String, Value>,
+    },
     #[error("session closed: {0}")]
     SessionClosed(String),
     #[error("timeout")]
@@ -64,6 +72,43 @@ pub enum CliError {
 }
 
 impl CliError {
+    /// Construct a CDP error whose code is derived from the raw message and
+    /// (optional) CDP numeric code via the classifier.
+    pub fn cdp_classified(reason: impl Into<String>, cdp_code: Option<i64>) -> Self {
+        let reason = reason.into();
+        let code = classify(&reason, cdp_code);
+        CliError::CdpError {
+            code,
+            reason,
+            cdp_code,
+            details: Map::new(),
+        }
+    }
+
+    /// Construct a CDP error with a caller-chosen code (bypasses the classifier).
+    /// Use this at call sites where the caller knows the code better than
+    /// message-pattern inference.
+    pub fn cdp_with_code(
+        code: CdpErrorCode,
+        reason: impl Into<String>,
+        cdp_code: Option<i64>,
+    ) -> Self {
+        CliError::CdpError {
+            code,
+            reason: reason.into(),
+            cdp_code,
+            details: Map::new(),
+        }
+    }
+
+    /// Chainable per-site detail injection; no-op on non-CdpError variants.
+    pub fn with_detail(mut self, key: &str, value: Value) -> Self {
+        if let CliError::CdpError { details, .. } = &mut self {
+            details.insert(key.to_string(), value);
+        }
+        self
+    }
+
     pub fn error_code(&self) -> &str {
         match self {
             CliError::DaemonNotRunning => "DAEMON_NOT_RUNNING",
@@ -78,7 +123,7 @@ impl CliError {
             CliError::BrowserNotFound => "BROWSER_NOT_FOUND",
             CliError::BrowserLaunchFailed(_) => "BROWSER_LAUNCH_FAILED",
             CliError::CdpConnectionFailed(_) => "CDP_CONNECTION_FAILED",
-            CliError::CdpError(_) => "CDP_ERROR",
+            CliError::CdpError { code, .. } => code.code(),
             CliError::SessionClosed(_) => "SESSION_CLOSED",
             CliError::Timeout => "TIMEOUT",
             CliError::NavigationFailed(_) => "NAVIGATION_FAILED",
@@ -134,27 +179,71 @@ impl CliError {
                 "the provider service returned a 5xx error — retry after a short delay or check the provider's status page"
                     .to_string()
             }
+            CliError::CdpError { code, .. } => code.default_hint().to_string(),
             _ => String::new(),
         }
     }
 
     pub fn is_retryable(&self) -> bool {
-        matches!(
-            self,
+        match self {
             CliError::DaemonNotRunning
-                | CliError::ConnectionFailed(_)
-                | CliError::CloudConnectionLost(_)
-                | CliError::Timeout
-                | CliError::Http(_)
-                | CliError::ApiRateLimited(_)
-                | CliError::ApiServerError(_)
-        )
+            | CliError::ConnectionFailed(_)
+            | CliError::CloudConnectionLost(_)
+            | CliError::Timeout
+            | CliError::Http(_)
+            | CliError::ApiRateLimited(_)
+            | CliError::ApiServerError(_) => true,
+            CliError::CdpError { code, .. } => code.is_retryable(),
+            _ => false,
+        }
     }
+
+    /// Extract per-variant details for the JSON envelope.
+    ///
+    /// For `CdpError`, the returned object always carries `reason` (the raw
+    /// CDP message), plus `cdp_code` when present and any site-specific fields
+    /// injected via `with_detail`. Other variants return `Value::Null`.
+    pub fn envelope_details(&self) -> Value {
+        match self {
+            CliError::CdpError {
+                reason,
+                cdp_code,
+                details,
+                ..
+            } => {
+                let mut out = details.clone();
+                out.insert("reason".to_string(), Value::String(reason.clone()));
+                if let Some(n) = cdp_code {
+                    out.insert("cdp_code".to_string(), Value::from(*n));
+                }
+                Value::Object(out)
+            }
+            _ => Value::Null,
+        }
+    }
+}
+
+/// Wire-layer counterpart of `CliError::is_retryable` — keyed on the `error.code`
+/// string so the envelope builder (which only has the code string, not a
+/// `CliError` instance) agrees with the method.
+pub fn is_retryable_code(code: &str) -> bool {
+    matches!(
+        code,
+        "CLOUD_CONNECTION_LOST"
+            | "TIMEOUT"
+            | "CDP_NAV_TIMEOUT"
+            | "CDP_TARGET_CLOSED"
+            | "API_RATE_LIMITED"
+            | "API_SERVER_ERROR"
+            | "CONNECTION_FAILED"
+            | "HTTP_ERROR"
+            | "DAEMON_NOT_RUNNING"
+    )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::CliError;
+    use super::{CdpErrorCode, CliError, is_retryable_code};
 
     #[test]
     fn cdp_error_code_is_structured_for_stale_node_messages() {
@@ -174,7 +263,8 @@ mod tests {
 
     #[test]
     fn cdp_error_nav_timeout_is_retryable() {
-        let err = CliError::cdp_classified("Navigation timeout of 100 ms exceeded".to_string(), None);
+        let err =
+            CliError::cdp_classified("Navigation timeout of 100 ms exceeded".to_string(), None);
         assert_eq!(err.error_code(), "CDP_NAV_TIMEOUT");
         assert!(err.is_retryable(), "navigation timeout should be retryable");
     }
@@ -188,7 +278,8 @@ mod tests {
 
     #[test]
     fn cdp_error_protocol_errors_get_structured_code() {
-        let err = CliError::cdp_classified("CDP error -32602: invalid params".to_string(), Some(-32602));
+        let err =
+            CliError::cdp_classified("CDP error -32602: invalid params".to_string(), Some(-32602));
         assert_eq!(err.error_code(), "CDP_PROTOCOL_ERROR");
     }
 
@@ -200,8 +291,90 @@ mod tests {
 
     #[test]
     fn cdp_with_code_factory_bypasses_classifier() {
-        panic!(
-            "not yet implemented: add CliError::cdp_with_code factory and assert site override semantics"
+        // reason would classify as NodeNotFound, but caller override wins.
+        let err = CliError::cdp_with_code(
+            CdpErrorCode::ProtocolError,
+            "No node with given id found".to_string(),
+            Some(-32000),
         );
+        assert_eq!(err.error_code(), "CDP_PROTOCOL_ERROR");
+        let details = err.envelope_details();
+        assert_eq!(
+            details["reason"].as_str(),
+            Some("No node with given id found")
+        );
+        assert_eq!(details["cdp_code"].as_i64(), Some(-32000));
+    }
+
+    #[test]
+    fn with_detail_injects_site_specific_fields() {
+        let err = CliError::cdp_with_code(CdpErrorCode::NavTimeout, "timed out".to_string(), None)
+            .with_detail("timeout_ms", serde_json::json!(100));
+        let details = err.envelope_details();
+        assert_eq!(details["reason"].as_str(), Some("timed out"));
+        assert_eq!(details["timeout_ms"].as_i64(), Some(100));
+    }
+
+    #[test]
+    fn envelope_details_is_null_for_non_cdp_variants() {
+        assert!(CliError::Timeout.envelope_details().is_null());
+        assert!(CliError::DaemonNotRunning.envelope_details().is_null());
+    }
+
+    /// Fixture covering every distinct `error_code()` string returned by
+    /// `CliError`. The drift-guard test below walks this fixture to verify
+    /// `is_retryable()` (method) and `is_retryable_code()` (wire-level fn)
+    /// never disagree.
+    fn all_variants_fixture() -> Vec<CliError> {
+        vec![
+            CliError::DaemonNotRunning,
+            CliError::ConnectionFailed("x".to_string()),
+            CliError::SessionNotFound("x".to_string()),
+            CliError::SessionAlreadyExists {
+                profile: "p".to_string(),
+                existing_session: "s".to_string(),
+            },
+            CliError::SessionIdAlreadyExists("s".to_string()),
+            CliError::TabNotFound("t".to_string()),
+            CliError::InvalidArgument("x".to_string()),
+            CliError::InvalidSessionId("x".to_string()),
+            CliError::BrowserNotFound,
+            CliError::BrowserLaunchFailed("x".to_string()),
+            CliError::CdpConnectionFailed("x".to_string()),
+            CliError::cdp_with_code(CdpErrorCode::NodeNotFound, "r", None),
+            CliError::cdp_with_code(CdpErrorCode::NotInteractable, "r", None),
+            CliError::cdp_with_code(CdpErrorCode::NavTimeout, "r", None),
+            CliError::cdp_with_code(CdpErrorCode::TargetClosed, "r", None),
+            CliError::cdp_with_code(CdpErrorCode::ProtocolError, "r", None),
+            CliError::cdp_with_code(CdpErrorCode::Generic, "r", None),
+            CliError::SessionClosed("x".to_string()),
+            CliError::Timeout,
+            CliError::NavigationFailed("x".to_string()),
+            CliError::ElementNotFound("x".to_string()),
+            CliError::EvalFailed("x".to_string()),
+            CliError::MissingCdpEndpoint,
+            CliError::CloudConnectionLost("x".to_string()),
+            CliError::VersionMismatch {
+                cli: "1".to_string(),
+                daemon: "2".to_string(),
+            },
+            CliError::ApiError("x".to_string()),
+            CliError::ApiUnauthorized("x".to_string()),
+            CliError::ApiRateLimited("x".to_string()),
+            CliError::ApiServerError("x".to_string()),
+            CliError::Internal("x".to_string()),
+        ]
+    }
+
+    #[test]
+    fn is_retryable_code_matches_method_for_every_variant() {
+        for err in all_variants_fixture() {
+            let code = err.error_code().to_string();
+            assert_eq!(
+                err.is_retryable(),
+                is_retryable_code(&code),
+                "drift: {code} differs between method and code-string lookup"
+            );
+        }
     }
 }
