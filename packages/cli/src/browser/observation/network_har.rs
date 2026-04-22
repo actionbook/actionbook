@@ -20,7 +20,7 @@ use crate::output::ResponseContext;
 /// recordings.
 const DEFAULT_MAX_BODY_SIZE: usize = 5 * 1024 * 1024;
 /// Default ring-buffer cap on number of entries. Oldest evicted when full.
-const DEFAULT_MAX_ENTRIES: usize = 2000;
+const DEFAULT_MAX_ENTRIES: usize = 10000;
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
