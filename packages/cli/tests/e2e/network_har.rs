@@ -832,7 +832,9 @@ mod truncation {
         let v = parse_json(&stop_out);
 
         assert_eq!(v["meta"]["truncated"], true);
-        let warnings = v["meta"]["warnings"].as_array().expect("meta warnings array");
+        let warnings = v["meta"]["warnings"]
+            .as_array()
+            .expect("meta warnings array");
         let warning = warnings
             .first()
             .and_then(|value| value.as_str())
@@ -845,7 +847,11 @@ mod truncation {
             warning.contains("max_entries=5"),
             "expected warning to mention cap, got {warning:?}"
         );
-        assert!(v["data"]["dropped"].as_u64().is_some_and(|dropped| dropped >= 5));
+        assert!(
+            v["data"]["dropped"]
+                .as_u64()
+                .is_some_and(|dropped| dropped >= 5)
+        );
         assert_eq!(v["data"]["max_entries"], 5);
     }
 

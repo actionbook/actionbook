@@ -278,7 +278,7 @@ pub async fn execute_stop(cmd: &StopCmd, registry: &SharedRegistry) -> ActionRes
     // Peek at entries without removing the recorder yet.  The recorder is
     // only committed (removed) after the file has been written successfully,
     // so an I/O failure leaves the data intact and the user can retry.
-    let (entries, dropped_count) = match cdp.har_stop(&cdp_session_id).await {
+    let (entries, dropped_count, max_entries) = match cdp.har_stop(&cdp_session_id).await {
         Ok(v) => v,
         Err("HAR_NOT_RECORDING") => {
             return ActionResult::fatal(
@@ -322,11 +322,20 @@ pub async fn execute_stop(cmd: &StopCmd, registry: &SharedRegistry) -> ActionRes
     // File written successfully — release the recorder from memory.
     cdp.har_commit(&cdp_session_id).await;
 
-    ActionResult::ok(json!({
+    let mut payload = json!({
         "path": out_path.to_string_lossy().as_ref(),
         "count": count,
         "dropped": dropped_count,
-    }))
+        "max_entries": max_entries,
+    });
+    if dropped_count > 0 {
+        let warning = format!(
+            "HAR_TRUNCATED: {dropped_count} earlier entries dropped (max_entries={max_entries}); raise --max-entries or stop recording sooner to keep the full trace"
+        );
+        payload["__truncated"] = json!(true);
+        payload["__warnings"] = json!([warning]);
+    }
+    ActionResult::ok(payload)
 }
 
 // ── HAR 1.2 serialization ─────────────────────────────────────────────────────
@@ -738,7 +747,11 @@ mod tests {
         }
     }
 
-    async fn setup_extension_registry() -> (crate::daemon::registry::SharedRegistry, CdpSession, MockWriter) {
+    async fn setup_extension_registry() -> (
+        crate::daemon::registry::SharedRegistry,
+        CdpSession,
+        MockWriter,
+    ) {
         let (url, mut conns) = mock_ws_server().await;
         let cdp = CdpSession::connect(&url).await.unwrap();
         let (mut reader, mut writer) = conns.recv().await.unwrap();
@@ -753,7 +766,11 @@ mod tests {
         );
         entry.status = SessionState::Running;
         entry.cdp = Some(cdp.clone());
-        entry.push_tab("100".to_string(), "about:blank".to_string(), "Blank".to_string());
+        entry.push_tab(
+            "100".to_string(),
+            "about:blank".to_string(),
+            "Blank".to_string(),
+        );
         registry.lock().await.insert(entry);
 
         let cdp_clone = cdp.clone();
@@ -919,8 +936,7 @@ mod tests {
         };
 
         assert!(
-            data.get("__truncated").is_none()
-                || data["__truncated"].as_bool() == Some(false),
+            data.get("__truncated").is_none() || data["__truncated"].as_bool() == Some(false),
             "clean stop should not mark truncation: {data:?}"
         );
         assert!(

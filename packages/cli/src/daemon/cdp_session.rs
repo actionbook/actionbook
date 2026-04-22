@@ -1506,13 +1506,14 @@ impl CdpSession {
     /// immediately after `wait network-idle` still get populated response bodies.
     ///
     /// `dropped_count` is the number of entries evicted due to the `max_entries`
-    /// ring-buffer cap; surface this so callers can warn the user.
+    /// ring-buffer cap; surface this so callers can warn the user. `max_entries`
+    /// is the configured cap, so callers can mention it in user-facing warnings.
     ///
     /// Returns `Err("HAR_NOT_RECORDING")` if no recording was active.
     pub async fn har_stop(
         &self,
         cdp_session_id: &str,
-    ) -> Result<(Vec<HarEntry>, usize), &'static str> {
+    ) -> Result<(Vec<HarEntry>, usize, usize), &'static str> {
         // Snapshot the pending-fetch counter handle, then release the lock
         // while polling so body-fetch spawn tasks can acquire it to write back.
         let pending_counter = {
@@ -1538,6 +1539,7 @@ impl CdpSession {
             Some(recorder) => Ok((
                 recorder.entries.iter().cloned().collect(),
                 recorder.dropped_count,
+                recorder.max_entries,
             )),
         }
     }
