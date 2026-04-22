@@ -485,21 +485,27 @@ async function connect() {
         // succeeds, kick off a reconnect with the fresh token. If it fails
         // we drop into pairing_required so popup prompts the user to sign in
         // again.
-        refreshCloudTokenIfNeeded({ force: true }).then((fresh) => {
-          if (fresh) {
-            connectionState = "disconnected";
-            logStateTransition("disconnected", "token refreshed, reconnecting");
-            broadcastState();
-            retryCount = 0;
-            reconnectDelay = RECONNECT_BASE_MS;
-            connect();
-          } else {
-            connectionState = "pairing_required";
-            logStateTransition("pairing_required", "invalid token, refresh failed");
-            broadcastState();
-            startBridgePolling();
-          }
-        });
+        const fresh = await refreshCloudTokenIfNeeded({ force: true });
+        if (fresh) {
+          connectionState = "disconnected";
+          logStateTransition("disconnected", "token refreshed, reconnecting");
+          broadcastState();
+          retryCount = 0;
+          reconnectDelay = RECONNECT_BASE_MS;
+          connect();
+        } else {
+          // Terminal auth failure: clear the cached token bundle so polling
+          // can't keep retrying with credentials the server already rejected.
+          await chrome.storage.local.remove([
+            "cloudToken",
+            "cloudRefreshToken",
+            "cloudTokenExpiresAt",
+          ]);
+          connectionState = "pairing_required";
+          logStateTransition("pairing_required", "invalid token, refresh failed");
+          broadcastState();
+          startBridgePolling();
+        }
       } else {
         connectionState = "failed";
         logStateTransition("failed", msg.message || "handshake rejected by server");
