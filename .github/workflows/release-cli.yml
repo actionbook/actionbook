@@ -1,4 +1,4 @@
-name: Release
+name: Release CLI
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   # --------------------------------------------------------------------------
-  # Job 1: Create Version PR or determine what to release
+  # Job 1: Create Version PR or determine whether CLI needs a release
   # --------------------------------------------------------------------------
   version-or-release:
     name: Version or Release
@@ -23,12 +23,7 @@ jobs:
     outputs:
       should-release: ${{ steps.changesets.outputs.hasChangesets == 'false' }}
       cli-needs-release: ${{ steps.check-releases.outputs.cli }}
-      extension-needs-release: ${{ steps.check-releases.outputs.extension }}
-      dify-plugin-needs-release: ${{ steps.check-releases.outputs.dify-plugin }}
       cli-changed: ${{ steps.changes.outputs.cli }}
-      js-changed: ${{ steps.changes.outputs.js }}
-      extension-changed: ${{ steps.changes.outputs.extension }}
-      dify-plugin-changed: ${{ steps.changes.outputs.dify-plugin }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,13 +45,10 @@ jobs:
       - name: Detect changed packages
         id: changes
         run: |
-          # workflow_dispatch or first push: treat all packages as changed
+          # workflow_dispatch or first push: treat CLI as changed
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] || \
              [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
-            echo "cli=true"        >> "$GITHUB_OUTPUT"
-            echo "js=true"         >> "$GITHUB_OUTPUT"
-            echo "extension=true"  >> "$GITHUB_OUTPUT"
-            echo "dify-plugin=true" >> "$GITHUB_OUTPUT"
+            echo "cli=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -70,24 +62,6 @@ jobs:
             echo "cli=false" >> "$GITHUB_OUTPUT"
           fi
 
-          if echo "$CHANGED" | grep -qE "^packages/(js-sdk|mcp|tools-ai-sdk|json-ui|openclaw-plugin)/"; then
-            echo "js=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "js=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if echo "$CHANGED" | grep -qE "^packages/actionbook-extension/"; then
-            echo "extension=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "extension=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if echo "$CHANGED" | grep -qE "^packages/dify-plugin/"; then
-            echo "dify-plugin=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "dify-plugin=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Create Release Pull Request
         id: changesets
         uses: changesets/action@v1
@@ -98,7 +72,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Check which packages need release
+      - name: Check whether CLI needs release
         id: check-releases
         if: steps.changesets.outputs.hasChangesets == 'false'
         run: |
@@ -112,122 +86,8 @@ jobs:
             echo "CLI is up to date: $CLI_LOCAL"
           fi
 
-          EXT_LOCAL=$(node -e "console.log(JSON.parse(require('fs').readFileSync('packages/actionbook-extension/package.json','utf8')).version)")
-          EXT_TAG="actionbook-extension-v${EXT_LOCAL}"
-          if git tag -l "$EXT_TAG" | grep -q .; then
-            echo "extension=false" >> "$GITHUB_OUTPUT"
-            echo "Extension tag exists: $EXT_TAG"
-          else
-            echo "extension=true" >> "$GITHUB_OUTPUT"
-            echo "Extension needs release: $EXT_LOCAL (tag $EXT_TAG not found)"
-          fi
-
-          DIFY_LOCAL=$(node -e "console.log(JSON.parse(require('fs').readFileSync('packages/dify-plugin/package.json','utf8')).version)")
-          DIFY_TAG="actionbook-dify-plugin-v${DIFY_LOCAL}"
-          if git tag -l "$DIFY_TAG" | grep -q .; then
-            echo "dify-plugin=false" >> "$GITHUB_OUTPUT"
-            echo "Dify plugin tag exists: $DIFY_TAG"
-          else
-            echo "dify-plugin=true" >> "$GITHUB_OUTPUT"
-            echo "Dify plugin needs release: $DIFY_LOCAL (tag $DIFY_TAG not found)"
-          fi
-
   # --------------------------------------------------------------------------
-  # Job 2: Publish JS packages (sdk, mcp, tools-ai-sdk, json-ui)
-  # --------------------------------------------------------------------------
-  publish-js:
-    name: Publish JS Packages
-    needs: version-or-release
-    if: needs.version-or-release.outputs.should-release == 'true' && needs.version-or-release.outputs.js-changed == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build packages
-        run: pnpm build:release
-
-      - name: Publish packages
-        id: publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          PACKAGES=(
-            "@actionbookdev/sdk:packages/js-sdk"
-            "@actionbookdev/mcp:packages/mcp"
-            "@actionbookdev/tools-ai-sdk:packages/tools-ai-sdk"
-            "@actionbookdev/json-ui:packages/json-ui"
-            "@actionbookdev/openclaw-plugin:packages/openclaw-plugin"
-          )
-
-          PUBLISHED_LIST=""
-          for entry in "${PACKAGES[@]}"; do
-            PKG_NAME="${entry%%:*}"
-            PKG_DIR="${entry##*:}"
-
-            LOCAL_VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('${PKG_DIR}/package.json','utf8')).version)")
-            NPM_VER=$(npm view "${PKG_NAME}" version 2>/dev/null || echo "0.0.0")
-
-            if [ "$LOCAL_VER" != "$NPM_VER" ]; then
-              TAG_FLAG=""
-              if [[ "$LOCAL_VER" == *-alpha* ]]; then
-                TAG_FLAG="--tag alpha"
-              fi
-              echo "Publishing ${PKG_NAME}@${LOCAL_VER} (npm has ${NPM_VER})..."
-              (cd "${PKG_DIR}" && pnpm publish --access public --provenance --no-git-checks $TAG_FLAG)
-              PUBLISHED_LIST="${PUBLISHED_LIST}- **${PKG_NAME}** \`${LOCAL_VER}\`\n"
-            else
-              echo "Skipping ${PKG_NAME}@${LOCAL_VER} (already published)"
-            fi
-          done
-
-          echo "published_list<<PUBLISHED_EOF" >> "$GITHUB_OUTPUT"
-          echo -e "$PUBLISHED_LIST" >> "$GITHUB_OUTPUT"
-          echo "PUBLISHED_EOF" >> "$GITHUB_OUTPUT"
-          if [ -n "$PUBLISHED_LIST" ]; then
-            echo "has_published=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_published=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Notify Discord of npm publishes
-        if: steps.publish.outputs.has_published == 'true'
-        env:
-          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          PUBLISHED_LIST: ${{ steps.publish.outputs.published_list }}
-        run: |
-          DESCRIPTION="The following packages have been published to npm:\n\n${PUBLISHED_LIST}"
-          PAYLOAD=$(jq -n \
-            --arg desc "$DESCRIPTION" \
-            '{
-              "username": "Actionbook Release",
-              "embeds": [{
-                "title": "New Release: npm Packages Published 🎉",
-                "url": "https://www.npmjs.com/org/actionbookdev",
-                "description": $desc,
-                "color": 15105570,
-                "footer": { "text": "npm Publish" },
-                "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
-              }]
-            }')
-          curl -sf -X POST "$WEBHOOK_URL" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD"
-
-  # --------------------------------------------------------------------------
-  # Job 3: Build CLI binaries (cross-platform Rust compilation)
+  # Job 2: Build CLI binaries (cross-platform Rust compilation)
   # --------------------------------------------------------------------------
   build-cli:
     name: Build CLI (${{ matrix.platform-suffix }})
@@ -331,7 +191,7 @@ jobs:
           if-no-files-found: error
 
   # --------------------------------------------------------------------------
-  # Job 4: Publish CLI npm packages + GitHub Release
+  # Job 3: Publish CLI npm packages + GitHub Release
   # --------------------------------------------------------------------------
   publish-cli:
     name: Publish CLI
@@ -640,169 +500,3 @@ jobs:
           git add Formula/actionbook.rb
           git commit -m "actionbook ${VERSION}" || echo "No changes to commit"
           git push
-
-  # --------------------------------------------------------------------------
-  # Job 5: Release Extension (package ZIPs + GitHub Release)
-  # --------------------------------------------------------------------------
-  release-extension:
-    name: Release Extension
-    needs: version-or-release
-    if: needs.version-or-release.outputs.extension-needs-release == 'true' && needs.version-or-release.outputs.extension-changed == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/actionbook-extension
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Read extension version
-        id: version
-        run: |
-          VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('package.json','utf8')).version)")
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Verify manifest.json version matches
-        run: |
-          MANIFEST_VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('manifest.json','utf8')).version)")
-          PKG_VERSION="${{ steps.version.outputs.version }}"
-          if [ "$MANIFEST_VERSION" != "$PKG_VERSION" ]; then
-            echo "ERROR: manifest.json version ($MANIFEST_VERSION) does not match package.json version ($PKG_VERSION)"
-            exit 1
-          fi
-          echo "Version verified: $PKG_VERSION"
-
-      - name: Package extension
-        run: node scripts/package.js
-
-      - name: Create Extension GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          token: ${{ secrets.RELEASE_PAT || github.token }}
-          tag_name: actionbook-extension-v${{ steps.version.outputs.version }}
-          name: Actionbook Extension v${{ steps.version.outputs.version }}
-          files: |
-            packages/actionbook-extension/dist/actionbook-extension-v${{ steps.version.outputs.version }}.zip
-            packages/actionbook-extension/dist/actionbook-extension-v${{ steps.version.outputs.version }}-cws.zip
-          body: |
-            ## Actionbook Chrome Extension v${{ steps.version.outputs.version }}
-
-            ### Install
-
-            **Option 1: CLI (recommended)**
-            ```bash
-            actionbook extension install
-            ```
-
-            **Option 2: Manual**
-            1. Download `actionbook-extension-v${{ steps.version.outputs.version }}.zip` below
-            2. Unzip to a local folder
-            3. Open `chrome://extensions` in Chrome
-            4. Enable **Developer mode**
-            5. Click **Load unpacked** and select the unzipped folder
-
-            **Option 3: Chrome Web Store**
-            Download `actionbook-extension-v${{ steps.version.outputs.version }}-cws.zip` for Chrome Web Store submission (manifest without `key` field).
-
-            ### After installing
-            ```bash
-            actionbook browser open https://example.com
-            ```
-            The extension auto-connects to the local bridge at `127.0.0.1:19222`.
-
-  # --------------------------------------------------------------------------
-  # Job 6: Release Dify Plugin (package .difypkg + GitHub Release)
-  # --------------------------------------------------------------------------
-  release-dify-plugin:
-    name: Release Dify Plugin
-    needs: version-or-release
-    if: needs.version-or-release.outputs.dify-plugin-needs-release == 'true' && needs.version-or-release.outputs.dify-plugin-changed == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/dify-plugin
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Read dify-plugin version
-        id: version
-        run: |
-          VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('package.json','utf8')).version)")
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Verify manifest.yaml version matches
-        run: |
-          PKG_VERSION="${{ steps.version.outputs.version }}"
-          ROOT_VERSION=$(grep -m1 '^version:' manifest.yaml | awk '{gsub(/"/,"",$2); print $2}')
-          META_VERSION=$(awk '/^meta:/{found=1} found && /^  version:/{gsub(/"/,"",$2); print $2; exit}' manifest.yaml)
-          if [ "$ROOT_VERSION" != "$PKG_VERSION" ]; then
-            echo "ERROR: manifest.yaml root version ($ROOT_VERSION) != package.json ($PKG_VERSION)"
-            exit 1
-          fi
-          if [ "$META_VERSION" != "$PKG_VERSION" ]; then
-            echo "ERROR: manifest.yaml meta.version ($META_VERSION) != package.json ($PKG_VERSION)"
-            exit 1
-          fi
-          echo "Version verified: $PKG_VERSION"
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-
-      - name: Install dependencies
-        run: uv sync
-
-      - name: Install Dify CLI
-        env:
-          DIFY_CLI_VERSION: "0.5.3"
-        run: |
-          mkdir -p "$HOME/.local/bin"
-          curl -fsSL \
-            "https://github.com/langgenius/dify-plugin-daemon/releases/download/${DIFY_CLI_VERSION}/dify-plugin-linux-amd64" \
-            -o "$HOME/.local/bin/dify"
-          chmod +x "$HOME/.local/bin/dify"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/dify" version
-
-      - name: Package dify plugin
-        run: |
-          mkdir -p dist
-          dify plugin package "$PWD" \
-            --output_path "$PWD/dist/actionbook.difypkg"
-          ls -la dist/
-
-      - name: Rename artifact with version
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          mv dist/actionbook.difypkg "dist/actionbook-v${VERSION}.difypkg"
-
-      - name: Create Dify Plugin GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          token: ${{ secrets.RELEASE_PAT || github.token }}
-          tag_name: actionbook-dify-plugin-v${{ steps.version.outputs.version }}
-          name: Actionbook Dify Plugin v${{ steps.version.outputs.version }}
-          files: |
-            packages/dify-plugin/dist/actionbook-v${{ steps.version.outputs.version }}.difypkg
-          body: |
-            ## Actionbook Dify Plugin v${{ steps.version.outputs.version }}
-
-            ### Install
-
-            **Option 1: Upload to Dify**
-            1. Download `actionbook-v${{ steps.version.outputs.version }}.difypkg` below
-            2. Go to your Dify instance → Plugins
-            3. Upload the `.difypkg` file
-
-            **Option 2: Dify Marketplace**
-            Search for "Actionbook" in the Dify plugin marketplace.
-          generate_release_notes: true

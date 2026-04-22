@@ -17,6 +17,13 @@
   "ignore": [
     "@actionbookdev/json-ui-site",
     "lib-rs-scraper",
-    "stagehand-agent"
+    "stagehand-agent",
+    "@actionbookdev/sdk",
+    "@actionbookdev/mcp",
+    "@actionbookdev/tools-ai-sdk",
+    "@actionbookdev/json-ui",
+    "@actionbookdev/openclaw-plugin",
+    "@actionbookdev/extension",
+    "@actionbookdev/dify-plugin"
   ]
 }
