@@ -1,6 +1,7 @@
 pub mod bridge;
 pub mod browser;
 pub mod cdp;
+pub mod cdp_error_classifier;
 pub mod cdp_session;
 pub mod chrome_reaper;
 pub mod registry;

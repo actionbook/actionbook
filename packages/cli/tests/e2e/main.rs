@@ -12,6 +12,7 @@
 mod batch_snapshot;
 mod bridge;
 mod browser_lifecycle;
+mod cdp_errors;
 mod cloud_mode;
 mod cookies;
 mod describe_state;

@@ -151,3 +151,57 @@ impl CliError {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::CliError;
+
+    #[test]
+    fn cdp_error_code_is_structured_for_stale_node_messages() {
+        let err = CliError::cdp_classified("No node with given id found".to_string(), None);
+        assert_eq!(err.error_code(), "CDP_NODE_NOT_FOUND");
+    }
+
+    #[test]
+    fn cdp_error_hint_is_actionable_for_not_interactable_messages() {
+        let err = CliError::cdp_classified("Could not compute box model.".to_string(), None);
+        assert!(
+            err.hint().contains("scroll"),
+            "expected actionable not-interactable hint, got {:?}",
+            err.hint()
+        );
+    }
+
+    #[test]
+    fn cdp_error_nav_timeout_is_retryable() {
+        let err = CliError::cdp_classified("Navigation timeout of 100 ms exceeded".to_string(), None);
+        assert_eq!(err.error_code(), "CDP_NAV_TIMEOUT");
+        assert!(err.is_retryable(), "navigation timeout should be retryable");
+    }
+
+    #[test]
+    fn cdp_error_target_closed_is_retryable() {
+        let err = CliError::cdp_classified("response channel dropped".to_string(), None);
+        assert_eq!(err.error_code(), "CDP_TARGET_CLOSED");
+        assert!(err.is_retryable(), "target closed should be retryable");
+    }
+
+    #[test]
+    fn cdp_error_protocol_errors_get_structured_code() {
+        let err = CliError::cdp_classified("CDP error -32602: invalid params".to_string(), Some(-32602));
+        assert_eq!(err.error_code(), "CDP_PROTOCOL_ERROR");
+    }
+
+    #[test]
+    fn cdp_error_generic_transport_failures_get_generic_code() {
+        let err = CliError::cdp_classified("socket parse exploded".to_string(), None);
+        assert_eq!(err.error_code(), "CDP_GENERIC");
+    }
+
+    #[test]
+    fn cdp_with_code_factory_bypasses_classifier() {
+        panic!(
+            "not yet implemented: add CliError::cdp_with_code factory and assert site override semantics"
+        );
+    }
+}
