@@ -474,6 +474,29 @@ Extension mode connects via a local WebSocket bridge with the following guarante
   For `EVAL_RESPONSE_NOT_OK` and `EVAL_RESPONSE_NOT_JSON`, inspect `error.details.body_head` (first ≤256 chars of the response body) to decide whether to retry — a 403 challenge page is not worth retrying blindly.
 </Tip>
 
+## CDP Error Handling
+
+Browser commands that interact with elements, navigate, or communicate via CDP return structured `CDP_*` error codes. Branch on `error.code`:
+
+| Code | Meaning | Best practice | Retryable |
+|------|---------|---------------|-----------|
+| `CDP_NODE_NOT_FOUND` | DOM node is stale or nonexistent | Call `snapshot` to refresh node refs then retry | No |
+| `CDP_NOT_INTERACTABLE` | Element exists but can't be acted on | Scroll into view, wait for visibility, or dismiss overlays | No |
+| `CDP_NAV_TIMEOUT` | Navigation or eval timeout | Increase `--timeout` or verify URL reachability | Yes |
+| `CDP_TARGET_CLOSED` | Tab navigated away or session torn down mid-command | Start a fresh session or re-attach to the tab | Yes |
+| `CDP_PROTOCOL_ERROR` | CDP response malformed (`-32xxx` codes) | Inspect `details.reason` and `details.cdp_code` | No |
+| `CDP_GENERIC` | Unclassified CDP error (transport/parse) | *(no specific remediation)* | No |
+
+When `error.code` is a `CDP_*` code, `error.details` includes `reason` (raw CDP message) and `cdp_code` (upstream numeric code) when available. `CDP_NAV_TIMEOUT` also includes `timeout_ms`.
+
+<Tip>
+  `CDP_NAV_TIMEOUT` and `CDP_TARGET_CLOSED` set `error.retryable = true` in the JSON envelope — orchestrators can auto-retry these. All other CDP codes require caller intervention (e.g. refreshing snapshot refs, scrolling elements into view).
+</Tip>
+
+<Note>
+  Some interaction paths (cookies, screenshots, PDF, etc.) still emit the legacy `CDP_ERROR` code. These are being migrated to the structured `CDP_*` taxonomy (ACT-999).
+</Note>
+
 ## Troubleshooting
 
 <AccordionGroup>

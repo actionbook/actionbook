@@ -141,6 +141,19 @@ actionbook browser wait navigation --session s1 --tab t1
 - `EVAL_STDIN_TTY` — `-` but stdin is a terminal. Pipe the expression.
 - `EVAL_STDIN_EMPTY` — stdin produced empty input. Verify the upstream pipeline.
 
+## CDP Error Handling
+
+Browser commands that interact with elements, navigate, or communicate via CDP return structured error codes — branch on `error.code`:
+
+- `CDP_NODE_NOT_FOUND` — DOM node is stale. Call `snapshot` to refresh refs then retry.
+- `CDP_NOT_INTERACTABLE` — element exists but can't be acted on. Scroll into view, wait for visibility, or dismiss overlays.
+- `CDP_NAV_TIMEOUT` — navigation timeout. Increase `--timeout` or verify URL reachability. **Retryable.**
+- `CDP_TARGET_CLOSED` — tab navigated away or session torn down mid-command. Start a fresh session. **Retryable.**
+- `CDP_PROTOCOL_ERROR` — CDP response malformed. Inspect `details.reason` and `details.cdp_code`.
+- `CDP_GENERIC` — unclassified CDP error (transport/parse). No specific remediation.
+
+`CDP_NAV_TIMEOUT` and `CDP_TARGET_CLOSED` are retryable (`error.retryable == true`). All other CDP codes require caller intervention before retrying. When `error.code` is a `CDP_*` code, `error.details` includes `reason` and `cdp_code` when available.
+
 ## Selectors
 
 Selectors should come from `actionbook browser snapshot` — not from prior knowledge or memory. Always snapshot first to get current refs, then use those refs to interact with the page.

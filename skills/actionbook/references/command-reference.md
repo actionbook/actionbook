@@ -175,6 +175,23 @@ Read `error.code` to branch on the failure class. For `EVAL_RESPONSE_NOT_OK` and
 
 **fill vs type:** `fill` clears the field and sets the value directly (like pasting). `type` simulates individual keystrokes and appends to existing content.
 
+**CDP error codes:** Browser commands that interact with elements, navigate, or communicate via CDP return structured error codes on failure. Branch on `error.code`:
+
+| Code | When | Hint | Retryable | `error.details` extras |
+|------|------|------|-----------|------------------------|
+| `CDP_NODE_NOT_FOUND` | DOM node is stale or nonexistent | Call `actionbook browser snapshot` to refresh node references then retry | No | `reason`, `cdp_code` |
+| `CDP_NOT_INTERACTABLE` | Element exists but can't be acted on (no box model) | Scroll it into view, wait for visibility, or dismiss overlays | No | `reason`, `cdp_code` |
+| `CDP_NAV_TIMEOUT` | Navigation or eval timeout | Increase `--timeout` or verify the target URL is reachable | Yes | `reason`, `cdp_code`, `timeout_ms` |
+| `CDP_TARGET_CLOSED` | CDP target closed mid-command (tab navigated away or session torn down) | Start a fresh session or re-attach to the tab | Yes | `reason`, `cdp_code` |
+| `CDP_PROTOCOL_ERROR` | CDP response malformed or missing expected fields (`-32xxx` error codes) | Inspect `details.reason` and `details.cdp_code` for the raw protocol error | No | `reason`, `cdp_code` |
+| `CDP_GENERIC` | CDP error that doesn't match any of the above (transport/parse) | *(no specific remediation)* | No | `reason` |
+
+`CDP_NAV_TIMEOUT` and `CDP_TARGET_CLOSED` are retryable (`error.retryable == true` in the JSON envelope). All other CDP codes require caller intervention before retrying.
+
+When `error.code` is a `CDP_*` code, `error.details` includes `reason` (raw CDP message) and `cdp_code` (upstream CDP numeric code, e.g. `-32000`) when available. Some sites include additional fields like `timeout_ms` for navigation timeouts.
+
+**Legacy `CDP_ERROR`**: Some interaction paths (cookies, screenshots, PDF, etc.) still emit the legacy `CDP_ERROR` code. These are being migrated to the structured `CDP_*` taxonomy (ACT-999).
+
 ## Observation
 
 ```bash
