@@ -197,6 +197,16 @@ git commit -m "[scope]feat: description"
 # 3. Push/merge to main — CI handles the rest
 ```
 
+#### Changeset body style
+
+The body (text under the frontmatter) becomes one bullet in `CHANGELOG.md`. Keep it short and caller-facing:
+
+- **One sentence.** No multi-paragraph bodies, no "Previously X, now Y" rationale, no CI/test/refactor detail.
+- **No "Thanks …" / courtesy prefixes.** Attribution is added by the changelog formatter; do not duplicate.
+- **Describe what the caller sees**, not implementation motivation. Prefer active voice.
+- Good: `` `browser eval` accepts expressions from `--file` or stdin when no positional is given. ``
+- Avoid: `Adds support for ... This change was motivated by ... The implementation refactors ...`
+
 ### CI Release Process (Two-Phase)
 
 **Phase 1 — Version PR**: When changesets are detected on `main`, CI automatically creates a "Version Packages" PR that updates package versions, CHANGELOGs, and runs `scripts/sync-versions.js` to keep derived manifests in sync.

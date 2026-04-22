@@ -1,7 +1,7 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@latest/schema.json",
   "changelog": [
-    "@changesets/changelog-github",
+    "./changelog.js",
     { "repo": "actionbook/actionbook" }
   ],
   "commit": false,
