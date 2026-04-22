@@ -30,7 +30,7 @@ fn global_timeout_applies_to_browser_commands() {
     assert_failure(&out, "global timeout on goto");
     let v = parse_json(&out);
     assert_eq!(v["command"], "browser goto");
-    assert_error_envelope(&v, "TIMEOUT");
+    assert_error_envelope(&v, "CDP_NAV_TIMEOUT");
     assert_eq!(v["error"]["retryable"], true);
     assert_eq!(v["context"]["session_id"], sid);
     assert_eq!(v["context"]["tab_id"], tid);
