@@ -68,6 +68,11 @@ const CDP_ALLOWLIST = {
   'Page.navigate': 'L2',
   'Page.navigateToHistoryEntry': 'L2',
   'Page.reload': 'L2',
+  'Target.activateTarget': 'L2',
+  'Target.attachToTarget': 'L2',
+  'Target.detachFromTarget': 'L2',
+  'Target.getTargets': 'L2',
+  'Target.setAutoAttach': 'L2',
   'Input.dispatchMouseEvent': 'L2',
   'Input.dispatchKeyEvent': 'L2',
   'DOM.focus': 'L2',
@@ -610,6 +615,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
       method: method,
       params: params || {},
       tabId: source.tabId,
+      ...(typeof source.sessionId === "string" ? { sessionId: source.sessionId } : {}),
     });
   }
 });
@@ -711,7 +717,7 @@ async function createOrReuseTab(targetUrl) {
 // --- Command Handler ---
 
 async function handleCommand(msg) {
-  const { id, method, params, tabId } = msg;
+  const { id, method, params, tabId, sessionId } = msg;
 
   if (!method) {
     return { id, error: { code: -32600, message: "Missing method" } };
@@ -735,7 +741,7 @@ async function handleCommand(msg) {
         },
       };
     }
-    return await handleCdpCommand(id, method, params || {}, tabId);
+    return await handleCdpCommand(id, method, params || {}, tabId, sessionId);
   } catch (err) {
     return {
       id,
@@ -1117,7 +1123,7 @@ function broadcastL3Status(pending) {
     });
 }
 
-async function handleCdpCommand(id, method, params, tabId) {
+async function handleCdpCommand(id, method, params, tabId, sessionId) {
   if (!attachedTabs.has(tabId)) {
     return {
       id,
@@ -1153,7 +1159,10 @@ async function handleCdpCommand(id, method, params, tabId) {
 
   try {
     const result = await chrome.debugger.sendCommand(
-      { tabId },
+      {
+        tabId,
+        ...(typeof sessionId === "string" ? { sessionId } : {}),
+      },
       method,
       params
     );
