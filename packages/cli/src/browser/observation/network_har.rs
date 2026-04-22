@@ -340,6 +340,22 @@ pub async fn execute_stop(cmd: &StopCmd, registry: &SharedRegistry) -> ActionRes
 
 // ── HAR 1.2 serialization ─────────────────────────────────────────────────────
 
+/// Serialize HAR entries and write pretty JSON to `path`, creating parent
+/// directories as needed. Reused by `har stop` and by the daemon SIGTERM
+/// flush path so both paths produce byte-identical output.
+pub(crate) fn write_har_file(
+    path: &std::path::Path,
+    entries: Vec<HarEntry>,
+    dropped_count: usize,
+) -> std::io::Result<()> {
+    let har = serialize_har(entries, dropped_count);
+    let har_str = serde_json::to_string_pretty(&har).map_err(std::io::Error::other)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, har_str)
+}
+
 fn serialize_har(entries: Vec<HarEntry>, dropped_count: usize) -> serde_json::Value {
     let entries_json: Vec<serde_json::Value> = entries.into_iter().map(har_entry_to_json).collect();
     let mut log = json!({

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::path::PathBuf;
 use std::process::Child;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -86,6 +87,11 @@ pub struct SessionEntry {
     pub next_tab_id: u32,
     /// Maximum number of network requests tracked per tab (ring buffer cap).
     pub max_tracked_requests: usize,
+    /// Opt-in HAR flush path captured from `browser start --har-out <PATH>`.
+    /// When set and exactly one `har_start` recorder is active at daemon
+    /// SIGTERM, the graceful shutdown path serializes the recorder to this
+    /// path. See `daemon::server` shutdown logic for the skip/flush rules.
+    pub har_out: Option<PathBuf>,
 }
 
 impl Drop for SessionEntry {
@@ -127,6 +133,7 @@ impl SessionEntry {
             provider_session: None,
             next_tab_id: 1,
             max_tracked_requests: crate::daemon::cdp_session::MAX_TRACKED_REQUESTS,
+            har_out: None,
         }
     }
 
