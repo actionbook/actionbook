@@ -27,6 +27,29 @@ fn har_start(session_id: &str, tab_id: &str) -> std::process::Output {
     )
 }
 
+fn har_start_with_max_entries(
+    session_id: &str,
+    tab_id: &str,
+    max_entries: usize,
+) -> std::process::Output {
+    let max_entries = max_entries.to_string();
+    headless_json(
+        &[
+            "browser",
+            "network",
+            "har",
+            "start",
+            "--session",
+            session_id,
+            "--tab",
+            tab_id,
+            "--max-entries",
+            &max_entries,
+        ],
+        15,
+    )
+}
+
 /// Start HAR recording capturing **all** resource types, not just the default
 /// xhr,fetch. Used by tests that navigate to static fixtures (network-load,
 /// redirect) where Document/Script/Stylesheet entries are the whole point.
@@ -100,6 +123,25 @@ fn wait_requests_done(session_id: &str, tab_id: &str) {
         10,
     );
     assert_success(&out, "wait requests done");
+}
+
+fn issue_bulk_requests(session_id: &str, tab_id: &str, count: usize, prefix: &str) {
+    let api_prefix = url_network_xhr().replace("/network-xhr", "/api/data?source=");
+    let expression = format!(
+        "await Promise.all(Array.from({{ length: {count} }}, (_, i) => fetch(`{api_prefix}{prefix}-${{i}}`).then(r => r.text())))"
+    );
+    let argv = [
+        "browser".to_string(),
+        "eval".to_string(),
+        expression,
+        "--session".to_string(),
+        session_id.to_string(),
+        "--tab".to_string(),
+        tab_id.to_string(),
+    ];
+    let args: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let out = headless_json(&args, 30);
+    assert_success(&out, "issue bulk requests");
 }
 
 fn har_json_from_file(path: &Path) -> serde_json::Value {
@@ -765,4 +807,74 @@ fn har_cross_session_independent_recording() {
     );
     // Session 1 should have entries (the static page load).
     assert!(!urls_s1.is_empty(), "session 1 HAR should not be empty");
+}
+
+mod truncation {
+    use super::*;
+
+    #[test]
+    fn har_truncation_surfaces_in_envelope() {
+        if skip() {
+            return;
+        }
+
+        let (sid, tid) = start_session(&url_network_xhr());
+        let _guard = SessionGuard::new(&sid);
+        wait_requests_done(&sid, &tid);
+
+        let start_out = har_start_with_max_entries(&sid, &tid, 5);
+        assert_success(&start_out, "har start --max-entries 5");
+
+        issue_bulk_requests(&sid, &tid, 12, "truncation");
+
+        let stop_out = har_stop(&sid, &tid);
+        assert_success(&stop_out, "har stop after truncation");
+        let v = parse_json(&stop_out);
+
+        assert_eq!(v["meta"]["truncated"], true);
+        let warnings = v["meta"]["warnings"].as_array().expect("meta warnings array");
+        let warning = warnings
+            .first()
+            .and_then(|value| value.as_str())
+            .expect("first warning string");
+        assert!(
+            warning.starts_with("HAR_TRUNCATED:"),
+            "expected HAR_TRUNCATED warning, got {warning:?}"
+        );
+        assert!(
+            warning.contains("max_entries=5"),
+            "expected warning to mention cap, got {warning:?}"
+        );
+        assert!(v["data"]["dropped"].as_u64().is_some_and(|dropped| dropped >= 5));
+        assert_eq!(v["data"]["max_entries"], 5);
+    }
+
+    #[test]
+    fn har_clean_stop_has_no_truncation_marker() {
+        if skip() {
+            return;
+        }
+
+        let (sid, tid) = start_session(&url_network_xhr());
+        let _guard = SessionGuard::new(&sid);
+        wait_requests_done(&sid, &tid);
+
+        let start_out = har_start_with_max_entries(&sid, &tid, 100);
+        assert_success(&start_out, "har start --max-entries 100");
+
+        issue_bulk_requests(&sid, &tid, 3, "clean-stop");
+
+        let stop_out = har_stop(&sid, &tid);
+        assert_success(&stop_out, "har stop clean");
+        let v = parse_json(&stop_out);
+
+        assert_ne!(v["meta"]["truncated"], true);
+        let warnings = v["meta"]["warnings"]
+            .as_array()
+            .expect("meta warnings array should exist");
+        assert!(
+            warnings.is_empty(),
+            "clean stop should not emit warnings, got {warnings:?}"
+        );
+    }
 }
