@@ -45,8 +45,8 @@ Provider examples:
   actionbook browser restart --session s1    # provider sessions: mints a fresh remote
 
 --session: get-or-create — reuses an existing session with the given ID, or creates one if not found.
---set-session-id: always creates — fails if the ID is already in use.
-Reuse: if a session with the same profile already exists, it is reused.
+--set-session-id: get-or-create — reuses an existing running session with the given ID (same as --session), otherwise creates a new one.
+Reuse: if a session with the same profile already exists, it is reused. Passing --profile with a value that does not match the bound profile fails with SESSION_PROFILE_MISMATCH.
 The returned session_id and tab_id are used to address all subsequent commands.")]
 pub struct Cmd {
     /// Browser mode
@@ -95,7 +95,7 @@ pub struct Cmd {
     #[arg(long, conflicts_with = "set_session_id")]
     #[serde(default)]
     pub session: Option<String>,
-    /// Specify a semantic session ID (always creates, fails if ID exists)
+    /// Specify a semantic session ID (get-or-create: reuse if a Running session with this ID exists, otherwise create)
     #[arg(long)]
     pub set_session_id: Option<String>,
     /// Enable stealth/anti-detection mode (default: true). Use --no-stealth to disable.
@@ -263,8 +263,10 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     };
 
     // ── Get-or-create by session ID (all modes) ──
-    // --session: reuse existing session if found, otherwise create with that ID.
-    if let Some(ref sid) = cmd.session {
+    // Both --session and --set-session-id reuse an existing Running session
+    // with the given ID; --set-session-id was originally force-create but
+    // collapsed to get-or-create in ACT-987 so scripts can be idempotent.
+    if let Some(sid) = cmd.session.as_ref().or(cmd.set_session_id.as_ref()) {
         let reg = registry.lock().await;
         if let Some(existing) = reg.get(sid) {
             match existing.status {
@@ -937,6 +939,33 @@ async fn reuse_running_session(
     registry: &SharedRegistry,
     target: ReuseTarget,
 ) -> ActionResult {
+    // Profile-mismatch guard: when the caller passes --profile explicitly, it
+    // must agree with the session's bound profile. Runs before navigate/CDP
+    // side effects so the rejection is side-effect-free.
+    if let Some(requested) = cmd.profile.as_deref() {
+        let reg = registry.lock().await;
+        if let Some(entry) = reg.get(&target.session_id)
+            && entry.profile != requested
+        {
+            let bound = entry.profile.clone();
+            let sid = target.session_id.clone();
+            let requested = requested.to_string();
+            drop(reg);
+            return ActionResult::fatal_with_details(
+                "SESSION_PROFILE_MISMATCH",
+                format!(
+                    "session '{sid}' is bound to profile '{bound}' but --profile '{requested}' was passed"
+                ),
+                format!("omit --profile or pass --profile {bound} to reuse"),
+                json!({
+                    "session_id": sid,
+                    "bound_profile": bound,
+                    "requested_profile": requested,
+                }),
+            );
+        }
+    }
+
     if let Some(url) = &cmd.open_url {
         let final_url = ensure_scheme(url).unwrap_or_else(|_| "about:blank".to_string());
         if let Some(ref cdp) = target.cdp
@@ -2141,8 +2170,13 @@ mod provider_start_tests {
         assert!(request.to_ascii_lowercase().contains("content-length: 0"));
     }
 
+    // Pre-existing test, renamed from `explicit_provider_session_conflict_fails_before_connect`
+    // to reflect ACT-987 semantics: `--set-session-id` now collapses to get-or-create, so
+    // an existing Running session with the same ID is reused instead of erroring. The
+    // unreachable `127.0.0.1:9` provider URL still proves the no-provider-connect
+    // invariant — the reuse path resolves locally before any connect attempt.
     #[tokio::test]
-    async fn explicit_provider_session_conflict_fails_before_connect() {
+    async fn explicit_set_session_id_reuses_existing_without_connecting() {
         let registry = new_shared_registry();
 
         let mut existing = SessionEntry::starting(
@@ -2183,11 +2217,11 @@ mod provider_start_tests {
         .await;
 
         match result {
-            ActionResult::Fatal { code, message, .. } => {
-                assert_eq!(code, "SESSION_ALREADY_EXISTS");
-                assert!(message.contains("session id 'hyp3' is already in use"));
+            ActionResult::Ok { data } => {
+                assert_eq!(data["session"]["session_id"], "hyp3");
+                assert_eq!(data["reused"], true);
             }
-            other => panic!("expected fatal result, got {other:?}"),
+            other => panic!("expected reused ok result, got {other:?}"),
         }
     }
 
