@@ -1119,13 +1119,76 @@ fn lifecycle_set_session_id_rejects_reuse_of_occupied_profile() {
 }
 
 /// When --set-session-id matches an already-running session's ID,
-/// the command must fail with SESSION_ALREADY_EXISTS, not silently reuse.
+/// the command must reuse the existing session instead of failing.
 #[test]
-fn lifecycle_set_session_id_rejects_duplicate_id() {
+fn set_session_id_twice_reuses_same_session() {
     if skip() {
         return;
     }
-    let (sid, prof) = unique_session("dupid");
+    let (sid, prof) = unique_session("setsidreuse");
+    let url = url_a();
+
+    let out = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            &prof,
+            "--set-session-id",
+            &sid,
+            "--open-url",
+            &url,
+        ],
+        30,
+    );
+    assert_success(&out, "start session");
+    let _guard = SessionGuard::new(&sid);
+    let v = parse_json(&out);
+    let first_session_id = v["data"]["session"]["session_id"]
+        .as_str()
+        .expect("first session id")
+        .to_string();
+    wait_url_contains(&sid, "t1", "page-a");
+
+    // Try to start again with the SAME session ID.
+    let out2 = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            &prof,
+            "--set-session-id",
+            &sid,
+            "--open-url",
+            &url,
+        ],
+        30,
+    );
+    assert_success(&out2, "duplicate set-session-id should reuse");
+    let v = parse_json(&out2);
+    assert_eq!(
+        v["data"]["session"]["session_id"], first_session_id,
+        "reused session must keep the original session_id"
+    );
+    assert!(
+        v["data"]["reused"].as_bool().unwrap_or(false),
+        "second --set-session-id start must be marked as reused"
+    );
+}
+
+#[test]
+fn set_session_id_profile_mismatch_errors() {
+    if skip() {
+        return;
+    }
+    let (sid, prof) = unique_session("setsidmismatch");
+    let (_, other_prof) = unique_session("setsidmismatch-alt");
 
     let out = headless_json(
         &[
@@ -1144,8 +1207,6 @@ fn lifecycle_set_session_id_rejects_duplicate_id() {
     assert_success(&out, "start session");
     let _guard = SessionGuard::new(&sid);
 
-    // Try to start again with the SAME session ID (different profile).
-    let (_, prof2) = unique_session("dupid2");
     let out = headless_json(
         &[
             "browser",
@@ -1154,27 +1215,37 @@ fn lifecycle_set_session_id_rejects_duplicate_id() {
             "local",
             "--headless",
             "--profile",
-            &prof2,
+            &other_prof,
             "--set-session-id",
             &sid,
         ],
         30,
     );
-    assert_failure(&out, "duplicate set-session-id must fail");
+    assert_failure(&out, "profile mismatch should fail for --set-session-id");
     let v = parse_json(&out);
-    assert_eq!(v["ok"], false);
-    assert_eq!(
-        v["error"]["code"], "SESSION_ALREADY_EXISTS",
-        "must return SESSION_ALREADY_EXISTS for duplicate ID"
-    );
+    assert_eq!(v["error"]["code"], "SESSION_PROFILE_MISMATCH");
+    assert_eq!(v["error"]["retryable"], false);
     let message = v["error"]["message"].as_str().unwrap_or("");
+    let hint = v["error"]["hint"].as_str().unwrap_or("");
     assert!(
         message.contains(&sid),
-        "duplicate-id message must identify the conflicting session id: {message}"
+        "message must mention session id: {message}"
     );
     assert!(
-        !message.contains(&prof2),
-        "duplicate-id message must not misreport the requested profile as occupied: {message}"
+        message.contains(&prof),
+        "message must mention bound profile: {message}"
+    );
+    assert!(
+        message.contains(&other_prof),
+        "message must mention requested profile: {message}"
+    );
+    assert!(
+        hint.contains("omit --profile"),
+        "hint must allow reusing without --profile: {hint}"
+    );
+    assert!(
+        hint.contains(&format!("--profile {prof}")),
+        "hint must point to the bound profile: {hint}"
     );
 }
 
@@ -2021,6 +2092,136 @@ fn lifecycle_session_flag_reuses_when_exists() {
     assert_eq!(
         v2["data"]["reused"], true,
         "second start should be marked as reused"
+    );
+}
+
+#[test]
+fn session_flag_profile_mismatch_errors() {
+    if skip() {
+        return;
+    }
+    let (sid, prof) = unique_session("sflagmismatch");
+    let (_, other_prof) = unique_session("sflagmismatch-alt");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            &prof,
+            "--session",
+            &sid,
+        ],
+        30,
+    );
+    assert_success(&out, "start session");
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            &other_prof,
+            "--session",
+            &sid,
+        ],
+        30,
+    );
+    assert_failure(&out, "profile mismatch should fail for --session");
+    let v = parse_json(&out);
+    assert_eq!(v["error"]["code"], "SESSION_PROFILE_MISMATCH");
+    assert_eq!(v["error"]["retryable"], false);
+    let message = v["error"]["message"].as_str().unwrap_or("");
+    let hint = v["error"]["hint"].as_str().unwrap_or("");
+    assert!(
+        message.contains(&sid),
+        "message must mention session id: {message}"
+    );
+    assert!(
+        message.contains(&prof),
+        "message must mention bound profile: {message}"
+    );
+    assert!(
+        message.contains(&other_prof),
+        "message must mention requested profile: {message}"
+    );
+    assert!(
+        hint.contains("omit --profile"),
+        "hint must allow reusing without --profile: {hint}"
+    );
+    assert!(
+        hint.contains(&format!("--profile {prof}")),
+        "hint must point to the bound profile: {hint}"
+    );
+}
+
+#[test]
+fn reuse_with_open_url_navigates_first_tab_in_place() {
+    if skip() {
+        return;
+    }
+    let (sid, prof) = unique_session("sflagopenurl");
+
+    let out = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            &prof,
+            "--session",
+            &sid,
+        ],
+        30,
+    );
+    assert_success(&out, "start initial session");
+    let _guard = SessionGuard::new(&sid);
+
+    let out = headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--session",
+            &sid,
+            "--open-url",
+            &url_b(),
+        ],
+        30,
+    );
+    assert_success(&out, "reuse session with open-url");
+    let v = parse_json(&out);
+    assert_eq!(v["data"]["session"]["session_id"], sid);
+    assert_eq!(v["data"]["reused"], true);
+
+    wait_url_contains(&sid, "t1", "page-b");
+    let status = headless_json(&["browser", "status", "--session", &sid], 10);
+    assert_success(&status, "status after reuse navigate");
+    let status = parse_json(&status);
+    let tabs = status["data"]["tabs"].as_array().expect("tabs array");
+    assert_eq!(
+        tabs.len(),
+        1,
+        "reuse with --open-url must not create a new tab"
+    );
+
+    let url_out = headless(&["browser", "url", "--session", &sid, "--tab", "t1"], 10);
+    assert_success(&url_out, "browser url after reuse navigate");
+    let url_text = stdout_str(&url_out);
+    assert!(
+        url_text.contains("page-b"),
+        "first tab must navigate in place, got: {url_text}"
     );
 }
 

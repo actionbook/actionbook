@@ -1991,6 +1991,50 @@ mod provider_start_tests {
     use crate::daemon::registry::{SessionEntry, SessionState, new_shared_registry};
     use crate::types::SessionId;
 
+    fn local_cmd(
+        session: Option<&str>,
+        set_session_id: Option<&str>,
+        profile: Option<&str>,
+    ) -> Cmd {
+        Cmd {
+            mode: Some(Mode::Local),
+            headless: Some(true),
+            profile: profile.map(str::to_string),
+            executable_path: None,
+            open_url: None,
+            tab_id: None,
+            cdp_endpoint: None,
+            provider: None,
+            header: vec![],
+            session: session.map(str::to_string),
+            set_session_id: set_session_id.map(str::to_string),
+            stealth: true,
+            max_tracked_requests: 500,
+            provider_env: ProviderEnv::new(),
+        }
+    }
+
+    async fn insert_running_local_session(
+        registry: &crate::daemon::registry::SharedRegistry,
+        sid: &str,
+        profile: &str,
+    ) {
+        let mut existing = SessionEntry::starting(
+            SessionId::new(sid).expect("session id"),
+            Mode::Local,
+            true,
+            true,
+            profile.to_string(),
+        );
+        existing.status = SessionState::Running;
+        existing.push_tab(
+            "native-tab-1".to_string(),
+            "about:blank".to_string(),
+            "Blank".to_string(),
+        );
+        registry.lock().await.insert(existing);
+    }
+
     fn spawn_single_response_server(
         response: &'static str,
     ) -> (String, thread::JoinHandle<String>) {
@@ -2208,6 +2252,150 @@ mod provider_start_tests {
             reg.get("dr3").map(|entry| entry.status),
             Some(SessionState::Starting)
         );
+    }
+
+    #[tokio::test]
+    async fn set_session_id_second_invocation_reuses_existing_running() {
+        let registry = new_shared_registry();
+        insert_running_local_session(&registry, "reuse1", crate::config::DEFAULT_PROFILE).await;
+
+        let result = execute(&local_cmd(None, Some("reuse1"), None), &registry).await;
+
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["session"]["session_id"], "reuse1");
+                assert_eq!(data["reused"], true);
+            }
+            other => panic!("expected reused ok result, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn set_session_id_with_mismatched_profile_errors_session_profile_mismatch() {
+        let registry = new_shared_registry();
+        insert_running_local_session(&registry, "reuse2", "foo").await;
+
+        let result = execute(&local_cmd(None, Some("reuse2"), Some("bar")), &registry).await;
+
+        match result {
+            ActionResult::Fatal {
+                code,
+                message,
+                hint,
+                ..
+            } => {
+                assert_eq!(code, "SESSION_PROFILE_MISMATCH");
+                assert!(
+                    message.contains("reuse2"),
+                    "message must mention session id: {message}"
+                );
+                assert!(
+                    message.contains("foo"),
+                    "message must mention bound profile: {message}"
+                );
+                assert!(
+                    message.contains("bar"),
+                    "message must mention requested profile: {message}"
+                );
+                assert!(
+                    hint.contains("omit --profile"),
+                    "hint must tell caller they may omit --profile: {hint}"
+                );
+                assert!(
+                    hint.contains("--profile foo"),
+                    "hint must tell caller how to reuse the bound profile: {hint}"
+                );
+            }
+            other => panic!("expected SESSION_PROFILE_MISMATCH fatal, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn session_flag_with_mismatched_profile_errors_session_profile_mismatch() {
+        let registry = new_shared_registry();
+        insert_running_local_session(&registry, "reuse3", "foo").await;
+
+        let result = execute(&local_cmd(Some("reuse3"), None, Some("bar")), &registry).await;
+
+        match result {
+            ActionResult::Fatal {
+                code,
+                message,
+                hint,
+                ..
+            } => {
+                assert_eq!(code, "SESSION_PROFILE_MISMATCH");
+                assert!(
+                    message.contains("reuse3"),
+                    "message must mention session id: {message}"
+                );
+                assert!(
+                    message.contains("foo"),
+                    "message must mention bound profile: {message}"
+                );
+                assert!(
+                    message.contains("bar"),
+                    "message must mention requested profile: {message}"
+                );
+                assert!(
+                    hint.contains("omit --profile"),
+                    "hint must tell caller they may omit --profile: {hint}"
+                );
+                assert!(
+                    hint.contains("--profile foo"),
+                    "hint must tell caller how to reuse the bound profile: {hint}"
+                );
+            }
+            other => panic!("expected SESSION_PROFILE_MISMATCH fatal, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn session_flag_with_matching_profile_reuses_ok() {
+        let registry = new_shared_registry();
+        insert_running_local_session(&registry, "reuse4", "foo").await;
+
+        let result = execute(&local_cmd(Some("reuse4"), None, Some("foo")), &registry).await;
+
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["session"]["session_id"], "reuse4");
+                assert_eq!(data["reused"], true);
+            }
+            other => panic!("expected reused ok result, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn set_session_id_with_matching_profile_reuses_ok() {
+        let registry = new_shared_registry();
+        insert_running_local_session(&registry, "reuse5", "foo").await;
+
+        let result = execute(&local_cmd(None, Some("reuse5"), Some("foo")), &registry).await;
+
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["session"]["session_id"], "reuse5");
+                assert_eq!(data["reused"], true);
+            }
+            other => panic!("expected reused ok result, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn set_session_id_with_no_profile_flag_reuses_ok() {
+        let registry = new_shared_registry();
+        insert_running_local_session(&registry, "reuse6", "foo").await;
+
+        let result = execute(&local_cmd(None, Some("reuse6"), None), &registry).await;
+
+        match result {
+            ActionResult::Ok { data } => {
+                assert_eq!(data["session"]["session_id"], "reuse6");
+                assert_eq!(data["reused"], true);
+            }
+            other => panic!("expected reused ok result, got {other:?}"),
+        }
     }
 }
 
