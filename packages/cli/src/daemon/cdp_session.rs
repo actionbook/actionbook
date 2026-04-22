@@ -1964,8 +1964,9 @@ pub async fn get_cdp_and_target(
 }
 
 /// Convert a CliError from CDP operations into an ActionResult.
-/// For cloud sessions, connection drops are surfaced as CLOUD_CONNECTION_LOST.
-/// For local sessions, they use the default_code.
+/// Structured `CliError::CdpError { .. }` keeps its classifier-assigned code,
+/// hint, and details (reason/cdp_code/site-specific fields) through the envelope;
+/// `default_code` is only used for genuinely unstructured/non-CDP errors.
 pub fn cdp_error_to_result(e: CliError, default_code: &str) -> crate::action_result::ActionResult {
     match &e {
         CliError::CloudConnectionLost(_) => crate::action_result::ActionResult::fatal_with_hint(
@@ -1978,6 +1979,12 @@ pub fn cdp_error_to_result(e: CliError, default_code: &str) -> crate::action_res
             e.to_string(),
             "the session was closed while a command was still in flight — start a new session",
         ),
+        CliError::CdpError { .. } => crate::action_result::ActionResult::fatal_with_details(
+            e.error_code(),
+            e.to_string(),
+            e.hint(),
+            e.envelope_details(),
+        ),
         _ => crate::action_result::ActionResult::fatal(default_code, e.to_string()),
     }
 }
@@ -1987,10 +1994,49 @@ pub fn cdp_error_to_result(e: CliError, default_code: &str) -> crate::action_res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daemon::cdp_error_classifier::CdpErrorCode;
     use futures_util::stream::SplitSink;
     use std::net::SocketAddr;
     use tokio::net::TcpListener;
     use tokio_tungstenite::tungstenite::Message;
+
+    #[test]
+    fn cdp_error_to_result_preserves_structured_code_over_default() {
+        let e = CliError::cdp_with_code(
+            CdpErrorCode::NotInteractable,
+            "CDP error -32000: Could not compute box model",
+            Some(-32000),
+        );
+        let r = cdp_error_to_result(e, "CDP_ERROR");
+        let crate::action_result::ActionResult::Fatal {
+            code,
+            hint,
+            details,
+            ..
+        } = r
+        else {
+            panic!("expected Fatal variant");
+        };
+        assert_eq!(code, "CDP_NOT_INTERACTABLE");
+        assert!(
+            !hint.is_empty(),
+            "expected structured hint from CdpErrorCode"
+        );
+        let details = details.expect("structured CdpError should carry envelope_details");
+        assert_eq!(details["cdp_code"], -32000);
+        assert!(details["reason"].is_string());
+    }
+
+    #[test]
+    fn cdp_error_to_result_uses_default_code_for_non_cdp_errors() {
+        let e = CliError::CdpConnectionFailed("handshake aborted".to_string());
+        let r = cdp_error_to_result(e, "CDP_CONNECTION_FAILED");
+        let crate::action_result::ActionResult::Fatal { code, details, .. } = r else {
+            panic!("expected Fatal variant");
+        };
+        assert_eq!(code, "CDP_CONNECTION_FAILED");
+        assert!(details.is_none());
+    }
 
     #[test]
     fn base64_decoded_len_matches_reference_for_sampled_inputs() {
