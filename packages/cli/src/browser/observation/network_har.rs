@@ -20,7 +20,7 @@ use crate::output::ResponseContext;
 /// recordings.
 const DEFAULT_MAX_BODY_SIZE: usize = 5 * 1024 * 1024;
 /// Default ring-buffer cap on number of entries. Oldest evicted when full.
-const DEFAULT_MAX_ENTRIES: usize = 2000;
+const DEFAULT_MAX_ENTRIES: usize = 10000;
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
@@ -278,7 +278,7 @@ pub async fn execute_stop(cmd: &StopCmd, registry: &SharedRegistry) -> ActionRes
     // Peek at entries without removing the recorder yet.  The recorder is
     // only committed (removed) after the file has been written successfully,
     // so an I/O failure leaves the data intact and the user can retry.
-    let (entries, dropped_count) = match cdp.har_stop(&cdp_session_id).await {
+    let (entries, dropped_count, max_entries) = match cdp.har_stop(&cdp_session_id).await {
         Ok(v) => v,
         Err("HAR_NOT_RECORDING") => {
             return ActionResult::fatal(
@@ -322,11 +322,20 @@ pub async fn execute_stop(cmd: &StopCmd, registry: &SharedRegistry) -> ActionRes
     // File written successfully — release the recorder from memory.
     cdp.har_commit(&cdp_session_id).await;
 
-    ActionResult::ok(json!({
+    let mut payload = json!({
         "path": out_path.to_string_lossy().as_ref(),
         "count": count,
         "dropped": dropped_count,
-    }))
+        "max_entries": max_entries,
+    });
+    if dropped_count > 0 {
+        let warning = format!(
+            "HAR_TRUNCATED: {dropped_count} earlier entries dropped (max_entries={max_entries}); raise --max-entries or stop recording sooner to keep the full trace"
+        );
+        payload["__truncated"] = json!(true);
+        payload["__warnings"] = json!([warning]);
+    }
+    ActionResult::ok(payload)
 }
 
 // ── HAR 1.2 serialization ─────────────────────────────────────────────────────
@@ -650,6 +659,154 @@ fn default_har_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::SocketAddr;
+
+    use clap::Parser;
+    use futures_util::{SinkExt, StreamExt, stream::SplitSink};
+    use serde_json::Value;
+    use tokio::net::TcpListener;
+    use tokio::sync::mpsc;
+    use tokio_tungstenite::tungstenite::Message;
+
+    use crate::action_result::ActionResult;
+    use crate::cli::{BrowserCommands, Cli, Commands, HarCommands, NetworkCommands};
+    use crate::daemon::cdp_session::CdpSession;
+    use crate::daemon::registry::{SessionEntry, SessionState, new_shared_registry};
+    use crate::types::{Mode, SessionId};
+
+    type MockStream = tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>;
+    type MockReader = futures_util::stream::SplitStream<MockStream>;
+    type MockWriter = SplitSink<MockStream, Message>;
+
+    async fn mock_ws_server() -> (String, mpsc::Receiver<(MockReader, MockWriter)>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let url = format!("ws://127.0.0.1:{}", addr.port());
+
+        let (tx, rx) = mpsc::channel(4);
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                let ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+                let (writer, reader) = ws.split();
+                if tx.send((reader, writer)).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        (url, rx)
+    }
+
+    async fn read_json<S>(reader: &mut S) -> Value
+    where
+        S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+    {
+        loop {
+            let msg = reader.next().await.unwrap().unwrap();
+            if let Message::Text(t) = msg {
+                return serde_json::from_str(t.as_ref()).unwrap();
+            }
+        }
+    }
+
+    async fn send_json<S>(writer: &mut S, value: Value)
+    where
+        S: SinkExt<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+    {
+        writer
+            .send(Message::Text(value.to_string().into()))
+            .await
+            .unwrap();
+    }
+
+    fn parse_start_cmd_without_max_entries() -> StartCmd {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "network",
+            "har",
+            "start",
+            "--session",
+            "s1",
+            "--tab",
+            "t1",
+        ])
+        .expect("parse cli");
+
+        match cli.command.expect("command") {
+            Commands::Browser {
+                command:
+                    BrowserCommands::Network {
+                        command:
+                            NetworkCommands::Har {
+                                command: HarCommands::Start(cmd),
+                            },
+                    },
+            } => cmd,
+            other => panic!("unexpected command tree: {other:?}"),
+        }
+    }
+
+    async fn setup_extension_registry() -> (
+        crate::daemon::registry::SharedRegistry,
+        CdpSession,
+        MockWriter,
+    ) {
+        let (url, mut conns) = mock_ws_server().await;
+        let cdp = CdpSession::connect(&url).await.unwrap();
+        let (mut reader, mut writer) = conns.recv().await.unwrap();
+
+        let registry = new_shared_registry();
+        let mut entry = SessionEntry::starting(
+            SessionId::new_unchecked("s1"),
+            Mode::Extension,
+            true,
+            false,
+            "profile-har-test".to_string(),
+        );
+        entry.status = SessionState::Running;
+        entry.cdp = Some(cdp.clone());
+        entry.push_tab(
+            "100".to_string(),
+            "about:blank".to_string(),
+            "Blank".to_string(),
+        );
+        registry.lock().await.insert(entry);
+
+        let cdp_clone = cdp.clone();
+        let register = tokio::spawn(async move {
+            cdp_clone.register_extension_tab("100").await;
+        });
+        let enable = read_json(&mut reader).await;
+        assert_eq!(enable["method"], "Network.enable");
+        assert_eq!(enable["tabId"], 100);
+        send_json(&mut writer, json!({"id": enable["id"], "result": {}})).await;
+        register.await.unwrap();
+
+        (registry, cdp, writer)
+    }
+
+    async fn send_request_will_be_sent(writer: &mut MockWriter, tab_id: u64, request_id: &str) {
+        send_json(
+            writer,
+            json!({
+                "method": "Network.requestWillBeSent",
+                "tabId": tab_id,
+                "params": {
+                    "requestId": request_id,
+                    "timestamp": 1.0,
+                    "wallTime": 1_710_000_000.0,
+                    "type": "XHR",
+                    "request": {
+                        "url": format!("https://example.test/api/{request_id}"),
+                        "method": "GET",
+                        "headers": {},
+                    }
+                }
+            }),
+        )
+        .await;
+    }
 
     #[test]
     fn parse_resource_types_known_tokens_canonicalize() {
@@ -675,5 +832,119 @@ mod tests {
     fn parse_resource_types_mixed_valid_invalid_is_error() {
         let err = parse_resource_types("xhr,bogus").unwrap_err();
         assert_eq!(err, vec!["bogus".to_string()]);
+    }
+
+    #[test]
+    fn default_max_entries_is_10000() {
+        assert_eq!(DEFAULT_MAX_ENTRIES, 10000);
+    }
+
+    #[tokio::test]
+    async fn start_command_without_flag_uses_default_max_entries() {
+        let cmd = parse_start_cmd_without_max_entries();
+        let (registry, _cdp, _writer) = setup_extension_registry().await;
+        let result = execute_start(&cmd, &registry).await;
+        let data = match result {
+            ActionResult::Ok { data } => data,
+            other => panic!("expected ok start result, got {other:?}"),
+        };
+        assert_eq!(data["max_entries"], 10000);
+    }
+
+    #[tokio::test]
+    async fn execute_stop_emits_truncated_marker_when_dropped_nonzero() {
+        let (registry, cdp, mut writer) = setup_extension_registry().await;
+        cdp.har_start(
+            "tab:100",
+            "100",
+            HashSet::new(),
+            10,
+            true,
+            DEFAULT_MAX_BODY_SIZE,
+        )
+        .await
+        .expect("start har");
+
+        for idx in 0..15 {
+            send_request_will_be_sent(&mut writer, 100, &format!("req-{idx}")).await;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let out = temp.path().join("truncated.har");
+        let result = execute_stop(
+            &StopCmd {
+                session: "s1".to_string(),
+                tab: "t1".to_string(),
+                out: Some(out.to_string_lossy().to_string()),
+            },
+            &registry,
+        )
+        .await;
+        let data = match result {
+            ActionResult::Ok { data } => data,
+            other => panic!("expected ok stop result, got {other:?}"),
+        };
+
+        assert_eq!(data["__truncated"], true);
+        let warnings = data["__warnings"].as_array().expect("__warnings array");
+        let warning = warnings
+            .first()
+            .and_then(|v| v.as_str())
+            .expect("warning string");
+        assert!(
+            warning.starts_with("HAR_TRUNCATED: 5 earlier entries dropped (max_entries=10); "),
+            "expected truncation warning prefix, got {warning:?}"
+        );
+        assert_eq!(data["max_entries"], 10);
+        assert!(data["dropped"].as_u64().is_some_and(|v| v > 0));
+    }
+
+    #[tokio::test]
+    async fn execute_stop_omits_truncated_marker_on_clean_stop() {
+        let (registry, cdp, mut writer) = setup_extension_registry().await;
+        cdp.har_start(
+            "tab:100",
+            "100",
+            HashSet::new(),
+            10,
+            true,
+            DEFAULT_MAX_BODY_SIZE,
+        )
+        .await
+        .expect("start har");
+
+        for idx in 0..3 {
+            send_request_will_be_sent(&mut writer, 100, &format!("clean-{idx}")).await;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let out = temp.path().join("clean.har");
+        let result = execute_stop(
+            &StopCmd {
+                session: "s1".to_string(),
+                tab: "t1".to_string(),
+                out: Some(out.to_string_lossy().to_string()),
+            },
+            &registry,
+        )
+        .await;
+        let data = match result {
+            ActionResult::Ok { data } => data,
+            other => panic!("expected ok stop result, got {other:?}"),
+        };
+
+        assert!(
+            data.get("__truncated").is_none() || data["__truncated"].as_bool() == Some(false),
+            "clean stop should not mark truncation: {data:?}"
+        );
+        assert!(
+            data.get("__warnings").is_none()
+                || data["__warnings"]
+                    .as_array()
+                    .is_some_and(|warnings| warnings.is_empty()),
+            "clean stop should omit warnings: {data:?}"
+        );
     }
 }
