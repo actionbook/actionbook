@@ -54,6 +54,8 @@ Every browser command is **stateless** — pass `--session` and `--tab` explicit
 actionbook browser start --set-session-id s1
 ```
 
+Both `--session` and `--set-session-id` are get-or-create: they reuse a Running session with the given ID, or create one if not found. If `--profile` is passed and does not match the session's bound profile, the command fails with `SESSION_PROFILE_MISMATCH`.
+
 ### Core workflow: snapshot, act, wait
 
 ```bash

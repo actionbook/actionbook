@@ -36,7 +36,7 @@ actionbook man youtube                                     # Alias for manual
 
 ```bash
 actionbook browser start                                   # Start a browser session
-actionbook browser start --set-session-id s1               # Start with a custom session ID
+actionbook browser start --set-session-id s1               # Get-or-create: reuse if Running, create if not (same as --session)
 actionbook browser start --session s1                      # Get-or-create: reuse if exists, create if not
 actionbook browser start --headless                        # Start headless
 actionbook browser start --mode cloud --cdp-endpoint <ws>  # Connect to cloud browser
@@ -60,6 +60,8 @@ actionbook browser restart --session s1                    # Restart a session
 - `meta.warnings: ["session not found in daemon — already closed or daemon restarted"]`
 
 If another close is already in flight for the same session, the command returns `SESSION_CLOSING` (fatal, unchanged). Safe to call unconditionally during cleanup without checking session existence first. Read `meta.warnings` to distinguish a fresh close from an already-gone session.
+
+Both `--session` and `--set-session-id` are get-or-create: they reuse a Running session with the given ID, or create one if not found. `--set-session-id` is a functional alias for `--session`. When reusing, if `--profile` is passed and does not match the session's bound profile, the command fails with `SESSION_PROFILE_MISMATCH` (retryable: false). Omitting `--profile` or passing a matching value allows reuse.
 
 Supported cloud providers: `driver` (`DRIVER_API_KEY`), `hyperbrowser` (`HYPERBROWSER_API_KEY`), `browseruse` (`BROWSER_USE_API_KEY`). `-p` is mutually exclusive with `--cdp-endpoint` and `--mode local/extension`.
 

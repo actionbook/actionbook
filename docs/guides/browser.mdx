@@ -212,6 +212,12 @@ actionbook browser restart --session s1              # restart, preserving sessi
 actionbook browser close --session s1                # close a session
 ```
 
+Both `--session` and `--set-session-id` are get-or-create: they reuse a Running session with the given ID, or create one if not found.
+
+<Tip>
+  When reusing a session, if `--profile` is passed and does not match the session's bound profile, the command fails with `SESSION_PROFILE_MISMATCH`. Omit `--profile` or pass the matching value to reuse.
+</Tip>
+
 ### Tab Management
 
 ```bash

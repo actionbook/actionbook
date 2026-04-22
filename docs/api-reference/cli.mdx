@@ -121,7 +121,7 @@ Start or attach a browser session. Entry point for all modes including cloud pro
 | `--mode <mode>` | Browser mode: `local`, `extension`, or `cloud` |
 | `-p, --provider <name>` | Cloud browser provider: `driver`, `hyperbrowser`, `browseruse`. Implies `--mode cloud` |
 | `--session <id>` | Session ID (get-or-create: reuse if exists, create if not) |
-| `--set-session-id <id>` | Always create a new session with this ID (fails if already exists) |
+| `--set-session-id <id>` | Session ID (get-or-create: same as `--session`) |
 | `--open-url <url>` | Open this URL on start |
 | `--cdp-endpoint <url>` | Connect to an existing CDP endpoint |
 | `--header <KEY:VALUE>` | Headers for CDP endpoint (may be repeated) |
@@ -142,6 +142,16 @@ actionbook browser start --mode cloud --cdp-endpoint wss://browser.example.com/w
 <Note>
   `-p` is mutually exclusive with `--cdp-endpoint` and `--mode local/extension`.
   See [Cloud Providers](/guides/browser#cloud-providers) for provider-specific env vars.
+</Note>
+
+<Note>
+  Both `--session` and `--set-session-id` are **get-or-create**: they reuse a Running session with the given ID, or create one if not found. When reusing, if `--profile` is passed and does not match the session's bound profile, the command fails with `SESSION_PROFILE_MISMATCH`:
+
+  - `error.code`: `"SESSION_PROFILE_MISMATCH"` (retryable: false)
+  - `error.hint`: `"omit --profile or pass --profile <bound> to reuse"`
+  - `error.details`: `{ session_id, bound_profile, requested_profile }`
+
+  Omitting `--profile` or passing a matching value allows reuse.
 </Note>
 
 #### Other Session Commands
