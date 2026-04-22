@@ -153,6 +153,13 @@ actionbook browser close --session s1                 # Close a session (alias: 
 actionbook browser restart --session s1               # Restart, preserving session_id
 ```
 
+<Note>
+  `browser close` is **idempotent**: closing an unknown or already-closed session returns `ok: true` with `meta.warnings` instead of a fatal error. This prevents false alarms in orchestrators that call close unconditionally during cleanup.
+
+  - Unknown/already-closed session: `ok: true`, `data: { status: "closed", closed_tabs: 0 }`, `meta.warnings: ["session not found in daemon — already closed or daemon restarted"]`
+  - Another close already in flight: `SESSION_CLOSING` fatal (unchanged)
+</Note>
+
 ### Tab Management
 
 ```bash

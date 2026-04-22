@@ -49,9 +49,17 @@ actionbook browser start --max-tracked-requests 1000       # Custom network buff
 
 actionbook browser list-sessions                           # List all active sessions (includes max_tracked_requests)
 actionbook browser status --session s1                     # Show session status
-actionbook browser close --session s1                      # Close a session
+actionbook browser close --session s1                      # Close a session (idempotent)
 actionbook browser restart --session s1                    # Restart a session
 ```
+
+`browser close` is **idempotent**: closing an unknown or already-closed session returns `ok: true` with `meta.warnings` instead of a fatal error. Envelope shape for an already-gone session:
+
+- `ok: true`
+- `data: { status: "closed", closed_tabs: 0 }`
+- `meta.warnings: ["session not found in daemon — already closed or daemon restarted"]`
+
+If another close is already in flight for the same session, the command returns `SESSION_CLOSING` (fatal, unchanged). Safe to call unconditionally during cleanup without checking session existence first. Read `meta.warnings` to distinguish a fresh close from an already-gone session.
 
 Supported cloud providers: `driver` (`DRIVER_API_KEY`), `hyperbrowser` (`HYPERBROWSER_API_KEY`), `browseruse` (`BROWSER_USE_API_KEY`). `-p` is mutually exclusive with `--cdp-endpoint` and `--mode local/extension`.
 

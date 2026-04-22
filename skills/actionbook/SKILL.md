@@ -156,6 +156,14 @@ When you hit a login/auth wall (sign-in page, password prompt, MFA/OTP, CAPTCHA,
 
 Do not switch tools just because a login page appears.
 
+## Session Cleanup
+
+`browser close` is idempotent — closing an unknown or already-closed session returns `ok: true` with a warning in `meta.warnings`, not a fatal error. A typo in the session ID or a session that was already torn down is no longer an error condition.
+
+- Safe to call `browser close` unconditionally during cleanup without checking session existence first.
+- Read `meta.warnings` to distinguish a fresh close from an already-gone session. Do not treat a warning inside an `ok: true` response as a signal that the session is still alive.
+- If another close is already in flight for the same session, the command returns `SESSION_CLOSING` (fatal).
+
 ## References
 
 | Reference | Description |
