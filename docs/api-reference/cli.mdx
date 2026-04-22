@@ -348,7 +348,17 @@ actionbook browser network har stop --session s1 --tab t1             # Stop and
 actionbook browser network har stop --session s1 --tab t1 --out /tmp/trace.har  # Custom output path
 ```
 
-HAR recording is per-tab. Multiple tabs or sessions can record independently. Output is HAR 1.2 JSON with request/response headers and timings (no response bodies — use `--dump` for that). If `--out` is omitted, a timestamped file is created in `~/.actionbook/har/`. Redirect chains produce one entry per hop. Error codes: `HAR_ALREADY_RECORDING`, `HAR_NOT_RECORDING`.
+HAR recording is per-tab. Multiple tabs or sessions can record independently. `har start` accepts `--max-entries N` to set the ring-buffer cap (default: 10000). Output is HAR 1.2 JSON with request/response headers and timings (no response bodies — use `--dump` for that). If `--out` is omitted, a timestamped file is created in `~/.actionbook/har/`. Redirect chains produce one entry per hop. Error codes: `HAR_ALREADY_RECORDING`, `HAR_NOT_RECORDING`.
+
+<Note>
+  When `har stop` completes and entries were dropped due to the ring-buffer cap, the envelope signals truncation:
+
+  - `meta.truncated == true`
+  - `meta.warnings` contains `"HAR_TRUNCATED: <N> earlier entries dropped (max_entries=<cap>); raise --max-entries or stop recording sooner to keep the full trace"`
+  - `data.max_entries` — the configured cap at stop time
+
+  On a clean stop (`dropped == 0`), `meta.truncated` is `false` and `meta.warnings` is empty. `data.path`, `data.count`, and `data.dropped` are always present.
+</Note>
 
 ### Cookies & Storage
 

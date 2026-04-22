@@ -177,6 +177,10 @@ Do not switch tools just because a login page appears.
 - Read `meta.warnings` to distinguish a fresh close from an already-gone session. Do not treat a warning inside an `ok: true` response as a signal that the session is still alive.
 - If another close is already in flight for the same session, the command returns `SESSION_CLOSING` (fatal).
 
+## HAR Recording
+
+`network har start` accepts `--max-entries N` to set the ring-buffer cap (default: 10000). When `har stop` detects dropped entries (`data.dropped > 0`), the envelope includes `meta.truncated = true` and a `HAR_TRUNCATED` warning in `meta.warnings`. Read `data.max_entries` to see the configured cap. Raise `--max-entries` or stop recording sooner to keep the full trace.
+
 ## References
 
 | Reference | Description |

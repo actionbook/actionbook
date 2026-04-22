@@ -294,6 +294,12 @@ actionbook browser network har start --session s1 --tab t1         # start HAR r
 actionbook browser network har stop --session s1 --tab t1          # stop and export HAR 1.2 file
 ```
 
+`har start` accepts `--max-entries N` to set the ring-buffer cap (default: 10000).
+
+<Tip>
+  When `har stop` detects dropped entries, the envelope includes `meta.truncated = true` and a `HAR_TRUNCATED` warning in `meta.warnings` with the drop count and configured cap. Read `data.dropped` and `data.max_entries` to decide whether to raise `--max-entries` or stop recording sooner.
+</Tip>
+
 ### Cookie & Storage Operations
 
 ```bash
