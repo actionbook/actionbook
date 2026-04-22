@@ -1,5 +1,33 @@
 # @actionbookdev/cli
 
+## 1.6.0
+
+### Minor Changes
+
+- [#590](https://github.com/actionbook/actionbook/pull/590) [`5396a14`](https://github.com/actionbook/actionbook/commit/5396a14e7543cf7a15a4a20605e9fa7752570815) Thanks [@mcfn](https://github.com/mcfn)! - Structured CDP error taxonomy. CDP failures now surface through a fixed set of codes in `error.code` — `CDP_NAV_TIMEOUT`, `CDP_NOT_INTERACTABLE`, `CDP_NODE_NOT_FOUND`, `CDP_TARGET_CLOSED`, `CDP_PROTOCOL_ERROR`, `CDP_GENERIC` — each with a stable `retryable` flag and `error.details` containing `cdp_code` (upstream numeric code) and `reason` (raw message). Replaces the previous single `CDP_ERROR` literal for classified cases.
+
+  Behavior change: `CDP_NAV_TIMEOUT` and `CDP_TARGET_CLOSED` now report `retryable: true` (previously all CDP errors were `retryable: false`). Callers that key retry decisions off the envelope's `retryable` flag should verify the new behavior matches their expectations. Fifteen-plus hand-crafted `CDP_ERROR` literals remain as a legacy fallback and will migrate in a follow-up.
+
+- [#590](https://github.com/actionbook/actionbook/pull/590) [`5396a14`](https://github.com/actionbook/actionbook/commit/5396a14e7543cf7a15a4a20605e9fa7752570815) Thanks [@mcfn](https://github.com/mcfn)! - `browser eval` now accepts expression input from a file via `--file <path>` or from stdin when the positional expression is omitted. Existing positional-arg usage is unchanged. Useful for evaluating multi-line scripts without escaping them on the shell.
+
+- [#590](https://github.com/actionbook/actionbook/pull/590) [`5396a14`](https://github.com/actionbook/actionbook/commit/5396a14e7543cf7a15a4a20605e9fa7752570815) Thanks [@mcfn](https://github.com/mcfn)! - `browser eval` now returns a structured error envelope with an `EvalErrorCode` taxonomy in `error.code`: `EVAL_COMPILE_ERROR`, `EVAL_RUNTIME_ERROR`, `EVAL_TIMEOUT`, `EVAL_SERIALIZATION_ERROR`, `EVAL_INVALID_INPUT`. The raw V8 reason and line/column offsets are preserved under `error.details`. Replaces the previous free-form error message so callers can branch on the code instead of string-matching.
+
+- [#590](https://github.com/actionbook/actionbook/pull/590) [`5396a14`](https://github.com/actionbook/actionbook/commit/5396a14e7543cf7a15a4a20605e9fa7752570815) Thanks [@mcfn](https://github.com/mcfn)! - HAR truncation now surfaces explicitly in the `browser network har stop` envelope. When the FIFO ring buffer dropped older entries, the response adds `meta.truncated: true`, `meta.warnings: ["HAR_TRUNCATED: N earlier entries dropped (max_entries=M); raise --max-entries or stop recording sooner to keep the full trace"]`, and `data.max_entries` (the configured cap). Clean stops emit no truncation marker. `DEFAULT_MAX_ENTRIES` is bumped from 2000 to 10000 so longer interactive sessions fit without truncation.
+
+- [#572](https://github.com/actionbook/actionbook/pull/572) [`e8b5a03`](https://github.com/actionbook/actionbook/commit/e8b5a0308a54eb59a278199caabe3893ef9a2752) Thanks [@mcfn](https://github.com/mcfn)! - Add optional `HYPERBROWSER_PROXY_COUNTRY` env var to pin the Hyperbrowser proxy exit region (ISO country code, e.g. `US`, `JP`). Forwarded as `proxyCountry` on the create-session request; when unset, the field is omitted and Hyperbrowser's own default applies. Matches the existing per-provider pattern (`DRIVER_DEV_COUNTRY`, `BROWSER_USE_PROXY_COUNTRY_CODE`).
+
+- [#590](https://github.com/actionbook/actionbook/pull/590) [`5396a14`](https://github.com/actionbook/actionbook/commit/5396a14e7543cf7a15a4a20605e9fa7752570815) Thanks [@mcfn](https://github.com/mcfn)! - `browser start --set-session-id <id>` is now get-or-create (functional alias for `--session <id>`). Previously it always created a new session and failed with `SESSION_ALREADY_EXISTS` when the ID was already running; scripts calling it twice for idempotent attach had to handle that error. Both flags now reuse a Running session with the given ID or create one if not found.
+
+  When reusing, passing `--profile <name>` that does not match the session's bound profile fails with the new `SESSION_PROFILE_MISMATCH` error code (retryable: false). `error.hint` explains the required profile; `error.details` includes `session_id`, `bound_profile`, and `requested_profile`. Omit `--profile` or pass the matching value to reuse successfully.
+
+### Patch Changes
+
+- [#590](https://github.com/actionbook/actionbook/pull/590) [`5396a14`](https://github.com/actionbook/actionbook/commit/5396a14e7543cf7a15a4a20605e9fa7752570815) Thanks [@mcfn](https://github.com/mcfn)! - `browser close` is now idempotent. When the target session is already gone (never started, or closed by another caller), the command returns success with `meta.warnings: ["SESSION_ALREADY_GONE: ..."]` instead of a fatal error. Cleanup scripts can call `browser close` unconditionally without having to first check session existence. A concurrent close for the same session still returns the fatal `SESSION_CLOSING` code (unchanged).
+
+- [#590](https://github.com/actionbook/actionbook/pull/590) [`5396a14`](https://github.com/actionbook/actionbook/commit/5396a14e7543cf7a15a4a20605e9fa7752570815) Thanks [@mcfn](https://github.com/mcfn)! - Daemon now sweeps empty session directories and stale `__fetch_*.json` files at start and stop. Prevents `~/.actionbook/sessions/` from accumulating orphan directories when sessions exit abnormally.
+
+- [#590](https://github.com/actionbook/actionbook/pull/590) [`5396a14`](https://github.com/actionbook/actionbook/commit/5396a14e7543cf7a15a4a20605e9fa7752570815) Thanks [@mcfn](https://github.com/mcfn)! - `wait network-idle` is now edge-triggered: pre-existing long-lived connections at the start of the wait (websockets, long-poll requests that opened before the command ran) are ignored. Previously these could keep the wait from ever resolving on pages with persistent background traffic.
+
 ## 1.5.1
 
 ### Patch Changes

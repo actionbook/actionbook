@@ -1,6 +1,6 @@
 [package]
 name = "actionbook-cli"
-version = "1.5.1"
+version = "1.6.0"
 edition = "2024"
 description = "Actionbook CLI - Browser automation for AI agents"
 license = "MIT"
