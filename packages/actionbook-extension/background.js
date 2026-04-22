@@ -1,7 +1,12 @@
 // Actionbook Browser Bridge - Background Service Worker
-// Connects to the CLI bridge server via WebSocket and executes browser commands
+// Connects to either the local CLI bridge (`local` mode) or the Cloudflare
+// edge-server (`cloud` mode) via WebSocket and executes browser commands.
+//
+// Mode is read from chrome.storage.local.mode; default "local" preserves
+// backward compatibility with pre-0.5 behavior.
 
-const BRIDGE_URL = "ws://127.0.0.1:19222";
+const LOCAL_BRIDGE_URL = "ws://127.0.0.1:19222";
+const DEFAULT_CLOUD_ENDPOINT = "wss://edge.actionbook.dev/extension/ws";
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const MAX_RETRIES = 8;
@@ -9,6 +14,9 @@ const BRIDGE_PROBE_TIMEOUT_MS = 750;
 
 const HANDSHAKE_TIMEOUT_MS = 2000;
 const L3_CONFIRM_TIMEOUT_MS = 30000;
+
+// Protocol version reported in the hello frame. Bumped to 0.5.0 for cloud mode.
+const PROTOCOL_VERSION = "0.5.0";
 
 // --- Tab Group Config ---
 // All tabs opened by Actionbook (via Extension.createTab or the reuse-empty-tab
@@ -85,6 +93,36 @@ const SENSITIVE_DOMAIN_PATTERNS = [
 ];
 
 let ws = null;
+
+// Cleanly tear down the current WebSocket before reconnecting. Without this,
+// `ws.close()` fires the old socket's onclose asynchronously, which unconditionally
+// mutates module-level state (`ws = null`, `connectionState`, reconnect polling).
+// If a new `connect()` has already created a replacement socket by then, the
+// stale onclose clobbers the new `ws` reference and drives the state machine
+// backwards — especially nasty during mode switches / auth updates / sign-out,
+// all of which close-then-reconnect back-to-back.
+//
+// Solution: detach all handlers first so the old socket's death is silent, then
+// close and null out `ws`. Callers free to call `connect()` immediately after.
+function detachAndCloseWs(reason) {
+  if (!ws) return;
+  const oldWs = ws;
+  ws = null;
+  try {
+    oldWs.onopen = null;
+    oldWs.onmessage = null;
+    oldWs.onerror = null;
+    oldWs.onclose = null;
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    oldWs.close(1000, reason || "replaced");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
 // Set<number> of Chrome tab IDs that the extension currently has
 // chrome.debugger attached to. Multiple tabs can be attached concurrently;
 // every CDP command from the CLI must carry its target `tabId` field.
@@ -155,8 +193,113 @@ function logStateTransition(newState, detail) {
   }
 }
 
+// Resolve the current connection mode + URL from chrome.storage.local.
+// Returns { mode, url, token, deviceId } — token/deviceId are undefined in local mode.
+// Default mode is "local" to preserve pre-0.5 behavior for existing installs.
+async function getConnectionConfig() {
+  const { mode, cloudEndpoint, cloudToken, deviceId } = await chrome.storage.local.get([
+    "mode",
+    "cloudEndpoint",
+    "cloudToken",
+    "deviceId",
+  ]);
+  if (mode === "cloud") {
+    return {
+      mode: "cloud",
+      url: cloudEndpoint || DEFAULT_CLOUD_ENDPOINT,
+      token: cloudToken || null,
+      deviceId: deviceId || null,
+    };
+  }
+  return { mode: "local", url: LOCAL_BRIDGE_URL, token: null, deviceId: null };
+}
+
 async function getEffectiveBridgeUrl() {
-  return BRIDGE_URL;
+  const cfg = await getConnectionConfig();
+  return cfg.url;
+}
+
+// Try to refresh the cloud access token using the stored refresh_token.
+// Returns the new access_token (and persists it), or null if refresh failed
+// (missing refresh_token, network error, Clerk rejection — caller should then
+// force the user through sign-in again).
+//
+// Called opportunistically before a connect when the stored token is close to
+// or past expiry, and reactively if a connect attempt fails with auth-related
+// errors.
+async function refreshCloudTokenIfNeeded({ force = false } = {}) {
+  const { cloudToken, cloudRefreshToken, cloudTokenExpiresAt } = await chrome.storage.local.get([
+    "cloudToken",
+    "cloudRefreshToken",
+    "cloudTokenExpiresAt",
+  ]);
+
+  // Refresh 60s before expiry to avoid mid-connect expiry.
+  const REFRESH_SKEW_MS = 60_000;
+  const needsRefresh =
+    force ||
+    !cloudToken ||
+    (typeof cloudTokenExpiresAt === "number" && Date.now() + REFRESH_SKEW_MS >= cloudTokenExpiresAt);
+
+  if (!needsRefresh) {
+    // Token still fresh — return it so callers (pre-flight connect) can short-circuit.
+    // A missing refresh_token is fine in this branch: we're not refreshing anyway.
+    return cloudToken;
+  }
+
+  // From here on we actually need a new token. Without a refresh_token we can't
+  // get one; return null so callers (especially the invalid_token path) can
+  // transition to sign-in-required instead of retrying with the same rejected
+  // access token indefinitely.
+  if (!cloudRefreshToken) return null;
+
+  // cloud-config.js constants are not loaded in the service worker (it's a plain
+  // worker, not a module + no importScripts in MV3). Hardcode here; if you
+  // change the Clerk tenant, update both places.
+  const CLERK_TOKEN_URL = "https://clerk.actionbook.dev/oauth/token";
+  const CLERK_CLIENT_ID = "HP91Xj6adCm3TjPr";
+
+  try {
+    const res = await fetch(CLERK_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: cloudRefreshToken,
+        client_id: CLERK_CLIENT_ID,
+      }),
+    });
+    if (!res.ok) {
+      debugLog("[actionbook] refresh failed:", res.status, await res.text());
+      return null;
+    }
+    const tokens = await res.json();
+    if (!tokens.access_token) return null;
+
+    const update = { cloudToken: tokens.access_token };
+    if (typeof tokens.refresh_token === "string") {
+      update.cloudRefreshToken = tokens.refresh_token;
+    }
+    if (typeof tokens.expires_in === "number") {
+      update.cloudTokenExpiresAt = Date.now() + tokens.expires_in * 1000;
+    }
+    await chrome.storage.local.set(update);
+    return tokens.access_token;
+  } catch (err) {
+    debugLog("[actionbook] refresh error:", err?.message || err);
+    return null;
+  }
+}
+
+// Lazily generate and persist a per-install deviceId (only used in cloud mode).
+async function ensureDeviceId() {
+  const { deviceId } = await chrome.storage.local.get("deviceId");
+  if (deviceId) return deviceId;
+  const fresh = (self.crypto && typeof self.crypto.randomUUID === "function")
+    ? `d_${self.crypto.randomUUID()}`
+    : `d_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  await chrome.storage.local.set({ deviceId: fresh });
+  return fresh;
 }
 
 function getBridgeHealthUrl(bridgeUrl) {
@@ -196,16 +339,41 @@ async function connect() {
   logStateTransition("connecting");
   broadcastState();
 
+  let cfg = await getConnectionConfig();
+
+  // Cloud mode: rotate expiring tokens before we even try the WS handshake.
+  // `refreshCloudTokenIfNeeded` is a no-op when the token is fresh. If it
+  // returns null we fall through to the "no token" branch and wait for sign-in.
+  if (cfg.mode === "cloud") {
+    const refreshed = await refreshCloudTokenIfNeeded();
+    if (refreshed && refreshed !== cfg.token) {
+      cfg = await getConnectionConfig();
+    }
+  }
+
+  // Cloud mode requires a token. If missing, wait for popup-driven login
+  // instead of retrying pointlessly. State "pairing_required" already signals
+  // this in the popup UI.
+  if (cfg.mode === "cloud" && !cfg.token) {
+    connectionState = "pairing_required";
+    logStateTransition("pairing_required", "cloud mode without token");
+    broadcastState();
+    return;
+  }
+
   try {
-    const bridgeUrl = await getEffectiveBridgeUrl();
-    if (!(await canReachBridge(bridgeUrl))) {
+    // Skip healthz probe in cloud mode: the endpoint is always up (Cloudflare
+    // hosted) and HEAD /healthz may not be implemented. Go straight to WS.
+    if (cfg.mode === "local" && !(await canReachBridge(cfg.url))) {
       connectionState = "disconnected";
       logStateTransition("disconnected", "bridge not listening");
       broadcastState();
       scheduleReconnect();
       return;
     }
-    ws = new WebSocket(bridgeUrl);
+    ws = cfg.mode === "cloud"
+      ? new WebSocket(cfg.url, ["bearer", cfg.token])
+      : new WebSocket(cfg.url);
   } catch (err) {
     connectionState = "disconnected";
     logStateTransition("disconnected", "WebSocket constructor error");
@@ -217,17 +385,20 @@ async function connect() {
   handshakeCompleted = false;
   let wsOpened = false;
 
-  ws.onopen = () => {
+  ws.onopen = async () => {
     wsOpened = true;
-    // Send hello handshake (tokenless - server validates via origin + extension ID).
-    // Protocol 0.4.0 narrows `Extension.listTabs` to Actionbook-managed tabs
-    // (debugger-attached OR in the "Actionbook" tab group), making session
-    // ownership first-class instead of returning every open Chrome tab.
-    wsSend({
+    // Local mode: tokenless, origin-validated. Cloud mode: token already went
+    // up via Sec-WebSocket-Protocol at upgrade; hello is used to report the
+    // per-install deviceId for device registry.
+    const hello = {
       type: "hello",
       role: "extension",
-      version: "0.4.0",
-    });
+      version: PROTOCOL_VERSION,
+    };
+    if (cfg.mode === "cloud") {
+      hello.deviceId = await ensureDeviceId();
+    }
+    wsSend(hello);
 
     // Start handshake timeout - if no hello_ack within this window, treat as auth failure
     handshakeTimer = setTimeout(() => {
@@ -304,13 +475,37 @@ async function connect() {
         clearTimeout(handshakeTimer);
         handshakeTimer = null;
       }
-      if (ws) { ws.close(); ws = null; }
+      // Detach handlers before close — the invalid_token branch below will
+      // await a token refresh and then call connect(), and we don't want the
+      // old socket's onclose to race with the new one mid-refresh.
+      detachAndCloseWs("hello_error");
 
       if (msg.error === "invalid_token") {
-        connectionState = "disconnected";
-        logStateTransition("disconnected", "invalid token");
-        broadcastState();
-        startBridgePolling();
+        // Cloud mode: try a one-shot refresh before giving up. If refresh
+        // succeeds, kick off a reconnect with the fresh token. If it fails
+        // we drop into pairing_required so popup prompts the user to sign in
+        // again.
+        const fresh = await refreshCloudTokenIfNeeded({ force: true });
+        if (fresh) {
+          connectionState = "disconnected";
+          logStateTransition("disconnected", "token refreshed, reconnecting");
+          broadcastState();
+          retryCount = 0;
+          reconnectDelay = RECONNECT_BASE_MS;
+          connect();
+        } else {
+          // Terminal auth failure: clear the cached token bundle so polling
+          // can't keep retrying with credentials the server already rejected.
+          await chrome.storage.local.remove([
+            "cloudToken",
+            "cloudRefreshToken",
+            "cloudTokenExpiresAt",
+          ]);
+          connectionState = "pairing_required";
+          logStateTransition("pairing_required", "invalid token, refresh failed");
+          broadcastState();
+          startBridgePolling();
+        }
       } else {
         connectionState = "failed";
         logStateTransition("failed", msg.message || "handshake rejected by server");
@@ -1016,6 +1211,17 @@ function isSenderPopup(sender) {
   );
 }
 
+// Validate that a message sender is the extension's own callback page
+// (callback.html is loaded from chrome-extension://<id>/callback.html after
+// the OAuth module redirects the user back).
+function isSenderCallback(sender) {
+  return (
+    sender.id === chrome.runtime.id &&
+    sender.url &&
+    sender.url.includes("callback.html")
+  );
+}
+
 // Listen for messages from popup and offscreen document
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "getState") {
@@ -1087,6 +1293,52 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!isSenderPopup(sender)) return false;
     groupingEnabled = message.enabled === true;
     chrome.storage.local.set({ groupTabs: groupingEnabled });
+    return false;
+  }
+  // Cloud mode: popup asks to switch between local / cloud. We close the
+  // current WS and reconnect with the new config.
+  if (message.type === "setMode") {
+    if (!isSenderPopup(sender)) return false;
+    const mode = message.mode === "cloud" ? "cloud" : "local";
+    chrome.storage.local.set({ mode }, () => {
+      wasReplaced = false;
+      retryCount = 0;
+      reconnectDelay = RECONNECT_BASE_MS;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      // Must detach handlers before closing — otherwise the old socket's
+      // onclose races with the new connection below.
+      detachAndCloseWs("mode_switch");
+      connect();
+    });
+    return false;
+  }
+  // Cloud mode: callback.html received a token from the OAuth redirect and
+  // stashed it into storage. Trigger a reconnect so we pick it up.
+  if (message.type === "cloud_auth_updated") {
+    if (!isSenderCallback(sender) && !isSenderPopup(sender)) return false;
+    wasReplaced = false;
+    retryCount = 0;
+    reconnectDelay = RECONNECT_BASE_MS;
+    detachAndCloseWs("token_updated");
+    connect();
+    return false;
+  }
+  // Cloud mode: popup asks to sign out — clear token + refresh token + expiry
+  // and disconnect so a subsequent Sign in starts a fresh OAuth flow.
+  if (message.type === "cloud_sign_out") {
+    if (!isSenderPopup(sender)) return false;
+    chrome.storage.local.remove(
+      ["cloudToken", "cloudRefreshToken", "cloudTokenExpiresAt"],
+      () => {
+        detachAndCloseWs("sign_out");
+        connectionState = "pairing_required";
+        logStateTransition("pairing_required", "user signed out");
+        broadcastState();
+      },
+    );
     return false;
   }
   return false;

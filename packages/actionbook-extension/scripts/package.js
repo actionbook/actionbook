@@ -23,6 +23,10 @@ const includeFiles = [
   'popup.js',
   'offscreen.html',
   'offscreen.js',
+  // Cloud Mode (v0.5.0+): PKCE OAuth sign-in flow.
+  'cloud-config.js',
+  'callback.html',
+  'callback.js',
   'icons/icon-16.png',
   'icons/icon-48.png',
   'icons/icon-128.png',

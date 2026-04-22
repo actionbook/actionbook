@@ -203,6 +203,27 @@
   </div>
 
   <div class="settings-row">
+    <label for="modeSelect">Mode</label>
+    <select id="modeSelect" style="padding: 2px 4px; font-size: 12px;">
+      <option value="local">Local (CLI)</option>
+      <option value="cloud">Cloud</option>
+    </select>
+  </div>
+
+  <div class="status-row hidden" id="deviceRow">
+    <span class="dot gray"></span>
+    <span class="label">Device</span>
+    <span class="value" id="deviceLabel">--</span>
+  </div>
+
+  <div class="action-row hidden" id="cloudActionRow">
+    <button class="action-btn" id="cloudSignInBtn">Sign in to Actionbook</button>
+  </div>
+  <div class="action-row hidden" id="cloudSignOutRow">
+    <button class="action-btn" id="cloudSignOutBtn">Sign out</button>
+  </div>
+
+  <div class="settings-row">
     <label for="groupTabsToggle">Group Actionbook tabs</label>
     <input type="checkbox" id="groupTabsToggle" checked>
   </div>
@@ -233,6 +254,7 @@
     CLI: <code>actionbook extension serve</code>
   </div>
 
+  <script src="cloud-config.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

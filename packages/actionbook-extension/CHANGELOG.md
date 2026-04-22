@@ -1,5 +1,27 @@
 # @actionbookdev/extension
 
+## 0.5.0
+
+### Minor Changes
+
+- Add Cloud Mode: connect the Extension to Actionbook's edge server so remote AI agents can drive your Chrome over MCP without running the local CLI daemon.
+
+  - New popup toggle switches between **Local (CLI)** mode — identical to previous versions — and **Cloud** mode.
+  - In Cloud Mode, the Extension authenticates the user against `clerk.actionbook.dev` via OAuth 2.1 Authorization Code + PKCE, then maintains a WebSocket to `wss://edge.actionbook.dev/extension/ws`.
+  - Any MCP client pointed at `https://edge.actionbook.dev/mcp` (e.g., Claude Desktop, claude.ai Connectors, Codex) can now drive the user's Chrome, authenticated by the same user identity.
+  - Access tokens rotate automatically via refresh token; expired tokens trigger a silent refresh instead of forcing re-sign-in.
+  - Sign out from the popup clears all cloud tokens and disconnects.
+  - **Local Mode is unchanged and remains the default.** Existing Local Mode users upgrading from 0.4.x see no behavior change; no new permissions are requested.
+
+- Bump bridge protocol to `0.5.0` in the `hello` frame. CLI `EXTENSION_PROTOCOL_MIN_VERSION` remains `0.4.0`, so the new Extension is backward-compatible with older CLIs.
+
+- New files: `cloud-config.js` (public OAuth client id + Clerk endpoints), `callback.html` / `callback.js` (OAuth redirect handler). `callback.html` is listed in `web_accessible_resources` to allow the sign-in page to redirect back into the Extension.
+
+### Documentation
+
+- README.md — adds a "Cloud Mode" section with setup, Claude Desktop config example, and mode-switching instructions.
+- PRIVACY.md — substantially revised to describe the two operating modes separately. Cloud Mode data flows (Clerk authentication, device identifier, outbound WebSocket to `edge.actionbook.dev`, authorized agents, token refresh) are enumerated in a new Section 2B. Local Mode wording is unchanged.
+
 ## 0.4.2
 
 ### Patch Changes

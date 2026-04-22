@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Actionbook · Sign in</title>
+    <style>
+      body {
+        font-family: -apple-system, system-ui, sans-serif;
+        margin: 0;
+        padding: 40px 24px;
+        background: #fafafa;
+        color: #111;
+      }
+      .box {
+        max-width: 420px;
+        margin: 0 auto;
+        padding: 24px;
+        background: #fff;
+        border: 1px solid #e5e5e5;
+        border-radius: 8px;
+      }
+      .status {
+        font-size: 14px;
+        margin-top: 8px;
+        color: #555;
+      }
+      .error {
+        color: #b00020;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <h2 style="margin: 0 0 12px">Actionbook</h2>
+      <div id="msg">Processing sign-in...</div>
+      <div id="detail" class="status"></div>
+    </div>
+    <script src="cloud-config.js"></script>
+    <script src="callback.js"></script>
+  </body>
+</html>

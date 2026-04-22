@@ -144,6 +144,132 @@ chrome.storage.local.get("bridgeToken", (result) => {
   }
 });
 
+// --- Cloud mode UI ---
+
+const modeSelect = document.getElementById("modeSelect");
+const deviceRow = document.getElementById("deviceRow");
+const deviceLabel = document.getElementById("deviceLabel");
+const cloudActionRow = document.getElementById("cloudActionRow");
+const cloudSignOutRow = document.getElementById("cloudSignOutRow");
+const cloudSignInBtn = document.getElementById("cloudSignInBtn");
+const cloudSignOutBtn = document.getElementById("cloudSignOutBtn");
+
+// Shown only when mode=cloud.
+function renderCloudSection(mode, cloudToken, deviceId) {
+  if (mode !== "cloud") {
+    deviceRow.classList.add("hidden");
+    cloudActionRow.classList.add("hidden");
+    cloudSignOutRow.classList.add("hidden");
+    return;
+  }
+  // Device row always shown in cloud mode (even if not signed in — shows "--")
+  deviceRow.classList.remove("hidden");
+  deviceLabel.textContent = deviceId
+    ? deviceId.slice(0, 10) + (deviceId.length > 10 ? "…" : "")
+    : "—";
+
+  if (cloudToken) {
+    cloudActionRow.classList.add("hidden");
+    cloudSignOutRow.classList.remove("hidden");
+  } else {
+    cloudActionRow.classList.remove("hidden");
+    cloudSignOutRow.classList.add("hidden");
+  }
+}
+
+async function refreshCloudUi() {
+  const { mode, cloudToken, deviceId } = await chrome.storage.local.get([
+    "mode",
+    "cloudToken",
+    "deviceId",
+  ]);
+  const current = mode === "cloud" ? "cloud" : "local";
+  modeSelect.value = current;
+  renderCloudSection(current, cloudToken, deviceId);
+}
+
+modeSelect.addEventListener("change", () => {
+  chrome.runtime.sendMessage({ type: "setMode", mode: modeSelect.value });
+  // Re-render shortly so the UI reflects the new mode
+  setTimeout(refreshCloudUi, 100);
+});
+
+// Sign in starts the OAuth 2.1 authorization-code + PKCE flow against Clerk.
+// We generate a PKCE verifier here, stash it in chrome.storage.local keyed by
+// `state`, and open Clerk's authorize URL in a new tab. When Clerk redirects
+// back to chrome-extension://<id>/callback.html?code=...&state=..., callback.js
+// reads the verifier by state, exchanges the code for an access token, and
+// signals background.js to reconnect.
+cloudSignInBtn?.addEventListener("click", async () => {
+  const cfg = self.ACTIONBOOK_CLOUD_CONFIG;
+
+  // Sanity check: warn if dev-build id doesn't match Clerk's whitelisted URI.
+  // Prod / CWS build will have a different id — add it to cloud-config.js then.
+  if (!cfg.EXPECTED_EXTENSION_IDS.includes(chrome.runtime.id)) {
+    console.warn(
+      "[actionbook] unexpected extension id:",
+      chrome.runtime.id,
+      "— Clerk's redirect-URI whitelist may not include this build, sign-in will fail."
+    );
+  }
+
+  const { verifier, challenge } = await generatePkcePair();
+  const state = crypto.randomUUID();
+
+  // Stash by state so callback.js can retrieve the exact verifier used here.
+  // Short TTL is enforced implicitly by the state check — callback.js deletes
+  // the entry after using it, and we don't trust stale entries.
+  await chrome.storage.local.set({
+    [`pkce:${state}`]: { verifier, createdAt: Date.now() },
+  });
+
+  const redirectUri = `chrome-extension://${chrome.runtime.id}/callback.html`;
+  const params = new URLSearchParams({
+    client_id: cfg.CLERK_CLIENT_ID,
+    response_type: "code",
+    redirect_uri: redirectUri,
+    scope: cfg.CLERK_SCOPES,
+    state,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+  });
+
+  chrome.tabs.create({ url: `${cfg.CLERK_AUTHORIZE_URL}?${params.toString()}` });
+});
+
+// PKCE helpers: verifier is a 43–128 char random URL-safe string; challenge is
+// base64url(SHA256(verifier)) for S256 flow. RFC 7636.
+async function generatePkcePair() {
+  const verifierBytes = new Uint8Array(32);
+  crypto.getRandomValues(verifierBytes);
+  const verifier = base64Url(verifierBytes);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  const challenge = base64Url(new Uint8Array(digest));
+  return { verifier, challenge };
+}
+
+function base64Url(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+cloudSignOutBtn?.addEventListener("click", () => {
+  chrome.runtime.sendMessage({ type: "cloud_sign_out" });
+  setTimeout(refreshCloudUi, 100);
+});
+
+// Refresh when storage changes (e.g. callback.html stored a fresh token)
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes.cloudToken || changes.mode || changes.deviceId) {
+    refreshCloudUi();
+  }
+});
+
+// Initial render
+refreshCloudUi();
+
 // Tab-grouping toggle — reflects and writes background's in-memory
 // groupingEnabled flag; background persists to chrome.storage.local.
 const groupTabsToggle = document.getElementById("groupTabsToggle");
