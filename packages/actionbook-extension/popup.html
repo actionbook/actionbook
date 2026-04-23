@@ -128,6 +128,9 @@
     }
 
     .label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
       color: var(--text-muted);
       min-width: 72px;
       font-size: 12px;
@@ -578,7 +581,10 @@
 
     <div class="status-row">
       <span class="dot" id="tabDot"></span>
-      <span class="label">Activity</span>
+      <span class="label">
+        Activity
+        <span class="help-icon" tabindex="0" aria-label="What Activity means" data-tooltip="Whether an AI is currently controlling any browser tabs. Green when a tab is under AI control.">?</span>
+      </span>
       <span class="value" id="tabStatus">--</span>
     </div>
   </div>
