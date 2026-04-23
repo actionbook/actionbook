@@ -4,35 +4,87 @@
     <meta charset="utf-8" />
     <title>Actionbook · Sign in</title>
     <style>
+      :root {
+        --bg: #fafafa;
+        --surface: #ffffff;
+        --border: #ececee;
+        --text: #0a0a0a;
+        --text-muted: #71717a;
+        --accent: #111111;
+        --danger: #dc2626;
+      }
+      * { box-sizing: border-box; }
       body {
-        font-family: -apple-system, system-ui, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
         margin: 0;
-        padding: 40px 24px;
-        background: #fafafa;
-        color: #111;
+        padding: 56px 24px;
+        background: var(--bg);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+        min-height: 100vh;
       }
       .box {
         max-width: 420px;
         margin: 0 auto;
-        padding: 24px;
-        background: #fff;
-        border: 1px solid #e5e5e5;
+        padding: 28px 28px 24px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03), 0 8px 24px rgba(0, 0, 0, 0.04);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 18px;
+      }
+      .brand-mark {
+        width: 28px;
+        height: 28px;
         border-radius: 8px;
+        background: var(--accent);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .brand-mark svg { width: 16px; height: 16px; }
+      .brand-name {
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      h2 {
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        margin: 0 0 6px;
+      }
+      #msg {
+        font-size: 14px;
+        color: var(--text);
+        margin-bottom: 4px;
       }
       .status {
-        font-size: 14px;
-        margin-top: 8px;
-        color: #555;
+        font-size: 13px;
+        margin-top: 6px;
+        color: var(--text-muted);
+        line-height: 1.5;
       }
-      .error {
-        color: #b00020;
-      }
+      .error { color: var(--danger); }
     </style>
   </head>
   <body>
     <div class="box">
-      <h2 style="margin: 0 0 12px">Actionbook</h2>
-      <div id="msg">Processing sign-in...</div>
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M1 2h4l3 3-3 3H1V2zM15 2h-4l-3 3 3 3h4V2zM1 14h4l3-3-3-3H1v6zM15 14h-4l-3-3 3-3h4v6z" fill="#ffffff"/>
+          </svg>
+        </div>
+        <span class="brand-name">Actionbook</span>
+      </div>
+      <h2>Signing you in</h2>
+      <div id="msg">Processing sign-in…</div>
       <div id="detail" class="status"></div>
     </div>
     <script src="cloud-config.js"></script>

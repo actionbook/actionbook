@@ -17,35 +17,35 @@ function updateUI(state) {
   switch (state.connectionState) {
     case "connected":
       bridgeDot.className = "dot green";
-      bridgeStatus.textContent = "Connected";
+      bridgeStatus.textContent = "Ready";
       break;
     case "connecting":
       bridgeDot.className = "dot yellow";
-      bridgeStatus.textContent = "Connecting...";
+      bridgeStatus.textContent = "Connecting…";
       if (state.retryCount > 0) {
-        retryInfo.textContent = `Attempt ${state.retryCount}/${state.maxRetries}`;
+        retryInfo.textContent = `Try ${state.retryCount}/${state.maxRetries}`;
       }
       break;
     case "disconnected":
       bridgeDot.className = "dot orange";
-      bridgeStatus.textContent = "Disconnected";
+      bridgeStatus.textContent = "Reconnecting…";
       if (state.retryCount > 0) {
-        retryInfo.textContent = `Attempt ${state.retryCount}/${state.maxRetries}`;
+        retryInfo.textContent = `Try ${state.retryCount}/${state.maxRetries}`;
       }
       actionBtn.textContent = "Connect";
       actionBtn.classList.remove("hidden");
       break;
     case "failed":
       bridgeDot.className = "dot red";
-      bridgeStatus.textContent = "Connection failed";
-      retryInfo.textContent = "retries exhausted";
-      actionBtn.textContent = "Retry";
+      bridgeStatus.textContent = "Unable to connect";
+      retryInfo.textContent = "";
+      actionBtn.textContent = "Try again";
       actionBtn.classList.remove("hidden");
       break;
     case "pairing_required":
       // Deprecated: Token no longer required, treat as disconnected
       bridgeDot.className = "dot orange";
-      bridgeStatus.textContent = "Waiting for bridge";
+      bridgeStatus.textContent = "Waiting to connect";
       actionBtn.textContent = "Connect";
       actionBtn.classList.remove("hidden");
       break;
@@ -59,12 +59,15 @@ function updateUI(state) {
       break;
   }
 
-  if (state.attachedTabId) {
+  const attachedTabs = Array.isArray(state.attachedTabIds) ? state.attachedTabIds : [];
+  if (attachedTabs.length > 0) {
     tabDot.className = "dot green";
-    tabStatus.textContent = `Tab #${state.attachedTabId}`;
+    tabStatus.textContent = attachedTabs.length === 1
+      ? "Working on a tab"
+      : `Working on ${attachedTabs.length} tabs`;
   } else {
     tabDot.className = "dot gray";
-    tabStatus.textContent = "No tab attached";
+    tabStatus.textContent = "Idle";
   }
 }
 
@@ -89,7 +92,7 @@ function updateL3UI(pending) {
 // Action button handler - sends "retry" in failed state, "connect" otherwise
 document.getElementById("actionBtn").addEventListener("click", () => {
   const btn = document.getElementById("actionBtn");
-  const msgType = btn.textContent === "Retry" ? "retry" : "connect";
+  const msgType = btn.textContent === "Try again" ? "retry" : "connect";
   chrome.runtime.sendMessage({ type: msgType });
 });
 
@@ -140,33 +143,87 @@ document.getElementById("confirmDeny").addEventListener("click", () => {
 chrome.storage.local.get("bridgeToken", (result) => {
   const tokenInput = document.getElementById("tokenInput");
   if (tokenInput && result.bridgeToken) {
-    tokenInput.placeholder = "Token saved (paste to replace)";
+    tokenInput.placeholder = "Already saved — paste a new one to replace";
   }
 });
 
 // --- Cloud mode UI ---
 
 const modeSelect = document.getElementById("modeSelect");
-const deviceRow = document.getElementById("deviceRow");
-const deviceLabel = document.getElementById("deviceLabel");
+const modeTrigger = modeSelect.querySelector(".mode-select__trigger");
+const modeLabel = document.getElementById("modeSelectLabel");
+const modeMenu = modeSelect.querySelector(".mode-select__menu");
+const modeOptions = modeMenu.querySelectorAll(".mode-select__option");
 const cloudActionRow = document.getElementById("cloudActionRow");
 const cloudSignOutRow = document.getElementById("cloudSignOutRow");
 const cloudSignInBtn = document.getElementById("cloudSignInBtn");
 const cloudSignOutBtn = document.getElementById("cloudSignOutBtn");
+const localHint = document.getElementById("localHint");
+
+// --- Custom Mode dropdown ---
+function setModeValue(value) {
+  modeSelect.dataset.value = value;
+  modeOptions.forEach((opt) => {
+    const isSelected = opt.dataset.value === value;
+    opt.setAttribute("aria-selected", isSelected ? "true" : "false");
+    if (isSelected) {
+      modeLabel.textContent = opt.querySelector(".mode-select__option-header span").textContent;
+    }
+  });
+}
+
+function openModeMenu() {
+  modeSelect.dataset.open = "true";
+  modeTrigger.setAttribute("aria-expanded", "true");
+}
+
+function closeModeMenu() {
+  modeSelect.dataset.open = "false";
+  modeTrigger.setAttribute("aria-expanded", "false");
+}
+
+modeTrigger.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (modeSelect.dataset.open === "true") closeModeMenu();
+  else openModeMenu();
+});
+
+modeOptions.forEach((opt) => {
+  opt.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const newValue = opt.dataset.value;
+    if (newValue !== modeSelect.dataset.value) {
+      setModeValue(newValue);
+      chrome.runtime.sendMessage({ type: "setMode", mode: newValue });
+      setTimeout(refreshCloudUi, 100);
+    }
+    closeModeMenu();
+  });
+});
+
+document.addEventListener("click", (e) => {
+  if (!modeSelect.contains(e.target)) closeModeMenu();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && modeSelect.dataset.open === "true") {
+    closeModeMenu();
+    modeTrigger.focus();
+  }
+});
 
 // Shown only when mode=cloud.
-function renderCloudSection(mode, cloudToken, deviceId) {
+function renderCloudSection(mode, cloudToken) {
+  // CLI hint only makes sense in local mode.
+  if (localHint) {
+    localHint.classList.toggle("hidden", mode !== "local");
+  }
+
   if (mode !== "cloud") {
-    deviceRow.classList.add("hidden");
     cloudActionRow.classList.add("hidden");
     cloudSignOutRow.classList.add("hidden");
     return;
   }
-  // Device row always shown in cloud mode (even if not signed in — shows "--")
-  deviceRow.classList.remove("hidden");
-  deviceLabel.textContent = deviceId
-    ? deviceId.slice(0, 10) + (deviceId.length > 10 ? "…" : "")
-    : "—";
 
   if (cloudToken) {
     cloudActionRow.classList.add("hidden");
@@ -178,21 +235,14 @@ function renderCloudSection(mode, cloudToken, deviceId) {
 }
 
 async function refreshCloudUi() {
-  const { mode, cloudToken, deviceId } = await chrome.storage.local.get([
+  const { mode, cloudToken } = await chrome.storage.local.get([
     "mode",
     "cloudToken",
-    "deviceId",
   ]);
   const current = mode === "cloud" ? "cloud" : "local";
-  modeSelect.value = current;
-  renderCloudSection(current, cloudToken, deviceId);
+  setModeValue(current);
+  renderCloudSection(current, cloudToken);
 }
-
-modeSelect.addEventListener("change", () => {
-  chrome.runtime.sendMessage({ type: "setMode", mode: modeSelect.value });
-  // Re-render shortly so the UI reflects the new mode
-  setTimeout(refreshCloudUi, 100);
-});
 
 // Sign in starts the OAuth 2.1 authorization-code + PKCE flow against Clerk.
 // We generate a PKCE verifier here, stash it in chrome.storage.local keyed by
@@ -262,7 +312,7 @@ cloudSignOutBtn?.addEventListener("click", () => {
 // Refresh when storage changes (e.g. callback.html stored a fresh token)
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
-  if (changes.cloudToken || changes.mode || changes.deviceId) {
+  if (changes.cloudToken || changes.mode) {
     refreshCloudUi();
   }
 });

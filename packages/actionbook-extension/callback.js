@@ -15,14 +15,35 @@
 const msgEl = document.getElementById("msg");
 const detailEl = document.getElementById("detail");
 
+// Map internal error codes to user-friendly messages. Unknown codes fall back
+// to a generic phrase; the `detail` line (often from the OAuth server) still
+// gets surfaced below in case the user needs to share it with support.
+const ERROR_MESSAGES = {
+  missing_params: "The sign-in link was incomplete. Please try again.",
+  pkce_missing: "This sign-in link has expired. Please start again from the extension.",
+  network: "Couldn’t reach the sign-in server. Check your internet connection and try again.",
+  parse_failed: "The sign-in server sent an unexpected response. Please try again.",
+  no_access_token: "Sign-in didn’t complete. Please try again.",
+  storage_failed: "Couldn’t save your sign-in. Please try again.",
+  access_denied: "Sign-in was cancelled.",
+};
+
+function friendlyMessage(code) {
+  if (ERROR_MESSAGES[code]) return ERROR_MESSAGES[code];
+  if (typeof code === "string" && code.startsWith("token_")) {
+    return "The sign-in server rejected the request. Please try again.";
+  }
+  return "Sign-in didn’t complete. Please try again.";
+}
+
 function showError(code, detail) {
-  msgEl.textContent = `Sign-in failed: ${code}`;
+  msgEl.textContent = friendlyMessage(code);
   msgEl.className = "error";
   if (detail) detailEl.textContent = detail;
 }
 
 function showSuccess() {
-  msgEl.textContent = "Signed in. You can close this tab.";
+  msgEl.textContent = "You’re signed in. You can close this tab.";
 }
 
 (async () => {
