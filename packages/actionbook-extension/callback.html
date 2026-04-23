@@ -41,13 +41,8 @@
       .brand-mark {
         width: 28px;
         height: 28px;
-        border-radius: 8px;
-        background: var(--accent);
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        display: block;
       }
-      .brand-mark svg { width: 16px; height: 16px; }
       .brand-name {
         font-size: 15px;
         font-weight: 600;
@@ -76,11 +71,7 @@
   <body>
     <div class="box">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M1 2h4l3 3-3 3H1V2zM15 2h-4l-3 3 3 3h4V2zM1 14h4l3-3-3-3H1v6zM15 14h-4l-3-3 3-3h4v6z" fill="#ffffff"/>
-          </svg>
-        </div>
+        <img class="brand-mark" src="icons/icon-48.png" alt="" aria-hidden="true">
         <span class="brand-name">Actionbook</span>
       </div>
       <h2>Signing you in</h2>

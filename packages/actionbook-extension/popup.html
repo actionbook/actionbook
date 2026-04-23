@@ -56,14 +56,9 @@
     .brand-mark {
       width: 22px;
       height: 22px;
-      border-radius: 6px;
-      background: var(--accent);
-      display: flex;
-      align-items: center;
-      justify-content: center;
       flex-shrink: 0;
+      display: block;
     }
-    .brand-mark svg { width: 14px; height: 14px; }
     .brand-name {
       font-size: 13.5px;
       font-weight: 600;
@@ -568,11 +563,7 @@
 </head>
 <body>
   <div class="header">
-    <div class="brand-mark" aria-hidden="true">
-      <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M1 2h4l3 3-3 3H1V2zM15 2h-4l-3 3 3 3h4V2zM1 14h4l3-3-3-3H1v6zM15 14h-4l-3-3 3-3h4v6z" fill="#ffffff"/>
-      </svg>
-    </div>
+    <img class="brand-mark" src="icons/icon-48.png" alt="" aria-hidden="true">
     <span class="brand-name">Actionbook</span>
     <span class="version" id="versionLabel"></span>
   </div>
