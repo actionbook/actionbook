@@ -1,6 +1,13 @@
 // Popup script - displays connection status and provides connect/retry/token/L3 confirmation controls
 
+// Cached so renderCloudSection can re-trigger updateUI when mode/token change
+// without waiting for the next stateUpdate from background.
+let lastState = { connectionState: "idle", attachedTabIds: [], retryCount: 0, maxRetries: 0 };
+let isCloudMode = false;
+let hasCloudToken = false;
+
 function updateUI(state) {
+  lastState = state;
   const bridgeDot = document.getElementById("bridgeDot");
   const bridgeStatus = document.getElementById("bridgeStatus");
   const tabDot = document.getElementById("tabDot");
@@ -68,6 +75,12 @@ function updateUI(state) {
   } else {
     tabDot.className = "dot gray";
     tabStatus.textContent = "Idle";
+  }
+
+  // In cloud mode, Connect/Try-again without a token is a no-op — background
+  // bails out at config load. Hide it so the user only sees "Sign in".
+  if (isCloudMode && !hasCloudToken) {
+    actionBtn.classList.add("hidden");
   }
 }
 
@@ -240,8 +253,13 @@ async function refreshCloudUi() {
     "cloudToken",
   ]);
   const current = mode === "cloud" ? "cloud" : "local";
+  isCloudMode = current === "cloud";
+  hasCloudToken = !!cloudToken;
   setModeValue(current);
   renderCloudSection(current, cloudToken);
+  // Re-render the action button against the latest mode/token — otherwise the
+  // Connect button would linger visible between the stateUpdate and the next.
+  updateUI(lastState);
 }
 
 // Sign in starts the OAuth 2.1 authorization-code + PKCE flow against Clerk.
