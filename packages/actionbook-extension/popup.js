@@ -172,6 +172,7 @@ const cloudSignOutRow = document.getElementById("cloudSignOutRow");
 const cloudSignInBtn = document.getElementById("cloudSignInBtn");
 const cloudSignOutBtn = document.getElementById("cloudSignOutBtn");
 const localHint = document.getElementById("localHint");
+const cloudHint = document.getElementById("cloudHint");
 
 // --- Custom Mode dropdown ---
 function setModeValue(value) {
@@ -227,10 +228,9 @@ document.addEventListener("keydown", (e) => {
 
 // Shown only when mode=cloud.
 function renderCloudSection(mode, cloudToken) {
-  // CLI hint only makes sense in local mode.
-  if (localHint) {
-    localHint.classList.toggle("hidden", mode !== "local");
-  }
+  // Footer hint is mode-specific.
+  if (localHint) localHint.classList.toggle("hidden", mode !== "local");
+  if (cloudHint) cloudHint.classList.toggle("hidden", mode !== "cloud");
 
   if (mode !== "cloud") {
     cloudActionRow.classList.add("hidden");

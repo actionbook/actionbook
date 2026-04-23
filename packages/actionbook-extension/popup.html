@@ -248,7 +248,6 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      min-width: 88px;
       padding: 6px 10px;
       background: #fff;
       border: 1px solid var(--border-strong);
@@ -552,6 +551,18 @@
       white-space: nowrap;
       vertical-align: baseline;
     }
+    .footer a {
+      color: var(--text-muted);
+      text-decoration: none;
+      border-bottom: 1px dashed var(--border-strong);
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .footer a:hover,
+    .footer a:focus-visible {
+      color: var(--text);
+      border-bottom-color: var(--text-muted);
+      outline: none;
+    }
     .footer.hidden { display: none; }
   </style>
 </head>
@@ -659,6 +670,9 @@
 
   <div class="footer hidden" id="localHint">
     To connect, run <code>actionbook extension serve</code> on your computer.
+  </div>
+  <div class="footer hidden" id="cloudHint">
+    <a href="https://actionbook.dev" target="_blank" rel="noopener noreferrer">Learn more ↗</a>
   </div>
 
   <script src="cloud-config.js"></script>
