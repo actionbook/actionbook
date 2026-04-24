@@ -3,86 +3,426 @@
 <head>
   <meta charset="utf-8">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      width: 280px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      font-size: 13px;
-      color: #1a1a1a;
-      padding: 16px;
+    :root {
+      --bg: #ffffff;
+      --surface: #fafafa;
+      --surface-hover: #f4f4f5;
+      --border: #ececee;
+      --border-strong: #dcdce0;
+      --text: #0a0a0a;
+      --text-muted: #71717a;
+      --text-subtle: #a1a1aa;
+      --accent: #111111;
+      --accent-hover: #000000;
+      --accent-text: #ffffff;
+      --danger: #dc2626;
+      --danger-bg: #fef2f2;
+      --danger-border: #fecaca;
+      --warn: #b45309;
+      --warn-bg: #fffbeb;
+      --warn-border: #fde68a;
+      --ok: #16a34a;
+      --ok-soft: #86efac;
+      --pending: #eab308;
+      --pending-soft: #fde68a;
+      --fail: #ef4444;
+      --fail-soft: #fecaca;
+      --idle: #d4d4d8;
+      --radius-sm: 6px;
+      --radius: 8px;
+      --radius-lg: 10px;
     }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: 320px;
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--text);
+      background: var(--bg);
+      padding: 14px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Header */
     .header {
       display: flex;
       align-items: center;
-      gap: 8px;
-      margin-bottom: 16px;
+      gap: 10px;
+      padding: 2px 2px 12px;
     }
-    .header h1 {
-      font-size: 14px;
+    .brand-mark {
+      width: 22px;
+      height: 22px;
+      flex-shrink: 0;
+      display: block;
+    }
+    .brand-name {
+      font-size: 13.5px;
       font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--text);
     }
     .version {
-      font-size: 11px;
-      color: #888;
-      font-weight: normal;
+      margin-left: auto;
+      font-size: 10.5px;
+      color: var(--text-subtle);
+      font-variant-numeric: tabular-nums;
+      font-weight: 500;
+      padding: 2px 6px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 999px;
     }
+
+    /* Card */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 4px 12px;
+      margin-bottom: 10px;
+    }
+
+    /* Status row */
     .status-row {
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 8px 0;
-      border-bottom: 1px solid #f0f0f0;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      min-height: 36px;
     }
     .status-row:last-child { border-bottom: none; }
+
     .dot {
       width: 8px;
       height: 8px;
       border-radius: 50%;
       flex-shrink: 0;
+      position: relative;
     }
-    .dot.green { background: #22c55e; }
-    .dot.yellow { background: #eab308; }
-    .dot.red { background: #ef4444; }
-    .dot.orange { background: #f97316; }
-    .dot.gray { background: #d1d5db; }
-    .label { color: #666; min-width: 60px; }
-    .value { font-weight: 500; }
+    .dot::after {
+      content: "";
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      opacity: 0.25;
+    }
+    .dot.green       { background: var(--ok); }
+    .dot.green::after    { background: var(--ok); }
+    .dot.yellow      { background: var(--pending); animation: pulse 1.6s ease-in-out infinite; }
+    .dot.yellow::after   { background: var(--pending); }
+    .dot.red         { background: var(--fail); }
+    .dot.red::after      { background: var(--fail); }
+    .dot.orange      { background: #f97316; }
+    .dot.orange::after   { background: #f97316; }
+    .dot.gray        { background: var(--idle); }
+    .dot.gray::after     { background: transparent; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: 0.55; transform: scale(0.85); }
+    }
+
+    .label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--text-muted);
+      min-width: 72px;
+      font-size: 12px;
+    }
+    .value {
+      font-weight: 500;
+      color: var(--text);
+      font-size: 12px;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .retry-info {
-      font-size: 11px;
-      color: #888;
+      font-size: 10.5px;
+      color: var(--text-subtle);
       margin-left: auto;
+      font-variant-numeric: tabular-nums;
     }
-    .action-row {
-      padding: 10px 0 4px;
+
+    /* Settings row (inside card) */
+    .settings-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      min-height: 36px;
     }
-    .action-btn {
-      width: 100%;
-      padding: 6px 12px;
-      border: 1px solid #d1d5db;
+    .settings-row:last-child { border-bottom: none; }
+    .settings-row label {
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 12px;
+    }
+    /* Wrapper so the help-icon sits next to the label but clicks on it
+       don't propagate to the checkbox/select via <label for="…">. */
+    .label-group {
+      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    /* Help icon + tooltip */
+    .help-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #d4d4d8;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 600;
+      font-family: inherit;
+      line-height: 1;
+      cursor: help;
+      position: relative;
+      user-select: none;
+      transition: background 0.15s;
+      outline: none;
+    }
+    .help-icon:hover,
+    .help-icon:focus-visible { background: var(--text-muted); }
+
+    .help-icon::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      background: #1a1a1a;
+      color: #fff;
+      padding: 6px 9px;
       border-radius: 6px;
+      font-size: 11px;
+      font-weight: 400;
+      line-height: 1.45;
+      white-space: normal;
+      width: max-content;
+      max-width: 190px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s;
+      z-index: 10;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    }
+    .help-icon::before {
+      content: "";
+      position: absolute;
+      top: 100%;
+      left: 4px;
+      border: 4px solid transparent;
+      border-bottom-color: #1a1a1a;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s;
+      z-index: 10;
+    }
+    .help-icon:hover::after,
+    .help-icon:focus-visible::after,
+    .help-icon:hover::before,
+    .help-icon:focus-visible::before { opacity: 1; }
+
+    /* Custom Mode dropdown */
+    .mode-select {
+      position: relative;
+      flex-shrink: 0;
+    }
+    .mode-select__trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
       background: #fff;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-family: inherit;
       font-size: 12px;
       font-weight: 500;
-      color: #1a1a1a;
       cursor: pointer;
-      transition: background 0.15s, border-color 0.15s;
+      outline: none;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+      transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
     }
-    .action-btn:hover {
-      background: #f5f5f5;
-      border-color: #aaa;
+    .mode-select__trigger:hover {
+      border-color: #a1a1aa;
+      background: var(--surface);
     }
-    .action-btn:active {
-      background: #eee;
+    .mode-select[data-open="true"] .mode-select__trigger,
+    .mode-select__trigger:focus-visible {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.06);
     }
+    .mode-select__label { flex: 1; text-align: left; }
+    .mode-select__caret {
+      width: 12px;
+      height: 12px;
+      color: var(--text-muted);
+      transition: transform 0.18s ease;
+      flex-shrink: 0;
+    }
+    .mode-select[data-open="true"] .mode-select__caret { transform: rotate(180deg); }
+
+    .mode-select__menu {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      width: 240px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.04);
+      padding: 4px;
+      z-index: 20;
+      opacity: 0;
+      transform: translateY(-4px);
+      pointer-events: none;
+      transition: opacity 0.14s ease, transform 0.14s ease;
+    }
+    .mode-select[data-open="true"] .mode-select__menu {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    .mode-select__option {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 8px 10px;
+      border: none;
+      background: transparent;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.1s;
+    }
+    .mode-select__option + .mode-select__option { margin-top: 2px; }
+    .mode-select__option:hover { background: var(--surface-hover); }
+    .mode-select__option:focus-visible {
+      background: var(--surface-hover);
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+    .mode-select__option-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--text);
+    }
+    .mode-select__option-check {
+      margin-left: auto;
+      width: 12px;
+      height: 12px;
+      opacity: 0;
+      flex-shrink: 0;
+      color: var(--accent);
+    }
+    .mode-select__option[aria-selected="true"] .mode-select__option-check { opacity: 1; }
+    .mode-select__option[aria-selected="true"] {
+      background: var(--surface);
+    }
+    .mode-select__option-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.45;
+      margin-top: 2px;
+    }
+
+    /* Checkbox (custom) */
+    .settings-row input[type="checkbox"] {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 30px;
+      height: 18px;
+      background: var(--border-strong);
+      border-radius: 999px;
+      position: relative;
+      cursor: pointer;
+      transition: background 0.2s;
+      flex-shrink: 0;
+    }
+    .settings-row input[type="checkbox"]::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 14px;
+      height: 14px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
+    .settings-row input[type="checkbox"]:checked {
+      background: var(--accent);
+    }
+    .settings-row input[type="checkbox"]:checked::after {
+      transform: translateX(12px);
+    }
+
+    /* Action row + button */
+    .action-row { margin-bottom: 10px; }
+    .action-row.hidden { display: none; }
+
+    .action-btn {
+      width: 100%;
+      padding: 9px 14px;
+      border: 1px solid var(--accent);
+      border-radius: var(--radius);
+      background: var(--accent);
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--accent-text);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, transform 0.05s;
+      font-family: inherit;
+    }
+    .action-btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+    .action-btn:active { transform: translateY(1px); }
     .action-btn.hidden { display: none; }
+
+    .action-btn.secondary {
+      background: var(--bg);
+      color: var(--text);
+      border-color: var(--border-strong);
+    }
+    .action-btn.secondary:hover {
+      background: var(--surface-hover);
+      border-color: #a1a1aa;
+    }
+
+    /* Token section */
     .token-section {
-      padding: 8px 0 4px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 12px;
+      margin-bottom: 10px;
     }
     .token-section.hidden { display: none; }
     .token-label {
       font-size: 11px;
-      color: #666;
-      margin-bottom: 4px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      font-weight: 500;
     }
     .token-row {
       display: flex;
@@ -90,148 +430,220 @@
     }
     .token-input {
       flex: 1;
-      padding: 5px 8px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      font-size: 11px;
-      font-family: monospace;
+      padding: 7px 10px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      font-size: 11.5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: var(--bg);
       outline: none;
+      color: var(--text);
+      transition: border-color 0.15s;
     }
-    .token-input:focus {
-      border-color: #888;
-    }
+    .token-input:focus { border-color: var(--accent); }
     .token-save-btn {
-      padding: 5px 10px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      background: #fff;
-      font-size: 11px;
+      padding: 6px 12px;
+      border: 1px solid var(--accent);
+      border-radius: var(--radius-sm);
+      background: var(--accent);
+      color: var(--accent-text);
+      font-size: 11.5px;
       font-weight: 500;
       cursor: pointer;
+      font-family: inherit;
     }
-    .token-save-btn:hover {
-      background: #f5f5f5;
-      border-color: #aaa;
-    }
+    .token-save-btn:hover { background: var(--accent-hover); }
+
+    /* L3 confirmation — warning card */
     .confirm-section {
-      padding: 10px 0 4px;
+      background: var(--warn-bg);
+      border: 1px solid var(--warn-border);
+      border-radius: var(--radius-lg);
+      padding: 12px;
+      margin-bottom: 10px;
     }
     .confirm-section.hidden { display: none; }
     .confirm-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
       font-size: 12px;
       font-weight: 600;
-      color: #ef4444;
-      margin-bottom: 6px;
+      color: var(--warn);
+      margin-bottom: 8px;
+    }
+    .confirm-header::before {
+      content: "";
+      width: 14px;
+      height: 14px;
+      background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%23b45309'><path d='M8 1.5a1 1 0 0 1 .87.5l6.5 11.5a1 1 0 0 1-.87 1.5H1.5a1 1 0 0 1-.87-1.5l6.5-11.5A1 1 0 0 1 8 1.5zm0 4.25a.75.75 0 0 0-.75.75v3a.75.75 0 0 0 1.5 0v-3A.75.75 0 0 0 8 5.75zm0 6.75a.875.875 0 1 0 0-1.75.875.875 0 0 0 0 1.75z'/></svg>") no-repeat center;
+      flex-shrink: 0;
     }
     .confirm-detail {
-      font-size: 11px;
-      color: #444;
+      font-size: 11.5px;
+      color: #57534e;
       margin-bottom: 4px;
+      display: flex;
+      gap: 6px;
     }
     .confirm-detail code {
-      background: #f3f4f6;
-      padding: 1px 4px;
-      border-radius: 3px;
+      background: #fff;
+      border: 1px solid var(--warn-border);
+      padding: 1px 6px;
+      border-radius: 4px;
       font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--text);
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .confirm-buttons {
       display: flex;
       gap: 6px;
-      margin-top: 8px;
+      margin-top: 10px;
     }
     .confirm-btn {
       flex: 1;
-      padding: 5px 10px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
+      padding: 7px 12px;
+      border-radius: var(--radius-sm);
       font-size: 12px;
       font-weight: 500;
       cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      font-family: inherit;
+      border: 1px solid transparent;
     }
     .confirm-btn.allow {
-      background: #22c55e;
-      border-color: #16a34a;
-      color: #fff;
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--accent-text);
     }
-    .confirm-btn.allow:hover { background: #16a34a; }
+    .confirm-btn.allow:hover { background: var(--accent-hover); }
     .confirm-btn.deny {
       background: #fff;
-      color: #ef4444;
-      border-color: #ef4444;
+      color: var(--danger);
+      border-color: var(--danger-border);
     }
-    .confirm-btn.deny:hover { background: #fef2f2; }
+    .confirm-btn.deny:hover { background: var(--danger-bg); }
+
+    /* Footer */
     .footer {
-      margin-top: 12px;
-      padding-top: 12px;
-      border-top: 1px solid #f0f0f0;
+      margin-top: 4px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
       font-size: 11px;
-      color: #999;
+      color: var(--text-subtle);
+      line-height: 1.55;
     }
-    .settings-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 0;
-      border-bottom: 1px solid #f0f0f0;
+    .footer code {
+      display: inline-block;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 0 6px;
+      border-radius: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 10.5px;
+      color: var(--text);
+      white-space: nowrap;
+      vertical-align: baseline;
     }
-    .settings-row label {
-      flex: 1;
-      color: #444;
-      cursor: pointer;
+    .footer a {
+      color: var(--text-muted);
+      text-decoration: none;
+      border-bottom: 1px dashed var(--border-strong);
+      transition: color 0.15s, border-color 0.15s;
     }
-    .settings-row input[type="checkbox"] {
-      cursor: pointer;
+    .footer a:hover,
+    .footer a:focus-visible {
+      color: var(--text);
+      border-bottom-color: var(--text-muted);
+      outline: none;
     }
+    .footer.hidden { display: none; }
   </style>
 </head>
 <body>
   <div class="header">
-    <h1>Actionbook <span class="version" id="versionLabel"></span></h1>
+    <img class="brand-mark" src="icons/icon-48.png" alt="" aria-hidden="true">
+    <span class="brand-name">Actionbook</span>
+    <span class="version" id="versionLabel"></span>
   </div>
 
-  <div class="status-row">
-    <span class="dot" id="bridgeDot"></span>
-    <span class="label">Bridge</span>
-    <span class="value" id="bridgeStatus">--</span>
-    <span class="retry-info" id="retryInfo"></span>
+  <div class="card">
+    <div class="status-row">
+      <span class="dot" id="bridgeDot"></span>
+      <span class="label">Connection</span>
+      <span class="value" id="bridgeStatus">--</span>
+      <span class="retry-info" id="retryInfo"></span>
+    </div>
+
+    <div class="status-row">
+      <span class="dot" id="tabDot"></span>
+      <span class="label">
+        Activity
+        <span class="help-icon" tabindex="0" aria-label="What Activity means" data-tooltip="Shows whether an AI is currently using any browser tab.">?</span>
+      </span>
+      <span class="value" id="tabStatus">--</span>
+    </div>
   </div>
 
-  <div class="status-row">
-    <span class="dot" id="tabDot"></span>
-    <span class="label">Tab</span>
-    <span class="value" id="tabStatus">--</span>
-  </div>
+  <div class="card">
+    <div class="settings-row">
+      <div class="label-group">
+        <span style="color: var(--text-muted); font-size: 12px;">Mode</span>
+      </div>
+      <div class="mode-select" id="modeSelect" data-value="cloud" data-open="false">
+        <button type="button" class="mode-select__trigger" aria-haspopup="listbox" aria-expanded="false">
+          <span class="mode-select__label" id="modeSelectLabel">Cloud</span>
+          <svg class="mode-select__caret" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div class="mode-select__menu" role="listbox" aria-labelledby="modeSelectLabel">
+          <button type="button" class="mode-select__option" role="option" data-value="cloud" aria-selected="true">
+            <div class="mode-select__option-header">
+              <span>Cloud</span>
+              <svg class="mode-select__option-check" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M2.5 6.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div class="mode-select__option-desc">Sign in with your Actionbook account. Easiest for most people.</div>
+          </button>
+          <button type="button" class="mode-select__option" role="option" data-value="local" aria-selected="false">
+            <div class="mode-select__option-header">
+              <span>Local</span>
+              <svg class="mode-select__option-check" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M2.5 6.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div class="mode-select__option-desc">Run a server on your computer. For advanced users.</div>
+          </button>
+        </div>
+      </div>
+    </div>
 
-  <div class="settings-row">
-    <label for="modeSelect">Mode</label>
-    <select id="modeSelect" style="padding: 2px 4px; font-size: 12px;">
-      <option value="local">Local (CLI)</option>
-      <option value="cloud">Cloud</option>
-    </select>
-  </div>
-
-  <div class="status-row hidden" id="deviceRow">
-    <span class="dot gray"></span>
-    <span class="label">Device</span>
-    <span class="value" id="deviceLabel">--</span>
+    <div class="settings-row">
+      <div class="label-group">
+        <label for="groupTabsToggle">Group</label>
+        <span class="help-icon" tabindex="0" aria-label="Group tabs the AI uses" data-tooltip="Group tabs the AI uses in Chrome so they're easy to find.">?</span>
+      </div>
+      <input type="checkbox" id="groupTabsToggle" checked>
+    </div>
   </div>
 
   <div class="action-row hidden" id="cloudActionRow">
     <button class="action-btn" id="cloudSignInBtn">Sign in to Actionbook</button>
   </div>
   <div class="action-row hidden" id="cloudSignOutRow">
-    <button class="action-btn" id="cloudSignOutBtn">Sign out</button>
-  </div>
-
-  <div class="settings-row">
-    <label for="groupTabsToggle">Group Actionbook tabs</label>
-    <input type="checkbox" id="groupTabsToggle" checked>
+    <button class="action-btn secondary" id="cloudSignOutBtn">Sign out</button>
   </div>
 
   <div class="token-section hidden" id="tokenSection">
-    <div class="token-label">Paste token from CLI output:</div>
+    <div class="token-label">Advanced: paste access token</div>
     <div class="token-row">
-      <input type="password" class="token-input" id="tokenInput" placeholder="abk_..." spellcheck="false" autocomplete="off">
+      <input type="password" class="token-input" id="tokenInput" placeholder="abk_…" spellcheck="false" autocomplete="off">
       <button class="token-save-btn" id="tokenSaveBtn">Save</button>
     </div>
   </div>
@@ -241,17 +653,23 @@
   </div>
 
   <div class="confirm-section hidden" id="confirmSection">
-    <div class="confirm-header">L3 Command Confirmation</div>
-    <div class="confirm-detail">Method: <code id="confirmMethod">--</code></div>
-    <div class="confirm-detail">Domain: <code id="confirmDomain">--</code></div>
+    <div class="confirm-header">Permission requested</div>
+    <div style="font-size: 11.5px; color: #57534e; margin-bottom: 8px; line-height: 1.45;">
+      The AI assistant is asking to do something sensitive. Only allow this if you’re expecting it.
+    </div>
+    <div class="confirm-detail"><span class="label" style="min-width:52px">Site</span><code id="confirmDomain">--</code></div>
+    <div class="confirm-detail"><span class="label" style="min-width:52px">Action</span><code id="confirmMethod">--</code></div>
     <div class="confirm-buttons">
-      <button class="confirm-btn deny" id="confirmDeny">Deny</button>
+      <button class="confirm-btn deny" id="confirmDeny">Don’t allow</button>
       <button class="confirm-btn allow" id="confirmAllow">Allow</button>
     </div>
   </div>
 
-  <div class="footer">
-    CLI: <code>actionbook extension serve</code>
+  <div class="footer hidden" id="localHint">
+    To connect, run <code>actionbook extension serve</code> on your computer.
+  </div>
+  <div class="footer hidden" id="cloudHint">
+    <a href="https://actionbook.dev/docs" target="_blank" rel="noopener noreferrer">Learn more ↗</a>
   </div>
 
   <script src="cloud-config.js"></script>

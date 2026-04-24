@@ -12,17 +12,44 @@
 //      (+ refresh_token if offline_access scope was granted)
 //   4. Persist to chrome.storage.local and tell background.js to reconnect
 
+const cardEl = document.getElementById("card");
 const msgEl = document.getElementById("msg");
+const subtitleEl = document.getElementById("subtitle");
 const detailEl = document.getElementById("detail");
 
+// Map internal error codes to user-friendly messages. Unknown codes fall back
+// to a generic phrase; the detail block (often from the OAuth server) still
+// gets surfaced below so the user can share it with support.
+const ERROR_MESSAGES = {
+  missing_params: "The sign-in link was incomplete. Please try again.",
+  pkce_missing: "This sign-in link has expired. Please start again from the extension.",
+  network: "Couldn’t reach the sign-in server. Check your internet connection and try again.",
+  parse_failed: "The sign-in server sent an unexpected response. Please try again.",
+  no_access_token: "Sign-in didn’t complete. Please try again.",
+  storage_failed: "Couldn’t save your sign-in. Please try again.",
+  access_denied: "Sign-in was cancelled.",
+};
+
+function friendlyMessage(code) {
+  if (ERROR_MESSAGES[code]) return ERROR_MESSAGES[code];
+  if (typeof code === "string" && code.startsWith("token_")) {
+    return "The sign-in server rejected the request. Please try again.";
+  }
+  return "Sign-in didn’t complete. Please try again.";
+}
+
 function showError(code, detail) {
-  msgEl.textContent = `Sign-in failed: ${code}`;
-  msgEl.className = "error";
-  if (detail) detailEl.textContent = detail;
+  cardEl.dataset.state = "error";
+  msgEl.textContent = friendlyMessage(code);
+  subtitleEl.textContent = "Try again from the extension.";
+  detailEl.textContent = detail || "";
 }
 
 function showSuccess() {
-  msgEl.textContent = "Signed in. You can close this tab.";
+  cardEl.dataset.state = "success";
+  msgEl.textContent = "You’re signed in";
+  subtitleEl.textContent = "You can close this tab.";
+  detailEl.textContent = "";
 }
 
 (async () => {
@@ -116,9 +143,7 @@ function showSuccess() {
   }
 
   showSuccess();
-  setTimeout(() => {
-    try {
-      window.close();
-    } catch (_) {}
-  }, 1500);
+  // Intentionally do NOT auto-close: the success state includes a short
+  // "what's next" guide that the user should see. They close the tab
+  // themselves when done.
 })();
