@@ -2,82 +2,255 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Actionbook · Sign in</title>
     <style>
       :root {
-        --bg: #fafafa;
-        --surface: #ffffff;
-        --border: #ececee;
-        --text: #0a0a0a;
-        --text-muted: #71717a;
-        --accent: #111111;
-        --danger: #dc2626;
+        --bg:         #f6f7f9;
+        --bg-card:    #ffffff;
+        --border:     #e4e7eb;
+        --fg:         #0b0d10;
+        --muted:      #5b6573;
+        --subtle:     #8892a0;
+        --accent:     #16a34a;
+        --accent-bg:  #dcfce7;
+        --danger:     #dc2626;
+        --danger-bg:  #fef2f2;
+        --pending:    #6b7280;
+        --pending-bg: #f3f4f6;
       }
+
       * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; height: 100%; }
       body {
-        font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
-        margin: 0;
-        padding: 56px 24px;
+        font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI",
+                     Roboto, "Helvetica Neue", Arial, sans-serif;
         background: var(--bg);
-        color: var(--text);
-        -webkit-font-smoothing: antialiased;
-        min-height: 100vh;
-      }
-      .box {
-        max-width: 420px;
-        margin: 0 auto;
-        padding: 28px 28px 24px;
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03), 0 8px 24px rgba(0, 0, 0, 0.04);
-      }
-      .brand {
+        color: var(--fg);
         display: flex;
         align-items: center;
-        gap: 10px;
-        margin-bottom: 18px;
+        justify-content: center;
+        padding: 24px;
+        -webkit-font-smoothing: antialiased;
       }
-      .brand-mark {
-        width: 28px;
-        height: 28px;
-        display: block;
+
+      .card {
+        max-width: 440px;
+        width: 100%;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 40px 32px 28px;
+        text-align: center;
+        animation: card-in 360ms cubic-bezier(.2,.7,.2,1) both;
       }
-      .brand-name {
-        font-size: 15px;
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin-bottom: 20px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+      }
+      .brand img { width: 18px; height: 18px; display: block; }
+
+      .ring {
+        width: 72px; height: 72px;
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        margin: 0 auto 20px;
+        animation: pop 400ms cubic-bezier(.2,.7,.2,1) 120ms both;
+        background: var(--pending-bg);
+      }
+      .ring svg { width: 36px; height: 36px; display: block; }
+
+      .icon-pending, .icon-success, .icon-error { color: var(--pending); }
+      .card[data-state="pending"] .icon-success,
+      .card[data-state="pending"] .icon-error,
+      .card[data-state="success"] .icon-pending,
+      .card[data-state="success"] .icon-error,
+      .card[data-state="error"]   .icon-pending,
+      .card[data-state="error"]   .icon-success { display: none; }
+
+      .card[data-state="success"] .ring { background: var(--accent-bg); }
+      .card[data-state="success"] .icon-success { color: var(--accent); }
+      .card[data-state="error"]   .ring { background: var(--danger-bg); }
+      .card[data-state="error"]   .icon-error   { color: var(--danger); }
+
+      .icon-pending { animation: spin 1s linear infinite; }
+
+      .card[data-state="success"] .icon-success path {
+        stroke-dasharray: 32;
+        stroke-dashoffset: 32;
+        animation: draw 420ms ease-out 80ms forwards;
+      }
+      .card[data-state="error"] .icon-error path {
+        stroke-dasharray: 20;
+        stroke-dashoffset: 20;
+        animation: draw 360ms ease-out 80ms forwards;
+      }
+      .card[data-state="error"] .icon-error path:nth-child(2) {
+        animation-delay: 180ms;
+      }
+
+      h1 {
+        font-size: 22px;
         font-weight: 600;
+        margin: 0 0 10px;
         letter-spacing: -0.01em;
+        color: var(--fg);
+        overflow-wrap: anywhere;
       }
-      h2 {
-        font-size: 18px;
-        font-weight: 600;
-        letter-spacing: -0.01em;
-        margin: 0 0 6px;
-      }
-      #msg {
+      .subtitle {
+        margin: 0;
+        color: var(--muted);
         font-size: 14px;
-        color: var(--text);
-        margin-bottom: 4px;
+        line-height: 1.55;
+        overflow-wrap: anywhere;
       }
-      .status {
-        font-size: 13px;
-        margin-top: 6px;
-        color: var(--text-muted);
+      .detail {
+        margin: 14px 0 0;
+        padding: 10px 12px;
+        background: var(--pending-bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--subtle);
+        font-size: 12px;
         line-height: 1.5;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        text-align: left;
+        /* Without pre-wrap a <pre> keeps everything on one line and blows out
+           the card. overflow-wrap handles long unbroken strings (JWTs, URLs). */
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        max-width: 100%;
+        display: none;
       }
-      .error { color: var(--danger); }
+      .card[data-state="error"] .detail:not(:empty) { display: block; }
+
+      .next-steps {
+        margin-top: 24px;
+        padding-top: 20px;
+        border-top: 1px solid var(--border);
+        display: none;
+      }
+      .card[data-state="success"] .next-steps { display: block; }
+      .next-steps__title {
+        margin: 0 0 8px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--fg);
+      }
+      .next-steps__body {
+        margin: 0 0 14px;
+        font-size: 13px;
+        line-height: 1.55;
+        color: var(--muted);
+      }
+      .next-steps__example {
+        margin: 0 auto 16px;
+        padding: 10px 14px;
+        max-width: 320px;
+        background: var(--pending-bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-size: 12.5px;
+        line-height: 1.5;
+        color: var(--fg);
+        font-style: italic;
+        text-align: left;
+      }
+      .next-steps__example::before {
+        content: "Try: ";
+        font-style: normal;
+        font-weight: 600;
+        color: var(--muted);
+        margin-right: 4px;
+      }
+      .next-steps__cta {
+        display: inline-block;
+        padding: 8px 16px;
+        background: var(--fg);
+        color: var(--bg-card);
+        text-decoration: none;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 500;
+        transition: background 0.15s, transform 0.05s;
+      }
+      .next-steps__cta:hover { background: #000; }
+      .next-steps__cta:active { transform: translateY(1px); }
+      .next-steps__close-note {
+        margin: 14px 0 0;
+        font-size: 12px;
+        color: var(--subtle);
+      }
+
+      @keyframes card-in {
+        from { opacity: 0; transform: translateY(6px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes pop {
+        from { transform: scale(.6); opacity: 0; }
+        to   { transform: scale(1);  opacity: 1; }
+      }
+      @keyframes draw {
+        to { stroke-dashoffset: 0; }
+      }
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to   { transform: rotate(360deg); }
+      }
     </style>
   </head>
   <body>
-    <div class="box">
+    <main class="card" id="card" data-state="pending" role="status" aria-live="polite">
       <div class="brand">
-        <img class="brand-mark" src="icons/icon-48.png" alt="" aria-hidden="true">
-        <span class="brand-name">Actionbook</span>
+        <img src="icons/icon-48.png" alt="" aria-hidden="true" />
+        <span>Actionbook</span>
       </div>
-      <h2>Signing you in</h2>
-      <div id="msg">Processing sign-in…</div>
-      <div id="detail" class="status"></div>
-    </div>
+
+      <div class="ring" aria-hidden="true">
+        <svg class="icon icon-pending" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <path d="M12 3a9 9 0 0 1 9 9" opacity="0.9"/>
+          <path d="M3 12a9 9 0 0 0 9 9" opacity="0.35"/>
+        </svg>
+        <svg class="icon icon-success" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="3"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12.5l4.5 4.5L19 7.5"/>
+        </svg>
+        <svg class="icon icon-error" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="3"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M7 7l10 10"/>
+          <path d="M17 7L7 17"/>
+        </svg>
+      </div>
+
+      <h1 id="msg">Signing you in…</h1>
+      <p class="subtitle" id="subtitle">Just a moment.</p>
+      <pre class="detail" id="detail"></pre>
+      <div class="next-steps">
+        <p class="next-steps__title">What’s next</p>
+        <p class="next-steps__body">
+          Connect an AI agent — like Claude, Codex, or any other agent — to
+          Actionbook. Now it has hands, let it go explore the web.
+        </p>
+        <p class="next-steps__example">
+          Use Actionbook to open my Gmail and summarize the unread emails from today.
+        </p>
+        <a class="next-steps__cta" href="https://actionbook.dev/docs" target="_blank" rel="noopener noreferrer">
+          Learn more →
+        </a>
+        <p class="next-steps__close-note">You can close this tab whenever you’re done.</p>
+      </div>
+    </main>
     <script src="cloud-config.js"></script>
     <script src="callback.js"></script>
   </body>

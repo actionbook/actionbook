@@ -12,12 +12,14 @@
 //      (+ refresh_token if offline_access scope was granted)
 //   4. Persist to chrome.storage.local and tell background.js to reconnect
 
+const cardEl = document.getElementById("card");
 const msgEl = document.getElementById("msg");
+const subtitleEl = document.getElementById("subtitle");
 const detailEl = document.getElementById("detail");
 
 // Map internal error codes to user-friendly messages. Unknown codes fall back
-// to a generic phrase; the `detail` line (often from the OAuth server) still
-// gets surfaced below in case the user needs to share it with support.
+// to a generic phrase; the detail block (often from the OAuth server) still
+// gets surfaced below so the user can share it with support.
 const ERROR_MESSAGES = {
   missing_params: "The sign-in link was incomplete. Please try again.",
   pkce_missing: "This sign-in link has expired. Please start again from the extension.",
@@ -37,13 +39,17 @@ function friendlyMessage(code) {
 }
 
 function showError(code, detail) {
+  cardEl.dataset.state = "error";
   msgEl.textContent = friendlyMessage(code);
-  msgEl.className = "error";
-  if (detail) detailEl.textContent = detail;
+  subtitleEl.textContent = "Try again from the extension.";
+  detailEl.textContent = detail || "";
 }
 
 function showSuccess() {
-  msgEl.textContent = "You’re signed in. You can close this tab.";
+  cardEl.dataset.state = "success";
+  msgEl.textContent = "You’re signed in";
+  subtitleEl.textContent = "You can close this tab.";
+  detailEl.textContent = "";
 }
 
 (async () => {
@@ -137,9 +143,7 @@ function showSuccess() {
   }
 
   showSuccess();
-  setTimeout(() => {
-    try {
-      window.close();
-    } catch (_) {}
-  }, 1500);
+  // Intentionally do NOT auto-close: the success state includes a short
+  // "what's next" guide that the user should see. They close the tab
+  // themselves when done.
 })();
