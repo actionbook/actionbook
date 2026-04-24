@@ -1209,6 +1209,57 @@ function broadcastState() {
     .catch(() => {
       // Popup not open, ignore
     });
+  updateToolbarIcon();
+}
+
+// --- Toolbar icon: black when connected, grey otherwise ---
+
+const ICON_SIZES = [16, 32, 48, 128];
+const PLAIN_ICON_PATH = {
+  16: "icons/icon-16.png",
+  48: "icons/icon-48.png",
+  128: "icons/icon-128.png",
+};
+const GREY_TINT = "#b0b0b0";
+const baseBitmapCache = new Map();
+
+async function loadBaseBitmap(size) {
+  if (baseBitmapCache.has(size)) return baseBitmapCache.get(size);
+  const srcSize = size <= 16 ? 16 : size <= 48 ? 48 : 128;
+  const res = await fetch(chrome.runtime.getURL(`icons/icon-${srcSize}.png`));
+  const blob = await res.blob();
+  const bitmap = await createImageBitmap(blob);
+  baseBitmapCache.set(size, bitmap);
+  return bitmap;
+}
+
+// Re-tint the black logo to grey by using it as an alpha mask and filling
+// with a grey color. source-in keeps only the alpha of the existing pixels.
+async function renderGreyIcon(size) {
+  const canvas = new OffscreenCanvas(size, size);
+  const ctx = canvas.getContext("2d");
+  const bitmap = await loadBaseBitmap(size);
+  ctx.drawImage(bitmap, 0, 0, size, size);
+  ctx.globalCompositeOperation = "source-in";
+  ctx.fillStyle = GREY_TINT;
+  ctx.fillRect(0, 0, size, size);
+  return ctx.getImageData(0, 0, size, size);
+}
+
+async function updateToolbarIcon() {
+  try {
+    if (connectionState === "connected") {
+      chrome.action.setIcon({ path: PLAIN_ICON_PATH });
+      return;
+    }
+    const imageData = {};
+    for (const size of ICON_SIZES) {
+      imageData[size] = await renderGreyIcon(size);
+    }
+    chrome.action.setIcon({ imageData });
+  } catch (_) {
+    try { chrome.action.setIcon({ path: PLAIN_ICON_PATH }); } catch (_) {}
+  }
 }
 
 // Validate that a message sender is the extension's own popup
@@ -1405,6 +1456,10 @@ chrome.storage.local.get("groupTabs", (result) => {
     groupingEnabled = result.groupTabs;
   }
 });
+
+// Sync the toolbar icon to the current connectionState — Chrome persists
+// setIcon across service-worker restarts, so a stale state could linger.
+updateToolbarIcon();
 
 // Try immediate connect, then keep polling fixed ws://127.0.0.1:19222.
 connect();
