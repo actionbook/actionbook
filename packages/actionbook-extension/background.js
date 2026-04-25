@@ -1449,15 +1449,25 @@ ensureOffscreenDocument();
 lastLoggedState = "idle";
 debugLog("[actionbook] Background service worker started");
 
-// Migration: pre-cloud-default installs (v0.5.x and earlier) ran on local mode
-// without ever writing chrome.storage.local.mode. Flipping the runtime default
-// to "cloud" would silently pull those users into pairing_required and break
-// their working local CLI bridge until they manually switch back. On update
-// only — never on fresh install — pin mode to "local" if it was never set,
-// so the new cloud default applies only to genuinely new installs.
+// One-shot migration: pre-cloud-default installs (v0.5.x and earlier) ran on
+// local mode without ever writing chrome.storage.local.mode. Flipping the
+// runtime default to "cloud" would silently pull those users into
+// pairing_required and break their working local CLI bridge until they
+// manually switch back. The migration runs at most once per profile —
+// `_modeMigratedToCloudDefault` records that we've already evaluated this
+// install, so future cloud-default → next-version updates with an unset mode
+// are correctly left on cloud instead of being re-pinned to local.
 chrome.runtime.onInstalled.addListener(async (details) => {
+  const { mode, _modeMigratedToCloudDefault } = await chrome.storage.local.get([
+    "mode",
+    "_modeMigratedToCloudDefault",
+  ]);
+  if (_modeMigratedToCloudDefault) return;
+  await chrome.storage.local.set({ _modeMigratedToCloudDefault: true });
+  // Only updates with no explicit mode are the legacy local-default cohort.
+  // Fresh installs (reason="install") and users who already chose a mode fall
+  // through to the cloud default.
   if (details.reason !== "update") return;
-  const { mode } = await chrome.storage.local.get("mode");
   if (mode) return;
   await chrome.storage.local.set({ mode: "local" });
   // The startup connect() below may have already raced against the cloud
