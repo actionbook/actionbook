@@ -2,8 +2,8 @@
 // Connects to either the local CLI bridge (`local` mode) or the Cloudflare
 // edge-server (`cloud` mode) via WebSocket and executes browser commands.
 //
-// Mode is read from chrome.storage.local.mode; default "local" preserves
-// backward compatibility with pre-0.5 behavior.
+// Mode is read from chrome.storage.local.mode; default "cloud" — local mode
+// is opt-in for advanced users running their own CLI bridge.
 
 const LOCAL_BRIDGE_URL = "ws://127.0.0.1:19222";
 const DEFAULT_CLOUD_ENDPOINT = "wss://edge.actionbook.dev/extension/ws";
@@ -34,6 +34,7 @@ let groupingEnabled = true;
 const CDP_ALLOWLIST = {
   // L1 - Read only (auto-approved)
   'Page.captureScreenshot': 'L1',
+  'Page.getFrameTree': 'L1',
   'Page.getLayoutMetrics': 'L1',
   'Page.getNavigationHistory': 'L1',
   'DOM.getDocument': 'L1',
@@ -200,7 +201,7 @@ function logStateTransition(newState, detail) {
 
 // Resolve the current connection mode + URL from chrome.storage.local.
 // Returns { mode, url, token, deviceId } — token/deviceId are undefined in local mode.
-// Default mode is "local" to preserve pre-0.5 behavior for existing installs.
+// Default mode is "cloud"; local is opt-in for users running their own CLI bridge.
 async function getConnectionConfig() {
   const { mode, cloudEndpoint, cloudToken, deviceId } = await chrome.storage.local.get([
     "mode",
@@ -208,15 +209,15 @@ async function getConnectionConfig() {
     "cloudToken",
     "deviceId",
   ]);
-  if (mode === "cloud") {
-    return {
-      mode: "cloud",
-      url: cloudEndpoint || DEFAULT_CLOUD_ENDPOINT,
-      token: cloudToken || null,
-      deviceId: deviceId || null,
-    };
+  if (mode === "local") {
+    return { mode: "local", url: LOCAL_BRIDGE_URL, token: null, deviceId: null };
   }
-  return { mode: "local", url: LOCAL_BRIDGE_URL, token: null, deviceId: null };
+  return {
+    mode: "cloud",
+    url: cloudEndpoint || DEFAULT_CLOUD_ENDPOINT,
+    token: cloudToken || null,
+    deviceId: deviceId || null,
+  };
 }
 
 async function getEffectiveBridgeUrl() {
@@ -1447,6 +1448,40 @@ function stopBridgePolling() {
 ensureOffscreenDocument();
 lastLoggedState = "idle";
 debugLog("[actionbook] Background service worker started");
+
+// One-shot migration: pre-cloud-default installs (v0.5.x and earlier) ran on
+// local mode without ever writing chrome.storage.local.mode. Flipping the
+// runtime default to "cloud" would silently pull those users into
+// pairing_required and break their working local CLI bridge until they
+// manually switch back. The migration runs at most once per profile —
+// `_modeMigratedToCloudDefault` records that we've already evaluated this
+// install, so future cloud-default → next-version updates with an unset mode
+// are correctly left on cloud instead of being re-pinned to local.
+chrome.runtime.onInstalled.addListener(async (details) => {
+  const { mode, _modeMigratedToCloudDefault } = await chrome.storage.local.get([
+    "mode",
+    "_modeMigratedToCloudDefault",
+  ]);
+  if (_modeMigratedToCloudDefault) return;
+  await chrome.storage.local.set({ _modeMigratedToCloudDefault: true });
+  // Only updates with no explicit mode are the legacy local-default cohort.
+  // Fresh installs (reason="install") and users who already chose a mode fall
+  // through to the cloud default.
+  if (details.reason !== "update") return;
+  if (mode) return;
+  await chrome.storage.local.set({ mode: "local" });
+  // The startup connect() below may have already raced against the cloud
+  // default. Tear it down and reconnect against the freshly pinned local mode.
+  wasReplaced = false;
+  retryCount = 0;
+  reconnectDelay = RECONNECT_BASE_MS;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  detachAndCloseWs("mode_migration");
+  connect();
+});
 
 // Load the user's tab-grouping preference (default on). Kept fully async:
 // the few grouping calls that might race this load will just see the default
