@@ -627,6 +627,27 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
 // group if none exists there. All failures are swallowed: grouping is a UX
 // nicety and must never break the CDP command that triggered it. Callers
 // should not await any particular outcome — treat this as fire-and-log.
+/**
+ * Ensure DOM domain is enabled for a tab. Required for DOM.resolveNode and
+ * other backendNodeId-based lookups to work; chrome.debugger.attach does NOT
+ * auto-enable any domains.
+ *
+ * Without this, Accessibility.getFullAXTree (a separate domain that does not
+ * require DOM enable) returns valid backendDOMNodeIds, but later
+ * DOM.resolveNode(backendNodeId) calls reject those IDs as unknown — surfacing
+ * to cloud callers as REF_STALE on `@eN` references.
+ *
+ * Idempotent: safe to call repeatedly. Failures are logged but not fatal —
+ * many cloud commands work without DOM enabled (Runtime.evaluate, Page.*).
+ */
+async function ensureDomEnabled(tabId) {
+  try {
+    await chrome.debugger.sendCommand({ tabId }, "DOM.enable", {});
+  } catch (err) {
+    debugLog(`[actionbook] DOM.enable failed for tab ${tabId}:`, err?.message || err);
+  }
+}
+
 async function ensureTabInActionbookGroup(tabId) {
   if (!groupingEnabled) return;
   if (typeof tabId !== "number") return;
@@ -806,6 +827,10 @@ async function handleExtensionCommand(id, method, params) {
           return { id, error: { code: -32000, message: `attach failed: ${err.message}` } };
         }
       }
+      // chrome.debugger.attach does not auto-enable any CDP domains. Enable
+      // DOM so backendNodeId-based lookups (DOM.resolveNode, etc.) work for
+      // refs returned by Accessibility.getFullAXTree.
+      await ensureDomEnabled(tabId);
       await ensureTabInActionbookGroup(tabId);
       broadcastState();
       return {
@@ -831,6 +856,8 @@ async function handleExtensionCommand(id, method, params) {
           await chrome.debugger.attach({ tabId: tab.id }, "1.3");
           attachedTabs.add(tab.id);
         }
+        // Enable DOM domain — see ensureDomEnabled() for rationale.
+        await ensureDomEnabled(tab.id);
         broadcastState();
         return { id, result: { tabId: tab.id, title: tab.title || "", url: tab.url || url, attached: true, reused } };
       } catch (err) {
@@ -853,6 +880,8 @@ async function handleExtensionCommand(id, method, params) {
           await chrome.debugger.attach({ tabId }, "1.3");
           attachedTabs.add(tabId);
         }
+        // Enable DOM domain — see ensureDomEnabled() for rationale.
+        await ensureDomEnabled(tabId);
         broadcastState();
         return { id, result: { success: true, tabId, title: tab.title, url: tab.url, attached: true } };
       } catch (err) {
