@@ -628,23 +628,31 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
 // nicety and must never break the CDP command that triggered it. Callers
 // should not await any particular outcome — treat this as fire-and-log.
 /**
- * Ensure DOM domain is enabled for a tab. Required for DOM.resolveNode and
- * other backendNodeId-based lookups to work; chrome.debugger.attach does NOT
- * auto-enable any domains.
+ * Warm the DOM agent for a tab by traversing the full document.
  *
- * Without this, Accessibility.getFullAXTree (a separate domain that does not
- * require DOM enable) returns valid backendDOMNodeIds, but later
- * DOM.resolveNode(backendNodeId) calls reject those IDs as unknown — surfacing
- * to cloud callers as REF_STALE on `@eN` references.
+ * `chrome.debugger.attach` does not auto-enable any CDP domains. Just
+ * calling `DOM.enable` enables the agent but does NOT pre-populate its
+ * internal backendNodeId → node index. `DOM.resolveNode(backendNodeId)`
+ * — used by cloud locator for `@eN` ref resolution — then rejects all
+ * IDs even when they came from a fresh `Accessibility.getFullAXTree`.
  *
- * Idempotent: safe to call repeatedly. Failures are logged but not fatal —
- * many cloud commands work without DOM enabled (Runtime.evaluate, Page.*).
+ * `DOM.getDocument({ depth: -1, pierce: false })` is the canonical way
+ * to force the DOM agent to traverse the whole document and build its
+ * index. After this call, `DOM.resolveNode` works for every backendId
+ * present in the document. Idempotent (safe to call multiple times).
+ *
+ * Failures are logged but not fatal — many cloud commands work without
+ * the index (Runtime.evaluate, Page.captureScreenshot, etc.).
  */
-async function ensureDomEnabled(tabId) {
+async function ensureDomReady(tabId) {
   try {
-    await chrome.debugger.sendCommand({ tabId }, "DOM.enable", {});
+    await chrome.debugger.sendCommand(
+      { tabId },
+      "DOM.getDocument",
+      { depth: -1, pierce: false },
+    );
   } catch (err) {
-    debugLog(`[actionbook] DOM.enable failed for tab ${tabId}:`, err?.message || err);
+    debugLog(`[actionbook] DOM.getDocument failed for tab ${tabId}:`, err?.message || err);
   }
 }
 
@@ -827,10 +835,10 @@ async function handleExtensionCommand(id, method, params) {
           return { id, error: { code: -32000, message: `attach failed: ${err.message}` } };
         }
       }
-      // chrome.debugger.attach does not auto-enable any CDP domains. Enable
-      // DOM so backendNodeId-based lookups (DOM.resolveNode, etc.) work for
-      // refs returned by Accessibility.getFullAXTree.
-      await ensureDomEnabled(tabId);
+      // chrome.debugger.attach does not auto-enable any CDP domains. Warm
+      // the DOM agent so backendNodeId-based lookups (DOM.resolveNode, etc.)
+      // work for refs returned by Accessibility.getFullAXTree.
+      await ensureDomReady(tabId);
       await ensureTabInActionbookGroup(tabId);
       broadcastState();
       return {
@@ -856,8 +864,8 @@ async function handleExtensionCommand(id, method, params) {
           await chrome.debugger.attach({ tabId: tab.id }, "1.3");
           attachedTabs.add(tab.id);
         }
-        // Enable DOM domain — see ensureDomEnabled() for rationale.
-        await ensureDomEnabled(tab.id);
+        // Warm the DOM agent — see ensureDomReady() for rationale.
+        await ensureDomReady(tab.id);
         broadcastState();
         return { id, result: { tabId: tab.id, title: tab.title || "", url: tab.url || url, attached: true, reused } };
       } catch (err) {
@@ -880,8 +888,8 @@ async function handleExtensionCommand(id, method, params) {
           await chrome.debugger.attach({ tabId }, "1.3");
           attachedTabs.add(tabId);
         }
-        // Enable DOM domain — see ensureDomEnabled() for rationale.
-        await ensureDomEnabled(tabId);
+        // Warm the DOM agent — see ensureDomReady() for rationale.
+        await ensureDomReady(tabId);
         broadcastState();
         return { id, result: { success: true, tabId, title: tab.title, url: tab.url, attached: true } };
       } catch (err) {
