@@ -1449,6 +1449,30 @@ ensureOffscreenDocument();
 lastLoggedState = "idle";
 debugLog("[actionbook] Background service worker started");
 
+// Migration: pre-cloud-default installs (v0.5.x and earlier) ran on local mode
+// without ever writing chrome.storage.local.mode. Flipping the runtime default
+// to "cloud" would silently pull those users into pairing_required and break
+// their working local CLI bridge until they manually switch back. On update
+// only — never on fresh install — pin mode to "local" if it was never set,
+// so the new cloud default applies only to genuinely new installs.
+chrome.runtime.onInstalled.addListener(async (details) => {
+  if (details.reason !== "update") return;
+  const { mode } = await chrome.storage.local.get("mode");
+  if (mode) return;
+  await chrome.storage.local.set({ mode: "local" });
+  // The startup connect() below may have already raced against the cloud
+  // default. Tear it down and reconnect against the freshly pinned local mode.
+  wasReplaced = false;
+  retryCount = 0;
+  reconnectDelay = RECONNECT_BASE_MS;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  detachAndCloseWs("mode_migration");
+  connect();
+});
+
 // Load the user's tab-grouping preference (default on). Kept fully async:
 // the few grouping calls that might race this load will just see the default
 // value, which is the safer fallback.
