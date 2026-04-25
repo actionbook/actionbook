@@ -2,8 +2,8 @@
 // Connects to either the local CLI bridge (`local` mode) or the Cloudflare
 // edge-server (`cloud` mode) via WebSocket and executes browser commands.
 //
-// Mode is read from chrome.storage.local.mode; default "local" preserves
-// backward compatibility with pre-0.5 behavior.
+// Mode is read from chrome.storage.local.mode; default "cloud" — local mode
+// is opt-in for advanced users running their own CLI bridge.
 
 const LOCAL_BRIDGE_URL = "ws://127.0.0.1:19222";
 const DEFAULT_CLOUD_ENDPOINT = "wss://edge.actionbook.dev/extension/ws";
@@ -34,6 +34,7 @@ let groupingEnabled = true;
 const CDP_ALLOWLIST = {
   // L1 - Read only (auto-approved)
   'Page.captureScreenshot': 'L1',
+  'Page.getFrameTree': 'L1',
   'Page.getLayoutMetrics': 'L1',
   'Page.getNavigationHistory': 'L1',
   'DOM.getDocument': 'L1',
@@ -200,7 +201,7 @@ function logStateTransition(newState, detail) {
 
 // Resolve the current connection mode + URL from chrome.storage.local.
 // Returns { mode, url, token, deviceId } — token/deviceId are undefined in local mode.
-// Default mode is "local" to preserve pre-0.5 behavior for existing installs.
+// Default mode is "cloud"; local is opt-in for users running their own CLI bridge.
 async function getConnectionConfig() {
   const { mode, cloudEndpoint, cloudToken, deviceId } = await chrome.storage.local.get([
     "mode",
@@ -208,15 +209,15 @@ async function getConnectionConfig() {
     "cloudToken",
     "deviceId",
   ]);
-  if (mode === "cloud") {
-    return {
-      mode: "cloud",
-      url: cloudEndpoint || DEFAULT_CLOUD_ENDPOINT,
-      token: cloudToken || null,
-      deviceId: deviceId || null,
-    };
+  if (mode === "local") {
+    return { mode: "local", url: LOCAL_BRIDGE_URL, token: null, deviceId: null };
   }
-  return { mode: "local", url: LOCAL_BRIDGE_URL, token: null, deviceId: null };
+  return {
+    mode: "cloud",
+    url: cloudEndpoint || DEFAULT_CLOUD_ENDPOINT,
+    token: cloudToken || null,
+    deviceId: deviceId || null,
+  };
 }
 
 async function getEffectiveBridgeUrl() {

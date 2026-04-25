@@ -252,7 +252,7 @@ async function refreshCloudUi() {
     "mode",
     "cloudToken",
   ]);
-  const current = mode === "cloud" ? "cloud" : "local";
+  const current = mode === "local" ? "local" : "cloud";
   isCloudMode = current === "cloud";
   hasCloudToken = !!cloudToken;
   setModeValue(current);
