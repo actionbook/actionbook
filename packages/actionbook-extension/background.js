@@ -15,6 +15,13 @@ const BRIDGE_PROBE_TIMEOUT_MS = 750;
 const HANDSHAKE_TIMEOUT_MS = 2000;
 const L3_CONFIRM_TIMEOUT_MS = 30000;
 
+// Caps the serialized size of Runtime.evaluate / Runtime.callFunctionOn results.
+// Agent-authored expressions can accidentally return huge payloads (e.g.
+// `document.documentElement.outerHTML`) that blow up token budgets and the WS
+// channel. Other CDP methods are not capped — their large returns (screenshots,
+// outerHTML) are intentional.
+const MAX_EVAL_RESULT_CHARS = 50000;
+
 // Protocol version reported in the hello frame. Bumped to 0.5.0 for cloud mode.
 const PROTOCOL_VERSION = "0.5.0";
 
@@ -1204,6 +1211,20 @@ async function handleCdpCommand(id, method, params, tabId, sessionId) {
       method,
       params
     );
+
+    if (method === "Runtime.evaluate" || method === "Runtime.callFunctionOn") {
+      const size = JSON.stringify(result || {}).length;
+      if (size > MAX_EVAL_RESULT_CHARS) {
+        return {
+          id,
+          error: {
+            code: -32000,
+            message: `${method} result too large: ${size} chars exceeds ${MAX_EVAL_RESULT_CHARS} char limit. Reduce output size in your expression (e.g. .slice(0, N), select fewer fields, or paginate).`,
+          },
+        };
+      }
+    }
+
     return { id, result: result || {} };
   } catch (err) {
     const errorMessage = err.message || String(err);
