@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/actionbook-actionbook-badge.png)](https://mseep.ai/app/actionbook-actionbook)
+
 ![Actionbook Cover](https://github.com/user-attachments/assets/18f55ca3-2c25-4f6a-a518-1b07baf8b4dd)
 
 <div align="center">
