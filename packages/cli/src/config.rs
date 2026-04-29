@@ -474,6 +474,7 @@ mod tests {
             set_session_id: None,
             stealth: true,
             max_tracked_requests: 500,
+            har_out: None,
             provider_env: Default::default(),
         }
     }

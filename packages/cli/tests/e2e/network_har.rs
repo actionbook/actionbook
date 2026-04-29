@@ -2,13 +2,14 @@
 //!
 //! Covers the planned `browser network har start/stop` commands.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::harness::{
-    SessionGuard, assert_error_envelope, assert_failure, assert_meta, assert_success,
-    headless_json, new_tab_json, parse_json, skip, start_session, url_fast_redirect,
-    url_network_load, url_network_xhr,
+    SessionGuard, SoloEnv, assert_error_envelope, assert_failure, assert_meta, assert_success,
+    headless_json, new_tab_json, parse_json, skip, start_session, unique_session,
+    url_fast_redirect, url_network_load, url_network_xhr,
 };
 
 fn har_start(session_id: &str, tab_id: &str) -> std::process::Output {
@@ -155,6 +156,216 @@ fn har_entries(v: &serde_json::Value) -> &[serde_json::Value] {
         .as_array()
         .map(Vec::as_slice)
         .unwrap_or(&[])
+}
+
+fn har_start_in_env(env: &SoloEnv, session_id: &str, tab_id: &str) -> std::process::Output {
+    env.headless_json(
+        &[
+            "browser",
+            "network",
+            "har",
+            "start",
+            "--session",
+            session_id,
+            "--tab",
+            tab_id,
+        ],
+        15,
+    )
+}
+
+fn har_stop_in_env(env: &SoloEnv, session_id: &str, tab_id: &str) -> std::process::Output {
+    env.headless_json(
+        &[
+            "browser",
+            "network",
+            "har",
+            "stop",
+            "--session",
+            session_id,
+            "--tab",
+            tab_id,
+        ],
+        15,
+    )
+}
+
+fn wait_requests_done_in_env(env: &SoloEnv, session_id: &str, tab_id: &str) {
+    let out = env.headless_json(
+        &[
+            "browser",
+            "wait",
+            "condition",
+            "window.__ab_requests_done === true",
+            "--session",
+            session_id,
+            "--tab",
+            tab_id,
+            "--timeout",
+            "5000",
+        ],
+        10,
+    );
+    assert_success(&out, "wait requests done");
+}
+
+fn issue_bulk_requests_in_env(env: &SoloEnv, session_id: &str, tab_id: &str, count: usize) {
+    let api_prefix = url_network_xhr().replace("/network-xhr", "/api/data?source=");
+    let expression = format!(
+        "await Promise.all(Array.from({{ length: {count} }}, (_, i) => fetch(`{api_prefix}act971-${{i}}`).then(r => r.text())))"
+    );
+    let argv = [
+        "browser".to_string(),
+        "eval".to_string(),
+        expression,
+        "--session".to_string(),
+        session_id.to_string(),
+        "--tab".to_string(),
+        tab_id.to_string(),
+    ];
+    let args: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let out = env.headless_json(&args, 30);
+    assert_success(&out, "issue bulk requests");
+}
+
+fn wait_page_ready_in_env(env: &SoloEnv, session_id: &str, tab_id: &str) {
+    for _ in 0..10 {
+        let out = env.headless_json(
+            &[
+                "browser",
+                "eval",
+                "document.readyState",
+                "--session",
+                session_id,
+                "--tab",
+                tab_id,
+            ],
+            5,
+        );
+        if out.status.success() {
+            let v = parse_json(&out);
+            if v["data"]["value"].as_str() == Some("complete") {
+                return;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+}
+
+fn start_named_session_in_env(
+    env: &SoloEnv,
+    session_id: &str,
+    profile: &str,
+    url: &str,
+    har_out: Option<&Path>,
+) -> std::process::Output {
+    let mut argv = vec![
+        "browser".to_string(),
+        "start".to_string(),
+        "--mode".to_string(),
+        "local".to_string(),
+        "--headless".to_string(),
+        "--profile".to_string(),
+        profile.to_string(),
+        "--set-session-id".to_string(),
+        session_id.to_string(),
+    ];
+    if let Some(path) = har_out {
+        argv.push("--har-out".to_string());
+        argv.push(path.to_string_lossy().to_string());
+    }
+    argv.push("--open-url".to_string());
+    argv.push(url.to_string());
+    let args: Vec<&str> = argv.iter().map(String::as_str).collect();
+    env.headless_json(&args, 30)
+}
+
+fn start_named_session_tab_in_env(
+    env: &SoloEnv,
+    session_id: &str,
+    profile: &str,
+    url: &str,
+    har_out: Option<&Path>,
+) -> String {
+    let out = start_named_session_in_env(env, session_id, profile, url, har_out);
+    assert_success(&out, &format!("start {session_id}"));
+    let v = parse_json(&out);
+    let tid = v["data"]["tab"]["tab_id"]
+        .as_str()
+        .expect("tab id")
+        .to_string();
+    wait_page_ready_in_env(env, session_id, &tid);
+    tid
+}
+
+fn new_tab_json_in_env(env: &SoloEnv, session_id: &str, url: &str) -> String {
+    let out = env.headless_json(&["browser", "new-tab", url, "--session", session_id], 30);
+    assert_success(&out, "new-tab");
+    let v = parse_json(&out);
+    let tid = v["data"]["tab"]["tab_id"]
+        .as_str()
+        .expect("new-tab tab id")
+        .to_string();
+    wait_page_ready_in_env(env, session_id, &tid);
+    tid
+}
+
+fn daemon_pid(env: &SoloEnv) -> u32 {
+    let pid_path = Path::new(&env.actionbook_home).join("daemon.pid");
+    fs::read_to_string(&pid_path)
+        .unwrap_or_else(|e| panic!("read daemon pid {}: {e}", pid_path.display()))
+        .trim()
+        .parse()
+        .unwrap_or_else(|e| panic!("parse daemon pid {}: {e}", pid_path.display()))
+}
+
+#[cfg(unix)]
+fn pid_alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .output()
+        .is_ok_and(|out| out.status.success())
+}
+
+#[cfg(unix)]
+fn send_sigterm_and_wait(env: &SoloEnv) {
+    let pid = daemon_pid(env);
+    let out = std::process::Command::new("kill")
+        .args(["-TERM", &pid.to_string()])
+        .output()
+        .expect("spawn kill -TERM");
+    assert!(
+        out.status.success(),
+        "kill -TERM {pid} failed: status={:?} stderr={}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        let pid_file_exists = Path::new(&env.actionbook_home).join("daemon.pid").exists();
+        if !pid_alive(pid) && !pid_file_exists {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    panic!("daemon pid {pid} did not exit after SIGTERM");
+}
+
+fn daemon_log_path(env: &SoloEnv) -> PathBuf {
+    Path::new(&env.actionbook_home).join("daemon.log")
+}
+
+fn har_dir_listing(env: &SoloEnv) -> BTreeSet<String> {
+    let dir = Path::new(&env.actionbook_home).join("har");
+    match fs::read_dir(&dir) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .collect(),
+        Err(_) => BTreeSet::new(),
+    }
 }
 
 fn assert_har_entry_shape(entry: &serde_json::Value) {
@@ -881,6 +1092,153 @@ mod truncation {
         assert!(
             warnings.is_empty(),
             "clean stop should not emit warnings, got {warnings:?}"
+        );
+    }
+
+    #[test]
+    #[cfg_attr(windows, ignore = "SIGTERM-based graceful shutdown is Unix-only")]
+    fn sigterm_flushes_har_when_har_out_set_and_single_recorder() {
+        if skip() {
+            return;
+        }
+
+        let env = SoloEnv::new();
+        let (sid, profile) = unique_session("act971-positive");
+        let har_path = Path::new(&env.actionbook_home).join("act971-positive.har");
+        let tid = start_named_session_tab_in_env(
+            &env,
+            &sid,
+            &profile,
+            &url_network_xhr(),
+            Some(&har_path),
+        );
+        wait_requests_done_in_env(&env, &sid, &tid);
+
+        assert_success(&har_start_in_env(&env, &sid, &tid), "har start");
+        issue_bulk_requests_in_env(&env, &sid, &tid, 4);
+
+        send_sigterm_and_wait(&env);
+
+        assert!(
+            har_path.exists(),
+            "SIGTERM with --har-out and a single recorder should flush HAR to {}",
+            har_path.display()
+        );
+        let har = har_json_from_file(&har_path);
+        assert!(
+            har["log"]["entries"].is_array(),
+            "flushed HAR should contain log.entries array: {har:?}"
+        );
+    }
+
+    #[test]
+    #[cfg_attr(windows, ignore = "SIGTERM-based graceful shutdown is Unix-only")]
+    fn sigterm_without_har_out_does_not_implicit_write() {
+        if skip() {
+            return;
+        }
+
+        let env = SoloEnv::new();
+        let before = har_dir_listing(&env);
+        let (sid, profile) = unique_session("act971-noharout");
+        let tid = start_named_session_tab_in_env(&env, &sid, &profile, &url_network_xhr(), None);
+        wait_requests_done_in_env(&env, &sid, &tid);
+
+        assert_success(&har_start_in_env(&env, &sid, &tid), "har start");
+        issue_bulk_requests_in_env(&env, &sid, &tid, 3);
+
+        send_sigterm_and_wait(&env);
+
+        let after = har_dir_listing(&env);
+        assert_eq!(
+            after, before,
+            "SIGTERM without --har-out must not implicitly write under ACTIONBOOK_HOME/har"
+        );
+    }
+
+    #[test]
+    #[cfg_attr(windows, ignore = "SIGTERM-based graceful shutdown is Unix-only")]
+    fn sigterm_with_multi_recorder_skips_flush_and_warns() {
+        if skip() {
+            return;
+        }
+
+        let env = SoloEnv::new();
+        let (sid, profile) = unique_session("act971-multi");
+        let har_path = Path::new(&env.actionbook_home).join("act971-multi.har");
+        let log_path = daemon_log_path(&env);
+        let tid_a = start_named_session_tab_in_env(
+            &env,
+            &sid,
+            &profile,
+            &url_network_xhr(),
+            Some(&har_path),
+        );
+        wait_requests_done_in_env(&env, &sid, &tid_a);
+
+        let tid_b = new_tab_json_in_env(&env, &sid, &url_network_xhr());
+        wait_requests_done_in_env(&env, &sid, &tid_b);
+
+        assert_success(&har_start_in_env(&env, &sid, &tid_a), "har start tab a");
+        assert_success(&har_start_in_env(&env, &sid, &tid_b), "har start tab b");
+        issue_bulk_requests_in_env(&env, &sid, &tid_a, 2);
+        issue_bulk_requests_in_env(&env, &sid, &tid_b, 2);
+
+        send_sigterm_and_wait(&env);
+
+        assert!(
+            !har_path.exists(),
+            "multi-recorder SIGTERM flush must skip writing {}",
+            har_path.display()
+        );
+        let daemon_log = fs::read_to_string(&log_path).unwrap_or_default();
+        assert!(
+            daemon_log.contains("skipping HAR flush"),
+            "expected daemon log {} to mention skip, got:\n{}",
+            log_path.display(),
+            daemon_log
+        );
+    }
+
+    #[test]
+    #[cfg_attr(windows, ignore = "SIGTERM-based graceful shutdown is Unix-only")]
+    fn har_stop_after_sigterm_flush_stays_parseable() {
+        if skip() {
+            return;
+        }
+
+        let env = SoloEnv::new();
+        let (sid, profile) = unique_session("act971-stop-after");
+        let har_path = Path::new(&env.actionbook_home).join("act971-stop-after.har");
+        let tid = start_named_session_tab_in_env(
+            &env,
+            &sid,
+            &profile,
+            &url_network_xhr(),
+            Some(&har_path),
+        );
+        wait_requests_done_in_env(&env, &sid, &tid);
+
+        assert_success(&har_start_in_env(&env, &sid, &tid), "har start");
+        issue_bulk_requests_in_env(&env, &sid, &tid, 4);
+
+        send_sigterm_and_wait(&env);
+
+        let before = fs::read(&har_path)
+            .unwrap_or_else(|e| panic!("read flushed har {}: {e}", har_path.display()));
+        let _: serde_json::Value = serde_json::from_slice(&before)
+            .unwrap_or_else(|e| panic!("parse flushed har {}: {e}", har_path.display()));
+
+        let stop_out = har_stop_in_env(&env, &sid, &tid);
+        assert_failure(&stop_out, "har stop after sigterm flush");
+
+        let after = fs::read(&har_path)
+            .unwrap_or_else(|e| panic!("re-read flushed har {}: {e}", har_path.display()));
+        let _: serde_json::Value = serde_json::from_slice(&after)
+            .unwrap_or_else(|e| panic!("parse har after failed stop {}: {e}", har_path.display()));
+        assert_eq!(
+            after, before,
+            "failed har stop after SIGTERM flush must not mutate existing flushed HAR"
         );
     }
 }

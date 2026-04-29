@@ -384,8 +384,8 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Graceful shutdown: collect all sessions, then release registry lock
-    // before slow I/O (CDP close + Chrome kill).
-    let entries_to_close = {
+    // before slow I/O (HAR flush + CDP close + Chrome kill).
+    let (entries_to_close, har_flush_tasks) = {
         let mut reg = registry.lock().await;
         let session_ids: Vec<String> = reg
             .list()
@@ -393,19 +393,67 @@ pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
             .map(|s| s.id.as_str().to_string())
             .collect();
         let mut entries = Vec::new();
+        let mut har_tasks = Vec::new();
         for sid in session_ids {
             if let Some(mut entry) = reg.remove(&sid) {
+                let har_out = entry.har_out.take();
                 let cdp = entry.cdp.take();
                 let chrome = entry.chrome_process.take();
                 // Windows: entry.job_object drops here (end of if-let block),
                 // which calls ChromeJobObject::Drop → TerminateJobObject →
                 // kills all Chrome processes (main + helpers) atomically.
+                if let (Some(path), Some(cdp_ref)) = (har_out, cdp.clone()) {
+                    har_tasks.push((entry.id.as_str().to_string(), path, cdp_ref));
+                }
                 entries.push((cdp, chrome));
             }
         }
-        entries
+        (entries, har_tasks)
     };
-    // Registry lock released — cleanup below runs without blocking.
+    // Registry lock released — HAR flush and cleanup run without blocking.
+
+    // HAR flush: for sessions started with `--har-out`, serialize the single
+    // active recorder to the requested path. 0 or >1 active recorders → skip
+    // and log. Runs before cdp.close() so the WebSocket is still alive for
+    // the body-fetch drain inside har_stop.
+    for (sid, path, cdp) in har_flush_tasks {
+        let ids = cdp.har_recorder_ids().await;
+        match ids.as_slice() {
+            [cdp_session_id] => match cdp.har_stop(cdp_session_id).await {
+                Ok((har_entries, dropped, _max)) => {
+                    match crate::browser::observation::network_har::write_har_file(
+                        &path,
+                        har_entries,
+                        dropped,
+                    ) {
+                        Ok(()) => {
+                            cdp.har_commit(cdp_session_id).await;
+                            info!(
+                                "flushed HAR for session {} to {} on shutdown",
+                                sid,
+                                path.display()
+                            );
+                        }
+                        Err(e) => {
+                            warn!("HAR flush write failed for session {sid}: {e}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("HAR snapshot failed for session {sid}: {e}");
+                }
+            },
+            _ => {
+                warn!(
+                    "skipping HAR flush for session {} (active_recorders={}, har_out={})",
+                    sid,
+                    ids.len(),
+                    path.display()
+                );
+            }
+        }
+    }
+
     for (cdp, chrome) in entries_to_close {
         if let Some(cdp) = cdp {
             cdp.close().await;
