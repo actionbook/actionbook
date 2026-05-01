@@ -313,6 +313,21 @@ Every error response includes a hint field telling the agent what to do next. Fo
 - **Stealth off by default.** Anti-detection is opt-in. Users must explicitly enable it. Anti-pattern: stealth on by default causes non-reproducible E2E tests — User-Agent differs on every run.
 - **Binary size is a hard constraint.** Target < 10MB (stripped). Means: `opt-level="z"` + LTO + strip + `panic="abort"` + feature-gate non-core modules. Periodically run `cargo bloat` to track size contributors.
 
+---
+
+### Cross-Agent Discipline (CLI team)
+
+Rules agreed by the CLI agent team retrospective (2026-04-23, Rounds 1–3, unanimous). Apply when planning, reviewing, or merging CLI work.
+
+- **Red-read sweep before editing.** Before modifying a target module, scan the module's existing tests and docs for legacy assertions that would break under the new contract. Call them out up-front as either (a) to-update in the same PR, or (b) locked-contract collisions that require the plan to change. Do not let stale assertions become discovered collateral mid-review.
+- **Phase-split trigger = contract surface count.** A plan MUST be split into phases when it touches **≥2 user-visible contract surfaces** (error code, envelope shape, flag, side-effect) OR **any cross-layer bridge surface** (`CliError → envelope`, `data → __meta`, `flag → runtime semantics`, `CLI parse → error bridge → output/help/docs`). LOC and abstract "dimensions" are not valid triggers — only surface count and cross-layer bridges are.
+- **Blocker upgrade gate.** Raise a blocker only on a locked-contract failure proven by either a concrete repro OR a code-path proof. Code-path proof MUST include all four:
+  1. `file:path:line`
+  2. input → wrong user-visible output / wrong mutation (data + control flow)
+  3. explicit tie to the locked contract or immediate correctness break
+  4. one explicit sentence on why the user-facing contract breaks
+  Label format: `[code-path proof] <file:line> → <dataflow>`. Without all four items, downgrade to `follow-up candidate` or `evidence gap` — speculative broadening does not qualify as a blocker.
+
 ## gstack
 
 ### Available Skills
