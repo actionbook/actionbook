@@ -414,6 +414,9 @@ actionbook extension path                            # Print install path, insta
 The actionbook daemon runs in the background and manages browser sessions. It auto-starts on first CLI call.
 
 ```bash
+actionbook browser doctor --json                     # Inspect browser hand health without requiring a session
+actionbook browser doctor --start --json             # Start daemon if needed, then re-check request/response health
+actionbook browser logs daemon --tail 100 --json     # Read daemon/browser process logs
 actionbook daemon restart                            # Stop the running daemon (next CLI call respawns)
 ```
 
