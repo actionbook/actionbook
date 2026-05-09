@@ -125,6 +125,8 @@ actionbook extension ping            # Measure bridge RTT
 actionbook extension install         # Fallback: install to ~/Actionbook/extension/ (requires manual Chrome load)
 actionbook extension uninstall       # Remove extension
 actionbook extension path            # Print install path, status, and version
+actionbook browser doctor --json     # Diagnose browser hand health without a session
+actionbook browser logs daemon --json # Read daemon/browser process logs
 actionbook daemon restart            # Stop the running daemon (next CLI call respawns)
 ```
 

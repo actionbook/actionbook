@@ -138,6 +138,8 @@ pub struct TabArgs {
 pub enum BrowserCommands {
     /// Show browser help
     Help,
+    /// Diagnose browser daemon/hand health without requiring an existing session
+    Doctor(BrowserDoctorArgs),
 
     // ── Session lifecycle ──────────────────────────────────────
     /// Start or attach a browser session
@@ -317,6 +319,22 @@ pub enum LogsCommands {
     Console(observation::logs_console::Cmd),
     /// Get error logs (window error events + unhandled rejections)
     Errors(observation::logs_errors::Cmd),
+    /// Read daemon/browser process logs
+    Daemon(DaemonLogsArgs),
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct BrowserDoctorArgs {
+    /// Start the daemon if it is not running, then re-check health.
+    #[arg(long)]
+    pub start: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct DaemonLogsArgs {
+    /// Return only the last N log lines.
+    #[arg(long, default_value_t = 100)]
+    pub tail: usize,
 }
 
 #[derive(Subcommand, Debug)]
@@ -434,6 +452,7 @@ impl BrowserCommands {
     pub fn to_action(&self) -> Option<Action> {
         Some(match self {
             Self::Help => return None,
+            Self::Doctor(_) => return None,
             Self::Start(cmd) => Action::StartSession(cmd.clone()),
             Self::ListSessions(cmd) => Action::ListSessions(cmd.clone()),
             Self::Status(cmd) => Action::SessionStatus(cmd.clone()),
@@ -489,6 +508,7 @@ impl BrowserCommands {
             Self::Logs { command } => match command {
                 LogsCommands::Console(cmd) => Action::LogsConsole(cmd.clone()),
                 LogsCommands::Errors(cmd) => Action::LogsErrors(cmd.clone()),
+                LogsCommands::Daemon(_) => return None,
             },
             Self::Network { command } => match command {
                 NetworkCommands::Requests(cmd) => Action::NetworkRequests(cmd.clone()),
@@ -540,6 +560,7 @@ impl BrowserCommands {
     pub fn command_name(&self) -> &str {
         match self {
             Self::Help => "help",
+            Self::Doctor(_) => "browser doctor",
             Self::Start(_) => session::start::COMMAND_NAME,
             Self::ListSessions(_) => session::list::COMMAND_NAME,
             Self::Status(_) => session::status::COMMAND_NAME,
@@ -586,6 +607,7 @@ impl BrowserCommands {
             Self::Logs { command } => match command {
                 LogsCommands::Console(_) => observation::logs_console::COMMAND_NAME,
                 LogsCommands::Errors(_) => observation::logs_errors::COMMAND_NAME,
+                LogsCommands::Daemon(_) => "browser logs daemon",
             },
             Self::Network { command } => match command {
                 NetworkCommands::Requests(_) => observation::network_requests::COMMAND_NAME,
@@ -623,6 +645,7 @@ impl BrowserCommands {
     pub fn context(&self, result: &ActionResult) -> Option<ResponseContext> {
         match self {
             Self::Help => None,
+            Self::Doctor(_) => None,
             Self::Start(cmd) => session::start::context(cmd, result),
             Self::ListSessions(cmd) => session::list::context(cmd, result),
             Self::Status(cmd) => session::status::context(cmd, result),
@@ -666,6 +689,7 @@ impl BrowserCommands {
             Self::Logs { command } => match command {
                 LogsCommands::Console(cmd) => observation::logs_console::context(cmd, result),
                 LogsCommands::Errors(cmd) => observation::logs_errors::context(cmd, result),
+                LogsCommands::Daemon(_) => None,
             },
             Self::Network { command } => match command {
                 NetworkCommands::Requests(cmd) => {
@@ -1031,6 +1055,36 @@ mod tests {
                 assert!(action.is_none());
             }
             other => panic!("expected manual command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_doctor_command() {
+        let cli = Cli::try_parse_from(["actionbook", "--json", "browser", "doctor", "--start"])
+            .expect("parse browser doctor");
+
+        assert!(cli.json);
+        match cli.command {
+            Some(Commands::Browser {
+                command: BrowserCommands::Doctor(cmd),
+            }) => assert!(cmd.start),
+            other => panic!("expected browser doctor command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_parse_from_accepts_browser_logs_daemon_command() {
+        let cli = Cli::try_parse_from(["actionbook", "browser", "logs", "daemon", "--tail", "7"])
+            .expect("parse browser logs daemon");
+
+        match cli.command {
+            Some(Commands::Browser {
+                command:
+                    BrowserCommands::Logs {
+                        command: LogsCommands::Daemon(cmd),
+                    },
+            }) => assert_eq!(cmd.tail, 7),
+            other => panic!("expected browser logs daemon command, got {other:?}"),
         }
     }
 

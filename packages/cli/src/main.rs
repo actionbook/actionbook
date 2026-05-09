@@ -8,7 +8,11 @@ use actionbook_cli::action::Action;
 use actionbook_cli::action_result::ActionResult;
 use actionbook_cli::browser::interaction;
 use actionbook_cli::browser::navigation;
-use actionbook_cli::cli::{BrowserCommands, Cli, Commands, DaemonCommands, ExtensionCommands};
+use actionbook_cli::browser::session;
+use actionbook_cli::cli::{
+    BrowserCommands, BrowserDoctorArgs, Cli, Commands, DaemonCommands, DaemonLogsArgs,
+    ExtensionCommands, LogsCommands,
+};
 use actionbook_cli::config;
 use actionbook_cli::daemon::cdp_error_classifier::CdpErrorCode;
 use actionbook_cli::output::{self, JsonEnvelope};
@@ -216,6 +220,28 @@ async fn handle_browser(
         return Ok(());
     }
 
+    match command {
+        BrowserCommands::Doctor(cmd) => {
+            handle_browser_doctor(cmd, json_mode, timeout_ms).await?;
+            return Ok(());
+        }
+        BrowserCommands::Logs {
+            command: LogsCommands::Daemon(cmd),
+        } => {
+            handle_browser_daemon_logs(cmd, json_mode)?;
+            return Ok(());
+        }
+        other => {
+            return handle_browser_daemon_action(other, json_mode, timeout_ms).await;
+        }
+    }
+}
+
+async fn handle_browser_daemon_action(
+    command: BrowserCommands,
+    json_mode: bool,
+    timeout_ms: Option<u64>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
     let command = match command {
         BrowserCommands::Start(cmd) => match config::resolve_start_command(cmd) {
@@ -386,6 +412,265 @@ async fn handle_browser(
     Ok(())
 }
 
+async fn handle_browser_doctor(
+    cmd: BrowserDoctorArgs,
+    json_mode: bool,
+    timeout_ms: Option<u64>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let start = Instant::now();
+    let doctor_call = run_browser_doctor(cmd.start);
+    let result = if let Some(ms) = timeout_ms {
+        match tokio::time::timeout(Duration::from_millis(ms), doctor_call).await {
+            Ok(result) => result,
+            Err(_) => Err(ActionResult::fatal_with_details(
+                "BROWSER_DOCTOR_TIMEOUT",
+                format!("browser doctor timed out after {ms}ms"),
+                "increase --timeout, or run `actionbook browser logs daemon --tail 100 --json`",
+                json!({ "timeout_ms": ms }),
+            )),
+        }
+    } else {
+        doctor_call.await
+    };
+    let duration = start.elapsed();
+
+    match result {
+        Ok(data) => {
+            if json_mode {
+                let envelope = JsonEnvelope::success("browser doctor", None, data, duration);
+                println!("{}", serde_json::to_string(&envelope)?);
+            } else {
+                print_browser_doctor_text(&data);
+            }
+        }
+        Err(result) => {
+            if json_mode {
+                let envelope = JsonEnvelope::from_result("browser doctor", None, &result, duration);
+                println!("{}", serde_json::to_string(&envelope)?);
+            } else {
+                let text = output::format_text("browser doctor", &None, &result);
+                eprintln!("{text}");
+            }
+            flush_and_exit(1);
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_browser_doctor(start_daemon: bool) -> Result<serde_json::Value, ActionResult> {
+    let socket_path = actionbook_cli::daemon::server::socket_path();
+    let pid_path = actionbook_cli::daemon::server::pid_path();
+    let ready_path = socket_path.with_extension("ready");
+    let version_path = actionbook_cli::daemon::server::version_path();
+    let log_path = socket_path.with_extension("log");
+
+    let binary_path = std::env::current_exe()
+        .ok()
+        .map(|p| p.display().to_string());
+    let before_running = actionbook_cli::daemon::server::is_daemon_running();
+    let before_pid = actionbook_cli::daemon::server::read_daemon_pid();
+    let mut connectable = false;
+    let mut request_ok = false;
+    let mut request_error = None;
+    let mut sessions = serde_json::Value::Null;
+
+    if start_daemon || before_running {
+        match DaemonClient::connect().await {
+            Ok(mut client) => {
+                connectable = true;
+                match client
+                    .send_action(&Action::ListSessions(session::list::Cmd {}))
+                    .await
+                {
+                    Ok(ActionResult::Ok { data }) => {
+                        request_ok = true;
+                        sessions = data;
+                    }
+                    Ok(other) => {
+                        request_error = Some(format!("{other:?}"));
+                    }
+                    Err(err) => {
+                        request_error = Some(err.to_string());
+                    }
+                }
+            }
+            Err(err) if start_daemon => {
+                return Err(ActionResult::fatal_with_details(
+                    "BROWSER_DOCTOR_FAILED",
+                    err.to_string(),
+                    "run `actionbook browser logs daemon --tail 100 --json`, then retry `actionbook daemon restart --json`",
+                    json!({
+                        "socket_path": socket_path.display().to_string(),
+                        "pid_path": pid_path.display().to_string(),
+                        "log_path": log_path.display().to_string(),
+                        "last_error": last_non_empty_log_line(&log_path),
+                    }),
+                ));
+            }
+            Err(err) => {
+                request_error = Some(err.to_string());
+            }
+        }
+    }
+
+    let daemon_running = actionbook_cli::daemon::server::is_daemon_running();
+    let daemon_pid = if daemon_running {
+        actionbook_cli::daemon::server::read_daemon_pid().or(before_pid)
+    } else {
+        None
+    };
+    let status = if daemon_running && connectable && request_ok {
+        "ok"
+    } else if daemon_running || connectable || request_ok {
+        "degraded"
+    } else {
+        "not_running"
+    };
+    let recover_command = if daemon_running {
+        "actionbook daemon restart --json"
+    } else {
+        "actionbook browser doctor --start --json"
+    };
+
+    Ok(json!({
+        "status": status,
+        "binary_found": binary_path.is_some(),
+        "binary_path": binary_path,
+        "daemon_running": daemon_running,
+        "daemon_pid": daemon_pid,
+        "socket_path": socket_path.display().to_string(),
+        "pid_path": pid_path.display().to_string(),
+        "ready_path": ready_path.display().to_string(),
+        "version_path": version_path.display().to_string(),
+        "log_path": log_path.display().to_string(),
+        "cdp_endpoint": first_session_field(&sessions, "cdp_endpoint"),
+        "browser_binary": std::env::var("ACTIONBOOK_BROWSER_EXECUTABLE").ok(),
+        "profile_dir": std::env::var("ACTIONBOOK_BROWSER_PROFILE").ok(),
+        "proxy": proxy_snapshot(),
+        "last_error": last_non_empty_log_line(&log_path),
+        "recover_command": recover_command,
+        "checks": [
+            { "name": "binary_found", "ok": binary_path.is_some() },
+            { "name": "daemon_running", "ok": daemon_running },
+            { "name": "daemon_connectable", "ok": connectable },
+            { "name": "daemon_request_ok", "ok": request_ok }
+        ],
+        "request_error": request_error,
+        "sessions": sessions,
+        "started": start_daemon && !before_running && daemon_running,
+    }))
+}
+
+fn print_browser_doctor_text(data: &serde_json::Value) {
+    println!(
+        "browser doctor: {}",
+        data.get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+    );
+    for key in [
+        "binary_found",
+        "daemon_running",
+        "daemon_pid",
+        "socket_path",
+        "log_path",
+        "recover_command",
+    ] {
+        if let Some(value) = data.get(key) {
+            println!("{key}: {value}");
+        }
+    }
+    if let Some(last_error) = data.get("last_error").and_then(|v| v.as_str()) {
+        println!("last_error: {last_error}");
+    }
+}
+
+fn handle_browser_daemon_logs(
+    cmd: DaemonLogsArgs,
+    json_mode: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let start = Instant::now();
+    let log_path = actionbook_cli::daemon::server::socket_path().with_extension("log");
+    let (lines, truncated, missing) = tail_lines(&log_path, cmd.tail);
+    let data = json!({
+        "log_path": log_path.display().to_string(),
+        "tail": cmd.tail,
+        "lines": lines,
+        "missing": missing,
+        "__truncated": truncated,
+    });
+    if json_mode {
+        let envelope = JsonEnvelope::success("browser logs daemon", None, data, start.elapsed());
+        println!("{}", serde_json::to_string(&envelope)?);
+    } else {
+        if missing {
+            println!("daemon log not found: {}", log_path.display());
+        } else {
+            for line in lines {
+                println!("{line}");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn tail_lines(path: &std::path::Path, tail: usize) -> (Vec<String>, bool, bool) {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return (Vec::new(), false, true);
+    };
+    let lines = text.lines().map(str::to_string).collect::<Vec<_>>();
+    let truncated = lines.len() > tail;
+    let start = lines.len().saturating_sub(tail);
+    (lines[start..].to_vec(), truncated, false)
+}
+
+fn last_non_empty_log_line(path: &std::path::Path) -> Option<String> {
+    std::fs::read_to_string(path).ok().and_then(|text| {
+        text.lines()
+            .rev()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .map(str::to_string)
+    })
+}
+
+fn proxy_snapshot() -> serde_json::Value {
+    let mut value = serde_json::Map::new();
+    for name in [
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "ALL_PROXY",
+        "https_proxy",
+        "http_proxy",
+        "all_proxy",
+    ] {
+        if let Ok(raw) = std::env::var(name) {
+            value.insert(name.to_string(), json!(redact_proxy(&raw)));
+        }
+    }
+    serde_json::Value::Object(value)
+}
+
+fn redact_proxy(raw: &str) -> String {
+    if let Some((scheme, rest)) = raw.split_once("://")
+        && let Some(at) = rest.rfind('@')
+    {
+        return format!("{scheme}://<redacted>@{}", &rest[at + 1..]);
+    }
+    raw.to_string()
+}
+
+fn first_session_field(sessions: &serde_json::Value, field: &str) -> serde_json::Value {
+    sessions
+        .get("sessions")
+        .and_then(|v| v.as_array())
+        .and_then(|items| items.first())
+        .and_then(|item| item.get(field))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null)
+}
+
 async fn handle_daemon(
     command: DaemonCommands,
     json_mode: bool,
@@ -528,7 +813,7 @@ Commands:
   browser           Control browser sessions, tabs, and page interactions
   extension         Manage the Chrome extension (status, ping, install, uninstall, path)
   daemon restart    Stop the running daemon (next CLI call auto-respawns one)
-  setup             Configure actionbook (or --target <agent> for quick skills install)
+  setup      Configure actionbook (or --target <agent> for quick skills install)
   help       Show this help
   --version  Show version
 
@@ -563,6 +848,7 @@ Most commands require --session <SID> and --tab <TID>.
 Session-level commands need only --session. Start and list-sessions need neither.
 
 Session:
+  doctor                             Diagnose browser hand health
   start                              Start or attach a browser session
   list-sessions                      List all active sessions
   status              --session      Show session status
@@ -602,6 +888,7 @@ Observation:
 Logs:
   logs console        --session --tab  Get console logs
   logs errors         --session --tab  Get error logs (exceptions + rejections)
+  logs daemon                         Read daemon/browser process logs
 
 Network:
   network requests    --session --tab  List tracked network requests

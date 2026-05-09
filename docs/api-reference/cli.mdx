@@ -345,6 +345,7 @@ Default timeout: 30000ms. Override with `--timeout <ms>`.
 actionbook browser logs console --session s1 --tab t1
 actionbook browser logs console --level warn,error --session s1 --tab t1
 actionbook browser logs errors --session s1 --tab t1
+actionbook browser logs daemon --tail 100 --json
 
 # Network
 actionbook browser network requests --session s1 --tab t1
@@ -357,6 +358,10 @@ actionbook browser network har start --session s1 --tab t1            # Start re
 actionbook browser network har stop --session s1 --tab t1             # Stop and export HAR 1.2 file
 actionbook browser network har stop --session s1 --tab t1 --out /tmp/trace.har  # Custom output path
 ```
+
+Use `actionbook browser doctor --json` to inspect browser hand health without
+requiring an active session. Use `actionbook browser doctor --start --json` to
+start the daemon if needed and verify request/response health.
 
 HAR recording is per-tab. Multiple tabs or sessions can record independently. `har start` accepts `--max-entries N` to set the ring-buffer cap (default: 10000). Output is HAR 1.2 JSON with request/response headers and timings (no response bodies — use `--dump` for that). If `--out` is omitted, a timestamped file is created in `~/.actionbook/har/`. Redirect chains produce one entry per hop. Error codes: `HAR_ALREADY_RECORDING`, `HAR_NOT_RECORDING`.
 

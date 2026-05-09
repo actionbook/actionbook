@@ -88,12 +88,12 @@ All commands support `--help` for full usage and examples.
 | Wait | `wait element`, `wait navigation`, `wait network-idle`, `wait condition` | `actionbook browser wait element --help` |
 | Cookies | `cookies list`, `cookies get`, `cookies set`, `cookies delete`, `cookies clear` | `actionbook browser cookies list --help` |
 | Storage | `local-storage list\|get\|set\|delete\|clear`, `session-storage ...` | `actionbook browser local-storage get --help` |
-| Logs | `logs console`, `logs errors` | `actionbook browser logs console --help` |
+| Logs | `logs console`, `logs errors`, `logs daemon` | `actionbook browser logs console --help` |
 | Network | `network requests`, `network request <id>`, `network har start`, `network har stop` | `actionbook browser network requests --help` |
 | Query | `query one\|all\|nth\|count` | `actionbook browser query --help` |
 | Batch | `batch-new-tab`, `batch-snapshot`, `batch-click` | `actionbook browser batch-new-tab --help` |
 | Extension | `extension status`, `extension ping`, `extension install`, `extension uninstall`, `extension path` | `actionbook extension status --help` |
-| Daemon | `daemon restart` | `actionbook daemon restart --help` |
+| Daemon | `browser doctor`, `daemon restart` | `actionbook browser doctor --help` |
 
 Full command reference: [command-reference.md](references/command-reference.md)
 
