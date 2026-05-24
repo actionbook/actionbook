@@ -79,7 +79,7 @@ Explore real-world examples in the [Examples Documentation](https://actionbook.d
 
 ## Available Tools
 
-Actionbook exposes a single `actionbook` MCP tool whose subcommands cover action lookup (`search`, `manual`) and browser control (`goto`, `snapshot`, `click`, `fill`, …). Your agent discovers the full command set from the tool description once connected.
+Actionbook exposes a single `actionbook` MCP tool whose subcommands cover action lookup (`search`, `manual`) and browser control (`goto`, `snapshot`, `click`, `type`, …). Your agent discovers the full command set from the tool description once connected.
 
 ### Chrome Extension
 
