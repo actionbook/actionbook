@@ -60,7 +60,7 @@ For Claude Code:
 claude mcp add --transport http actionbook https://edge.actionbook.dev/mcp
 ```
 
-For other MCP clients (Cursor, ChatGPT, Perplexity, …), add a custom connector pointing at the same URL.
+For other MCP clients (ChatGPT, Perplexity, Hermes, OpenClaw, or any other MCP-compatible app), add a custom connector pointing at the same URL.
 
 **3. Finish setup from the [dashboard](https://actionbook.dev/dashboard)** — it walks you through connecting your client and confirms the extension is linked.
 
