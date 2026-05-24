@@ -4,7 +4,7 @@
 
 10x Faster &nbsp; | &nbsp; 90% Token Saving &nbsp; | &nbsp; 30 Actions at Once
 
-![GitHub last commit](https://img.shields.io/github/last-commit/actionbook/actionbook) [![skills](https://img.shields.io/badge/skills-ready-blue)](https://skills.sh/actionbook/actionbook/actionbook)
+![GitHub last commit](https://img.shields.io/github/last-commit/actionbook/actionbook)
 
 [Website](https://actionbook.dev) · [GitHub](https://github.com/actionbook/actionbook) · [X](https://x.com/ActionbookHQ) · [Discord](https://actionbook.dev/discord)
 
@@ -19,7 +19,6 @@ Actionbook turns the websites you work in every day into something your AI agent
 - [Why Actionbook?](#why-actionbook)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
-- [AI Agent Skills](#ai-agent-skills)
 - [Examples](#examples)
 - [Available Tools](#available-tools)
 - [Documentation](#documentation)
@@ -80,24 +79,6 @@ Behind the scenes the agent uses Actionbook to fetch action manuals and operate 
 ```
 Use Actionbook to understand and operate the web page.
 ```
-
-## AI Agent Skills
-
-Actionbook ships with Agent Skills that teach your AI agent how to use Actionbook.
-
-**Claude Code, Cursor, Codex, Windsurf, Antigravity, Opencode** — one command:
-
-```bash
-npx skills add actionbook/actionbook
-```
-
-**Hermes** — one command (registers the skill in `~/.hermes/skills/`):
-
-```bash
-hermes skills install skills-sh/actionbook/actionbook/actionbook -y
-```
-
-Then start a chat and say things like *"use actionbook to open google.com and search for anthropic"*. Hermes auto-activates the skill and drives Actionbook for you.
 
 ## Examples
 
