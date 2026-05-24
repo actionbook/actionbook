@@ -46,6 +46,8 @@ https://github.com/user-attachments/assets/35079a19-7236-47a8-87ed-3edf6436c2bf
 
 Actionbook runs as a **remote MCP connector** paired with the **Actionbook Chrome extension** — no CLI install required. Your AI agent connects to the hosted MCP endpoint, and the extension drives your real Chrome so agents reuse your logged-in sessions.
 
+> 👉 **For the full step-by-step setup — with per-client instructions and screenshots — visit the [dashboard](https://actionbook.dev/dashboard).** The three steps below are the quick overview.
+
 **1. Install the Chrome extension** from the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo).
 
 **2. Add Actionbook as a connector in your AI app.** Open your app's connector settings — **Claude** (Settings → Connectors → Add custom connector), **ChatGPT** (Settings → Connectors), **Perplexity**, **Hermes**, **OpenClaw**, or any other MCP-compatible app — and paste the Actionbook endpoint:
