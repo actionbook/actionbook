@@ -48,19 +48,11 @@ Actionbook runs as a **remote MCP connector** paired with the **Actionbook Chrom
 
 **1. Install the Chrome extension** from the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo).
 
-**2. Connect your AI client** to the Actionbook MCP endpoint:
+**2. Add Actionbook as a connector in your AI app.** Open your app's connector settings — **Claude** (Settings → Connectors → Add custom connector), **ChatGPT** (Settings → Connectors), **Perplexity**, **Hermes**, **OpenClaw**, or any other MCP-compatible app — and paste the Actionbook endpoint:
 
 ```
 https://edge.actionbook.dev/mcp
 ```
-
-For Claude Code:
-
-```bash
-claude mcp add --transport http actionbook https://edge.actionbook.dev/mcp
-```
-
-For other MCP clients (ChatGPT, Perplexity, Hermes, OpenClaw, or any other MCP-compatible app), add a custom connector pointing at the same URL.
 
 **3. Finish setup from the [dashboard](https://actionbook.dev/dashboard)** — it walks you through connecting your client and confirms the extension is linked.
 
