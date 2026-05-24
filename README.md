@@ -83,7 +83,7 @@ Actionbook exposes a single `actionbook` MCP tool whose subcommands cover action
 
 ### Chrome Extension
 
-Install the extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo). Once you sign in from the [dashboard](https://actionbook.dev/dashboard), it connects to the hosted MCP endpoint automatically — no local daemon required.
+Install the extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo). Once you sign in from the [dashboard](https://actionbook.dev/dashboard), it connects to the hosted MCP endpoint automatically.
 
 
 ## Documentation
