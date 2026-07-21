@@ -4,8 +4,6 @@
 
 10x Faster &nbsp; | &nbsp; 90% Token Saving &nbsp; | &nbsp; 30 Actions at Once
 
-![GitHub last commit](https://img.shields.io/github/last-commit/actionbook/actionbook)
-
 [Website](https://actionbook.dev) · [GitHub](https://github.com/actionbook/actionbook) · [X](https://x.com/ActionbookHQ) · [Discord](https://actionbook.dev/discord)
 
 </div>
