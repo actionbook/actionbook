@@ -4,7 +4,7 @@
 
 10x Faster &nbsp; | &nbsp; 90% Token Saving &nbsp; | &nbsp; 30 Actions at Once
 
-[Website](https://actionbook.dev) · [GitHub](https://github.com/actionbook/actionbook) · [X](https://x.com/ActionbookHQ) · [Discord](https://actionbook.dev/discord)
+[Website](https://actionbook.app) · [GitHub](https://github.com/actionbook/actionbook) · [X](https://x.com/ActionbookHQ) · [Discord](https://actionbook.app/discord)
 
 </div>
 
@@ -44,17 +44,17 @@ https://github.com/user-attachments/assets/35079a19-7236-47a8-87ed-3edf6436c2bf
 
 Actionbook runs as a **remote MCP connector** paired with the **Actionbook Chrome extension** — no CLI install required. Your AI agent connects to the hosted MCP endpoint, and the extension drives your real Chrome so agents reuse your logged-in sessions.
 
-> 👉 **For the full step-by-step setup — with per-client instructions and screenshots — visit the [dashboard](https://actionbook.dev/dashboard).** The three steps below are the quick overview.
+> 👉 **For the full step-by-step setup — with per-client instructions and screenshots — visit the [dashboard](https://actionbook.app/dashboard).** The three steps below are the quick overview.
 
 **1. Install the Chrome extension** from the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo).
 
 **2. Add Actionbook as a connector in your AI app.** Open your app's connector settings — **Claude** (Settings → Connectors → Add custom connector), **ChatGPT** (Settings → Connectors), **Perplexity**, **Hermes**, **OpenClaw**, or any other MCP-compatible app — and paste the Actionbook endpoint:
 
 ```
-https://edge.actionbook.dev/mcp
+https://edge.actionbook.app/mcp
 ```
 
-**3. Finish setup from the [dashboard](https://actionbook.dev/dashboard)** — it walks you through connecting your client and confirms the extension is linked.
+**3. Finish setup from the [dashboard](https://actionbook.app/dashboard)** — it walks you through connecting your client and confirms the extension is linked.
 
 > **Note:** The standalone `@actionbookdev/cli` package is deprecated. Use the remote connector + Chrome extension above.
 
@@ -74,7 +74,7 @@ Use Actionbook to understand and operate the web page.
 
 ## Examples
 
-Explore real-world examples in the [Examples Documentation](https://actionbook.dev/docs/examples).
+Explore real-world examples in the [Examples Documentation](https://actionbook.app/docs/examples).
 
 
 ## Available Tools
@@ -83,14 +83,14 @@ Actionbook exposes a single `actionbook` MCP tool whose subcommands cover action
 
 ### Chrome Extension
 
-Install the extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo). Once you sign in from the [dashboard](https://actionbook.dev/dashboard), it connects to the hosted MCP endpoint automatically.
+Install the extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo). Once you sign in from the [dashboard](https://actionbook.app/dashboard), it connects to the hosted MCP endpoint automatically.
 
 
 ## Documentation
 
 For comprehensive guides, API references, and tutorials, visit our documentation site:
 
-**[actionbook.dev/docs](https://actionbook.dev/docs)**
+**[actionbook.app/docs](https://actionbook.app/docs)**
 
 ## Stay tuned
 
@@ -100,13 +100,13 @@ We move fast. Star Actionbook on Github to support and get latest information.
 
 Join the community:
 
-- [Chat with us on Discord](https://actionbook.dev/discord) - Get help, share your agents, and discuss ideas
+- [Chat with us on Discord](https://actionbook.app/discord) - Get help, share your agents, and discuss ideas
 - [Follow @ActionbookHQ on X](https://x.com/ActionbookHQ) - Product updates and announcements
 
 ## Contributing
 
 - **[Read the Contributing Guide](CONTRIBUTING.md)** - See repository setup, package layout, and validation workflows for the public repo.
-- **[Request a Website](https://actionbook.dev/request-website)** - Suggest websites you want Actionbook to index.
+- **[Request a Website](https://actionbook.app/request-website)** - Suggest websites you want Actionbook to index.
 
 ## License
 

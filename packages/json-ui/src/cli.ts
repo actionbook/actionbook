@@ -2448,7 +2448,7 @@ function generateHTML(json: ReportJSON, options: { title?: string } = {}): strin
   <article class="report${(json.children || []).some(c => c.type === 'Section') ? ' has-sidebar' : ''}">
     ${renderNode(json)}
   </article>
-  <a class="corner-powered" href="https://actionbook.dev" target="_blank" rel="noopener noreferrer">
+  <a class="corner-powered" href="https://actionbook.app" target="_blank" rel="noopener noreferrer">
     <span>Powered by</span>
     <strong>Actionbook</strong>
   </a>

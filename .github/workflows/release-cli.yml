@@ -450,7 +450,7 @@ jobs:
           # Manual edits will be overwritten on the next release.
           class Actionbook < Formula
             desc "CLI for Actionbook - run AI actions from your terminal"
-            homepage "https://actionbook.dev"
+            homepage "https://actionbook.app"
             version "${VERSION}"
             license "MIT"
 

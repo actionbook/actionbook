@@ -49,7 +49,7 @@
         },
         {
           "anchor": "Discord",
-          "href": "https://actionbook.dev/discord",
+          "href": "https://actionbook.app/discord",
           "icon": "discord"
         }
       ]
@@ -63,7 +63,7 @@
     "primary": {
       "type": "button",
       "label": "Get Started",
-      "href": "https://actionbook.dev/dashboard"
+      "href": "https://actionbook.app/dashboard"
     }
   },
   "contextual": {
@@ -72,7 +72,7 @@
   "footer": {
     "socials": {
       "github": "https://github.com/actionbook",
-      "discord": "https://actionbook.dev/discord",
+      "discord": "https://actionbook.app/discord",
       "x": "https://x.com/ActionbookHQ"
     }
   }

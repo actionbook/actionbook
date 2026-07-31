@@ -11,7 +11,7 @@ metadata:
 required_environment_variables:
   - name: ACTIONBOOK_API_KEY
     prompt: "Actionbook API key"
-    help: "Create one at https://actionbook.dev/dashboard — skill works without it, but requests are rate-limited"
+    help: "Create one at https://actionbook.app/dashboard — skill works without it, but requests are rate-limited"
     required_for: "unlimited requests (without a key, public rate limits apply)"
     optional: true
 ---

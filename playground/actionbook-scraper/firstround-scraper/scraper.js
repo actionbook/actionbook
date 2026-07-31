@@ -5,7 +5,7 @@
  * Data extracted: Company name, description, founders, investment stage,
  *                 categories, location, partners, website URL, exit status
  *
- * Selectors verified by Actionbook (https://actionbook.dev)
+ * Selectors verified by Actionbook (https://actionbook.app)
  * Action ID: https://www.firstround.com/companies
  */
 

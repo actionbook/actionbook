@@ -25,8 +25,8 @@ Actionbook is a browser action engine for AI agents. This Dify plugin brings Act
 
 The Actionbook API key is used for `search_actions` and `get_action_by_area_id`. You can leave it empty and use the free tier with basic limits, or add a key for higher quotas.
 
-- Get a key from [actionbook.dev](https://actionbook.dev/?utm_source=dify)
-- Manage keys at [Dashboard > API Keys](https://actionbook.dev/dashboard/api-keys?utm_source=dify)
+- Get a key from [actionbook.app](https://actionbook.app/?utm_source=dify)
+- Manage keys at [Dashboard > API Keys](https://actionbook.app/dashboard/api-keys?utm_source=dify)
 
 ### Hyperbrowser API Key (Required for Browser Tools)
 
@@ -70,7 +70,7 @@ How this maps to the actual tool behavior:
 Actionbook is open source and improving fast. Start here to support the project, join the community, and shape what gets indexed next.
 
 - **GitHub**: Star the project or contribute to Actionbook. [github.com/actionbook/actionbook](https://github.com/actionbook/actionbook?utm_source=dify)
-- **Discord**: Join us to discuss questions, workflows, and ideas. [Join Discord](https://actionbook.dev/discord?utm_source=dify)
-- **Request a Website**: Tell us which websites you want Actionbook to index. [actionbook.dev/request-website](https://actionbook.dev/request-website?utm_source=dify)
+- **Discord**: Join us to discuss questions, workflows, and ideas. [Join Discord](https://actionbook.app/discord?utm_source=dify)
+- **Request a Website**: Tell us which websites you want Actionbook to index. [actionbook.app/request-website](https://actionbook.app/request-website?utm_source=dify)
 - **X / Twitter**: Follow us for the latest updates and launches. [@ActionbookHQ](https://x.com/ActionbookHQ)
-- **Website**: Get the latest overview. [actionbook.dev](https://actionbook.dev/?utm_source=dify)
+- **Website**: Get the latest overview. [actionbook.app](https://actionbook.app/?utm_source=dify)

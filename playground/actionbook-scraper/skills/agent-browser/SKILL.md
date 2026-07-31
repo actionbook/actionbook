@@ -64,7 +64,7 @@ agent-browser wait --load networkidle      # Wait for network idle
 
 ```bash
 # Open Actionbook request page
-agent-browser open "https://actionbook.dev/request-website"
+agent-browser open "https://actionbook.app/request-website"
 
 # Get form elements
 agent-browser snapshot -i

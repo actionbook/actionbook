@@ -4,7 +4,7 @@
  * Comprehensive scraper for Lib.rs - the Rust crate index
  * Supports: homepage categories, category browsing, crate details, search
  *
- * Selectors verified by Actionbook (https://actionbook.dev)
+ * Selectors verified by Actionbook (https://actionbook.app)
  * Action IDs:
  *   - https://lib.rs/
  *   - https://lib.rs/crates/{crate_name}

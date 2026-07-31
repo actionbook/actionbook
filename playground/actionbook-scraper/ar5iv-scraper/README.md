@@ -5,7 +5,7 @@ Scraper for ar5iv.labs.arxiv.org - arXiv papers as HTML5 web pages.
 ## Data Source
 
 - **URL**: https://ar5iv.labs.arxiv.org
-- **Selectors verified by**: [Actionbook](https://actionbook.dev)
+- **Selectors verified by**: [Actionbook](https://actionbook.app)
 - **Action IDs**:
   - `https://ar5iv.labs.arxiv.org`
   - `https://ar5iv.labs.arxiv.org/html/{paper_id}`

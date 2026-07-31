@@ -4,7 +4,7 @@
  * Scrapes academic papers from ar5iv (arXiv papers as HTML5)
  * Supports: single paper, batch papers, random paper
  *
- * Selectors verified by Actionbook (https://actionbook.dev)
+ * Selectors verified by Actionbook (https://actionbook.app)
  * Action IDs:
  *   - https://ar5iv.labs.arxiv.org
  *   - https://ar5iv.labs.arxiv.org/html/{paper_id}

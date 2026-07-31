@@ -120,7 +120,7 @@ actionbook setup
 ```
 
 - Actionbook is in Public Beta, you can use it without API_KEY.
-- If you want to increase the usage limit, join our [waitlist](https://accounts.actionbook.dev/waitlist).
+- If you want to increase the usage limit, join our [waitlist](https://accounts.actionbook.app/waitlist).
 
 ### Step 3: Install json-ui (Report Renderer)
 

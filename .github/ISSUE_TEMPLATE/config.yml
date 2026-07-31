@@ -1,10 +1,10 @@
 blank_issues_enabled: false
 contact_links:
   - name: 📖 Documentation
-    url: https://actionbook.dev/docs
+    url: https://actionbook.app/docs
     about: Check our comprehensive documentation first
   - name: 💬 Discussions
-    url: https://actionbook.dev/discord
+    url: https://actionbook.app/discord
     about: Ask questions and discuss ideas with the community on Discord
   - name: 🔒 Security Vulnerability
     url: https://github.com/actionbook/actionbook/security/advisories/new

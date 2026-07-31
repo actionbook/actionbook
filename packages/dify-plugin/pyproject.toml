@@ -23,8 +23,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://actionbook.dev"
-Documentation = "https://docs.actionbook.dev"
+Homepage = "https://actionbook.app"
+Documentation = "https://actionbook.app/docs"
 Repository = "https://github.com/actionbook/actionbook"
 Issues = "https://linear.app/cue-labs"
 

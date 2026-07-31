@@ -19,9 +19,9 @@ credentials_for_provider:
       en_US: Optional — for higher search/get quotas
     help:
       en_US: >
-        Get your API key from actionbook.dev.
+        Get your API key from actionbook.app.
         Leave empty to use the free tier.
-    url: https://actionbook.dev
+    url: https://actionbook.app
   hyperbrowser_api_key:
     type: secret-input
     required: false
