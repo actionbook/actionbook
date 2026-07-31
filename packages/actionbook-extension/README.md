@@ -80,7 +80,7 @@ See the full command reference in the [main README](../../README.md).
 
 ## Cloud Mode (v0.5.0+)
 
-Cloud Mode lets remote AI agents (Claude Desktop, Codex, claude.ai Connectors, etc.) drive your Chrome through the Actionbook edge server — **without running the local CLI daemon**. The extension connects via WebSocket to `edge.actionbook.dev`, authenticated by a short-lived OAuth token.
+Cloud Mode lets remote AI agents (Claude Desktop, Codex, claude.ai Connectors, etc.) drive your Chrome through the Actionbook edge server — **without running the local CLI daemon**. The extension connects via WebSocket to `edge.actionbook.app`, authenticated by a short-lived OAuth token.
 
 Local Mode (the default) is unchanged and remains fully offline-capable.
 
@@ -92,7 +92,7 @@ Local Mode (the default) is unchanged and remains fully offline-capable.
 4. A new tab opens the Actionbook sign-in page (Clerk) → sign in → approve the authorization prompt
 5. Back in the popup, the **Bridge** indicator turns green and shows your device ID
 
-Any MCP client pointed at `https://edge.actionbook.dev/mcp` can now drive your Chrome. No CLI daemon needed.
+Any MCP client pointed at `https://edge.actionbook.app/mcp` can now drive your Chrome. No CLI daemon needed.
 
 ### Example: Claude Desktop
 
@@ -101,7 +101,7 @@ Any MCP client pointed at `https://edge.actionbook.dev/mcp` can now drive your C
 {
   "mcpServers": {
     "actionbook": {
-      "url": "https://edge.actionbook.dev/mcp"
+      "url": "https://edge.actionbook.app/mcp"
     }
   }
 }
@@ -115,11 +115,11 @@ Popup → **Mode** dropdown → **Local (CLI)**. The extension reconnects to `ws
 
 ### Sign out of Cloud Mode
 
-Popup (while in Cloud mode) → **Sign out**. Clears the stored access/refresh tokens and disconnects. To revoke the session server-side as well, use your account settings on actionbook.dev.
+Popup (while in Cloud mode) → **Sign out**. Clears the stored access/refresh tokens and disconnects. To revoke the session server-side as well, use your account settings on actionbook.app.
 
 ### Privacy summary
 
-In Cloud Mode, CDP commands from your authorized AI agents transit `edge.actionbook.dev` (Cloudflare Workers + Durable Objects). The extension holds only a short-lived Clerk-signed JWT in `chrome.storage.local`; no passwords or long-lived credentials ever leave your machine. See [PRIVACY.md](./PRIVACY.md) for the detailed data-flow breakdown.
+In Cloud Mode, CDP commands from your authorized AI agents transit `edge.actionbook.app` (Cloudflare Workers + Durable Objects). The extension holds only a short-lived Clerk-signed JWT in `chrome.storage.local`; no passwords or long-lived credentials ever leave your machine. See [PRIVACY.md](./PRIVACY.md) for the detailed data-flow breakdown.
 
 ## Releasing a new version
 

@@ -6,7 +6,7 @@
 // is opt-in for advanced users running their own CLI bridge.
 
 const LOCAL_BRIDGE_URL = "ws://127.0.0.1:19222";
-const DEFAULT_CLOUD_ENDPOINT = "wss://edge.actionbook.dev/extension/ws";
+const DEFAULT_CLOUD_ENDPOINT = "wss://edge.actionbook.app/extension/ws";
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const MAX_RETRIES = 8;
@@ -269,7 +269,7 @@ async function refreshCloudTokenIfNeeded({ force = false } = {}) {
   // cloud-config.js constants are not loaded in the service worker (it's a plain
   // worker, not a module + no importScripts in MV3). Hardcode here; if you
   // change the Clerk tenant, update both places.
-  const CLERK_TOKEN_URL = "https://clerk.actionbook.dev/oauth/token";
+  const CLERK_TOKEN_URL = "https://clerk.actionbook.app/oauth/token";
   const CLERK_CLIENT_ID = "HP91Xj6adCm3TjPr";
 
   try {
