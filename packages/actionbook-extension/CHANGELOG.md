@@ -1,5 +1,17 @@
 # @actionbookdev/extension
 
+## 0.5.1
+
+### Patch Changes
+
+- Migrate Cloud Mode endpoints from `actionbook.dev` to `actionbook.app`. `clerk.actionbook.dev` is now only a 307 redirect shim and its JWKS endpoint no longer responds, so the previously hardcoded host left sign-in depending on a half-decommissioned domain.
+
+  - `CLERK_AUTHORIZE_URL` / `CLERK_TOKEN_URL` → `clerk.actionbook.app`
+  - `DEFAULT_CLOUD_ENDPOINT` → `wss://edge.actionbook.app/extension/ws`
+  - Popup and OAuth callback "Learn more" links → `actionbook.app/docs`
+
+  Both edge hosts already advertised `clerk.actionbook.app` as their OAuth authorization server, so existing sessions and stored tokens remain valid — no re-sign-in is required. `manifest.json` permissions are unchanged (`host_permissions` is `["<all_urls>"]`).
+
 ## 0.5.0
 
 ### Minor Changes
