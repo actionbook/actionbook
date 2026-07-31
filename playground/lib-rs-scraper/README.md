@@ -2,7 +2,7 @@
 
 爬取 [lib.rs](https://lib.rs) 网站的 Rust crate 信息。
 
-**选择器来源**: [Actionbook](https://actionbook.dev) 验证数据
+**选择器来源**: [Actionbook](https://actionbook.app) 验证数据
 
 ## 功能
 

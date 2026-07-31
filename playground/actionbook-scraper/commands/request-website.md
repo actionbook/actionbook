@@ -32,7 +32,7 @@ Use this command when:
 ## Workflow
 
 1. **Launch website-requester agent** (uses agent-browser)
-2. Agent opens `https://actionbook.dev/request-website`
+2. Agent opens `https://actionbook.app/request-website`
 3. Agent fills out the request form:
    - Site URL: the provided URL
    - Your Email: provided email (if any)

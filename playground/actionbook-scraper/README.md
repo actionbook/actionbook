@@ -364,7 +364,7 @@ With optional parameters:
 /actionbook-scraper:request-website https://example.com/page --email you@email.com --use-case "scraping product data"
 ```
 
-This uses `agent-browser` to submit a request form at [actionbook.dev/request-website](https://actionbook.dev/request-website). Actionbook prioritizes indexing based on user demand.
+This uses `agent-browser` to submit a request form at [actionbook.app/request-website](https://actionbook.app/request-website). Actionbook prioritizes indexing based on user demand.
 
 ## Troubleshooting
 

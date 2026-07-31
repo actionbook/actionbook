@@ -54,7 +54,7 @@
     "url": "https://github.com/actionbook/actionbook.git",
     "directory": "packages/json-ui"
   },
-  "homepage": "https://actionbook.dev",
+  "homepage": "https://actionbook.app",
   "author": "Actionbook Team",
   "engines": {
     "node": ">=18"

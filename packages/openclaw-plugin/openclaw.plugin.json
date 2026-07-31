@@ -21,7 +21,7 @@
     "apiKey": {
       "label": "API Key",
       "sensitive": true,
-      "help": "Optional. Get one at https://actionbook.dev"
+      "help": "Optional. Get one at https://actionbook.app"
     },
     "apiUrl": {
       "label": "API URL",

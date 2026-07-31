@@ -180,7 +180,7 @@ Actual:   "Click to expand", "Loading...", empty strings
 | Generate agent-browser script | Agent (sonnet) | - | Default mode for /generate |
 | Generate Playwright script | Agent (sonnet) | - | Use --standalone flag |
 | Structure analysis | Agent (haiku) | - | Parse Actionbook response |
-| Request new website | `agent-browser` | Manual | Submit to actionbook.dev (ONLY command that executes agent-browser) |
+| Request new website | `agent-browser` | Manual | Submit to actionbook.app (ONLY command that executes agent-browser) |
 
 ## Workflow Rules
 
@@ -391,7 +391,7 @@ node scraper.js
 1. User: /actionbook-scraper:request-website https://newsite.com/page
 2. Launch website-requester agent (uses agent-browser)
 3. Agent workflow:
-   a. agent-browser open "https://actionbook.dev/request-website"
+   a. agent-browser open "https://actionbook.app/request-website"
    b. agent-browser snapshot -i (discover form selectors)
    c. agent-browser type <url-field> "https://newsite.com/page"
    d. agent-browser type <email-field> (optional)
@@ -524,7 +524,7 @@ Results saved to `{output_file}`
 | Selectors not working | Page updated | Report to Actionbook, try alternative selectors |
 | Timeout | Slow page load | Increase timeout, add retry logic |
 | Empty data | Dynamic content | Add scroll/wait handling |
-| Form submission failed | Network/page issue | Retry or submit manually at actionbook.dev |
+| Form submission failed | Network/page issue | Retry or submit manually at actionbook.app |
 
 ## agent-browser Usage
 
@@ -534,7 +534,7 @@ For the `request-website` command, the plugin uses **agent-browser CLI** to auto
 
 ```bash
 # Open a URL
-agent-browser open "https://actionbook.dev/request-website"
+agent-browser open "https://actionbook.app/request-website"
 
 # Get page snapshot (discover selectors)
 agent-browser snapshot -i
@@ -554,7 +554,7 @@ agent-browser close
 If form selectors are unknown, use snapshot to discover them:
 
 ```bash
-agent-browser open "https://actionbook.dev/request-website"
+agent-browser open "https://actionbook.app/request-website"
 agent-browser snapshot -i  # Returns page structure with selectors
 ```
 
@@ -612,7 +612,7 @@ Output: Analysis showing:
 ```
 /actionbook-scraper:request-website https://newsite.com/data
 
-Action: Submits form to actionbook.dev (this command DOES execute agent-browser)
+Action: Submits form to actionbook.app (this command DOES execute agent-browser)
 ```
 
 ## Best Practices

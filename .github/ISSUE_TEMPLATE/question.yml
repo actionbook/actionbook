@@ -7,7 +7,7 @@ assignees: []
 body:
   - type: markdown
     attributes:
-      value: Check [Documentation](https://actionbook.dev/docs) or [Discord](https://actionbook.dev/discord) first.
+      value: Check [Documentation](https://actionbook.app/docs) or [Discord](https://actionbook.app/discord) first.
 
   - type: textarea
     id: question

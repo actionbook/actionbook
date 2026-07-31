@@ -6,7 +6,7 @@
  * - Category page crate listings
  * - Individual crate details
  *
- * Selectors sourced from Actionbook (https://actionbook.dev)
+ * Selectors sourced from Actionbook (https://actionbook.app)
  */
 
 import { chromium } from 'playwright';

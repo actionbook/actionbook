@@ -4,7 +4,7 @@
  * Comprehensive scraper for the Rust package registry
  * Supports: crate list, crate details, search, homepage stats
  *
- * Selectors verified by Actionbook (https://actionbook.dev)
+ * Selectors verified by Actionbook (https://actionbook.app)
  * Action IDs:
  *   - https://crates.io/
  *   - https://crates.io/crates

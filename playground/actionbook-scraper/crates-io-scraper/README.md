@@ -5,7 +5,7 @@ Comprehensive scraper for the Rust package registry (crates.io).
 ## Data Source
 
 - **URL**: https://crates.io
-- **Selectors verified by**: [Actionbook](https://actionbook.dev)
+- **Selectors verified by**: [Actionbook](https://actionbook.app)
 - **Action IDs**:
   - `https://crates.io/`
   - `https://crates.io/crates`

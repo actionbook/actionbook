@@ -1,6 +1,6 @@
 # @actionbookdev/tools-ai-sdk
 
-Vercel AI SDK-compatible tools for [Actionbook](https://actionbook.dev) - enabling AI agents to access accurate, real-time website operation information (element selectors, operation methods, page structure).
+Vercel AI SDK-compatible tools for [Actionbook](https://actionbook.app) - enabling AI agents to access accurate, real-time website operation information (element selectors, operation methods, page structure).
 
 The package provides two main tools:
 

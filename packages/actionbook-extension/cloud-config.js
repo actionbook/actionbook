@@ -6,10 +6,10 @@
 // The "Actionbook Extension" OAuth application registered in Clerk.
 const CLERK_CLIENT_ID = "HP91Xj6adCm3TjPr";
 
-// Clerk authorization server endpoints (all public, see clerk.actionbook.dev
+// Clerk authorization server endpoints (all public, see clerk.actionbook.app
 // /.well-known/oauth-authorization-server).
-const CLERK_AUTHORIZE_URL = "https://clerk.actionbook.dev/oauth/authorize";
-const CLERK_TOKEN_URL = "https://clerk.actionbook.dev/oauth/token";
+const CLERK_AUTHORIZE_URL = "https://clerk.actionbook.app/oauth/authorize";
+const CLERK_TOKEN_URL = "https://clerk.actionbook.app/oauth/token";
 
 // What we ask Clerk for on the user's behalf.
 // - openid: required for `sub` claim in the JWT (= userId for DO routing)

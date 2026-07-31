@@ -10,7 +10,7 @@ This Privacy Policy describes how the Actionbook browser extension ("the Extensi
 The Extension serves as a bridge between AI-powered automation agents and your browser. Starting with v0.5.0 it supports two independent modes:
 
 - **Local Mode** (default): the Extension talks only to the Actionbook command-line interface (CLI) on `localhost`. Nothing leaves your machine.
-- **Cloud Mode** (opt-in): the Extension authenticates you against Actionbook's sign-in provider (Clerk) and maintains an outbound WebSocket to `edge.actionbook.dev` so remote AI agents can drive your browser over MCP.
+- **Cloud Mode** (opt-in): the Extension authenticates you against Actionbook's sign-in provider (Clerk) and maintains an outbound WebSocket to `edge.actionbook.app` so remote AI agents can drive your browser over MCP.
 
 Sections 2A and 2B describe the two modes in detail. Section 3 lists what we **never** do regardless of mode.
 
@@ -46,23 +46,23 @@ Cloud Mode is **opt-in and reversible**. You enable it by selecting "Cloud" in t
 
 #### 2B.1 Authentication via Clerk
 
-Sign-in for Cloud Mode uses [Clerk](https://clerk.com) (at `clerk.actionbook.dev`) through a standard OAuth 2.1 Authorization Code flow with PKCE. During sign-in, Clerk receives and processes your authentication credentials (email and, depending on your sign-in method, password or third-party provider). **The Extension itself never sees your password** — authentication happens entirely in Clerk's hosted sign-in page.
+Sign-in for Cloud Mode uses [Clerk](https://clerk.com) (at `clerk.actionbook.app`) through a standard OAuth 2.1 Authorization Code flow with PKCE. During sign-in, Clerk receives and processes your authentication credentials (email and, depending on your sign-in method, password or third-party provider). **The Extension itself never sees your password** — authentication happens entirely in Clerk's hosted sign-in page.
 
-After sign-in, Clerk returns a short-lived **access token** (a signed JWT) and optionally a **refresh token**. The Extension stores these in `chrome.storage.local`; they are used only to authenticate subsequent connections to `edge.actionbook.dev`.
+After sign-in, Clerk returns a short-lived **access token** (a signed JWT) and optionally a **refresh token**. The Extension stores these in `chrome.storage.local`; they are used only to authenticate subsequent connections to `edge.actionbook.app`.
 
 #### 2B.2 Device Identifier
 
 On first Cloud Mode sign-in, the Extension generates a random per-install device ID (`d_` + UUID) and stores it in `chrome.storage.local`. The device ID is reported to the edge server during WebSocket handshake to label your connection (useful if you later use the Extension across multiple machines). It does not identify you personally.
 
-#### 2B.3 Outbound WebSocket to edge.actionbook.dev
+#### 2B.3 Outbound WebSocket to edge.actionbook.app
 
-In Cloud Mode the Extension maintains a WebSocket connection to `wss://edge.actionbook.dev/extension/ws`. Over this connection flow the same categories of data described in Sections 2A.1–2A.3 (tab metadata, CDP commands and their results, cookie operations), **but only when an authenticated AI agent explicitly invokes a tool that requires them**. The edge server forwards those commands to your Extension and relays the responses back to the requesting agent.
+In Cloud Mode the Extension maintains a WebSocket connection to `wss://edge.actionbook.app/extension/ws`. Over this connection flow the same categories of data described in Sections 2A.1–2A.3 (tab metadata, CDP commands and their results, cookie operations), **but only when an authenticated AI agent explicitly invokes a tool that requires them**. The edge server forwards those commands to your Extension and relays the responses back to the requesting agent.
 
 Commands are processed ephemerally: the edge server does not persist CDP command content beyond the lifetime of the in-flight request-response cycle.
 
 #### 2B.4 Authorized AI Agents
 
-Agents that can send commands to your browser must present a valid Clerk-issued access token whose subject matches your user ID. In practice this means only agents you have explicitly authorized (e.g., by adding an MCP Connector in Claude Desktop and completing its OAuth prompt) can drive your browser. You can revoke any agent's session from your account settings on actionbook.dev or through Clerk's session management.
+Agents that can send commands to your browser must present a valid Clerk-issued access token whose subject matches your user ID. In practice this means only agents you have explicitly authorized (e.g., by adding an MCP Connector in Claude Desktop and completing its OAuth prompt) can drive your browser. You can revoke any agent's session from your account settings on actionbook.app or through Clerk's session management.
 
 #### 2B.5 Token Refresh and Expiry
 
@@ -80,7 +80,7 @@ Regardless of mode, the Extension does **not**:
 **Mode-specific clarifications:**
 
 - In **Local Mode**, no data accessed by the Extension is ever sent to any external server. The WebSocket connection is restricted to `localhost` (127.0.0.1).
-- In **Cloud Mode**, the only external destinations are `clerk.actionbook.dev` (during sign-in) and `edge.actionbook.dev` (during active operation). Data flows to either destination are listed exhaustively in Section 2B.
+- In **Cloud Mode**, the only external destinations are `clerk.actionbook.app` (during sign-in) and `edge.actionbook.app` (during active operation). Data flows to either destination are listed exhaustively in Section 2B.
 
 ## 4. Data Storage and Retention
 
@@ -97,7 +97,7 @@ All data stored by the Extension resides in `chrome.storage.local` on your devic
 | `cloudRefreshToken`      | Cloud | OAuth refresh token (used to rotate access tokens)     | Cleared on sign-out                                |
 | `cloudTokenExpiresAt`    | Cloud | Expected access-token expiry timestamp                 | Cleared on sign-out                                |
 | `deviceId`               | Cloud | Per-install device identifier                          | Persists across sign-outs to stabilize device naming |
-| `cloudEndpoint`          | Cloud | Edge server WebSocket URL (default `wss://edge.actionbook.dev/extension/ws`) | Persists; only changes if you override it        |
+| `cloudEndpoint`          | Cloud | Edge server WebSocket URL (default `wss://edge.actionbook.app/extension/ws`) | Persists; only changes if you override it        |
 | `pkce:<state>`           | Cloud | One-shot PKCE verifier, written during sign-in         | Deleted immediately after token exchange           |
 
 ### 4.2 Token Expiration

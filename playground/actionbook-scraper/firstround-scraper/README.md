@@ -5,7 +5,7 @@ Scraper for extracting First Round Capital's portfolio companies data.
 ## Data Source
 
 - **URL**: https://www.firstround.com/companies?category=all
-- **Selectors verified by**: [Actionbook](https://actionbook.dev)
+- **Selectors verified by**: [Actionbook](https://actionbook.app)
 - **Action ID**: `https://www.firstround.com/companies`
 
 ## Extracted Data

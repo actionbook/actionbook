@@ -33,7 +33,7 @@ agent-browser close
 ### 1. Open the Request Page
 
 ```bash
-agent-browser open "https://actionbook.dev/request-website"
+agent-browser open "https://actionbook.app/request-website"
 ```
 
 ### 2. Get Page Snapshot (Find Form Selectors)
@@ -110,7 +110,7 @@ If predefined selectors don't work:
 
 ```bash
 # Step 1: Open page
-agent-browser open "https://actionbook.dev/request-website"
+agent-browser open "https://actionbook.app/request-website"
 
 # Step 2: Snapshot to find selectors
 agent-browser snapshot -i
@@ -151,7 +151,7 @@ Your request has been submitted. Actionbook will prioritize based on demand.
 
 {If failed:}
 Error: {error_message}
-Please try again or submit manually at https://actionbook.dev/request-website
+Please try again or submit manually at https://actionbook.app/request-website
 ```
 
 ## Error Handling
@@ -159,7 +159,7 @@ Please try again or submit manually at https://actionbook.dev/request-website
 ### Page Load Failed
 ```markdown
 **Status**: Failed
-**Error**: Could not load https://actionbook.dev/request-website
+**Error**: Could not load https://actionbook.app/request-website
 **Suggestion**: Check your network connection and try again
 ```
 
