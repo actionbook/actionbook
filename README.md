@@ -1,36 +1,40 @@
-![Actionbook Cover](https://github.com/user-attachments/assets/18f55ca3-2c25-4f6a-a518-1b07baf8b4dd)
+![Meet your AI Browser Coworker](.github/media/marquee.png)
 
 <div align="center">
 
-10x Faster &nbsp; | &nbsp; 90% Token Saving &nbsp; | &nbsp; 30 Actions at Once
+Actionbook is an AI agent in your browser. It reads data behind your logins,<br>operates websites you already use, and delivers finished work, not answers.
 
-[Website](https://actionbook.app) · [GitHub](https://github.com/actionbook/actionbook) · [X](https://x.com/ActionbookHQ) · [Discord](https://actionbook.app/discord)
+<a href="https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo?utm_source=github&utm_medium=readme-hero"><img src="https://img.shields.io/chrome-web-store/v/bebchpafpemheedhcdabookaifcijmfo?color=4285F4" alt="Chrome Web Store version"></a>
+
+[Website](https://actionbook.app) · [Discord](https://actionbook.app/discord) · [X](https://x.com/ActionbookHQ)
 
 </div>
 
-# Actionbook
+## Meet the New Actionbook
+
+Actionbook now ships as an AI agent in your Chrome side panel. It works beside you on the page you are on, reads data behind your logins, and delivers finished work, not answers: a sourced report, a clean CSV, or ready-to-send drafts. When a task works the way you want, save it as a Recipe and run it again with new inputs.
+
+<p align="center">
+  <a href="https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo?utm_source=github&utm_medium=readme-new-section"><img src="https://img.shields.io/badge/Add%20to%20Chrome%20--%20It%27s%20Free-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Add to Chrome - It's Free" height="40"></a>
+  &nbsp;&nbsp;
+  <a href="https://actionbook.app"><img src="https://img.shields.io/badge/Visit%20actionbook.app-141e24?style=for-the-badge" alt="Visit actionbook.app" height="40"></a>
+</p>
+
+---
+
+### Actionbook (Legacy)
 
 Actionbook turns the websites you work in every day into something your AI agent can actually operate. Direct API requests when possible, UI automation when not, with login handled. Fast and resilient.
 
-## Table of Contents
+### Why Actionbook?
 
-- [Why Actionbook?](#why-actionbook)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Examples](#examples)
-- [Available Tools](#available-tools)
-- [Documentation](#documentation)
-- [Contributing](#contributing)
-
-## Why Actionbook?
-
-### ❌ Without Actionbook
+#### ❌ Without Actionbook
 
 - **Slow.** Agents take a snapshot after every single step, parse the page, then decide what to do next. Searching one room on Airbnb takes 5 minutes.
 - **Brittle.** Modern websites use virtual DOMs, streaming components, and SPAs. Agents don't understand these rendering mechanisms, so they fail on dropdowns, date pickers, and login walls.
 - **One at a time.** Your agent finishes one page before it can start the next. Need to check 30 company websites? That's 30 rounds, one after another.
 
-### ✅ With Actionbook
+#### ✅ With Actionbook
 
 - **10x faster.** Action manuals tell agents exactly what to do. No parsing, no guessing.
 - **Accurate.** Direct API calls when possible, UI fallback when not. Login handled either way.
@@ -40,7 +44,7 @@ See an agent visits **192** First Round portfolio company websites and collects 
 
 https://github.com/user-attachments/assets/35079a19-7236-47a8-87ed-3edf6436c2bf
 
-## Installation
+### Installation
 
 Actionbook runs as a **remote MCP connector** paired with the **Actionbook Chrome extension** — no CLI install required. Your AI agent connects to the hosted MCP endpoint, and the extension drives your real Chrome so agents reuse your logged-in sessions.
 
@@ -58,7 +62,7 @@ https://edge.actionbook.app/mcp
 
 > **Note:** The standalone `@actionbookdev/cli` package is deprecated. Use the remote connector + Chrome extension above.
 
-## Quick Start
+### Quick Start
 
 Once the extension is installed and your client is connected (see [Installation](#installation)), just talk to your agent — Actionbook handles the rest:
 
@@ -72,27 +76,27 @@ Behind the scenes the agent uses Actionbook to fetch action manuals and operate 
 Use Actionbook to understand and operate the web page.
 ```
 
-## Examples
+### Examples
 
 Explore real-world examples in the [Examples Documentation](https://actionbook.app/docs/examples).
 
 
-## Available Tools
+### Available Tools
 
 Actionbook exposes a single `actionbook` MCP tool whose subcommands cover action lookup (`search`, `manual`) and browser control (`goto`, `snapshot`, `click`, `type`, …). Your agent discovers the full command set from the tool description once connected.
 
-### Chrome Extension
+#### Chrome Extension
 
 Install the extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo). Once you sign in from the [dashboard](https://actionbook.app/dashboard), it connects to the hosted MCP endpoint automatically.
 
 
-## Documentation
+### Documentation
 
 For comprehensive guides, API references, and tutorials, visit our documentation site:
 
 **[actionbook.app/docs](https://actionbook.app/docs)**
 
-## Stay tuned
+### Stay tuned
 
 We move fast. Star Actionbook on Github to support and get latest information.
 
@@ -103,11 +107,11 @@ Join the community:
 - [Chat with us on Discord](https://actionbook.app/discord) - Get help, share your agents, and discuss ideas
 - [Follow @ActionbookHQ on X](https://x.com/ActionbookHQ) - Product updates and announcements
 
-## Contributing
+### Contributing
 
 - **[Read the Contributing Guide](CONTRIBUTING.md)** - See repository setup, package layout, and validation workflows for the public repo.
 - **[Request a Website](https://actionbook.app/request-website)** - Suggest websites you want Actionbook to index.
 
-## License
+### License
 
 See [LICENSE](LICENSE) for the license details.

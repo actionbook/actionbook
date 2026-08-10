@@ -76,7 +76,7 @@ actionbook browser screenshot result.png --session s1 --tab t1
 
 If you need to switch modes later, run `actionbook setup` again.
 
-See the full command reference in the [main README](../../README.md).
+See the full command reference in the [Actionbook docs](https://actionbook.app/docs).
 
 ## Cloud Mode (v0.5.0+)
 
