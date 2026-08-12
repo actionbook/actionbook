@@ -4,7 +4,7 @@
 
 Actionbook is an AI agent in your browser. It reads data behind your logins,<br>operates websites you already use, and delivers finished work, not answers.
 
-<a href="https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo?utm_source=github&utm_medium=readme-hero"><img src="https://img.shields.io/chrome-web-store/v/bebchpafpemheedhcdabookaifcijmfo?color=4285F4" alt="Chrome Web Store version"></a>
+<a href="https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo?utm_source=github&utm_medium=referral&utm_campaign=v1_2_release&utm_content=readme_hero"><img src="https://img.shields.io/chrome-web-store/v/bebchpafpemheedhcdabookaifcijmfo?color=4285F4" alt="Chrome Web Store version"></a>
 
 [Website](https://actionbook.app) · [Discord](https://actionbook.app/discord) · [X](https://x.com/ActionbookHQ)
 
@@ -15,7 +15,7 @@ Actionbook is an AI agent in your browser. It reads data behind your logins,<br>
 Actionbook now ships as an AI agent in your Chrome side panel. It works beside you on the page you are on, reads data behind your logins, and delivers finished work, not answers: a sourced report, a clean CSV, or ready-to-send drafts. When a task works the way you want, save it as a Recipe and run it again with new inputs.
 
 <p align="center">
-  <a href="https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo?utm_source=github&utm_medium=readme-new-section"><img src="https://img.shields.io/badge/Add%20to%20Chrome%20--%20It%27s%20Free-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Add to Chrome - It's Free" height="40"></a>
+  <a href="https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo?utm_source=github&utm_medium=referral&utm_campaign=v1_2_release&utm_content=readme_cta"><img src="https://img.shields.io/badge/Add%20to%20Chrome%20--%20It%27s%20Free-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Add to Chrome - It's Free" height="40"></a>
   &nbsp;&nbsp;
   <a href="https://actionbook.app"><img src="https://img.shields.io/badge/Visit%20actionbook.app-141e24?style=for-the-badge" alt="Visit actionbook.app" height="40"></a>
 </p>
@@ -50,7 +50,7 @@ Actionbook runs as a **remote MCP connector** paired with the **Actionbook Chrom
 
 > 👉 **For the full step-by-step setup — with per-client instructions and screenshots — visit the [dashboard](https://actionbook.app/dashboard).** The three steps below are the quick overview.
 
-**1. Install the Chrome extension** from the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo).
+**1. Install the Chrome extension** from the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo?utm_source=github&utm_medium=referral&utm_campaign=v1_2_release&utm_content=readme_install).
 
 **2. Add Actionbook as a connector in your AI app.** Open your app's connector settings — **Claude** (Settings → Connectors → Add custom connector), **ChatGPT** (Settings → Connectors), **Perplexity**, **Hermes**, **OpenClaw**, or any other MCP-compatible app — and paste the Actionbook endpoint:
 
@@ -87,7 +87,7 @@ Actionbook exposes a single `actionbook` MCP tool whose subcommands cover action
 
 #### Chrome Extension
 
-Install the extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo). Once you sign in from the [dashboard](https://actionbook.app/dashboard), it connects to the hosted MCP endpoint automatically.
+Install the extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/actionbook/bebchpafpemheedhcdabookaifcijmfo?utm_source=github&utm_medium=referral&utm_campaign=v1_2_release&utm_content=readme_extension). Once you sign in from the [dashboard](https://actionbook.app/dashboard), it connects to the hosted MCP endpoint automatically.
 
 
 ### Documentation
