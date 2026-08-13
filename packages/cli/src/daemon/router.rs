@@ -12,6 +12,7 @@ pub async fn route(action: &Action, registry: &SharedRegistry) -> ActionResult {
         Action::ListSessions(cmd) => browser::session::list::execute(cmd, registry).await,
         Action::SessionStatus(cmd) => browser::session::status::execute(cmd, registry).await,
         Action::Close(cmd) => browser::session::close::execute(cmd, registry).await,
+        Action::Stop(cmd) => browser::session::stop::execute(cmd, registry).await,
         Action::Restart(cmd) => browser::session::restart::execute(cmd, registry).await,
         Action::Goto(cmd) => browser::navigation::goto::execute(cmd, registry).await,
         Action::Back(cmd) => browser::navigation::back::execute(cmd, registry).await,

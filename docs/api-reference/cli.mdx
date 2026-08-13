@@ -159,15 +159,15 @@ actionbook browser start --mode cloud --cdp-endpoint wss://browser.example.com/w
 ```bash
 actionbook browser list-sessions                      # List all active sessions
 actionbook browser status --session s1                # Show session status
-actionbook browser close --session s1                 # Close a session (alias: stop)
+actionbook browser close --session s1                 # Close and delete a non-default local profile
+actionbook browser stop --session s1                  # Stop local Chrome and retain its named profile
 actionbook browser restart --session s1               # Restart, preserving session_id
 ```
 
 <Note>
-  `browser close` is **idempotent**: closing an unknown or already-closed session returns `ok: true` with `meta.warnings` instead of a fatal error. This prevents false alarms in orchestrators that call close unconditionally during cleanup.
+  `browser close` and `browser stop` are **idempotent** when the session and its profile-scoped ownership record are gone. A successful stop reports `status: "stopped"`, the profile name, and `profile_preserved: true`; a later `browser start --profile <profile>` reuses the retained browser state. If no profile ownership remains, the profile fields are `null` rather than claiming preservation.
 
-  - Unknown/already-closed session: `ok: true`, `data: { status: "closed", closed_tabs: 0 }`, `meta.warnings: ["session not found in daemon — already closed or daemon restarted"]`
-  - Another close already in flight: `SESSION_CLOSING` fatal (unchanged)
+  Ownership metadata that does not match the live PID, process start identity, and profile fails visibly instead of killing an unverified process. Another teardown already in flight returns `SESSION_CLOSING` fatal.
 </Note>
 
 ### Tab Management

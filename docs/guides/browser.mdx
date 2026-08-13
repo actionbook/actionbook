@@ -27,28 +27,30 @@ All three modes are designed for AI agents:
 
 Works out of the box with no setup. The CLI launches a temporary Chrome process with a dedicated profile and connects via CDP.
 
+<!-- executable-disposable-cleanup-smoke:start -->
 ```bash
-# If local is your default mode (or not configured)
-actionbook browser start --set-session-id s1
-actionbook browser goto "https://example.com" --session s1 --tab t1
-actionbook browser click "button[type='submit']" --session s1 --tab t1
-actionbook browser fill "#search" "actionbook" --session s1 --tab t1
-actionbook browser screenshot output.png --session s1 --tab t1
-```
+# This profile is disposable; destructive close on every terminal path is intended.
+set -Eeuo pipefail
+SESSION=local-example
+PROFILE=local-example-disposable
+cleanup() { actionbook browser close --session "$SESSION" >/dev/null 2>&1 || true; }
+trap 'status=$?; trap - EXIT INT TERM; cleanup; exit "$status"' EXIT
+trap 'trap - EXIT INT TERM; cleanup; kill -INT "$$"' INT
+trap 'trap - EXIT INT TERM; cleanup; kill -TERM "$$"' TERM
 
-When done, close the browser:
-
-```bash
-actionbook browser close --session s1
+actionbook browser start --session "$SESSION" --profile "$PROFILE"
+actionbook browser goto "https://example.com" --session "$SESSION" --tab t1
+actionbook browser click "button[type='submit']" --session "$SESSION" --tab t1
+actionbook browser fill "#search" "actionbook" --session "$SESSION" --tab t1
+actionbook browser screenshot output.png --session "$SESSION" --tab t1
 ```
+<!-- executable-disposable-cleanup-smoke:end -->
+
+The installed traps close the disposable browser once on normal exit or command failure. On SIGINT or SIGTERM they close it once, then re-raise the same signal.
 
 ## Cloud Providers
 
-Cloud mode lets you run browser sessions on a remote provider instead of launching a local Chrome. Use the `-p` (or `--provider`) flag with `browser start`:
-
-```bash
-actionbook browser start -p hyperbrowser --session s1
-```
+Cloud mode lets you run browser sessions on a remote provider instead of launching a local Chrome. Use the `-p` (or `--provider`) flag with the ownership-safe quick start below.
 
 ### Supported Providers
 
@@ -73,30 +75,30 @@ actionbook browser start -p hyperbrowser --session s1
   </Step>
 
   <Step title="Start a cloud browser session">
+    <!-- executable-cloud-cleanup-smoke:start -->
     ```bash
-    actionbook browser start -p hyperbrowser --session cloud1
+    set -Eeuo pipefail
+    SESSION=cloud1
+    cleanup() { actionbook browser close --session "$SESSION" >/dev/null 2>&1 || true; }
+    trap 'status=$?; trap - EXIT INT TERM; cleanup; exit "$status"' EXIT
+    trap 'trap - EXIT INT TERM; cleanup; kill -INT "$$"' INT
+    trap 'trap - EXIT INT TERM; cleanup; kill -TERM "$$"' TERM
+    actionbook browser start -p hyperbrowser --session "$SESSION" --open-url "https://example.com"
     ```
+    <!-- executable-cloud-cleanup-smoke:end -->
 
-    The CLI creates a remote browser session and returns the `session_id` and `tab_id` for subsequent commands.
+    The CLI creates a remote browser session and returns the `session_id` and `tab_id` for subsequent commands. The traps release it once on normal exit or command failure; on SIGINT or SIGTERM they release it once, then re-raise the same signal.
   </Step>
 
   <Step title="Use browser commands as usual">
     ```bash
-    actionbook browser open "https://example.com" --session cloud1
-    actionbook browser snapshot --session cloud1 --tab t1
-    actionbook browser click "#login" --session cloud1 --tab t1
+    actionbook browser snapshot --session "$SESSION" --tab t1
+    actionbook browser click "#login" --session "$SESSION" --tab t1
     ```
 
     All browser commands work the same way. The session runs on the cloud provider transparently.
   </Step>
 
-  <Step title="Close when done">
-    ```bash
-    actionbook browser close --session cloud1
-    ```
-
-    This terminates the remote browser session and releases provider resources.
-  </Step>
 </Steps>
 
 ### How It Works
@@ -125,14 +127,24 @@ If you've configured `mode = "extension"` in your config file, you only need to 
     3. Confirm **Add extension**
   </Step>
 
-  <Step title="Verify with any browser command">
+  <Step title="Verify with an owned extension tab">
     ```bash
-    actionbook browser start --set-session-id s1
-    actionbook browser goto "https://example.com" --session s1 --tab t1
-    actionbook browser snapshot --session s1 --tab t1
+    set -Eeuo pipefail
+    SESSION=extension-check
+    OWNED_TABS=(t1)
+    cleanup_shared() {
+      for tab in "${OWNED_TABS[@]}"; do
+        actionbook browser close-tab --session "$SESSION" --tab "$tab" >/dev/null 2>&1 || true
+      done
+    }
+    trap 'status=$?; trap - EXIT INT TERM; cleanup_shared; exit "$status"' EXIT
+    trap 'trap - EXIT INT TERM; cleanup_shared; kill -INT "$$"' INT
+    trap 'trap - EXIT INT TERM; cleanup_shared; kill -TERM "$$"' TERM
+    actionbook browser start --mode extension --session "$SESSION" --open-url "https://example.com"
+    actionbook browser snapshot --session "$SESSION" --tab "${OWNED_TABS[0]}"
     ```
 
-    The extension bridge (part of the actionbook daemon) auto-starts in the background and the extension auto-connects within a few seconds.
+    The extension bridge auto-starts in the background. The shared Chrome is never stopped or closed; the trap closes only this task's tab.
   </Step>
 
   <Step title="Fallback: local debug install (only if Web Store install fails)">
@@ -189,12 +201,18 @@ Create or edit `~/.actionbook/config.toml`:
 mode = "local"
 ```
 
-Once configured, all browser commands will automatically use your chosen mode:
+Once configured, the mode flag can be omitted, but explicit ownership and addressing are still required:
 
 ```bash
-# No flags needed - uses configured mode
-actionbook browser open "https://example.com"
-actionbook browser click "button[type='submit']"
+set -Eeuo pipefail
+SESSION=config-example
+PROFILE=config-example
+cleanup() { actionbook browser stop --session "$SESSION" >/dev/null 2>&1 || true; }
+trap 'status=$?; trap - EXIT INT TERM; cleanup; exit "$status"' EXIT
+trap 'trap - EXIT INT TERM; cleanup; kill -INT "$$"' INT
+trap 'trap - EXIT INT TERM; cleanup; kill -TERM "$$"' TERM
+actionbook browser start --session "$SESSION" --profile "$PROFILE" --open-url "https://example.com"
+actionbook browser click "button[type='submit']" --session "$SESSION" --tab t1
 ```
 
 ## Browser Commands
@@ -209,7 +227,8 @@ actionbook browser start --session s1 --max-tracked-requests 1000   # custom net
 actionbook browser list-sessions                     # list all active sessions (includes max_tracked_requests)
 actionbook browser status --session s1               # show session info
 actionbook browser restart --session s1              # restart, preserving session_id and max_tracked_requests
-actionbook browser close --session s1                # close a session
+actionbook browser stop --session s1                 # stop local Chrome, retaining its named profile
+actionbook browser close --session s1                # close and delete a non-default local profile
 ```
 
 Both `--session` and `--set-session-id` are get-or-create: they reuse a Running session with the given ID, or create one if not found.
@@ -351,15 +370,25 @@ Multi-session lets you run **multiple independent tabs in a single browser insta
 Use the `--session` flag to name a session:
 
 ```bash
-# Open three sites in separate sessions
-actionbook browser start --session research --open-url "https://arxiv.org"
-actionbook browser start --session social --open-url "https://x.com"
-actionbook browser start --session shopping --open-url "https://amazon.com"
+# These profiles are disposable; register every session before acquisition.
+set -Eeuo pipefail
+SESSIONS=(research social shopping)
+cleanup() {
+  for session in "${SESSIONS[@]}"; do
+    actionbook browser close --session "$session" >/dev/null 2>&1 || true
+  done
+}
+trap 'status=$?; trap - EXIT INT TERM; cleanup; exit "$status"' EXIT
+trap 'trap - EXIT INT TERM; cleanup; kill -INT "$$"' INT
+trap 'trap - EXIT INT TERM; cleanup; kill -TERM "$$"' TERM
 
-# Each session operates independently
-actionbook browser snapshot --session research --tab t1   # only sees arxiv.org
-actionbook browser snapshot --session social --tab t1     # only sees x.com
-actionbook browser click "#search" --session shopping --tab t1  # only affects amazon.com
+actionbook browser start --session research --profile research-temporary --open-url "https://arxiv.org"
+actionbook browser start --session social --profile social-temporary --open-url "https://x.com"
+actionbook browser start --session shopping --profile shopping-temporary --open-url "https://amazon.com"
+
+actionbook browser snapshot --session research --tab t1
+actionbook browser snapshot --session social --tab t1
+actionbook browser click "#search" --session shopping --tab t1
 ```
 
 Without `--session`, commands use a `default` session.
@@ -372,9 +401,6 @@ actionbook browser list-sessions
 
 # Show session status
 actionbook browser status --session research
-
-# Close a session
-actionbook browser close --session research
 ```
 
 ### Common Mistakes
@@ -384,20 +410,8 @@ actionbook browser close --session research
 </Warning>
 
 <AccordionGroup>
-  <Accordion title="Creating separate profiles with different ports">
-    ```bash
-    # WRONG: wasteful, launches 3 Chrome instances
-    actionbook browser start --profile work1
-    actionbook browser start --profile work2
-    actionbook browser start --profile work3
-    ```
-
-    ```bash
-    # CORRECT: one browser, three sessions
-    actionbook browser start --session research --open-url "https://arxiv.org"
-    actionbook browser start --session social --open-url "https://x.com"
-    actionbook browser start --session shopping --open-url "https://amazon.com"
-    ```
+  <Accordion title="Creating separate profiles without ownership cleanup">
+    Do not launch anonymous profiles without terminal cleanup. Use the ownership-safe multi-session block above; it assigns explicit session/profile identities and installs cleanup before acquisition.
   </Accordion>
 
   <Accordion title="Running snapshot without session distinction">
@@ -424,27 +438,34 @@ Combine action manuals with browser automation for the best results:
 ```bash
 # 1. Find the action manual
 actionbook search "github search repos"
+actionbook manual github
 
-# 2. Get verified selectors
-actionbook get "<area_id>"
+# 2. Install owned cleanup before browser acquisition.
+set -Eeuo pipefail
+SESSION=github-research
+PROFILE=github-research
+cleanup() { actionbook browser stop --session "$SESSION" >/dev/null 2>&1 || true; }
+trap 'status=$?; trap - EXIT INT TERM; cleanup; exit "$status"' EXIT
+trap 'trap - EXIT INT TERM; cleanup; kill -INT "$$"' INT
+trap 'trap - EXIT INT TERM; cleanup; kill -TERM "$$"' TERM
 
-# 3. Start a session and execute
-actionbook browser start --set-session-id s1
-actionbook browser goto "https://github.com" --session s1 --tab t1
-actionbook browser snapshot --session s1 --tab t1
-actionbook browser fill @e3 "actionbook" --session s1 --tab t1
-actionbook browser click @e7 --session s1 --tab t1
+# 3. Start the persistent profile and execute with explicit addressing.
+actionbook browser start --session "$SESSION" --profile "$PROFILE" --open-url "https://github.com"
+actionbook browser snapshot --session "$SESSION" --tab t1
+actionbook browser fill @e3 "actionbook" --session "$SESSION" --tab t1
+actionbook browser click @e7 --session "$SESSION" --tab t1
 ```
 
 ## Shutdown
 
 ```bash
-actionbook browser close --session s1       # close a session
-actionbook browser restart --session s1     # restart with same profile/mode
+actionbook browser stop --session s1       # release local Chrome, retain named profile state
+actionbook browser close --session s1      # destructive for non-default local profiles
+actionbook browser restart --session s1    # restart with same profile/mode
 ```
 
 <Tip>
-  `browser close` is idempotent — closing an unknown or already-closed session returns `ok: true` with a warning in `meta.warnings`, not an error. Safe to call unconditionally during cleanup without checking session existence first. Read `meta.warnings` to distinguish a fresh close from an already-gone session.
+  `browser stop` preserves an owned local named profile; `browser close` is the explicit destructive command. Both are idempotent once the session and profile-scoped ownership record are gone. Read `meta.warnings` and the structured profile fields to distinguish a fresh teardown from an already-gone session.
 </Tip>
 
 
@@ -513,7 +534,7 @@ When `error.code` is a `CDP_*` code, `error.details` includes `reason` (raw CDP 
 
 <AccordionGroup>
   <Accordion title="Browser command waits for extension connection">
-    - Run any browser command once: `actionbook browser open <url>` (this auto-starts the bridge)
+    - Repeat the ownership-safe extension verification block above; its explicitly addressed start auto-starts the bridge
     - Keep Chrome open and confirm the Actionbook extension is enabled in `chrome://extensions`
     - First startup can take a few seconds while the bridge starts and the extension reconnects
   </Accordion>
@@ -534,7 +555,7 @@ When `error.code` is a `CDP_*` code, `error.details` includes `reason` (raw CDP 
 
   <Accordion title="No tab attached">
     - Make sure Chrome has at least one visible, active tab
-    - Run `actionbook browser open <url>` first to attach a tab
+    - Repeat the ownership-safe extension verification block above to create and attach an explicitly owned tab
     - Avoid `chrome://` pages; the debugger cannot attach to them
   </Accordion>
 

@@ -585,7 +585,7 @@ tabs: 2
 > Addressing level: **Session**
 > command: `browser close`
 
-Close the specified session and its browser.
+Close the specified session and its browser. For a local non-default named profile, this also deletes the profile directory; use `browser stop` when authentication state must survive.
 
 **Parameters:**
 
@@ -612,7 +612,45 @@ closed_tabs: 2
 
 ---
 
-### 7.5 `actionbook browser restart --session <SID>`
+### 7.5 `actionbook browser stop --session <SID>`
+
+> Addressing level: **Session**
+> command: `browser stop`
+
+Stop an Actionbook-owned local Chrome session and all its tabs while retaining the named profile directory, cookies, and local storage. Use the separate `browser close` command when deletion of a temporary non-default profile is intended.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|------|------|------|------|
+| `--session <SID>` | string | Yes | Session ID |
+
+**JSON `data`:**
+
+```json
+{
+  "session_id": "research-google",
+  "status": "stopped",
+  "closed_tabs": 2,
+  "profile": "authenticated-research",
+  "profile_preserved": true
+}
+```
+
+**Text output:**
+```
+[research-google]
+ok browser stop
+closed_tabs: 2
+profile: authenticated-research
+profile_preserved: true
+```
+
+The operation is idempotent when the session and its profile-scoped ownership record are gone: it returns `ok: true`, `closed_tabs: 0`, null profile fields, and an explanatory `meta.warnings` entry. It never claims preservation without a retained profile. Cloud, extension, and externally owned CDP sessions fail with `UNSUPPORTED_MODE` and remain active. A crash-orphan is stopped only when its authoritative ownership record, PID start identity, command line, session identity, and profile path agree; unverifiable ownership fails visibly.
+
+---
+
+### 7.6 `actionbook browser restart --session <SID>`
 
 > Addressing level: **Session**
 > command: `browser restart`
@@ -2034,7 +2072,7 @@ Clear the stored value for the specified key.
 
 ---
 
-## Appendix: Command Overview (70 interfaces total)
+## Appendix: Command Overview (71 interfaces total)
 
 ### Non-Browser Commands (5)
 
@@ -2046,7 +2084,7 @@ Clear the stored value for the specified key.
 | 4 | `help` | — | `help` |
 | 5 | `--version` | — | `version` |
 
-### Browser Lifecycle (5)
+### Browser Lifecycle (6)
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
@@ -2054,108 +2092,109 @@ Clear the stored value for the specified key.
 | 7 | `browser list-sessions` | Global | `browser list-sessions` |
 | 8 | `browser status` | Session | `browser status` |
 | 9 | `browser close` | Session | `browser close` |
-| 10 | `browser restart` | Session | `browser restart` |
+| 10 | `browser stop` | Session | `browser stop` |
+| 11 | `browser restart` | Session | `browser restart` |
 
 ### Browser Tab Management (3)
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
-| 11 | `browser list-tabs` | Session | `browser list-tabs` |
-| 12 | `browser new-tab` / `open` | Session | `browser new-tab` |
-| 13 | `browser close-tab` | Tab | `browser close-tab` |
+| 12 | `browser list-tabs` | Session | `browser list-tabs` |
+| 13 | `browser new-tab` / `open` | Session | `browser new-tab` |
+| 14 | `browser close-tab` | Tab | `browser close-tab` |
 
 ### Browser Navigation (4)
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
-| 14 | `browser goto` | Tab | `browser goto` |
-| 15 | `browser back` | Tab | `browser back` |
-| 16 | `browser forward` | Tab | `browser forward` |
-| 17 | `browser reload` | Tab | `browser reload` |
+| 15 | `browser goto` | Tab | `browser goto` |
+| 16 | `browser back` | Tab | `browser back` |
+| 17 | `browser forward` | Tab | `browser forward` |
+| 18 | `browser reload` | Tab | `browser reload` |
 
 ### Browser Observation (17)
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
-| 18 | `browser snapshot` | Tab | `browser snapshot` |
-| 19 | `browser screenshot` | Tab | `browser screenshot` |
-| 20 | `browser pdf` | Tab | `browser pdf` |
-| 21 | `browser title` | Tab | `browser title` |
-| 22 | `browser url` | Tab | `browser url` |
-| 23 | `browser viewport` | Tab | `browser viewport` |
-| 24 | `browser query` | Tab | `browser query` |
-| 25 | `browser html` | Tab | `browser html` |
-| 26 | `browser text` | Tab | `browser text` |
-| 27 | `browser value` | Tab | `browser value` |
-| 28 | `browser attr` | Tab | `browser attr` |
-| 29 | `browser attrs` | Tab | `browser attrs` |
-| 30 | `browser box` | Tab | `browser box` |
-| 31 | `browser styles` | Tab | `browser styles` |
-| 32 | `browser describe` | Tab | `browser describe` |
-| 33 | `browser state` | Tab | `browser state` |
-| 34 | `browser inspect-point` | Tab | `browser inspect-point` |
+| 19 | `browser snapshot` | Tab | `browser snapshot` |
+| 20 | `browser screenshot` | Tab | `browser screenshot` |
+| 21 | `browser pdf` | Tab | `browser pdf` |
+| 22 | `browser title` | Tab | `browser title` |
+| 23 | `browser url` | Tab | `browser url` |
+| 24 | `browser viewport` | Tab | `browser viewport` |
+| 25 | `browser query` | Tab | `browser query` |
+| 26 | `browser html` | Tab | `browser html` |
+| 27 | `browser text` | Tab | `browser text` |
+| 28 | `browser value` | Tab | `browser value` |
+| 29 | `browser attr` | Tab | `browser attr` |
+| 30 | `browser attrs` | Tab | `browser attrs` |
+| 31 | `browser box` | Tab | `browser box` |
+| 32 | `browser styles` | Tab | `browser styles` |
+| 33 | `browser describe` | Tab | `browser describe` |
+| 34 | `browser state` | Tab | `browser state` |
+| 35 | `browser inspect-point` | Tab | `browser inspect-point` |
 
 ### Browser Logging (2)
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
-| 35 | `browser logs console` | Tab | `browser logs console` |
-| 36 | `browser logs errors` | Tab | `browser logs errors` |
+| 36 | `browser logs console` | Tab | `browser logs console` |
+| 37 | `browser logs errors` | Tab | `browser logs errors` |
 
 ### Browser Interaction (15)
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
-| 37 | `browser click` | Tab | `browser click` |
-| 38 | `browser type` | Tab | `browser type` |
-| 39 | `browser fill` | Tab | `browser fill` |
-| 40 | `browser select` | Tab | `browser select` |
-| 41 | `browser hover` | Tab | `browser hover` |
-| 42 | `browser focus` | Tab | `browser focus` |
-| 43 | `browser press` | Tab | `browser press` |
-| 44 | `browser drag` | Tab | `browser drag` |
-| 45 | `browser upload` | Tab | `browser upload` |
-| 46 | `browser eval` | Tab | `browser eval` |
-| 47 | `browser mouse-move` | Tab | `browser mouse-move` |
-| 48 | `browser cursor-position` | Tab | `browser cursor-position` |
-| 49 | `browser scroll (direction)` | Tab | `browser scroll` |
-| 50 | `browser scroll (top/bottom)` | Tab | `browser scroll` |
-| 51 | `browser scroll into-view` | Tab | `browser scroll` |
+| 38 | `browser click` | Tab | `browser click` |
+| 39 | `browser type` | Tab | `browser type` |
+| 40 | `browser fill` | Tab | `browser fill` |
+| 41 | `browser select` | Tab | `browser select` |
+| 42 | `browser hover` | Tab | `browser hover` |
+| 43 | `browser focus` | Tab | `browser focus` |
+| 44 | `browser press` | Tab | `browser press` |
+| 45 | `browser drag` | Tab | `browser drag` |
+| 46 | `browser upload` | Tab | `browser upload` |
+| 47 | `browser eval` | Tab | `browser eval` |
+| 48 | `browser mouse-move` | Tab | `browser mouse-move` |
+| 49 | `browser cursor-position` | Tab | `browser cursor-position` |
+| 50 | `browser scroll (direction)` | Tab | `browser scroll` |
+| 51 | `browser scroll (top/bottom)` | Tab | `browser scroll` |
+| 52 | `browser scroll into-view` | Tab | `browser scroll` |
 
 ### Browser Waiting (4)
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
-| 52 | `browser wait element` | Tab | `browser wait element` |
-| 53 | `browser wait navigation` | Tab | `browser wait navigation` |
-| 54 | `browser wait network-idle` | Tab | `browser wait network-idle` |
-| 55 | `browser wait condition` | Tab | `browser wait condition` |
+| 53 | `browser wait element` | Tab | `browser wait element` |
+| 54 | `browser wait navigation` | Tab | `browser wait navigation` |
+| 55 | `browser wait network-idle` | Tab | `browser wait network-idle` |
+| 56 | `browser wait condition` | Tab | `browser wait condition` |
 
 ### Browser Cookies (5)
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
-| 56 | `browser cookies list` | Session | `browser cookies list` |
-| 57 | `browser cookies get` | Session | `browser cookies get` |
-| 58 | `browser cookies set` | Session | `browser cookies set` |
-| 59 | `browser cookies delete` | Session | `browser cookies delete` |
-| 60 | `browser cookies clear` | Session | `browser cookies clear` |
+| 57 | `browser cookies list` | Session | `browser cookies list` |
+| 58 | `browser cookies get` | Session | `browser cookies get` |
+| 59 | `browser cookies set` | Session | `browser cookies set` |
+| 60 | `browser cookies delete` | Session | `browser cookies delete` |
+| 61 | `browser cookies clear` | Session | `browser cookies clear` |
 
 ### Browser Storage (10)
 
 | # | Command | Addressing Level | command name |
 |---|------|----------|-----------|
-| 61 | `browser session-storage list` | Tab | `browser session-storage list` |
-| 62 | `browser session-storage get` | Tab | `browser session-storage get` |
-| 63 | `browser session-storage set` | Tab | `browser session-storage set` |
-| 64 | `browser session-storage delete` | Tab | `browser session-storage delete` |
-| 65 | `browser session-storage clear` | Tab | `browser session-storage clear` |
-| 66 | `browser local-storage list` | Tab | `browser local-storage list` |
-| 67 | `browser local-storage get` | Tab | `browser local-storage get` |
-| 68 | `browser local-storage set` | Tab | `browser local-storage set` |
-| 69 | `browser local-storage delete` | Tab | `browser local-storage delete` |
-| 70 | `browser local-storage clear` | Tab | `browser local-storage clear` |
+| 62 | `browser session-storage list` | Tab | `browser session-storage list` |
+| 63 | `browser session-storage get` | Tab | `browser session-storage get` |
+| 64 | `browser session-storage set` | Tab | `browser session-storage set` |
+| 65 | `browser session-storage delete` | Tab | `browser session-storage delete` |
+| 66 | `browser session-storage clear` | Tab | `browser session-storage clear` |
+| 67 | `browser local-storage list` | Tab | `browser local-storage list` |
+| 68 | `browser local-storage get` | Tab | `browser local-storage get` |
+| 69 | `browser local-storage set` | Tab | `browser local-storage set` |
+| 70 | `browser local-storage delete` | Tab | `browser local-storage delete` |
+| 71 | `browser local-storage clear` | Tab | `browser local-storage clear` |
 
-**Total: 70 interfaces**
+**Total: 71 interfaces**
 
 ---

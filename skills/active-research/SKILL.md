@@ -1,6 +1,6 @@
 ---
 name: active-research
-description: Deep research and analysis tool. Generates comprehensive HTML reports on any topic, domain, paper, or technology. Enhanced with advanced browser automation — SPA handling, network idle wait, batch operations, stealth browsing, and intelligent page analysis. Use when user asks to research, analyze, investigate, deep-dive, or generate a report on any subject.
+description: Deep research and analysis tool. Generates comprehensive HTML reports on any topic, domain, paper, or technology using explicit Actionbook browser sessions.
 exclude_tools: group:web
 triggers: research, deep-dive, investigate, analyze topic, deep research, generate report
 force_tool_turns: 10
@@ -8,589 +8,328 @@ force_tool_turns: 10
 
 # Active Research
 
-Analyze any topic, domain, or paper and generate a beautiful HTML report using **Actionbook Browser** — featuring SPA-aware navigation, network idle detection, batch operations, and intelligent page analysis.
+Research a topic from multiple sources and generate a structured JSON/HTML report. Use only current Actionbook CLI commands for web access.
 
-## Enhanced Browser Capabilities
+## Browser Ownership and Acquisition
 
-| Capability | Description |
-|------------|-------------|
-| Page load wait | `wait-idle` — monitors fetch/XHR until network settles |
-| SPA content | `wait-fn` — wait for JS conditions before extracting |
-| Page understanding | `snapshot --filter interactive --max-tokens N` — focused, budget-friendly |
-| Popups blocking | `--auto-dismiss-dialogs` — auto-handle alert/confirm/prompt |
-| Load speed | `--block-images` — skip images for faster text extraction |
-| Page stability | `--no-animations` — freeze CSS transitions |
-| Error detection | `console --level error` — check for page issues |
-| Multi-step forms | `batch` — execute multiple actions in one call |
-| Element debugging | `info <selector>` — inspect visibility, position, properties |
-| Change tracking | `snapshot --diff` — only see what changed |
-| Anti-detection | `--stealth` + `fingerprint rotate` for protected sites |
-| Auth management | `storage set` — inject JWT/tokens for gated content |
-| One-shot fetch | `browser fetch <url>` — navigate+wait+extract+close in one command |
-| Static page speed | `--lite` — HTTP-first, browser fallback only if needed |
-| Anti-scrape URLs | `--rewrite-urls` — x.com→xcancel.com, reddit→old.reddit |
-| Wait tuning | `--wait-hint` — domain-aware wait (fast/normal/slow/heavy) |
-| Log correlation | `--session-tag` — tag all operations for debugging |
+Classify ownership and install cleanup before the first browser mutation. For a task-owned persistent research profile, use this canonical shell setup:
 
-## Usage
-
-```
-/active-research <topic>
-/active-research <topic> --output ./reports/my-report.json
-```
-
-Or simply tell Claude: "Research XXX and generate a report"
-
-### Parameters
-
-| Parameter | Required | Default | Description |
-|-----------|----------|---------|-------------|
-| `topic` | Yes | - | The subject to research (any text) |
-| `--output` | No | `./output/<topic-slug>.json` | Output path for JSON report |
-
-### Topic Detection
-
-| Pattern | Type | Strategy |
-|---------|------|----------|
-| `arxiv:XXXX.XXXXX` | Paper | **arXiv Advanced Search** + ar5iv deep read |
-| `doi:10.XXX/...` | Paper | Resolve DOI, then **arXiv Advanced Search** for related work |
-| Academic keywords (paper, research, model, algorithm) | Academic topic | **arXiv Advanced Search** + Google for non-academic sources |
-| URL | Specific page | Fetch and analyze the page |
-| General text | Topic research | Google search + arXiv Advanced Search if relevant |
-
-## Architecture
-
-```
-┌──────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────┐
-│  Claude   │────▶│  Actionbook  │────▶│  Web Pages   │────▶│ Extract  │
-│  Code     │     │   Browser    │     │  (multiple)  │     │ Content  │
-└──────────┘     └──────────────┘     └──────────────┘     └─────┬────┘
-      │           │ wait-idle    │     │ SPA / dynamic │           │
-      │           │ batch ops    │     │ protected     │           │
-      │           │ --stealth    │     │ mobile-only   │           │
-      │           │ snapshot     │     └───────────────┘           │
-      │           └──────────────┘                                 │
-      │          ┌──────────────┐     ┌──────────────┐            │
-      ├─────────▶│  Actionbook  │     │ arXiv Adv.   │            │
-      │          │  search/get  │────▶│ Search Form  │───────────▶│
-      │          │  (selectors) │     │ (40+ fields) │            │
-      │          └──────────────┘     └──────────────┘            │
-      │                                                            │
-┌──────────┐     ┌──────────────┐     ┌──────────────┐            │
-│  Open in │◀────│   json-ui    │◀────│  Write JSON  │◀───────────┘
-│  Browser │     │   render     │     │  Report      │  Synthesize
-└──────────┘     └──────────────┘     └──────────────┘
-```
-
-## MUST USE Actionbook CLI
-
-**Always use `actionbook browser` commands for web browsing. NEVER use any other method to access the web:**
-
-- **NEVER** use `curl`, `wget`, `httpie`, or any HTTP CLI tool via bash
-- **NEVER** use `python -c "import requests"` or any scripting-language HTTP library via bash
-- **NEVER** use WebFetch or WebSearch tools
-- **ONLY** use `actionbook browser` and `actionbook search`/`actionbook get` commands
-
-If you need web content, the PREFERRED path is: `actionbook browser fetch <url> --format text --json` (one-shot).
-For interactive multi-step workflows, use: `actionbook browser open <url>` → `actionbook browser wait-idle` → `actionbook browser text`.
-
-## Browser Flags — Research Defaults
-
-**CRITICAL: Always use these flags when opening the browser for research.**
-
+<!-- executable-active-research-cleanup-smoke:start -->
 ```bash
-# PREFERRED: One-shot fetch (I1) — handles open+wait+extract+close automatically
-actionbook --block-images --rewrite-urls browser fetch "<url>" --format text --json
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-# For interactive multi-step workflows, use explicit open:
-actionbook --block-images --auto-dismiss-dialogs --no-animations --rewrite-urls browser open "<url>"
-```
+ACTIONBOOK="${ACTIONBOOK:-actionbook}"
+SESSION="${SESSION:-active-research}"
+PROFILE="${PROFILE:-active-research}"
+TAB="${TAB:-t1}"
+START_URL="${START_URL:-about:blank}"
+HEADLESS="${HEADLESS:-true}"
+RELEASE_STATE=owned
 
-| Flag | Why |
-|------|-----|
-| `--block-images` | Skip image downloads — 2-5x faster page load for text extraction |
-| `--auto-dismiss-dialogs` | Prevent alert/confirm/prompt from blocking automation |
-| `--no-animations` | Freeze CSS animations — stable snapshots, no timing issues |
-| `--rewrite-urls` | Rewrite x.com→xcancel.com, reddit→old.reddit to avoid anti-bot blocking |
-| `--wait-hint <hint>` | Domain-aware wait: `instant`, `fast`, `normal`, `slow`, `heavy`, or ms |
-| `--session-tag <tag>` | Tag all operations for log correlation and debugging |
-| `--lite` (fetch only) | Try HTTP first, skip browser for static pages (Wikipedia, docs, blogs) |
-
-For sites with anti-bot protection, add `--stealth`:
-```bash
-actionbook --block-images --auto-dismiss-dialogs --no-animations --stealth --rewrite-urls browser open "<url>"
-```
-
-## Navigation Pattern — ALWAYS Follow
-
-**Option A: One-shot fetch (PREFERRED for read-only page extraction):**
-
-```bash
-# Single command: navigate → wait (domain-aware) → extract → close
-actionbook --block-images --rewrite-urls browser fetch "<url>" --format text --json
-# For static pages (Wikipedia, docs, blogs), add --lite to skip browser entirely:
-actionbook --rewrite-urls browser fetch "<url>" --format text --lite --json
-# For accessibility tree:
-actionbook --block-images --rewrite-urls browser fetch "<url>" --format snapshot --max-tokens 2000 --json
-```
-
-**Option B: Interactive multi-step pattern (for forms, clicks, multi-page flows):**
-
-```bash
-# Step 1: Navigate
-actionbook browser open "<url>"          # or: goto, click a link
-
-# Step 2: Wait for load (MANDATORY in v2)
-actionbook browser wait-idle             # Wait for fetch/XHR to settle
-
-# Step 3: Extract content
-actionbook browser text [selector]       # Extract text
-# OR
-actionbook browser snapshot --filter interactive --max-tokens 500  # Understand page structure
-```
-
-**Why `wait-idle` is critical:**
-- SPAs (React, Vue, Next.js) load content via fetch/XHR after initial HTML
-- Without waiting, `text` returns empty or incomplete content
-- `wait-idle` monitors all pending network requests, waits until quiet for 500ms
-
-**For pages that load content dynamically after network settles:**
-```bash
-actionbook browser wait-idle
-actionbook browser wait-fn "document.querySelector('.results')"    # Wait for specific element
-actionbook browser text ".results"
-```
-
-## Complete Workflow
-
-> **REMINDER:** Every web access in this workflow MUST use `actionbook browser` commands.
-> Using `curl`, `wget`, `python requests`, or any other HTTP tool is **strictly forbidden**.
-> The bash tool should ONLY be used for `actionbook` CLI commands and local file operations (json-ui render, `open`).
-
-### Step 1: Plan Search Strategy
-
-Based on the topic, generate 5-8 search queries from different angles:
-- Core definition / overview
-- Latest developments / news
-- Technical details / implementation
-- Comparisons / alternatives
-- Expert opinions / analysis
-- Use cases / applications
-
-**Search order — ALWAYS query Actionbook API first, then search:**
-
-| Step | Action | Why |
-|------|--------|-----|
-| **Step 2 (FIRST)** | **Query Actionbook API** | Get verified selectors for arXiv, ar5iv, and other known sites BEFORE browsing. |
-| **Step 3 (SECOND)** | **arXiv Advanced Search** | Use Actionbook selectors for multi-field, filtered academic search. |
-| **Step 4 (THIRD)** | Google / Bing search | Supplement with blogs, news, code, discussions, non-academic sources. |
-
-### Step 2: Query Actionbook API for Selectors (ALWAYS DO THIS FIRST)
-
-**BEFORE browsing any URL, query Actionbook's indexed selectors.**
-
-```bash
-# Search for indexed actions by domain
-actionbook search "<keywords>" -d "<domain>"
-
-# Get detailed selectors for a specific page
-actionbook get "<domain>:/<path>:<area>"
-```
-
-**Pre-indexed sites useful for research:**
-
-| Site | area_id | Key Selectors |
-|------|---------|---------------|
-| arXiv Advanced Search | `arxiv.org:/search/advanced:default` | **40+ selectors**: field select, term input, category checkboxes, date range filters |
-| ar5iv paper | `ar5iv.labs.arxiv.org:/html/{paper_id}:default` | `h1.ltx_title_document`, `div.ltx_authors`, `div.ltx_abstract`, `section.ltx_section` |
-| Google Scholar | `scholar.google.com:/:default` | `#gs_hdr_tsi` (search), `#gs_hdr_tsb` (submit) |
-| arXiv homepage | `arxiv.org:/:default` | Global search across 2.4M+ articles |
-
-**For any URL you plan to visit**, run `actionbook search "<keywords>" -d "<domain>"` to check if it's indexed.
-
-### Step 3: arXiv Search (URL-First, Form as Backup)
-
-**LESSON LEARNED: arXiv form submission via browser automation is unreliable. Use URL-based search as the PRIMARY method.**
-
-**Option A: URL-based search (PRIMARY — most reliable):**
-
-```bash
-# Simple keyword search
-actionbook --block-images --auto-dismiss-dialogs --no-animations browser open "https://arxiv.org/search/?query=large+language+model+agent&searchtype=all"
-actionbook browser wait-idle
-actionbook browser text "#main-container"
-
-# Advanced URL search with filters
-# searchtype: all, title, author, abstract
-# start: result offset (0, 50, 100, ...)
-actionbook browser open "https://arxiv.org/search/?query=Rust+machine+learning&searchtype=all&start=0"
-actionbook browser wait-idle
-actionbook browser text "#main-container"
-```
-
-**Search strategy: Start broad, then narrow:**
-1. First search: broad terms (e.g., `"Rust" "machine learning"`) — aim for 50+ results
-2. If too few results (< 10): broaden further, remove date/category filters
-3. If too many results (> 200): add more specific terms, use `searchtype=title`
-4. Try 2-3 different query angles (e.g., framework names, use cases, benchmarks)
-
-**Option B: Form interaction via batch (BACKUP — use if URL search is insufficient):**
-
-```bash
-# Open arXiv with research flags
-actionbook --block-images --auto-dismiss-dialogs --no-animations browser open "https://arxiv.org/search/advanced"
-actionbook browser wait-idle
-
-# Use batch for form — fewer round-trips, more reliable
-cat <<'EOF' | actionbook browser batch --delay 150
-{
-  "actions": [
-    {"kind": "click", "selector": "#terms-0-field"},
-    {"kind": "click", "selector": "option[value='title']"},
-    {"kind": "type", "selector": "#terms-0-term", "text": "large language model agent"},
-    {"kind": "click", "selector": "#classification-computer_science"},
-    {"kind": "click", "selector": "#date-filter_by-3"},
-    {"kind": "type", "selector": "#date-from_date", "text": "2025-01-01"},
-    {"kind": "type", "selector": "#date-to_date", "text": "2026-02-23"},
-    {"kind": "click", "selector": "button:has-text('Search'):nth(2)"}
-  ],
-  "stopOnError": true
+cleanup() {
+  "$ACTIONBOOK" browser stop --session "$SESSION" >/dev/null 2>&1 || true
 }
-EOF
-actionbook browser wait-idle
-actionbook browser text "#main-container"
+handle_exit() {
+  local status=$?
+  trap - EXIT INT TERM
+  case "$RELEASE_STATE" in
+    released) ;;
+    release_failed:*)
+      status=${RELEASE_STATE#release_failed:}
+      printf 'early browser stop failed with status %d; retrying best-effort terminal cleanup\n' \
+        "$status" >&2
+      cleanup
+      ;;
+    acquire_failed:*)
+      status=${RELEASE_STATE#acquire_failed:}
+      printf 'replacement browser start failed with status %d; retrying best-effort cleanup of the attempted replacement\n' \
+        "$status" >&2
+      cleanup
+      ;;
+    *) cleanup ;;
+  esac
+  exit "$status"
+}
+handle_signal() {
+  PENDING_SIGNAL=$1
+  if [[ "$RELEASE_STATE" != releasing && "$RELEASE_STATE" != acquiring ]]; then
+    finish_pending_signal
+  fi
+}
+finish_pending_signal() {
+  local signal=$PENDING_SIGNAL
+  PENDING_SIGNAL=
+  trap - EXIT INT TERM
+  case "$RELEASE_STATE" in
+    released) ;;
+    release_failed:*)
+      printf 'early browser stop failed with status %d; retrying best-effort cleanup before SIG%s\n' \
+        "${RELEASE_STATE#release_failed:}" "$signal" >&2
+      cleanup
+      ;;
+    acquire_failed:*)
+      printf 'replacement browser start failed with status %d; retrying best-effort cleanup of the attempted replacement before SIG%s\n' \
+        "${RELEASE_STATE#acquire_failed:}" "$signal" >&2
+      cleanup
+      ;;
+    *) cleanup ;;
+  esac
+  kill "-$signal" "$$"
+}
+install_cleanup_traps() {
+  PENDING_SIGNAL=
+  trap 'handle_exit' EXIT
+  trap 'handle_signal INT' INT
+  trap 'handle_signal TERM' TERM
+}
+install_cleanup_traps
 
-# If batch form submission fails (page shows form again instead of results):
-# → Fall back to Option A URL-based search immediately
-# → Do NOT retry the form — it wastes time
+"$ACTIONBOOK" browser start \
+  --session "$SESSION" \
+  --profile "$PROFILE" \
+  --headless "$HEADLESS" \
+  --open-url "$START_URL"
 ```
+<!-- executable-active-research-cleanup-smoke:end -->
 
-**arXiv search capabilities (from indexed selectors — for Option B):**
+The traps clean exactly once on normal exit or command failure and preserve that status. On SIGINT or SIGTERM they clean exactly once, then re-raise the same signal. Cleanup is best-effort; a disposable profile may instead use best-effort `browser close --session "$SESSION"` only when deletion is intended.
 
-| Capability | Selector |
-|------------|----------|
-| Search field (Title/Author/Abstract) | `#terms-0-field` select |
-| Search term | `#terms-0-term` input |
-| Add boolean terms | `button "Add another term +"` |
-| Filter: Computer Science | `#classification-computer_science` |
-| Filter: Physics, Math, etc. | `#classification-physics`, `#classification-mathematics` |
-| Date: past 12 months | `#date-filter_by-1` radio |
-| Date: specific year | `#date-filter_by-2` radio + `#date-year` |
-| Date: custom range | `#date-filter_by-3` radio + `#date-from_date` / `#date-to_date` |
-| Show abstracts | `#abstracts-0` radio |
-
-### Step 4: Supplement with Google / Bing Search
+For a shared session, never stop or close the session. Register task tab IDs before opening them, then trap only task-owned tab cleanup:
 
 ```bash
-# Search via Google (with wait-idle for SPA results)
-actionbook browser open "https://www.google.com/search?q=<encoded_query>"
-actionbook browser wait-idle
-actionbook browser text "#search"
+set -Eeuo pipefail
+ACTIONBOOK="${ACTIONBOOK:-actionbook}"
+SESSION=lzero-default
+OWNED_TABS=(research-source-1 research-source-2)
+cleanup_shared() {
+  for tab in "${OWNED_TABS[@]}"; do
+    "$ACTIONBOOK" browser close-tab --session "$SESSION" --tab "$tab" >/dev/null 2>&1 || true
+  done
+}
+trap 'status=$?; trap - EXIT INT TERM; cleanup_shared; exit "$status"' EXIT
+trap 'trap - EXIT INT TERM; cleanup_shared; kill -INT "$$"' INT
+trap 'trap - EXIT INT TERM; cleanup_shared; kill -TERM "$$"' TERM
 
-# Or search via Bing
-actionbook browser open "https://www.bing.com/search?q=<encoded_query>"
-actionbook browser wait-idle
-actionbook browser text "#b_results"
+"$ACTIONBOOK" browser open "https://example.com/source-1" \
+  --session "$SESSION" --tab "${OWNED_TABS[0]}"
+"$ACTIONBOOK" browser open "https://example.com/source-2" \
+  --session "$SESSION" --tab "${OWNED_TABS[1]}"
 ```
 
-Parse search results to extract URLs. For each discovered URL, query Actionbook API to check if indexed.
+All interactive examples below continue the dedicated canonical session and explicitly address `$SESSION` / `$TAB`. A login or manual pause keeps its trap installed and may remain live only under a named owner and resume condition, for example: “task `active-research` owns session `active-research`, tab `t1`; resume when the user confirms MFA completed.”
 
-**CRITICAL: URL Handling Rules (Learned from Production Use)**
+## Required Tool Boundary
 
-1. **NEVER manually construct URLs from search snippets.** Many Google snippet URLs are truncated or reformatted. Instead:
-   - Use `actionbook browser snapshot --filter interactive` to find actual link elements
-   - Click the link directly: `actionbook browser click "a[href*='domain.com']"`
-   - Or extract href from snapshot refs
+- Use `actionbook search` and `actionbook manual` to discover indexed actions.
+- Use `actionbook browser` for every web page interaction.
+- Do not use curl, wget, ad-hoc HTTP libraries, WebFetch, or WebSearch.
+- Run `actionbook <command> --help` when syntax is uncertain.
 
-2. **Expect 20-30% of URLs to be dead.** In practice, ~5 out of 20 URLs return 404. Handle this:
-   ```bash
-   actionbook browser open "<url>"
-   actionbook browser wait-idle
-   # Check if the page is a 404 or error page
-   actionbook browser wait-fn "!document.title.includes('404') && !document.title.includes('Not Found')" --timeout 3000
-   # If timeout → page is dead, skip immediately. Do NOT retry.
-   ```
+## Research Workflow
 
-3. **Salvage info from Google snippets.** If a URL is dead but the Google snippet had useful info:
-   - The snippet text you already extracted IS valid data
-   - Use it in the report with a note that the source is no longer available
-   - Search for the same content on alternative sites (archive.org, cached versions)
+### 1. Plan Diverse Queries
 
-4. **Use 4+ diverse search queries.** Don't rely on one search angle:
-   - Query 1: Core topic overview (e.g., "Rust AI ecosystem 2026")
-   - Query 2: Specific frameworks/tools (e.g., "Candle vs Burn Rust ML framework")
-   - Query 3: Use cases/benchmarks (e.g., "Rust LLM inference performance benchmark")
-   - Query 4: Recent news/developments (e.g., "Rust machine learning latest 2026")
-   - Query 5: Community/ecosystem (e.g., "Rust AI agent framework comparison")
+Create 5-8 query angles: overview, recent developments, technical details, comparisons, evidence/benchmarks, use cases, and criticism. Aim for at least 3-5 independent sources.
 
-### Step 5: Deep Read Sources
-
-**PREFERRED: Use `browser fetch` for one-shot page extraction (handles wait + extract + cleanup):**
+### 2. Query Actionbook Manuals First
 
 ```bash
-# Quick text extraction (most common)
-actionbook --block-images --rewrite-urls browser fetch "<url>" --format text --json
-
-# Static pages (Wikipedia, docs, blogs) — skip browser entirely
-actionbook --rewrite-urls browser fetch "<url>" --format text --lite --json
-
-# Page structure analysis
-actionbook --block-images --rewrite-urls browser fetch "<url>" --format snapshot --max-tokens 2000 --json
-
-# With token budget for LLM context management
-actionbook --block-images --rewrite-urls browser fetch "<url>" --format text --max-tokens 4000 --json
+"$ACTIONBOOK" search "<keywords>" -d "<domain>"
+"$ACTIONBOOK" manual "<site>" "<group>" "<action>"
 ```
 
-**For interactive workflows (forms, clicks), fall back to multi-step:**
+Use returned selectors when available. Otherwise navigate and snapshot the live page:
 
 ```bash
-actionbook browser open "<url>"
-actionbook browser wait-idle                    # MANDATORY: wait for network
-actionbook browser text                         # Full page text (fallback)
-actionbook browser text "<selector>"            # Use Actionbook selector if indexed
+"$ACTIONBOOK" browser goto "<url>" --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser wait network-idle --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser snapshot --interactive --session "$SESSION" --tab "$TAB"
 ```
 
-**If page content seems incomplete, debug:**
+### 3. Search Academic and General Sources
+
+URL-based arXiv search is the preferred academic path:
 
 ```bash
-# Check for JS errors that might block rendering
-actionbook browser console --level error
-
-# Check if a specific element exists
-actionbook browser wait-fn "document.querySelector('.content')" --timeout 5000
-
-# Inspect element properties
-actionbook browser info ".content"
+"$ACTIONBOOK" browser goto \
+  "https://arxiv.org/search/?query=large+language+model+agent&searchtype=all" \
+  --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser wait network-idle --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser text "#main-container" --session "$SESSION" --tab "$TAB"
 ```
 
-**For arXiv papers**, try sources in this order:
+If advanced form interaction is required, use current explicit commands rather than an unsupported generic batch command:
 
 ```bash
-# 1. arXiv abstract (most reliable) — use fetch
-actionbook --block-images browser fetch "https://arxiv.org/abs/<arxiv_id>" --format text --json
-
-# 2. HuggingFace papers page
-actionbook --block-images browser fetch "https://huggingface.co/papers/<arxiv_id>" --format text --json
-
-# 3. ar5iv HTML (structured, but fails on new papers) — use --lite for static HTML
-actionbook browser fetch "https://ar5iv.org/html/<arxiv_id>" --format text --lite --json
-# NOTE: if content too short, ar5iv didn't render. Fall back.
-
-# 4. GitHub repo (from search results) — use fetch
-actionbook --block-images browser fetch "<github_repo_url>" --format text --json
+"$ACTIONBOOK" browser goto "https://arxiv.org/search/advanced" \
+  --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser wait network-idle --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser select "#terms-0-field" title --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser fill "#terms-0-term" "large language model agent" \
+  --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser click "#classification-computer_science" \
+  --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser click "button[type=submit]" --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser wait navigation --session "$SESSION" --tab "$TAB"
 ```
 
-**For protected sites (Cloudflare, bot detection) — use interactive mode with stealth:**
+Supplement with multiple general-search angles:
 
 ```bash
-actionbook --stealth --block-images --auto-dismiss-dialogs --rewrite-urls browser open "<protected_url>"
-actionbook browser wait-idle
-actionbook browser text
+"$ACTIONBOOK" browser goto "https://www.google.com/search?q=<encoded_query>" \
+  --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser wait network-idle --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser text "#search" --session "$SESSION" --tab "$TAB"
+
+"$ACTIONBOOK" browser goto "https://www.bing.com/search?q=<encoded_query>" \
+  --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser wait network-idle --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser text "#b_results" --session "$SESSION" --tab "$TAB"
 ```
 
-**For mobile-only content:**
+Never reconstruct truncated snippet URLs. Snapshot the results and use the real href/ref:
 
 ```bash
-actionbook browser emulate iphone-14
-actionbook browser open "<url>"
-actionbook browser wait-idle
-actionbook browser text
+"$ACTIONBOOK" browser snapshot --interactive --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser click @e5 --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser wait navigation --session "$SESSION" --tab "$TAB"
 ```
 
-**For Google Scholar** (indexed by Actionbook):
+### 4. Deep-Read Sources
+
+Reuse the owned tab for sequential reading:
 
 ```bash
-actionbook browser open "https://scholar.google.com"
-actionbook browser wait-idle
-actionbook browser click "#gs_hdr_tsi"
-actionbook browser type "#gs_hdr_tsi" "<query>"
-actionbook browser click "#gs_hdr_tsb"
-actionbook browser wait-idle
-actionbook browser text "#gs_res"
+"$ACTIONBOOK" browser goto "<source-url>" --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser wait network-idle --timeout 15000 \
+  --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser wait condition \
+  "document.body.innerText.length > 100" --timeout 5000 \
+  --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser text --session "$SESSION" --tab "$TAB"
 ```
 
-**For unindexed sites**, use snapshot to discover structure:
+For indexed content, read a focused selector. For unindexed content, snapshot first:
 
 ```bash
-actionbook --block-images browser fetch "<url>" --format snapshot --max-tokens 800 --json
+"$ACTIONBOOK" browser text "article" --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser snapshot --interactive --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser describe "main" --nearby --session "$SESSION" --tab "$TAB"
 ```
 
-### Step 6: Synthesize Findings
-
-Organize collected information into a coherent report:
-1. Overview / Executive Summary
-2. Key Findings
-3. Detailed Analysis
-4. Supporting Data / Evidence
-5. Implications / Significance
-6. Sources
-
-### Step 7: Generate json-ui JSON Report
-
-Write a JSON file following the `@actionbookdev/json-ui` schema. Use the Write tool.
-
-**Output path:** `./output/<topic-slug>.json` (or user-specified `--output` path)
-
-### Step 8: Render HTML
-
-**CRITICAL: You MUST try ALL fallback methods before giving up. Do NOT stop at the first failure.**
-
-**IMPORTANT: Always use ABSOLUTE paths for JSON_FILE and HTML_FILE.**
-
-Try each method one by one until one succeeds:
+If content is incomplete, inspect current error logs and page state:
 
 ```bash
-# Method 1: Monorepo absolute path (most reliable if inside actionbook project)
-node "$(git rev-parse --show-toplevel)/packages/json-ui/dist/cli.js" render /absolute/path/to/report.json -o /absolute/path/to/report.html
-
-# Method 2: Global install (if user ran: cd packages/json-ui && npm link)
-json-ui render /absolute/path/to/report.json -o /absolute/path/to/report.html
-
-# Method 3: npx (if published to npm)
-npx @actionbookdev/json-ui render /absolute/path/to/report.json -o /absolute/path/to/report.html
+"$ACTIONBOOK" browser logs errors --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser wait condition \
+  "document.querySelector('.content') !== null" --timeout 5000 \
+  --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser describe ".content" --session "$SESSION" --tab "$TAB"
 ```
 
-**NEVER give up silently.** If all methods fail, tell the user:
-1. The JSON report is saved at `<path>`
-2. To enable HTML rendering, run: `cd <actionbook-repo>/packages/json-ui && npm link`
-
-### Step 9: Open in Browser
+For a dead page, detect once and move on instead of retrying:
 
 ```bash
-# macOS
-open <report.html>
-
-# Linux
-xdg-open <report.html>
+"$ACTIONBOOK" browser wait condition \
+  "!document.title.includes('404') && !document.title.includes('Not Found')" \
+  --timeout 3000 --session "$SESSION" --tab "$TAB"
 ```
 
-### Step 10: Close Browser
+For anti-bot failures, stop the owned Chrome (retaining profile state), disarm cleanup only after that stop succeeds, then reinstall cleanup before reacquiring the same dedicated identity with start-level stealth enabled. The release state lets a delayed signal recognize a successful explicit stop without stopping the session twice; a failed or uncertain stop remains fail-visible and transfers cleanup ownership to the terminal handler:
 
-**Always close the browser when done:**
+<!-- executable-active-research-restart-smoke:start -->
+```bash
+RELEASE_STATE=releasing
+if "$ACTIONBOOK" browser stop --session "$SESSION"; then
+  RELEASE_STATE=released
+else
+  RELEASE_STATE="release_failed:$?"
+fi
+[[ -z "$PENDING_SIGNAL" ]] || finish_pending_signal
+case "$RELEASE_STATE" in
+  released) trap - EXIT INT TERM ;;
+  release_failed:*) exit "${RELEASE_STATE#release_failed:}" ;;
+  *) exit 1 ;;
+esac
+
+install_cleanup_traps
+RELEASE_STATE=acquiring
+if "$ACTIONBOOK" browser start --stealth true --headless "$HEADLESS" \
+  --session "$SESSION" --profile "$PROFILE" --open-url "<protected-url>"; then
+  RELEASE_STATE=owned
+else
+  RELEASE_STATE="acquire_failed:$?"
+fi
+[[ -z "$PENDING_SIGNAL" ]] || finish_pending_signal
+case "$RELEASE_STATE" in
+  owned) ;;
+  acquire_failed:*) exit "${RELEASE_STATE#acquire_failed:}" ;;
+  *) exit 1 ;;
+esac
+"$ACTIONBOOK" browser wait network-idle --session "$SESSION" --tab "$TAB"
+```
+<!-- executable-active-research-restart-smoke:end -->
+
+### 5. Academic Paper Source Order
+
+1. `arxiv.org/abs/<id>` for metadata and abstract.
+2. Hugging Face paper/model pages for community context.
+3. The linked repository for implementation evidence.
+4. ar5iv HTML for full text when it renders completely.
 
 ```bash
-actionbook browser close
+"$ACTIONBOOK" browser goto "https://ar5iv.org/html/<arxiv_id>" \
+  --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser wait network-idle --timeout 15000 \
+  --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser wait condition \
+  "document.body.innerText.length > 5000" --timeout 10000 \
+  --session "$SESSION" --tab "$TAB"
 ```
 
-## Error Recovery Patterns
+If the condition times out, move to the next source rather than treating partial HTML as complete.
 
-**Intelligent error recovery using advanced browser capabilities:**
+### 6. Synthesize
 
-### Pattern: Page Load Failure
+Organize evidence into:
+
+1. Executive summary
+2. Key findings
+3. Detailed analysis
+4. Supporting evidence and limitations
+5. Implications
+6. Source links
+
+Cross-check consequential claims across independent sources and distinguish source facts from inference.
+
+### 7. Generate and Render the Report
+
+Write `./output/<topic-slug>.json` (or the user-specified path) using the json-ui schema below. Use absolute paths for rendering. Try each renderer until one succeeds:
 
 ```bash
-# 1. Open page
-actionbook browser open "<url>"
-actionbook browser wait-idle --timeout 15000
-
-# 2. Check for JS errors
-actionbook browser console --level error
-# If errors found → page is broken, skip to next source
-
-# 3. Check if content rendered
-actionbook browser wait-fn "document.body.innerText.length > 100" --timeout 5000
-# If timeout → content didn't render, try fallback
+node "$(git rev-parse --show-toplevel)/packages/json-ui/dist/cli.js" \
+  render /absolute/path/report.json -o /absolute/path/report.html
+json-ui render /absolute/path/report.json -o /absolute/path/report.html
+npx @actionbookdev/json-ui render /absolute/path/report.json \
+  -o /absolute/path/report.html
 ```
 
-### Pattern: Selector Not Found
+If every renderer fails, report the saved JSON path and the local `npm link` setup command. Opening the rendered local HTML with `open`/`xdg-open` is not a browser-session acquisition and does not replace the installed Actionbook cleanup.
 
-```bash
-# 1. Use snapshot to discover actual page structure
-actionbook browser snapshot --filter interactive --max-tokens 800
+## Failure Handling
 
-# 2. Or inspect a specific area
-actionbook browser info "<parent_selector>"
-# Returns: suggested selectors, visibility, tag info
+| Failure | Response |
+|---|---|
+| Navigation timeout | Inspect URL, increase `--timeout` once, then move on |
+| Missing selector | Refresh `snapshot --interactive`; do not guess stale refs |
+| Dynamic content missing | `wait network-idle`, then `wait condition` |
+| Page errors | Inspect `logs errors` |
+| CAPTCHA/access denied | Restart the owned profile with `browser start --stealth true` |
+| 404/dead URL | Skip immediately and seek an independent source |
+| Render failure | Preserve JSON and try all three renderer paths |
 
-# 3. Adjust selector and retry
-```
-
-### Pattern: Anti-Bot Detection
-
-```bash
-# 1. If initial load returns CAPTCHA or access denied:
-actionbook browser close
-
-# 2. Reopen with stealth
-actionbook --stealth --no-animations --auto-dismiss-dialogs browser open "<url>"
-actionbook browser wait-idle
-
-# 3. If still blocked, rotate fingerprint
-actionbook browser fingerprint rotate --os windows
-actionbook browser open "<url>"
-actionbook browser wait-idle
-```
-
-### Pattern: SPA Content Not Loading
-
-```bash
-# 1. Wait for network
-actionbook browser wait-idle --idle-time 1000 --timeout 15000
-
-# 2. Wait for specific element
-actionbook browser wait-fn "document.querySelector('.results')" --timeout 10000
-
-# 3. If still empty, check console
-actionbook browser console --level error
-
-# 4. Try clicking a loading trigger
-actionbook browser snapshot --filter interactive --max-tokens 300
-# Look for "Load More", "Show Results", etc.
-```
-
-## Full Error Handling Reference
-
-| Error | Recovery Strategy |
-|-------|-------------------|
-| Browser fails to open | `actionbook browser status`, retry + check `console --level error` |
-| Page load timeout | `wait-idle --timeout 15000`, then `console --level error` to diagnose |
-| **URL returns 404** | `wait-fn "!document.title.includes('404')"` to detect fast. **Skip immediately, do NOT retry.** Use Google snippet text as backup data. |
-| **arXiv form submission fails** | Fall back to URL-based search: `arxiv.org/search/?query=...&searchtype=all` |
-| ar5iv content truncated | Fall back to arxiv abstract + `wait-fn "document.body.innerText.length > 5000"` to verify |
-| Selector not found | `snapshot --filter interactive` to discover actual structure |
-| Dynamic content missing | `wait-idle` + `wait-fn` for specific conditions |
-| Alert popup blocking | `--auto-dismiss-dialogs` prevents this entirely |
-| Anti-bot detection | `--stealth` + `fingerprint rotate` |
-| Slow media-heavy page | `--block-images` or `--block-media` for 2-5x speedup |
-| CSS animation interference | `--no-animations` freezes all transitions |
-| json-ui render crash | Check MetricsGrid — `suffix`/`value` must be plain strings |
-| `npx json-ui` 404 | Try all 3 methods (monorepo, global, npx) |
-| No search results | Start broad (50+ results), then narrow. Use 4+ query angles. |
-
-**IMPORTANT:** Always run `actionbook browser close` before finishing, even on errors.
-
-## Feature Usage Checklist
-
-**Before finalizing research, verify you used these capabilities:**
-
-| Feature | When to Use | Check |
-|---------|-------------|-------|
-| `browser fetch` | Read-only page extraction (preferred over open+wait+text) | Use for most page reads |
-| `--lite` | Static pages (Wikipedia, docs, blogs) — skip browser entirely | Add to `fetch` for static sites |
-| `--rewrite-urls` | Always (avoids anti-bot on x.com, reddit) | Set in initial browser launch |
-| `--wait-hint` | Domain-aware wait tuning (fast/slow/heavy) | Use with `fetch` or manual flow |
-| `--session-tag` | Multi-step operations needing log correlation | Set for debugging sessions |
-| `wait-idle` | After EVERY `open`/`goto`/`click` that triggers navigation | Must be used on every page |
-| `--block-images` | Always (research doesn't need images) | Set in initial browser launch |
-| `--auto-dismiss-dialogs` | Always (prevents blocking) | Set in initial browser launch |
-| `--no-animations` | Always (stable snapshots) | Set in initial browser launch |
-| `wait-fn` | When content loads asynchronously after network settles | Use on SPAs, dynamic pages |
-| `console --level error` | When page content seems incomplete or broken | Use for debugging |
-| `batch` | When filling multi-step forms (arXiv, Google Scholar) | Replaces 5+ sequential commands |
-| `snapshot --filter interactive` | When discovering unknown page structure | Use on unindexed sites |
-| `info <selector>` | When a click/type doesn't work as expected | Debug element visibility |
-| `--stealth` | When site returns CAPTCHA or access denied | Add on retry |
-
-**Common mistakes to avoid:**
-- Using manual `open → wait-idle → text → close` when `browser fetch` does it in one command
-- Not using `--lite` for static pages (Wikipedia, docs, blogs) — wastes 5-10s on browser startup
-- Not using `--rewrite-urls` — x.com and reddit.com have aggressive anti-bot that blocks scraping
-- Forgetting `wait-idle` after navigation in interactive mode (content appears empty)
-- Not using `batch` for form interactions (slow, unreliable)
-- Retrying a dead URL instead of skipping it
-- Constructing URLs manually from search snippets instead of clicking links
-- Using only one search query angle (always use 4+ diverse queries)
-- Not checking for 404 pages before extracting content
+The installed trap is the terminal cleanup. Do not append a happy-path-only stop at the end, and never stop/close a shared session.
 
 ## json-ui Report Template
 
@@ -757,13 +496,17 @@ All text fields should use **plain English strings**.
 | Figures | `figure.ltx_figure` | Medium | — |
 | Tables | `table.ltx_tabular` | Medium | — |
 
-**Recommended approach:** Use `wait-idle` + `wait-fn` to verify ar5iv content loaded:
+**Recommended approach:** Continue the canonical owned session and verify ar5iv content explicitly:
 
 ```bash
-actionbook browser open "https://ar5iv.org/html/<arxiv_id>"
-actionbook browser wait-idle --timeout 15000
-actionbook browser wait-fn "document.body.innerText.length > 5000" --timeout 10000
-# If wait-fn times out → content didn't render, fall back to other sources
+"$ACTIONBOOK" browser goto "https://ar5iv.org/html/<arxiv_id>" \
+  --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser wait network-idle --timeout 15000 \
+  --session "$SESSION" --tab "$TAB"
+"$ACTIONBOOK" browser wait condition \
+  "document.body.innerText.length > 5000" --timeout 10000 \
+  --session "$SESSION" --tab "$TAB"
+# If the condition times out, fall back to other sources.
 ```
 
 ### Recommended Source Priority

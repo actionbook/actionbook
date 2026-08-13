@@ -563,63 +563,40 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         tracing::warn!("failed to set profile display name: {e}");
     }
 
-    for lock in &["SingletonLock", "SingletonSocket", "SingletonCookie"] {
-        let p = user_data_dir.join(lock);
-        if p.exists() {
-            std::fs::remove_file(&p).ok();
+    // Discard the retired integer PID marker, then recover only an orphan
+    // whose authoritative profile ownership record, PID start identity, and
+    // profile path all agree. Metadata and locks remain until the verified
+    // process tree is gone.
+    let orphan_profile = profile_name.to_string();
+    let orphan_profile_dir = user_data_dir.clone();
+    let orphan_recovery = tokio::task::spawn_blocking(move || {
+        crate::daemon::chrome_reaper::recover_orphan_for_profile(
+            &orphan_profile,
+            &orphan_profile_dir,
+        )
+    })
+    .await;
+    match orphan_recovery {
+        Ok(Ok(_)) => {}
+        Ok(Err(error)) => {
+            return fail_reserved_start_with_hint(
+                registry,
+                &session_id,
+                error.code(),
+                error.to_string(),
+                error.hint(),
+            )
+            .await;
         }
-    }
-
-    // Kill any orphan Chrome from a previous daemon crash/SIGKILL.
-    // When the daemon is SIGKILL'd, it cannot run its graceful shutdown path,
-    // so Chrome is left alive using the same user-data-dir. A new Chrome
-    // launched against the same dir would race with the orphan and likely crash,
-    // causing discover_ws_url to time out with CDP_CONNECTION_FAILED.
-    //
-    // Windows: remember the orphan PID so we can give an actionable error
-    // message if Chrome still fails to start (kill may fail in some environments).
-    #[cfg(windows)]
-    let mut orphan_pid_hint: Option<u32> = None;
-
-    let chrome_pid_file = user_data_dir.join("chrome.pid");
-    if let Ok(pid_str) = std::fs::read_to_string(&chrome_pid_file) {
-        if let Ok(_pid) = pid_str.trim().parse::<i32>() {
-            #[cfg(unix)]
-            {
-                unsafe extern "C" {
-                    safe fn kill(pid: i32, sig: i32) -> i32;
-                }
-                // kill(pid, 0) checks liveness without sending a signal (POSIX).
-                if kill(_pid, 0) == 0 {
-                    kill(_pid, 9); // SIGKILL orphan
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                }
-            }
-            #[cfg(windows)]
-            {
-                // Reopen the named Job Object left by the crashed daemon and
-                // terminate it — kills the orphan Chrome main process and all
-                // helpers (renderer, GPU, utility) atomically.
-                if let Some(job) = crate::daemon::chrome_reaper::ChromeJobObject::open(profile_name)
-                {
-                    tracing::debug!(
-                        profile_name,
-                        "orphan recovery: terminating Job Object for profile"
-                    );
-                    job.terminate();
-                    // Brief wait for processes to fully exit before we try to
-                    // acquire the user-data-dir lock for the new Chrome instance.
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                }
-                // Fallback: directly kill the known orphan PID in case the Job
-                // Object was already released (e.g. Chrome exited on its own).
-                crate::daemon::chrome_reaper::terminate_pid_and_wait(_pid as u32);
-                // Remember the PID in case the kill failed and Chrome still holds
-                // the user-data-dir lock; used for a clearer error message below.
-                orphan_pid_hint = Some(_pid as u32);
-            }
+        Err(error) => {
+            return fail_reserved_start(
+                registry,
+                &session_id,
+                "INTERNAL_ERROR",
+                format!("orphan recovery task failed: {error}"),
+            )
+            .await;
         }
-        let _ = std::fs::remove_file(&chrome_pid_file);
     }
 
     // Windows: Job Object is created inside the local-Chrome branch below and
@@ -695,24 +672,6 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         let ws_url = match browser::discover_ws_url(port).await {
             Ok(ws) => ws,
             Err(e) => {
-                // On Windows, if we detected an orphan PID but couldn't kill it
-                // (e.g. Job Object nesting restrictions in CI), give an actionable
-                // error instead of a generic CDP_CONNECTION_FAILED timeout.
-                #[cfg(windows)]
-                if let Some(orphan_pid) = orphan_pid_hint {
-                    return fail_reserved_start_with_chrome(
-                        registry,
-                        &session_id,
-                        Some(chrome),
-                        "CHROME_ORPHAN_STILL_RUNNING",
-                        format!(
-                            "Chrome from a previous session (PID {orphan_pid}) is still \
-                             running and holding the profile lock. Kill it manually: \
-                             taskkill /F /IM chrome.exe"
-                        ),
-                    )
-                    .await;
-                }
                 return fail_reserved_start_with_chrome(
                     registry,
                     &session_id,
@@ -725,9 +684,6 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         };
 
         let targets = browser::list_targets(port).await.unwrap_or_default();
-        // Write Chrome PID so a future daemon restart can detect and kill this
-        // process if the daemon is SIGKILL'd before it can run graceful shutdown.
-        let _ = std::fs::write(&chrome_pid_file, chrome.id().to_string());
 
         // Windows: create a named Job Object and assign Chrome's main process
         // to it.  All Chrome child processes (renderer, GPU, utility) inherit
@@ -742,6 +698,26 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
                 j.assign(chrome.as_raw_handle() as _);
             }
             chrome_job = job;
+        }
+
+        // Persist one authoritative profile-scoped ownership record. A
+        // post-crash stop resolves the session by scanning these records, then
+        // re-checks PID start identity, command line/profile path (Unix), or
+        // named Job membership (Windows).
+        if let Err(error) = crate::daemon::chrome_reaper::record_chrome_ownership(
+            session_id.as_str(),
+            profile_name,
+            &user_data_dir,
+            &chrome,
+        ) {
+            return fail_reserved_start_with_chrome(
+                registry,
+                &session_id,
+                Some(chrome),
+                error.code(),
+                error.to_string(),
+            )
+            .await;
         }
 
         (Some(chrome), Some(port), ws_url, targets)

@@ -137,17 +137,18 @@ pub fn sessions_dir() -> PathBuf {
 
 /// Data directory for a specific session: `~/.actionbook/sessions/{session_id}/`
 ///
-/// Used to store session artifacts (snapshots, etc.).
-/// Created on `browser start`, removed on `browser close`.
+/// Used to store session artifacts. Durable local Chrome ownership belongs to
+/// the profile directory. Created on `browser start`, removed on verified
+/// `browser stop` / `browser close`.
 pub fn session_data_dir(session_id: &str) -> PathBuf {
     sessions_dir().join(session_id)
 }
 
 /// Housekeeping sweep for `~/.actionbook/sessions/`:
 ///
-/// - Remove subdirectories that are empty. `browser session start` eagerly
-///   creates per-session data dirs; sessions closed via `browser session
-///   close` remove them, but short-lived flows (e.g. single-shot `new-tab
+/// - Remove subdirectories that are empty. `browser start` eagerly creates
+///   per-session data dirs; verified `browser stop` / `browser close` remove
+///   them, but short-lived flows (e.g. single-shot `new-tab
 ///   → text → close-tab` without an explicit `session close`) leave empty
 ///   orphan dirs behind.
 /// - Remove stale `__fetch_{pid}__.json` files from a removed `actionbook-rs`

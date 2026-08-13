@@ -3,7 +3,7 @@
 Complete reference for all `actionbook` CLI commands.
 
 Every browser command requires `--session <SID>`. Most also require `--tab <TID>`.
-Session-level commands (start, close, restart, status, list-sessions) need only `--session` or nothing.
+Session-level commands (start, stop, close, restart, status, list-sessions) need only `--session` or nothing.
 Session IDs accept lowercase letters, digits, hyphens, and underscores (e.g., `s1`, `my-session`, `task_01`).
 
 Selectors accept CSS, XPath, or snapshot refs (`@eN` from `snapshot` output).
@@ -49,17 +49,14 @@ actionbook browser start --max-tracked-requests 1000       # Custom network buff
 
 actionbook browser list-sessions                           # List all active sessions (includes max_tracked_requests)
 actionbook browser status --session s1                     # Show session status
-actionbook browser close --session s1                      # Close a session (idempotent)
+actionbook browser close --session s1                      # Close and delete a non-default local profile
+actionbook browser stop --session s1                       # Stop local Chrome but retain its named profile
 actionbook browser restart --session s1                    # Restart a session
 ```
 
-`browser close` is **idempotent**: closing an unknown or already-closed session returns `ok: true` with `meta.warnings` instead of a fatal error. Envelope shape for an already-gone session:
+`browser stop` always preserves an Actionbook-owned local named profile; `browser close` remains the explicit destructive command. Choose teardown by the [main skill's ownership rules](../SKILL.md#ownership-and-mandatory-terminal-cleanup): persistent/auth profile → stop, disposable profile → close only when deletion is intended, shared session → close only task-owned tabs. Both session teardown commands are idempotent when the session and its durable ownership record are gone. In that already-gone case, stop returns null profile fields rather than claiming preservation. Unverifiable crash ownership fails visibly and never authorizes a PID kill.
 
-- `ok: true`
-- `data: { status: "closed", closed_tabs: 0 }`
-- `meta.warnings: ["session not found in daemon — already closed or daemon restarted"]`
-
-If another close is already in flight for the same session, the command returns `SESSION_CLOSING` (fatal, unchanged). Safe to call unconditionally during cleanup without checking session existence first. Read `meta.warnings` to distinguish a fresh close from an already-gone session.
+If another teardown is already in flight for the same session, the command returns `SESSION_CLOSING` (fatal, unchanged). Read `meta.warnings` and the structured profile fields to distinguish a fresh teardown from an already-gone session.
 
 Both `--session` and `--set-session-id` are get-or-create: they reuse a Running session with the given ID, or create one if not found. `--set-session-id` is a functional alias for `--session`. When reusing, if `--profile` is passed and does not match the session's bound profile, the command fails with `SESSION_PROFILE_MISMATCH` (retryable: false). Omitting `--profile` or passing a matching value allows reuse.
 
@@ -431,10 +428,22 @@ actionbook setup -t codex                           # Short flag
 
 ## Practical Examples
 
+Run one practical example per shell after this owned-profile preamble. Cleanup is installed before acquisition, preserves normal/failure status, and re-raises SIGINT or SIGTERM after cleaning:
+
+```bash
+set -Eeuo pipefail
+SESSION=s1
+PROFILE=s1-example
+cleanup() { actionbook browser stop --session "$SESSION" >/dev/null 2>&1 || true; }
+trap 'status=$?; trap - EXIT INT TERM; cleanup; exit "$status"' EXIT
+trap 'trap - EXIT INT TERM; cleanup; kill -INT "$$"' INT
+trap 'trap - EXIT INT TERM; cleanup; kill -TERM "$$"' TERM
+actionbook browser start --session "$SESSION" --profile "$PROFILE"
+```
+
 ### Form Submission
 
 ```bash
-actionbook browser start --set-session-id s1
 actionbook browser goto "https://example.com/form" --session s1 --tab t1
 actionbook browser snapshot --session s1 --tab t1
 # Read snapshot refs, then use them:
@@ -448,7 +457,6 @@ actionbook browser text "h1" --session s1 --tab t1
 ### Multi-page Navigation
 
 ```bash
-actionbook browser start --set-session-id s1
 actionbook browser goto "https://example.com" --session s1 --tab t1
 actionbook browser snapshot --session s1 --tab t1
 actionbook browser click "@e4" --session s1 --tab t1
@@ -463,12 +471,10 @@ actionbook browser screenshot product.png --session s1 --tab t1
 ### Data Extraction
 
 ```bash
-actionbook browser start --set-session-id s1
 actionbook browser goto "https://example.com/data" --session s1 --tab t1
 actionbook browser wait network-idle --session s1 --tab t1
 actionbook browser text ".results-table" --session s1 --tab t1
 actionbook browser eval "JSON.stringify([...document.querySelectorAll('.item')].map(e => e.textContent))" --session s1 --tab t1
-actionbook browser close --session s1
 ```
 
 ### Polling for Changes
