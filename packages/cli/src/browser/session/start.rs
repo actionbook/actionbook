@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::process::Child;
 
 use clap::Args;
@@ -107,6 +108,13 @@ pub struct Cmd {
     #[arg(long, default_value_t = 500)]
     #[serde(default = "default_max_tracked_requests")]
     pub max_tracked_requests: usize,
+    /// Opt-in HAR flush path. When set and a single `har_start` recorder is
+    /// active at daemon SIGTERM, the in-memory recorder is serialized to this
+    /// path as part of graceful shutdown. Without this flag, SIGTERM never
+    /// implicitly writes HAR output.
+    #[arg(long, value_name = "PATH")]
+    #[serde(default)]
+    pub har_out: Option<PathBuf>,
     /// Snapshot of provider env vars forwarded from the CLI client to the
     /// daemon (DRIVER_*, HYPERBROWSER_*, BROWSER_USE_*).
     /// The daemon must NOT read these from its own process env — its env was
@@ -881,6 +889,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     }
     entry.cdp = Some(cdp);
     entry.stealth_ua = user_agent;
+    entry.har_out = cmd.har_out.clone();
 
     // Create per-session data directory for artifacts (snapshots, etc.)
     let session_data_dir = config::session_data_dir(session_id.as_str());
@@ -1343,6 +1352,7 @@ async fn execute_cloud(
     entry.headers = headers.to_vec();
     entry.provider = provider_name.map(|provider| provider.to_string());
     entry.provider_session = provider_session;
+    entry.har_out = cmd.har_out.clone();
 
     // Create per-session data directory for artifacts (snapshots, etc.)
     let session_data_dir = config::session_data_dir(session_id.as_str());
@@ -1628,6 +1638,7 @@ async fn execute_extension(
     }
     entry.chrome_process = None;
     entry.cdp = Some(cdp);
+    entry.har_out = cmd.har_out.clone();
 
     let session_data_dir = config::session_data_dir(session_id.as_str());
     std::fs::create_dir_all(&session_data_dir).ok();
@@ -2039,6 +2050,7 @@ mod provider_start_tests {
             set_session_id: set_session_id.map(str::to_string),
             stealth: true,
             max_tracked_requests: 500,
+            har_out: None,
             provider_env: ProviderEnv::new(),
         }
     }
@@ -2137,6 +2149,7 @@ mod provider_start_tests {
                 set_session_id: Some("hyp3".to_string()),
                 stealth: true,
                 max_tracked_requests: 500,
+                har_out: None,
                 provider_env: ProviderEnv::new(),
             },
             &registry,
@@ -2204,6 +2217,7 @@ mod provider_start_tests {
                 set_session_id: Some("hyp3".to_string()),
                 stealth: true,
                 max_tracked_requests: 500,
+                har_out: None,
                 provider_env: ProviderEnv::from([
                     ("HYPERBROWSER_API_KEY".to_string(), "hb-key".to_string()),
                     (
@@ -2257,6 +2271,7 @@ mod provider_start_tests {
                 set_session_id: Some("bs1".to_string()),
                 stealth: true,
                 max_tracked_requests: 500,
+                har_out: None,
                 provider_env: ProviderEnv::new(),
             },
             &registry,

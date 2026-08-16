@@ -217,6 +217,7 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         set_session_id: Some(cmd.session.clone()),
         stealth,
         max_tracked_requests,
+        har_out: None,
         provider_env: effective_provider_env,
     };
 

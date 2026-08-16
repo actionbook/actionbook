@@ -1550,6 +1550,18 @@ impl CdpSession {
         self.tab_har_recorders.lock().await.remove(cdp_session_id);
     }
 
+    /// Snapshot the set of CDP session IDs that currently have an active HAR
+    /// recorder. Used by the daemon SIGTERM path to decide whether to flush
+    /// the single-recorder case or skip (0 or >1 active recorders).
+    pub async fn har_recorder_ids(&self) -> Vec<String> {
+        self.tab_har_recorders
+            .lock()
+            .await
+            .keys()
+            .cloned()
+            .collect()
+    }
+
     /// Background task: read WS messages and route responses/events to callers.
     #[allow(clippy::too_many_arguments)]
     async fn reader_loop<S>(
