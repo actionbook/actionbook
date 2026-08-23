@@ -1782,13 +1782,14 @@ elapsed_ms: 182
 
 > command: `browser wait element`
 
-Wait for an element to appear in the DOM.
+Wait for a CSS selector to appear in the main-frame DOM. XPath and snapshot
+references (`@eN`) are not supported by this command.
 
 **Parameters:**
 
 | Parameter | Type | Required | Description |
 |------|------|------|------|
-| `<selector>` | string | Yes | Element selector to wait for |
+| `<selector>` | string | Yes | CSS selector to wait for |
 | `--session <SID>` | string | Yes | Session ID |
 | `--tab <TID>` | string | Yes | Tab ID |
 | `--timeout <ms>` | u64 | Yes | Timeout in milliseconds |

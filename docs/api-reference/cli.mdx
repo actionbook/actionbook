@@ -335,6 +335,11 @@ actionbook browser wait condition "document.readyState === 'complete'" --session
 Default timeout: 30000ms. Override with `--timeout <ms>`.
 
 <Note>
+  `wait element` accepts a CSS selector and polls the main-frame DOM. It does not
+  resolve XPath expressions or snapshot references (`@eN`).
+</Note>
+
+<Note>
   `wait network-idle` is edge-triggered: it only tracks fetch/XHR requests started after the command begins. Pre-existing background connections (SSE, WebSocket, in-flight fetches) are ignored and do not block. This is an agent-friendly settle signal, not a guarantee of global network silence.
 </Note>
 
