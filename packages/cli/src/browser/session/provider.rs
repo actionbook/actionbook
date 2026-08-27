@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::error::CliError;
 
 const HYPERBROWSER_API_BASE: &str = "https://api.hyperbrowser.ai";
-const BROWSER_USE_API_BASE: &str = "https://api.browser-use.com/api/v3";
+const BROWSER_USE_API_BASE: &str = "https://api.browser-use.com/api/v4";
 // driver.dev is a stateful provider: POST /v1/browser/session mints a session
 // and returns a per-session distributed cdpUrl (e.g. wss://do-ric1-1.lex-milan.driver.dev/...).
 // We never connect directly to driver.dev/cdp; the URL is always the one the
@@ -780,6 +780,11 @@ mod tests {
         );
         // Override path is "stateless"-like — no provider session to clean up.
         assert!(connection.session.is_none());
+    }
+
+    #[test]
+    fn browser_use_defaults_to_v4_api() {
+        assert_eq!(BROWSER_USE_API_BASE, "https://api.browser-use.com/api/v4");
     }
 
     #[test]
