@@ -2,6 +2,11 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
   "name": "Actionbook",
+  "seo": {
+    "metatags": {
+      "canonical": "https://actionbook.app/docs"
+    }
+  },
   "colors": {
     "primary": "#475569",
     "light": "#cbd5e1",
