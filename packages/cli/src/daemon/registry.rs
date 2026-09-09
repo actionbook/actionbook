@@ -26,10 +26,9 @@ pub struct TabEntry {
 pub enum SessionState {
     Starting,
     Running,
-    /// A `browser close` is in flight for this entry. Set atomically under the
-    /// registry lock at the start of `close::execute` so concurrent close calls
-    /// on the same session short-circuit instead of issuing a second provider
-    /// API stop (which races against the first stop's success).
+    /// A session teardown is in flight for this entry. Set atomically under the
+    /// registry lock at the start of close/stop so concurrent teardown calls on
+    /// the same session short-circuit instead of racing resource cleanup.
     Closing,
     Closed,
 }

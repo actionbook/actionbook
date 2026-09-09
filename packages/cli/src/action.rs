@@ -12,6 +12,7 @@ pub enum Action {
     ListSessions(session::list::Cmd),
     SessionStatus(session::status::Cmd),
     Close(session::close::Cmd),
+    Stop(session::stop::Cmd),
     Restart(session::restart::Cmd),
 
     // ── Tab management ─────────────────────────────────────────
@@ -117,6 +118,7 @@ impl Action {
             Action::StartSession(_) | Action::ListSessions(_) => "-".into(),
             Action::SessionStatus(c) => s_only!(c),
             Action::Close(c) => s_only!(c),
+            Action::Stop(c) => s_only!(c),
             Action::Restart(c) => s_only!(c),
 
             // Tab management
@@ -203,6 +205,7 @@ impl Action {
             Action::ListSessions(_) => session::list::COMMAND_NAME,
             Action::SessionStatus(_) => session::status::COMMAND_NAME,
             Action::Close(_) => session::close::COMMAND_NAME,
+            Action::Stop(_) => session::stop::COMMAND_NAME,
             Action::Restart(_) => session::restart::COMMAND_NAME,
             Action::NewTab(_) => tab::open::COMMAND_NAME,
             Action::BatchOpen(_) => tab::batch_open::COMMAND_NAME,

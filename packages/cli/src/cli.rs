@@ -146,9 +146,10 @@ pub enum BrowserCommands {
     ListSessions(session::list::Cmd),
     /// Show session status
     Status(session::status::Cmd),
-    /// Close a session
-    #[command(alias = "stop")]
+    /// Close a session and delete its non-default local profile
     Close(session::close::Cmd),
+    /// Stop an owned local browser and preserve its named profile
+    Stop(session::stop::Cmd),
     /// Restart a session
     Restart(session::restart::Cmd),
 
@@ -438,6 +439,7 @@ impl BrowserCommands {
             Self::ListSessions(cmd) => Action::ListSessions(cmd.clone()),
             Self::Status(cmd) => Action::SessionStatus(cmd.clone()),
             Self::Close(cmd) => Action::Close(cmd.clone()),
+            Self::Stop(cmd) => Action::Stop(cmd.clone()),
             Self::Restart(cmd) => Action::Restart(cmd.clone()),
             Self::ListTabs(cmd) => Action::ListTabs(cmd.clone()),
             Self::NewTab(cmd) => Action::NewTab(cmd.clone()),
@@ -544,6 +546,7 @@ impl BrowserCommands {
             Self::ListSessions(_) => session::list::COMMAND_NAME,
             Self::Status(_) => session::status::COMMAND_NAME,
             Self::Close(_) => session::close::COMMAND_NAME,
+            Self::Stop(_) => session::stop::COMMAND_NAME,
             Self::Restart(_) => session::restart::COMMAND_NAME,
             Self::ListTabs(_) => tab::list::COMMAND_NAME,
             Self::NewTab(_) => tab::open::COMMAND_NAME,
@@ -627,6 +630,7 @@ impl BrowserCommands {
             Self::ListSessions(cmd) => session::list::context(cmd, result),
             Self::Status(cmd) => session::status::context(cmd, result),
             Self::Close(cmd) => session::close::context(cmd, result),
+            Self::Stop(cmd) => session::stop::context(cmd, result),
             Self::Restart(cmd) => session::restart::context(cmd, result),
             Self::ListTabs(cmd) => tab::list::context(cmd, result),
             Self::NewTab(cmd) => tab::open::context(cmd, result),
@@ -830,6 +834,24 @@ fn storage_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn browser_stop_selects_native_stop_action() {
+        let cli = Cli::try_parse_from([
+            "actionbook",
+            "browser",
+            "stop",
+            "--session",
+            "named-session",
+        ])
+        .expect("parse profile-preserving stop");
+
+        let Some(Commands::Browser { command }) = cli.command else {
+            panic!("expected browser command");
+        };
+        assert_eq!(command.command_name(), session::stop::COMMAND_NAME);
+        assert!(matches!(command.to_action(), Some(Action::Stop(_))));
+    }
 
     #[test]
     fn try_parse_from_parses_setup_target_only_flags() {

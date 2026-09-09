@@ -190,6 +190,7 @@ pub fn format_text(
                 command,
                 "browser start"
                     | "browser close"
+                    | "browser stop"
                     | "browser restart"
                     | "browser goto"
                     | "browser back"
@@ -413,6 +414,22 @@ fn format_data_fields(command: &str, data: &Value, lines: &mut Vec<String>) {
         "browser close" => {
             if let Some(tabs) = data.get("closed_tabs").and_then(|v| v.as_u64()) {
                 lines.push(format!("closed_tabs: {tabs}"));
+            }
+            if let Some(warnings) = data.get("__warnings").and_then(|v| v.as_array()) {
+                for warning in warnings.iter().filter_map(|v| v.as_str()) {
+                    lines.push(format!("warning: {warning}"));
+                }
+            }
+        }
+        "browser stop" => {
+            if let Some(tabs) = data.get("closed_tabs").and_then(|v| v.as_u64()) {
+                lines.push(format!("closed_tabs: {tabs}"));
+            }
+            if let Some(profile) = data.get("profile").and_then(|v| v.as_str()) {
+                lines.push(format!("profile: {profile}"));
+            }
+            if let Some(preserved) = data.get("profile_preserved").and_then(|v| v.as_bool()) {
+                lines.push(format!("profile_preserved: {preserved}"));
             }
             if let Some(warnings) = data.get("__warnings").and_then(|v| v.as_array()) {
                 for warning in warnings.iter().filter_map(|v| v.as_str()) {
@@ -1279,6 +1296,27 @@ mod tests {
             text,
             "path: /Users/test/.actionbook/extension\ninstalled: false\nrequired_version: >= 0.4.0\n  (check version at chrome://extensions/)"
         );
+    }
+
+    #[test]
+    fn browser_stop_text_identifies_preserved_profile() {
+        let result = ActionResult::ok(json!({
+            "session_id": "sid",
+            "status": "stopped",
+            "closed_tabs": 2,
+            "profile": "authenticated-profile",
+            "profile_preserved": true,
+        }));
+
+        let text = format_text("browser stop", &None, &result);
+
+        assert!(text.contains("ok browser stop"), "text: {text}");
+        assert!(text.contains("closed_tabs: 2"), "text: {text}");
+        assert!(
+            text.contains("profile: authenticated-profile"),
+            "text: {text}"
+        );
+        assert!(text.contains("profile_preserved: true"), "text: {text}");
     }
 
     #[test]

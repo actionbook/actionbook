@@ -25,6 +25,12 @@ pub const COMMAND_NAME: &str = "browser close";
 const SESSION_NOT_FOUND_WARNING: &str =
     "session not found in daemon — already closed or daemon restarted";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TeardownMode {
+    Close,
+    PreserveProfile,
+}
+
 pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
     Some(ResponseContext {
         session_id: cmd.session.clone(),
@@ -35,37 +41,82 @@ pub fn context(cmd: &Cmd, _result: &ActionResult) -> Option<ResponseContext> {
     })
 }
 
-fn already_closed_result(session_id: &str) -> ActionResult {
-    ActionResult::ok(json!({
-        "session_id": session_id,
-        "status": "closed",
-        "closed_tabs": 0,
-        "__warnings": [SESSION_NOT_FOUND_WARNING],
-    }))
+fn completed_result(
+    session_id: &str,
+    closed_tabs: usize,
+    profile: Option<&str>,
+    teardown: TeardownMode,
+    already_gone: bool,
+) -> ActionResult {
+    let mut data = match teardown {
+        TeardownMode::Close => json!({
+            "session_id": session_id,
+            "status": "closed",
+            "closed_tabs": closed_tabs,
+        }),
+        TeardownMode::PreserveProfile => json!({
+            "session_id": session_id,
+            "status": "stopped",
+            "closed_tabs": closed_tabs,
+            "profile": profile,
+            "profile_preserved": profile.map(|_| true),
+        }),
+    };
+    if already_gone {
+        data["__warnings"] = json!([SESSION_NOT_FOUND_WARNING]);
+    }
+    ActionResult::ok(data)
 }
 
 pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
-    // ── Phase 1: reserve the close under the registry lock. ──
+    execute_teardown(&cmd.session, registry, TeardownMode::Close).await
+}
+
+pub(crate) async fn execute_teardown(
+    session_id: &str,
+    registry: &SharedRegistry,
+    teardown: TeardownMode,
+) -> ActionResult {
+    if teardown == TeardownMode::PreserveProfile {
+        let missing = registry.lock().await.get(session_id).is_none();
+        if missing {
+            return recover_missing_preserve_stop(session_id).await;
+        }
+    }
+
+    // ── Phase 1: reserve the teardown under the registry lock. ──
     //
     // Grab the provider handle (if any) AND flip the entry to `Closing`
-    // atomically. A second `browser close` call arriving while the first
-    // is still mid-flight (two agents racing, a retry timer firing on
-    // top of a slow provider PUT, etc.) must NOT issue its own provider
+    // atomically. A second close/stop call arriving while the first is still
+    // mid-flight (two agents racing, a retry timer firing on top of a slow
+    // provider PUT, etc.) must NOT issue its own provider
     // stop — once the first call succeeds the remote session is gone,
     // and the second stop would either 404 or kill a new session that
     // reused the same provider ID.
     let (provider_session, prior_status) = {
         let mut reg = registry.lock().await;
-        let entry = match reg.get_mut(&cmd.session) {
+        let entry = match reg.get_mut(session_id) {
             Some(e) => e,
             None => {
-                return already_closed_result(&cmd.session);
+                return completed_result(session_id, 0, None, teardown, true);
             }
         };
+        if teardown == TeardownMode::PreserveProfile
+            && (entry.mode != Mode::Local || entry.chrome_process.is_none())
+        {
+            return ActionResult::fatal_with_hint(
+                "UNSUPPORTED_MODE",
+                format!(
+                    "browser stop requires an Actionbook-owned local Chrome; session '{session_id}' uses {} mode without an owned local process",
+                    entry.mode
+                ),
+                "use `actionbook browser close --session <session>` to detach an external/cloud/extension session, and stop its browser through its owner",
+            );
+        }
         if entry.status == SessionState::Closing {
             return ActionResult::fatal_with_hint(
                 "SESSION_CLOSING",
-                format!("session '{}' is already closing", cmd.session),
+                format!("session '{session_id}' is already closing"),
                 "wait for the in-flight close to finish, then run `actionbook browser list-sessions`",
             );
         }
@@ -87,16 +138,13 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         // would stay stuck in Closing forever on a transient network blip.
         {
             let mut reg = registry.lock().await;
-            if let Some(entry) = reg.get_mut(&cmd.session) {
+            if let Some(entry) = reg.get_mut(session_id) {
                 entry.status = prior_status;
             }
         }
         return ActionResult::fatal_with_hint(
             err.error_code(),
-            format!(
-                "failed to close provider session for '{}': {err}",
-                cmd.session
-            ),
+            format!("failed to close provider session for '{session_id}': {err}"),
             err.hint(),
         );
     }
@@ -108,31 +156,26 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
     #[cfg(windows)]
     let chrome_job: Option<crate::daemon::chrome_reaper::ChromeJobObject>;
 
-    let (closed_tabs, cdp, chrome_process, profile_to_clean, mode, ext_native_tab_ids) = {
+    let (closed_tabs, cdp, chrome_process, local_profile, profile, mode, ext_native_tab_ids) = {
         let mut reg = registry.lock().await;
-        let mut entry = match reg.remove(&cmd.session) {
+        let mut entry = match reg.remove(session_id) {
             Some(e) => e,
             None => {
                 // Phase 1 set status=Closing, so this should be unreachable
                 // under normal operation — another path would have to forcibly
                 // evict the entry while we were in Phase 2. Treat it as success
                 // from the caller's perspective and surface the same warning
-                // as the Phase 1 miss branch for idempotent close semantics.
-                return already_closed_result(&cmd.session);
+                // as the Phase 1 miss branch for idempotent teardown semantics.
+                return completed_result(session_id, 0, None, teardown, true);
             }
         };
         let tabs = entry.tabs_count();
         let entry_mode = entry.mode;
-
-        // Only delete non-default profile directories for local sessions.
-        // The default profile ("actionbook") is long-lived and preserves
-        // user state (cookies, localStorage) across sessions.
-        let profile_cleanup =
-            if entry.chrome_process.is_some() && entry.profile != crate::config::DEFAULT_PROFILE {
-                Some(entry.profile.clone())
-            } else {
-                None
-            };
+        let profile = entry.profile.clone();
+        let local_profile = entry
+            .chrome_process
+            .is_some()
+            .then(|| entry.profile.clone());
 
         // Extension mode: collect the native (Chrome numeric) tab IDs we
         // attached so we can ask the extension to close them. native_id is
@@ -152,17 +195,31 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
             chrome_job = entry.job_object.take();
         }
 
-        reg.clear_session_ref_caches(&cmd.session);
+        reg.clear_session_ref_caches(session_id);
         (
             tabs,
             entry.cdp.take(),
             entry.chrome_process.take(),
-            profile_cleanup,
+            local_profile,
+            profile,
             entry_mode,
             ext_ids,
         )
     };
     // Registry lock released here — slow I/O below won't block other sessions.
+
+    // Ask an owned local Chrome to flush profile state and exit cleanly before
+    // the process reaper applies its bounded TERM/kill fallback.
+    if teardown == TeardownMode::PreserveProfile
+        && chrome_process.is_some()
+        && let Some(ref cdp) = cdp
+        && let Err(error) = cdp.execute_browser("Browser.close", json!({})).await
+    {
+        tracing::warn!(
+            session_id,
+            "failed to request graceful Chrome close: {error}"
+        );
+    }
 
     // Extension mode: detach the debugger AND close the chrome tabs the
     // session opened. Symmetric with local mode killing its chrome process —
@@ -203,21 +260,56 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         crate::daemon::chrome_reaper::kill_and_reap_async(child).await;
     }
 
-    // Remove non-default profile directory after Chrome has fully exited.
-    if let Some(profile) = profile_to_clean {
-        let profile_dir = crate::config::profiles_dir().join(&profile);
-        // Remove chrome.pid so a future browser start does not mistake the
-        // now-dead PID for an orphan.
-        let _ = std::fs::remove_file(profile_dir.join("chrome.pid"));
-        if profile_dir.exists() {
+    // Re-check that the owned process and every process using its profile are
+    // gone before removing authoritative ownership and lock metadata.
+    // Destructive close then removes non-default local profile bytes; stop and
+    // default-profile close retain them.
+    if let Some(local_profile) = local_profile {
+        let profile_dir = crate::config::profiles_dir().join(&local_profile);
+        let cleanup_profile = local_profile.clone();
+        let cleanup_dir = profile_dir.clone();
+        match tokio::task::spawn_blocking(move || {
+            crate::daemon::chrome_reaper::recover_orphan_for_profile(&cleanup_profile, &cleanup_dir)
+        })
+        .await
+        {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => {
+                return ActionResult::fatal_with_hint(
+                    error.code(),
+                    error.to_string(),
+                    error.hint(),
+                );
+            }
+            Err(error) => {
+                return ActionResult::fatal(
+                    "INTERNAL_ERROR",
+                    format!("Chrome ownership cleanup task failed: {error}"),
+                );
+            }
+        }
+
+        if teardown == TeardownMode::Close
+            && local_profile != crate::config::DEFAULT_PROFILE
+            && profile_dir.exists()
+        {
             let _ = std::fs::remove_dir_all(&profile_dir);
+        } else if teardown == TeardownMode::PreserveProfile && !profile_dir.is_dir() {
+            return ActionResult::fatal_with_hint(
+                "PROFILE_NOT_FOUND",
+                format!(
+                    "local Chrome stopped, but profile directory '{}' is missing",
+                    profile_dir.display()
+                ),
+                "the browser process is stopped but its profile state could not be preserved; restore the profile from backup before restarting",
+            );
         }
     }
 
     // Remove per-session data directory (snapshots, etc.).
     // Safety: only delete if the path is an absolute path under sessions_dir().
     let sessions_base = crate::config::sessions_dir();
-    let session_data_dir = sessions_base.join(&cmd.session);
+    let session_data_dir = sessions_base.join(session_id);
     if session_data_dir.is_absolute()
         && session_data_dir.starts_with(&sessions_base)
         && session_data_dir.exists()
@@ -225,11 +317,37 @@ pub async fn execute(cmd: &Cmd, registry: &SharedRegistry) -> ActionResult {
         let _ = std::fs::remove_dir_all(&session_data_dir);
     }
 
-    ActionResult::ok(json!({
-        "session_id": cmd.session,
-        "status": "closed",
-        "closed_tabs": closed_tabs,
-    }))
+    completed_result(session_id, closed_tabs, Some(&profile), teardown, false)
+}
+
+async fn recover_missing_preserve_stop(session_id: &str) -> ActionResult {
+    let owned_session = session_id.to_string();
+    match tokio::task::spawn_blocking(move || {
+        crate::daemon::chrome_reaper::recover_orphan_for_session(&owned_session)
+    })
+    .await
+    {
+        Ok(Ok(crate::daemon::chrome_reaper::OrphanCleanup::Stopped { profile }))
+        | Ok(Ok(crate::daemon::chrome_reaper::OrphanCleanup::AlreadyGone { profile })) => {
+            completed_result(
+                session_id,
+                0,
+                Some(&profile),
+                TeardownMode::PreserveProfile,
+                false,
+            )
+        }
+        Ok(Ok(crate::daemon::chrome_reaper::OrphanCleanup::NoOwnership)) => {
+            completed_result(session_id, 0, None, TeardownMode::PreserveProfile, true)
+        }
+        Ok(Err(error)) => {
+            ActionResult::fatal_with_hint(error.code(), error.to_string(), error.hint())
+        }
+        Err(error) => ActionResult::fatal(
+            "INTERNAL_ERROR",
+            format!("orphan recovery task failed: {error}"),
+        ),
+    }
 }
 
 #[cfg(test)]

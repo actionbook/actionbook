@@ -566,7 +566,8 @@ Session:
   start                              Start or attach a browser session
   list-sessions                      List all active sessions
   status              --session      Show session status
-  close               --session      Close a session (alias: stop)
+  close               --session      Close and delete a non-default local profile
+  stop                --session      Stop local Chrome and retain its named profile
   restart             --session      Restart a session
 
 Tab:

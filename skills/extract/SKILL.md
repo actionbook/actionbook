@@ -31,9 +31,9 @@ User request
   │     ├─ Results with Health Score ≥ 70%  ──► actionbook get "<ID>" ──► use selectors
   │     └─ No results / low score  ──► Fallback
   │
-  └─► Fallback: actionbook browser open <url>
-        ├─ actionbook browser snapshot   (accessibility tree → find selectors)
-        ├─ actionbook browser screenshot (visual confirmation)
+  └─► Fallback: install owned cleanup, then browser start + goto
+        ├─ browser snapshot --session <session> --tab <tab>   (find selectors)
+        ├─ browser screenshot <path> --session <session> --tab <tab> (visual check)
         └─ manual selector discovery via DOM inspection
 ```
 
@@ -42,7 +42,7 @@ User request
 | Priority | Source | When |
 |----------|--------|------|
 | 1 | `actionbook get` | Site is indexed, health score ≥ 70% |
-| 2 | `actionbook browser snapshot` | Not indexed or selectors outdated |
+| 2 | Explicitly addressed `browser snapshot` | Not indexed or selectors outdated |
 | 3 | DOM inspection via screenshot + snapshot | Complex SPA / dynamic content |
 
 **Non-negotiable rule:** if `search + get` already provides usable selectors for required fields, start from `get` selectors and do not jump to full fallback (`snapshot`/`screenshot`) by default. Exception: lightweight mechanism probes (for hydration/virtualization/pagination) are allowed when runtime behavior may affect script correctness. Escalate to `snapshot`/`screenshot` only when probes/sample validation indicate selector gaps or instability.
@@ -64,7 +64,7 @@ await page.waitForFunction(() => {
 });
 ```
 
-**Detection cues:** React root with `data-reactroot`, Next.js `__NEXT_DATA__`, empty containers that fill after JS runs. If `actionbook browser text "<selector>"` returns empty but the screenshot shows content, hydration hasn't completed.
+**Detection cues:** React root with `data-reactroot`, Next.js `__NEXT_DATA__`, empty containers that fill after JS runs. If explicitly addressed `browser text` returns empty but the screenshot shows content, hydration hasn't completed.
 
 ### Virtualized lists / virtual DOM
 
@@ -215,10 +215,24 @@ Use this routing strictly:
 
 ### Step 3: Probe page mechanisms and fallback only when needed
 
+Before any browser probe, classify ownership and install cleanup. This canonical extraction profile is disposable, so destructive close is intentional; use the persistent-profile stop rule instead if authentication must survive:
+
+```bash
+set -Eeuo pipefail
+SESSION=extract-task
+PROFILE=extract-task-disposable
+TAB=t1
+URL="<url>"
+cleanup() { actionbook browser close --session "$SESSION" >/dev/null 2>&1 || true; }
+trap 'status=$?; trap - EXIT INT TERM; cleanup; exit "$status"' EXIT
+trap 'trap - EXIT INT TERM; cleanup; kill -INT "$$"' INT
+trap 'trap - EXIT INT TERM; cleanup; kill -TERM "$$"' TERM
+actionbook browser start --session "$SESSION" --profile "$PROFILE" --open-url "$URL"
+```
+
 Path A mechanism detection timing:
 - Run minimal probes either **before final script draft** or during **sample validation**.
-- Before any probe command, ensure the correct page context is open:
-  - `actionbook browser open "<url>"` (if current tab context is unknown/stale)
+- Continue the canonical explicit session/tab for every probe.
 - If probes/sample run indicate mismatch (missing rows, unstable selectors, wrong pagination behavior), escalate to Path B targeted fallback.
 
 Fallback discovery by path:
@@ -226,30 +240,30 @@ Fallback discovery by path:
 **Path B targeted fallback (only failed fields/steps):**
 
 ```bash
-actionbook browser open "<url>"     # if not already open
-actionbook browser snapshot          # focus on failed field/container mapping
-# actionbook browser screenshot      # optional visual confirmation for failed area
+actionbook browser goto "$URL" --session "$SESSION" --tab "$TAB"
+actionbook browser snapshot --session "$SESSION" --tab "$TAB"
+# actionbook browser screenshot /tmp/failed-area.png --session "$SESSION" --tab "$TAB"
 ```
 
 **Path C full fallback (no usable coverage):**
 
 ```bash
-actionbook browser open "<url>"
-actionbook browser snapshot
-actionbook browser screenshot
+actionbook browser goto "$URL" --session "$SESSION" --tab "$TAB"
+actionbook browser snapshot --session "$SESSION" --tab "$TAB"
+actionbook browser screenshot /tmp/extract-page.png --session "$SESSION" --tab "$TAB"
 ```
 
 Mechanism probes (run when script strategy needs confirmation):
 
 ```bash
 # Hydration / streaming check
-actionbook browser text "<container-selector>"
+actionbook browser text "<container-selector>" --session "$SESSION" --tab "$TAB"
 
 # Infinite scroll quick signal (explicit before/after decision)
-actionbook browser eval "document.querySelectorAll('<item-selector>').length"   # before
-actionbook browser click "<scroll-container-selector-or-body>"                    # focus scroll context
-actionbook browser eval "const c=document.querySelector('<scroll-container-selector>') || document.scrollingElement; c.scrollBy(0, c.clientHeight || window.innerHeight);"
-actionbook browser eval "document.querySelectorAll('<item-selector>').length"   # after
+actionbook browser eval "document.querySelectorAll('<item-selector>').length" --session "$SESSION" --tab "$TAB"
+actionbook browser click "<scroll-container-selector-or-body>" --session "$SESSION" --tab "$TAB"
+actionbook browser eval "const c=document.querySelector('<scroll-container-selector>') || document.scrollingElement; c.scrollBy(0, c.clientHeight || window.innerHeight);" --session "$SESSION" --tab "$TAB"
+actionbook browser eval "document.querySelectorAll('<item-selector>').length" --session "$SESSION" --tab "$TAB"
 # If count increases, treat page as lazy-load/infinite-scroll.
 ```
 
@@ -321,7 +335,7 @@ node extract_<domain>_<slug>.cjs
 | Output file exists | Non-empty file written |
 | Record count > 0 | At least one item extracted |
 | No null/empty fields | Every declared field has a value in ≥ 90% of records |
-| Data matches page | Spot-check first and last record against `actionbook browser text` |
+| Data matches page | Spot-check first and last record with explicitly addressed `browser text` |
 
 If validation fails, inspect the output, adjust selectors or wait strategy, and re-run.
 

@@ -9,6 +9,8 @@
 //! Other tests use per-test session isolation via the shared daemon.
 
 use assert_cmd::Command;
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
 use std::process::Output;
 use std::sync::{Arc, Barrier};
 use std::time::Duration;
@@ -20,6 +22,8 @@ use crate::harness::{
 };
 
 const DEFAULT_LOCAL_SESSION_ID: &str = "s1";
+const CHROME_OWNERSHIP_FILE: &str = "chrome-ownership.json";
+const LEGACY_CHROME_PID_MARKER: &str = "chrome.pid";
 
 // ===========================================================================
 // 1. lifecycle_open_and_close — JSON (needs default session ID → SoloEnv)
@@ -1524,6 +1528,1271 @@ fn close_kills_chrome_process() {
     }
 }
 
+/// The exact executable authentication-doc preamble must clean up once after
+/// acquisition while preserving normal, failed, and signal termination.
+#[test]
+#[cfg(unix)]
+fn authentication_docs_trap_preserves_termination_and_cleans_owned_browser() {
+    use std::os::unix::fs::PermissionsExt;
+
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+    let home = std::path::Path::new(&env.actionbook_home);
+    let docs_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../skills/actionbook/references/authentication.md");
+    let docs = std::fs::read_to_string(&docs_path).expect("read authentication docs");
+    let marked = docs
+        .split_once("<!-- executable-auth-cleanup-smoke:start -->")
+        .and_then(|(_, tail)| {
+            tail.split_once("<!-- executable-auth-cleanup-smoke:end -->")
+                .map(|(snippet, _)| snippet.trim())
+        })
+        .expect("executable auth cleanup snippet markers");
+    let docs_script = marked
+        .strip_prefix("```bash\n")
+        .and_then(|snippet| snippet.strip_suffix("\n```"))
+        .expect("marked docs block is bash");
+
+    let actionbook_wrapper = home.join("docs-actionbook-wrapper");
+    std::fs::write(
+        &actionbook_wrapper,
+        r#"#!/usr/bin/env bash
+if [[ "${1:-}" == browser && "${2:-}" == stop ]]; then
+  printf 'stop\n' >> "$CLEANUP_LOG"
+fi
+exec "$REAL_ACTIONBOOK" "$@"
+"#,
+    )
+    .expect("write docs actionbook wrapper");
+    let mut permissions = std::fs::metadata(&actionbook_wrapper)
+        .expect("docs actionbook wrapper metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&actionbook_wrapper, permissions)
+        .expect("make docs actionbook wrapper executable");
+    let real_actionbook = assert_cmd::cargo::cargo_bin("actionbook");
+
+    enum ExpectedTermination {
+        Code(i32),
+        Signal(i32),
+    }
+    let scenarios = [
+        ("normal", ":", ExpectedTermination::Code(0)),
+        ("failure", "(exit 23)", ExpectedTermination::Code(23)),
+        (
+            "sigint",
+            "kill -INT \"$$\"",
+            ExpectedTermination::Signal(libc::SIGINT),
+        ),
+        (
+            "sigterm",
+            "kill -TERM \"$$\"",
+            ExpectedTermination::Signal(libc::SIGTERM),
+        ),
+    ];
+
+    for (name, terminal_action, expected) in scenarios {
+        let session = format!("docs-auth-{name}");
+        let profile = session.clone();
+        let profile_dir = home.join("profiles").join(&profile);
+        let acquired_marker = home.join(format!("docs-browser-{name}-acquired"));
+        let cleanup_log = home.join(format!("docs-browser-{name}-cleanup"));
+        let scenario_script = format!(
+            "{docs_script}\n\
+             test -f \"$ACTIONBOOK_HOME/profiles/$PROFILE/{CHROME_OWNERSHIP_FILE}\"\n\
+             printf retained > \"$ACTIONBOOK_HOME/profiles/$PROFILE/docs-retained-marker\"\n\
+             printf acquired > \"{}\"\n\
+             {terminal_action}\n",
+            acquired_marker.display()
+        );
+
+        let output = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(scenario_script)
+            .env("ACTIONBOOK", &actionbook_wrapper)
+            .env("REAL_ACTIONBOOK", &real_actionbook)
+            .env("CLEANUP_LOG", &cleanup_log)
+            .env("ACTIONBOOK_HOME", &env.actionbook_home)
+            .env("SESSION", &session)
+            .env("PROFILE", &profile)
+            .env("AUTH_URL", "about:blank")
+            .env("HEADLESS", "true")
+            .output()
+            .expect("run executable authentication docs snippet");
+
+        match expected {
+            ExpectedTermination::Code(code) => assert_eq!(
+                output.status.code(),
+                Some(code),
+                "{name} must preserve exit status\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ),
+            ExpectedTermination::Signal(signal) => assert_eq!(
+                output.status.signal(),
+                Some(signal),
+                "{name} must re-raise its original signal\nstatus: {:?}\nstdout:\n{}\nstderr:\n{}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ),
+        }
+        assert!(
+            acquired_marker.exists(),
+            "{name} termination must occur after browser acquisition"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&cleanup_log).expect("cleanup log"),
+            "stop\n",
+            "{name} must invoke terminal cleanup exactly once"
+        );
+        assert!(profile_dir.is_dir(), "{name} stop must retain the profile");
+        assert!(
+            profile_dir.join("docs-retained-marker").exists(),
+            "{name} stop must retain profile contents"
+        );
+        assert!(
+            !profile_dir.join(CHROME_OWNERSHIP_FILE).exists(),
+            "{name} cleanup must remove authoritative ownership metadata"
+        );
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let remaining = find_chrome_pids_for_dir(&home.join("profiles"));
+            if remaining.is_empty() {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{name} cleanup left Chrome processes: {remaining:?}"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+}
+
+/// Exact executable docs for each ownership class must leave their trap as the
+/// sole terminal cleanup owner on normal, failed, and signal termination.
+#[test]
+#[cfg(unix)]
+fn docs_cleanup_traps_invoke_once_for_every_ownership_class() {
+    use std::os::unix::fs::PermissionsExt;
+
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+    let home = std::path::Path::new(&env.actionbook_home);
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let auth_docs = std::fs::read_to_string(
+        manifest_dir.join("../../skills/actionbook/references/authentication.md"),
+    )
+    .expect("read authentication docs");
+    let browser_docs = std::fs::read_to_string(manifest_dir.join("../../docs/guides/browser.mdx"))
+        .expect("read browser guide");
+    let active_research_docs =
+        std::fs::read_to_string(manifest_dir.join("../../skills/active-research/SKILL.md"))
+            .expect("read active-research skill");
+    let extract_bash = |docs: &str, marker: &str| {
+        let start = format!("<!-- {marker}:start -->");
+        let end = format!("<!-- {marker}:end -->");
+        let marked = docs
+            .split_once(&start)
+            .and_then(|(_, tail)| {
+                tail.split_once(&end)
+                    .map(|(snippet, _)| snippet.trim_matches('\n'))
+            })
+            .unwrap_or_else(|| panic!("missing executable docs markers for {marker}"));
+        let indent = marked
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| line.len() - line.trim_start_matches(' ').len())
+            .min()
+            .unwrap_or(0);
+        let prefix = " ".repeat(indent);
+        let marked = marked
+            .lines()
+            .map(|line| line.strip_prefix(&prefix).unwrap_or(line))
+            .collect::<Vec<_>>()
+            .join("\n");
+        marked
+            .trim()
+            .strip_prefix("```bash\n")
+            .and_then(|snippet| snippet.strip_suffix("\n```"))
+            .unwrap_or_else(|| panic!("marked {marker} docs block is bash"))
+            .to_string()
+    };
+
+    struct OwnershipSnippet {
+        name: &'static str,
+        script: String,
+        acquisition: &'static str,
+        cleanup: &'static str,
+    }
+    let snippets = [
+        OwnershipSnippet {
+            name: "persistent",
+            script: extract_bash(&auth_docs, "executable-auth-cleanup-smoke"),
+            acquisition: "browser start --session docs-logger-persistent",
+            cleanup: "browser stop --session docs-logger-persistent",
+        },
+        OwnershipSnippet {
+            name: "disposable",
+            script: extract_bash(&browser_docs, "executable-disposable-cleanup-smoke"),
+            acquisition: "browser start --session local-example",
+            cleanup: "browser close --session local-example",
+        },
+        OwnershipSnippet {
+            name: "cloud",
+            script: extract_bash(&browser_docs, "executable-cloud-cleanup-smoke"),
+            acquisition: "browser start -p hyperbrowser --session cloud1",
+            cleanup: "browser close --session cloud1",
+        },
+        OwnershipSnippet {
+            name: "shared-tab",
+            script: extract_bash(&auth_docs, "executable-shared-cleanup-smoke"),
+            acquisition: "browser open https://app.example.com/login --session lzero-default --tab auth-task-login",
+            cleanup: "browser close-tab --session lzero-default --tab auth-task-login",
+        },
+    ];
+
+    let bin_dir = home.join("docs-command-bin");
+    std::fs::create_dir_all(&bin_dir).expect("create docs command logger bin");
+    let actionbook_logger = bin_dir.join("actionbook");
+    std::fs::write(
+        &actionbook_logger,
+        r#"#!/bin/bash
+printf '%s\n' "$*" >> "$COMMAND_LOG"
+if [[ "$*" == "browser stop --session active-research-owner" ]]; then
+  : > "$RESOURCE_STOP_MARKER"
+fi
+if [[ "$*" == "browser stop --session active-research-owner" &&
+      -n "${EARLY_STOP_MODE:-}" && ! -e "$EARLY_STOP_MARKER" ]]; then
+  : > "$EARLY_STOP_MARKER"
+  case "$EARLY_STOP_MODE" in
+    success) exit 0 ;;
+    failure) exit "${EARLY_STOP_STATUS:-41}" ;;
+    int-success) kill -INT "$PPID"; exit 0 ;;
+    int-failure) kill -INT "$PPID"; exit "${EARLY_STOP_STATUS:-41}" ;;
+    term-success) kill -TERM "$PPID"; exit 0 ;;
+    term-failure) kill -TERM "$PPID"; exit "${EARLY_STOP_STATUS:-41}" ;;
+    *) printf 'unknown EARLY_STOP_MODE: %s\n' "$EARLY_STOP_MODE" >&2; exit 97 ;;
+  esac
+fi
+if [[ "$*" == browser\ start\ --stealth\ true* ]]; then
+  : > "$REPLACEMENT_START_MARKER"
+fi
+if [[ "$*" == browser\ start\ --stealth\ true* && -n "${REPLACEMENT_START_MODE:-}" ]]; then
+  case "$REPLACEMENT_START_MODE" in
+    success) exit 0 ;;
+    failure) exit "${REPLACEMENT_START_STATUS:-42}" ;;
+    int-success) kill -INT "$PPID"; exit 0 ;;
+    int-failure) kill -INT "$PPID"; exit "${REPLACEMENT_START_STATUS:-42}" ;;
+    term-success) kill -TERM "$PPID"; exit 0 ;;
+    term-failure) kill -TERM "$PPID"; exit "${REPLACEMENT_START_STATUS:-42}" ;;
+    *) printf 'unknown REPLACEMENT_START_MODE: %s\n' "$REPLACEMENT_START_MODE" >&2; exit 96 ;;
+  esac
+fi
+"#,
+    )
+    .expect("write docs command logger");
+    let mut permissions = std::fs::metadata(&actionbook_logger)
+        .expect("docs command logger metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&actionbook_logger, permissions)
+        .expect("make docs command logger executable");
+    let path = format!(
+        "{}:{}",
+        bin_dir.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    enum ExpectedTermination {
+        Code(i32),
+        Signal(i32),
+    }
+    let scenarios = [
+        ("normal", ":", ExpectedTermination::Code(0)),
+        ("failure", "(exit 23)", ExpectedTermination::Code(23)),
+        (
+            "sigint",
+            "kill -INT \"$$\"",
+            ExpectedTermination::Signal(libc::SIGINT),
+        ),
+        (
+            "sigterm",
+            "kill -TERM \"$$\"",
+            ExpectedTermination::Signal(libc::SIGTERM),
+        ),
+    ];
+
+    let assert_termination = |name: &str,
+                              scenario: &str,
+                              expected: &ExpectedTermination,
+                              output: &Output| {
+        match expected {
+            ExpectedTermination::Code(code) => assert_eq!(
+                output.status.code(),
+                Some(*code),
+                "{name} {scenario} must preserve exit status\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ),
+            ExpectedTermination::Signal(signal) => assert_eq!(
+                output.status.signal(),
+                Some(*signal),
+                "{name} {scenario} must re-raise its signal\nstatus: {:?}\nstdout:\n{}\nstderr:\n{}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ),
+        }
+    };
+
+    for snippet in snippets {
+        for (scenario, terminal_action, expected) in &scenarios {
+            let command_log = home.join(format!("{}-{scenario}-commands", snippet.name));
+            let output = std::process::Command::new("bash")
+                .arg("-c")
+                .arg(format!("{}\n{terminal_action}\n", snippet.script))
+                .env("PATH", &path)
+                .env("ACTIONBOOK", &actionbook_logger)
+                .env("COMMAND_LOG", &command_log)
+                .env("SESSION", "docs-logger-persistent")
+                .env("PROFILE", "docs-logger-persistent")
+                .env("AUTH_URL", "about:blank")
+                .env("HEADLESS", "true")
+                .output()
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "run {} {scenario} executable docs snippet: {error}",
+                        snippet.name
+                    )
+                });
+
+            assert_termination(snippet.name, scenario, expected, &output);
+
+            let commands = std::fs::read_to_string(&command_log).unwrap_or_else(|error| {
+                panic!("read {} {scenario} command log: {error}", snippet.name)
+            });
+            let command_lines: Vec<_> = commands.lines().collect();
+            let acquisition_index = command_lines
+                .iter()
+                .position(|command| command.starts_with(snippet.acquisition))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "{} {scenario} did not acquire before termination: {command_lines:?}",
+                        snippet.name
+                    )
+                });
+            let cleanup_indices: Vec<_> = command_lines
+                .iter()
+                .enumerate()
+                .filter_map(|(index, command)| (*command == snippet.cleanup).then_some(index))
+                .collect();
+            assert_eq!(
+                cleanup_indices,
+                vec![command_lines.len() - 1],
+                "{} {scenario} must invoke its cleanup exactly once and only at terminal exit: {command_lines:?}",
+                snippet.name
+            );
+            assert!(
+                acquisition_index < cleanup_indices[0],
+                "{} {scenario} cleanup must follow acquisition: {command_lines:?}",
+                snippet.name
+            );
+        }
+    }
+
+    let active_setup = extract_bash(
+        &active_research_docs,
+        "executable-active-research-cleanup-smoke",
+    );
+    let active_restart = extract_bash(
+        &active_research_docs,
+        "executable-active-research-restart-smoke",
+    );
+    let empty_path = home.join("docs-empty-path");
+    std::fs::create_dir_all(&empty_path).expect("create empty docs PATH");
+    let bash_path = std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+        .map(|directory| directory.join("bash"))
+        .find(|candidate| candidate.is_file())
+        .expect("find Bash used by executable docs smokes");
+    let initial_start = "browser start --session active-research-owner --profile active-research-owner --headless true --open-url about:blank";
+    let stop = "browser stop --session active-research-owner";
+    let replacement_start = "browser start --stealth true --headless true --session active-research-owner --profile active-research-owner --open-url <protected-url>";
+    let replacement_wait = "browser wait network-idle --session active-research-owner --tab t1";
+    let run_active = |scenario: &str,
+                      pre_restart: &str,
+                      terminal_action: &str,
+                      early_stop_mode: Option<&str>,
+                      replacement_start_mode: Option<&str>,
+                      expected: ExpectedTermination,
+                      expected_commands: &[&str],
+                      expected_stderr: Option<&str>,
+                      expected_state: Option<&str>,
+                      expect_replacement_attempt: bool| {
+        let command_log = home.join(format!("active-restart-{scenario}-commands"));
+        let early_stop_marker = home.join(format!("active-restart-{scenario}-early-stop"));
+        let resource_stop_marker = home.join(format!("active-restart-{scenario}-resource-stop"));
+        let replacement_start_marker =
+            home.join(format!("active-restart-{scenario}-replacement-start"));
+        let output = std::process::Command::new(&bash_path)
+            .arg("-c")
+            .arg(format!(
+                "{active_setup}\n{pre_restart}\n{active_restart}\n{terminal_action}\n"
+            ))
+            .env("PATH", &empty_path)
+            .env("ACTIONBOOK", &actionbook_logger)
+            .env("COMMAND_LOG", &command_log)
+            .env("EARLY_STOP_MARKER", &early_stop_marker)
+            .env("EARLY_STOP_STATUS", "41")
+            .env("REPLACEMENT_START_STATUS", "42")
+            .env("RESOURCE_STOP_MARKER", &resource_stop_marker)
+            .env("REPLACEMENT_START_MARKER", &replacement_start_marker)
+            .env("SESSION", "active-research-owner")
+            .env("PROFILE", "active-research-owner")
+            .env("TAB", "t1")
+            .env("START_URL", "about:blank")
+            .env("HEADLESS", "true")
+            .envs(
+                early_stop_mode
+                    .map(|mode| [("EARLY_STOP_MODE", mode)])
+                    .unwrap_or_default(),
+            )
+            .envs(
+                replacement_start_mode
+                    .map(|mode| [("REPLACEMENT_START_MODE", mode)])
+                    .unwrap_or_default(),
+            )
+            .output()
+            .unwrap_or_else(|error| panic!("run active restart {scenario} docs: {error}"));
+
+        assert_termination("active restart", scenario, &expected, &output);
+        let commands = std::fs::read_to_string(&command_log)
+            .unwrap_or_else(|error| panic!("read active restart {scenario} log: {error}"));
+        let command_lines: Vec<_> = commands.lines().collect();
+        assert_eq!(
+            command_lines, expected_commands,
+            "active restart {scenario} must keep one teardown owner and must not reacquire after an interrupted or failed release"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if let Some(fragment) = expected_stderr {
+            assert!(
+                stderr.contains(fragment),
+                "active restart {scenario} must report the early-stop failure explicitly\nstderr:\n{stderr}"
+            );
+        }
+        if let Some(state) = expected_state {
+            assert!(
+                stderr.contains(&format!("transition-state={state}")),
+                "active restart {scenario} must classify the release from durable state\nstderr:\n{stderr}"
+            );
+        }
+        assert!(
+            resource_stop_marker.exists(),
+            "active restart {scenario} must not skip every teardown owner for the simulated resource"
+        );
+        assert_eq!(
+            replacement_start_marker.exists(),
+            expect_replacement_attempt,
+            "active restart {scenario} replacement acquisition marker"
+        );
+    };
+
+    let replacement_commands = [
+        initial_start,
+        stop,
+        replacement_start,
+        replacement_wait,
+        stop,
+    ];
+    for (scenario, terminal_action, expected) in [
+        ("replacement-normal", ":", ExpectedTermination::Code(0)),
+        (
+            "replacement-failure",
+            "(exit 23)",
+            ExpectedTermination::Code(23),
+        ),
+        (
+            "replacement-sigint",
+            "kill -INT \"$$\"",
+            ExpectedTermination::Signal(libc::SIGINT),
+        ),
+        (
+            "replacement-sigterm",
+            "kill -TERM \"$$\"",
+            ExpectedTermination::Signal(libc::SIGTERM),
+        ),
+    ] {
+        run_active(
+            scenario,
+            "",
+            terminal_action,
+            None,
+            None,
+            expected,
+            &replacement_commands,
+            None,
+            None,
+            true,
+        );
+    }
+
+    run_active(
+        "early-stop-failure",
+        "",
+        ":",
+        Some("failure"),
+        None,
+        ExpectedTermination::Code(41),
+        &[initial_start, stop, stop],
+        Some("early browser stop failed with status 41; retrying best-effort terminal cleanup"),
+        None,
+        false,
+    );
+    run_active(
+        "replacement-start-failure",
+        "",
+        ":",
+        None,
+        Some("failure"),
+        ExpectedTermination::Code(42),
+        &[initial_start, stop, replacement_start, stop],
+        Some(
+            "replacement browser start failed with status 42; retrying best-effort cleanup of the attempted replacement",
+        ),
+        None,
+        true,
+    );
+
+    for (signal_name, signal, signal_number) in [
+        ("int", "INT", libc::SIGINT),
+        ("term", "TERM", libc::SIGTERM),
+    ] {
+        run_active(
+            &format!("{signal_name}-inside-successful-stop"),
+            "",
+            ":",
+            Some(&format!("{signal_name}-success")),
+            None,
+            ExpectedTermination::Signal(signal_number),
+            &[initial_start, stop],
+            None,
+            None,
+            false,
+        );
+        run_active(
+            &format!("{signal_name}-inside-failed-stop"),
+            "",
+            ":",
+            Some(&format!("{signal_name}-failure")),
+            None,
+            ExpectedTermination::Signal(signal_number),
+            &[initial_start, stop, stop],
+            Some(&format!(
+                "early browser stop failed with status 41; retrying best-effort cleanup before SIG{signal}"
+            )),
+            None,
+            false,
+        );
+
+        let transition_probe = |condition: &str| {
+            format!(
+                "trap 'if {condition}; then trap - DEBUG; printf \"transition-state=%s\\n\" \"$RELEASE_STATE\" >&2; kill -{signal} \"$$\"; fi' DEBUG"
+            )
+        };
+        let acquisition_transition_probe = |condition: &str| {
+            format!(
+                "RELEASE_PHASE=release\ntrap 'case \"$BASH_COMMAND\" in RELEASE_STATE=acquiring) RELEASE_PHASE=acquire ;; esac; if [[ \"$RELEASE_PHASE\" == acquire ]] && {condition}; then trap - DEBUG; printf \"transition-state=%s\\n\" \"$RELEASE_STATE\" >&2; kill -{signal} \"$$\"; fi' DEBUG"
+            )
+        };
+        run_active(
+            &format!("{signal_name}-before-release-transition"),
+            &transition_probe("[[ \"$BASH_COMMAND\" == \"RELEASE_STATE=releasing\" ]]"),
+            ":",
+            None,
+            None,
+            ExpectedTermination::Signal(signal_number),
+            &[initial_start, stop],
+            None,
+            Some("owned"),
+            false,
+        );
+        run_active(
+            &format!("{signal_name}-successful-release-state-boundary"),
+            &transition_probe("[[ \"$BASH_COMMAND\" == RELEASE_STATE=released ]]"),
+            ":",
+            None,
+            None,
+            ExpectedTermination::Signal(signal_number),
+            &[initial_start, stop],
+            None,
+            Some("releasing"),
+            false,
+        );
+        run_active(
+            &format!("{signal_name}-successful-release-post-state-boundary"),
+            &transition_probe("[[ \"$BASH_COMMAND\" == *PENDING_SIGNAL* ]]"),
+            ":",
+            None,
+            None,
+            ExpectedTermination::Signal(signal_number),
+            &[initial_start, stop],
+            None,
+            Some("released"),
+            false,
+        );
+        run_active(
+            &format!("{signal_name}-failed-release-state-boundary"),
+            &transition_probe("[[ \"$BASH_COMMAND\" == *release_failed* ]]"),
+            ":",
+            Some("failure"),
+            None,
+            ExpectedTermination::Signal(signal_number),
+            &[initial_start, stop, stop],
+            Some(&format!(
+                "early browser stop failed with status 41; retrying best-effort cleanup before SIG{signal}"
+            )),
+            Some("releasing"),
+            false,
+        );
+        run_active(
+            &format!("{signal_name}-failed-release-post-state-boundary"),
+            &transition_probe("[[ \"$BASH_COMMAND\" == *PENDING_SIGNAL* ]]"),
+            ":",
+            Some("failure"),
+            None,
+            ExpectedTermination::Signal(signal_number),
+            &[initial_start, stop, stop],
+            Some(&format!(
+                "early browser stop failed with status 41; retrying best-effort cleanup before SIG{signal}"
+            )),
+            Some("release_failed:41"),
+            false,
+        );
+
+        run_active(
+            &format!("{signal_name}-before-replacement-start"),
+            &transition_probe("[[ \"$BASH_COMMAND\" == \"RELEASE_STATE=acquiring\" ]]"),
+            ":",
+            None,
+            None,
+            ExpectedTermination::Signal(signal_number),
+            &[initial_start, stop],
+            None,
+            Some("released"),
+            false,
+        );
+        run_active(
+            &format!("{signal_name}-inside-successful-replacement-start"),
+            "",
+            ":",
+            None,
+            Some(&format!("{signal_name}-success")),
+            ExpectedTermination::Signal(signal_number),
+            &[initial_start, stop, replacement_start, stop],
+            None,
+            None,
+            true,
+        );
+        run_active(
+            &format!("{signal_name}-inside-failed-replacement-start"),
+            "",
+            ":",
+            None,
+            Some(&format!("{signal_name}-failure")),
+            ExpectedTermination::Signal(signal_number),
+            &[initial_start, stop, replacement_start, stop],
+            Some(&format!(
+                "replacement browser start failed with status 42; retrying best-effort cleanup of the attempted replacement before SIG{signal}"
+            )),
+            None,
+            true,
+        );
+        run_active(
+            &format!("{signal_name}-successful-replacement-state-boundary"),
+            &transition_probe("[[ \"$BASH_COMMAND\" == RELEASE_STATE=owned ]]"),
+            ":",
+            None,
+            Some("success"),
+            ExpectedTermination::Signal(signal_number),
+            &[initial_start, stop, replacement_start, stop],
+            None,
+            Some("acquiring"),
+            true,
+        );
+        run_active(
+            &format!("{signal_name}-successful-replacement-post-state-boundary"),
+            &acquisition_transition_probe("[[ \"$BASH_COMMAND\" == *PENDING_SIGNAL* ]]"),
+            ":",
+            None,
+            Some("success"),
+            ExpectedTermination::Signal(signal_number),
+            &[initial_start, stop, replacement_start, stop],
+            None,
+            Some("owned"),
+            true,
+        );
+        run_active(
+            &format!("{signal_name}-failed-replacement-state-boundary"),
+            &transition_probe("[[ \"$BASH_COMMAND\" == *acquire_failed* ]]"),
+            ":",
+            None,
+            Some("failure"),
+            ExpectedTermination::Signal(signal_number),
+            &[initial_start, stop, replacement_start, stop],
+            Some(&format!(
+                "replacement browser start failed with status 42; retrying best-effort cleanup of the attempted replacement before SIG{signal}"
+            )),
+            Some("acquiring"),
+            true,
+        );
+        run_active(
+            &format!("{signal_name}-failed-replacement-post-state-boundary"),
+            &acquisition_transition_probe("[[ \"$BASH_COMMAND\" == *PENDING_SIGNAL* ]]"),
+            ":",
+            None,
+            Some("failure"),
+            ExpectedTermination::Signal(signal_number),
+            &[initial_start, stop, replacement_start, stop],
+            Some(&format!(
+                "replacement browser start failed with status 42; retrying best-effort cleanup of the attempted replacement before SIG{signal}"
+            )),
+            Some("acquire_failed:42"),
+            true,
+        );
+    }
+}
+
+/// An upgraded default profile may still contain the retired bare-integer PID
+/// marker. Start must discard it without parsing or trusting that PID.
+#[test]
+fn upgraded_default_profile_legacy_pid_marker_does_not_brick_start() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+    let session = "upgraded-default-profile";
+    let profile_dir = std::path::Path::new(&env.actionbook_home)
+        .join("profiles")
+        .join("actionbook");
+    std::fs::create_dir_all(&profile_dir).expect("default profile dir");
+    let legacy_marker = profile_dir.join(LEGACY_CHROME_PID_MARKER);
+    std::fs::write(&legacy_marker, "424242\n").expect("legacy integer PID marker");
+
+    let start = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--set-session-id",
+            session,
+        ],
+        30,
+    );
+    assert_success(&start, "start upgraded default profile");
+    assert!(
+        !legacy_marker.exists(),
+        "start must remove the retired PID marker"
+    );
+    let ownership_path = profile_dir.join(CHROME_OWNERSHIP_FILE);
+    let ownership: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&ownership_path).expect("new ownership record"))
+            .expect("new ownership record is JSON");
+    assert_eq!(ownership["session_id"], session);
+    assert_eq!(ownership["profile"], "actionbook");
+
+    let stop = env.headless_json(&["browser", "stop", "--session", session], 30);
+    assert_success(&stop, "stop upgraded default profile");
+    assert!(profile_dir.is_dir(), "default profile should be retained");
+    assert!(!ownership_path.exists(), "stop clears new ownership");
+}
+
+/// A live process using a profile without new ownership metadata must block
+/// start after the retired marker is discarded; its unverified PID is never
+/// kill authority.
+#[test]
+#[cfg_attr(windows, ignore = "Unix command-line profile ownership probe")]
+fn live_legacy_profile_fails_safely_without_killing_process() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+    let session = "legacy-live-session";
+    let profile = "legacy-live-profile";
+    let profile_dir = std::path::Path::new(&env.actionbook_home)
+        .join("profiles")
+        .join(profile);
+    std::fs::create_dir_all(&profile_dir).expect("legacy live profile dir");
+    let canonical_profile = std::fs::canonicalize(&profile_dir).expect("canonical profile");
+    let legacy_marker = profile_dir.join(LEGACY_CHROME_PID_MARKER);
+
+    let mut legacy_owner = std::process::Command::new("sh")
+        .args([
+            "-c",
+            "while :; do sleep 1; done",
+            &format!("--user-data-dir={}", canonical_profile.display()),
+            "--remote-debugging-port=0",
+        ])
+        .spawn()
+        .expect("spawn legacy profile owner");
+    std::fs::write(&legacy_marker, format!("{}\n", legacy_owner.id())).expect("legacy PID marker");
+    std::thread::sleep(Duration::from_millis(100));
+
+    let start = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            profile,
+            "--set-session-id",
+            session,
+        ],
+        10,
+    );
+    assert_failure(&start, "live legacy profile must fail closed");
+    let failed = parse_json(&start);
+    assert_eq!(failed["error"]["code"], "CHROME_OWNERSHIP_UNVERIFIED");
+    assert!(
+        !legacy_marker.exists(),
+        "retired PID metadata is discarded before ownership checks"
+    );
+    assert!(
+        !profile_dir.join(CHROME_OWNERSHIP_FILE).exists(),
+        "legacy evidence must not be rewritten as new ownership"
+    );
+    assert!(
+        pid_is_alive(legacy_owner.id()),
+        "legacy PID evidence must never authorize termination"
+    );
+
+    let _ = legacy_owner.kill();
+    let _ = legacy_owner.wait();
+}
+
+/// Preserve-profile stop releases the owned local Chrome while retaining
+/// durable browser state for the next session that opens the same profile.
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows: Chrome sandbox helpers survive close due to Job Object nesting restrictions"
+)]
+fn preserve_profile_stop_releases_local_chrome_and_retains_state() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+    let profile = "preserve-profile-smoke";
+    let first_session = "preserve-stop-first";
+    let second_session = "preserve-stop-second";
+    let marker_key = "actionbook-preserve-profile-smoke";
+    let marker_value = "retained-after-stop";
+    let url = url_a();
+    let profiles_dir = std::path::Path::new(&env.actionbook_home).join("profiles");
+    let profile_dir = profiles_dir.join(profile);
+
+    let start = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            profile,
+            "--set-session-id",
+            first_session,
+        ],
+        30,
+    );
+    assert_success(&start, "start isolated preserve-profile session");
+    let first = parse_json(&start);
+    let first_tab = first["data"]["tab"]["tab_id"]
+        .as_str()
+        .expect("first tab id");
+
+    let goto = env.headless_json(
+        &[
+            "browser",
+            "goto",
+            &url,
+            "--session",
+            first_session,
+            "--tab",
+            first_tab,
+        ],
+        30,
+    );
+    assert_success(&goto, "navigate before persisting profile marker");
+
+    let set_marker = env.headless_json(
+        &[
+            "browser",
+            "local-storage",
+            "set",
+            marker_key,
+            marker_value,
+            "--session",
+            first_session,
+            "--tab",
+            first_tab,
+        ],
+        10,
+    );
+    assert_success(&set_marker, "persist local-storage marker");
+    assert!(profile_dir.is_dir(), "named profile directory should exist");
+    assert!(
+        !find_chrome_pids_for_dir(&profiles_dir).is_empty(),
+        "isolated Chrome should be running before stop"
+    );
+
+    let stop = env.headless_json(&["browser", "stop", "--session", first_session], 30);
+    assert_success(&stop, "bare profile-preserving stop");
+    let stopped = parse_json(&stop);
+    assert_eq!(stopped["command"], "browser stop");
+    assert_eq!(stopped["data"]["session_id"], first_session);
+    assert_eq!(stopped["data"]["status"], "stopped");
+    assert!(
+        stopped["data"]["closed_tabs"].as_u64().unwrap_or(0) >= 1,
+        "stop should release every tab owned by the session"
+    );
+    assert_eq!(stopped["data"]["profile"], profile);
+    assert_eq!(stopped["data"]["profile_preserved"], true);
+    assert!(profile_dir.is_dir(), "stop must retain the named profile");
+    assert!(
+        !profile_dir.join(CHROME_OWNERSHIP_FILE).exists(),
+        "stop should remove authoritative ownership after Chrome exits"
+    );
+    assert!(
+        !profile_dir.join(LEGACY_CHROME_PID_MARKER).exists(),
+        "the retired integer PID marker must remain absent"
+    );
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let remaining = find_chrome_pids_for_dir(&profiles_dir);
+        if remaining.is_empty() {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "Chrome processes should be gone after bare stop: {remaining:?}"
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    }
+
+    // A repeated bare stop follows the same idempotent cleanup contract as
+    // close and must not touch the retained profile.
+    let repeated_stop = env.headless_json(&["browser", "stop", "--session", first_session], 10);
+    assert_success(&repeated_stop, "idempotent bare stop");
+    let repeated = parse_json(&repeated_stop);
+    assert_eq!(repeated["data"]["status"], "stopped");
+    assert_eq!(repeated["data"]["closed_tabs"], 0);
+    assert!(repeated["data"]["profile"].is_null());
+    assert!(repeated["data"]["profile_preserved"].is_null());
+    assert!(
+        repeated["meta"]["warnings"]
+            .as_array()
+            .is_some_and(|warnings| !warnings.is_empty()),
+        "repeated stop should identify the already-gone session"
+    );
+    assert!(
+        profile_dir.is_dir(),
+        "idempotent stop must retain the profile"
+    );
+
+    let restart = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            profile,
+            "--set-session-id",
+            second_session,
+        ],
+        30,
+    );
+    assert_success(&restart, "start a new session with retained profile");
+    let restarted = parse_json(&restart);
+    let second_tab = restarted["data"]["tab"]["tab_id"]
+        .as_str()
+        .expect("second tab id");
+
+    let goto = env.headless_json(
+        &[
+            "browser",
+            "goto",
+            &url,
+            "--session",
+            second_session,
+            "--tab",
+            second_tab,
+        ],
+        30,
+    );
+    assert_success(&goto, "navigate after reopening retained profile");
+
+    let get_marker = env.headless_json(
+        &[
+            "browser",
+            "local-storage",
+            "get",
+            marker_key,
+            "--session",
+            second_session,
+            "--tab",
+            second_tab,
+        ],
+        10,
+    );
+    assert_success(&get_marker, "read retained local-storage marker");
+    let marker = parse_json(&get_marker);
+    assert_eq!(marker["data"]["item"]["key"], marker_key);
+    assert_eq!(marker["data"]["item"]["value"], marker_value);
+
+    // Ordinary close remains destructive for a non-default local profile.
+    let close = env.headless_json(&["browser", "close", "--session", second_session], 30);
+    assert_success(&close, "destructive close after preserve-profile smoke");
+    let closed = parse_json(&close);
+    assert_eq!(closed["command"], "browser close");
+    assert_eq!(closed["data"]["status"], "closed");
+    assert!(
+        !profile_dir.exists(),
+        "ordinary close must still delete a non-default local profile"
+    );
+}
+
+/// A bare stop after daemon SIGKILL must use the authoritative ownership
+/// record to reap the exact orphan without deleting browser state.
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows daemon-crash process-tree recovery is covered by Job Object tests"
+)]
+fn preserve_profile_stop_recovers_verified_daemon_crash_orphan() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+    let profile = "preserve-crash-profile";
+    let first_session = "preserve-crash-first";
+    let second_session = "preserve-crash-second";
+    let marker_key = "actionbook-preserve-crash";
+    let marker_value = "retained-after-daemon-crash";
+    let url = url_a();
+    let home = std::path::Path::new(&env.actionbook_home);
+    let profiles_dir = home.join("profiles");
+    let profile_dir = profiles_dir.join(profile);
+
+    let start = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            profile,
+            "--set-session-id",
+            first_session,
+        ],
+        30,
+    );
+    assert_success(&start, "start crash-orphan preserve session");
+    let started = parse_json(&start);
+    let first_tab = started["data"]["tab"]["tab_id"]
+        .as_str()
+        .expect("first tab id");
+    let goto = env.headless_json(
+        &[
+            "browser",
+            "goto",
+            &url,
+            "--session",
+            first_session,
+            "--tab",
+            first_tab,
+        ],
+        30,
+    );
+    assert_success(&goto, "navigate before daemon crash");
+    let set_marker = env.headless_json(
+        &[
+            "browser",
+            "local-storage",
+            "set",
+            marker_key,
+            marker_value,
+            "--session",
+            first_session,
+            "--tab",
+            first_tab,
+        ],
+        10,
+    );
+    assert_success(&set_marker, "persist marker before daemon crash");
+
+    let ownership_path = profile_dir.join(CHROME_OWNERSHIP_FILE);
+    let ownership: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(&ownership_path).expect("profile ownership record should exist"),
+    )
+    .expect("profile ownership record should be JSON");
+    let chrome_pid = ownership["pid"].as_u64().expect("owned Chrome PID") as u32;
+    assert!(pid_is_alive(chrome_pid), "owned Chrome should be alive");
+
+    let daemon_pid: u32 = std::fs::read_to_string(home.join("daemon.pid"))
+        .expect("daemon pid")
+        .trim()
+        .parse()
+        .expect("numeric daemon pid");
+    force_kill_pid(daemon_pid);
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(
+        pid_is_alive(chrome_pid),
+        "Chrome should remain orphaned immediately after daemon SIGKILL"
+    );
+
+    let stop = env.headless_json(&["browser", "stop", "--session", first_session], 30);
+    assert_success(&stop, "recover verified crash orphan with browser stop");
+    let stopped = parse_json(&stop);
+    assert_eq!(stopped["command"], "browser stop");
+    assert_eq!(stopped["data"]["status"], "stopped");
+    assert_eq!(stopped["data"]["profile"], profile);
+    assert_eq!(stopped["data"]["profile_preserved"], true);
+    assert!(
+        !pid_is_alive(chrome_pid),
+        "recorded Chrome PID must be gone"
+    );
+    assert!(
+        find_chrome_pids_for_dir(&profiles_dir).is_empty(),
+        "the verified Chrome process tree must be gone"
+    );
+    assert!(
+        profile_dir.is_dir(),
+        "profile bytes must survive orphan stop"
+    );
+    assert!(
+        !ownership_path.exists(),
+        "ownership metadata is removed only after process termination"
+    );
+
+    let restart = env.headless_json(
+        &[
+            "browser",
+            "start",
+            "--mode",
+            "local",
+            "--headless",
+            "--profile",
+            profile,
+            "--set-session-id",
+            second_session,
+        ],
+        30,
+    );
+    assert_success(&restart, "restart preserved crash profile");
+    let restarted = parse_json(&restart);
+    let second_tab = restarted["data"]["tab"]["tab_id"]
+        .as_str()
+        .expect("second tab id");
+    let goto = env.headless_json(
+        &[
+            "browser",
+            "goto",
+            &url,
+            "--session",
+            second_session,
+            "--tab",
+            second_tab,
+        ],
+        30,
+    );
+    assert_success(&goto, "navigate restarted crash profile");
+    let get_marker = env.headless_json(
+        &[
+            "browser",
+            "local-storage",
+            "get",
+            marker_key,
+            "--session",
+            second_session,
+            "--tab",
+            second_tab,
+        ],
+        10,
+    );
+    assert_success(&get_marker, "read crash-surviving marker");
+    let marker = parse_json(&get_marker);
+    assert_eq!(marker["data"]["item"]["value"], marker_value);
+
+    let close = env.headless_json(&["browser", "close", "--session", second_session], 30);
+    assert_success(&close, "destructive close after crash smoke");
+    assert!(
+        !profile_dir.exists(),
+        "ordinary close must retain its destructive named-profile contract"
+    );
+}
+
+/// A stale/reused PID or mismatched command line must never authorize a kill.
+#[test]
+#[cfg_attr(windows, ignore = "Unix process identity safety probe")]
+fn preserve_profile_stop_refuses_mismatched_pid_ownership() {
+    if skip() {
+        return;
+    }
+    let env = SoloEnv::new();
+    let session = "mismatched-pid-session";
+    let profile = "mismatched-pid-profile";
+    let home = std::path::Path::new(&env.actionbook_home);
+    let profile_dir = home.join("profiles").join(profile);
+    std::fs::create_dir_all(&profile_dir).expect("profile dir");
+
+    let mut unrelated = std::process::Command::new("sleep")
+        .arg("60")
+        .spawn()
+        .expect("spawn unrelated process");
+    let record = serde_json::json!({
+        "version": 1,
+        "session_id": session,
+        "profile": profile,
+        "profile_dir": std::fs::canonicalize(&profile_dir)
+            .expect("canonical profile")
+            .to_string_lossy(),
+        "pid": unrelated.id(),
+        "process_start_identity": "definitely-not-this-process-start",
+        "command_line": "definitely-not-actionbook-chrome",
+    });
+    let bytes = serde_json::to_vec(&record).expect("serialize ownership");
+    std::fs::write(profile_dir.join(CHROME_OWNERSHIP_FILE), &bytes).expect("profile ownership");
+
+    let stop = env.headless_json(&["browser", "stop", "--session", session], 10);
+    assert_failure(&stop, "mismatched PID ownership must fail visibly");
+    let failed = parse_json(&stop);
+    assert_eq!(failed["error"]["code"], "CHROME_OWNERSHIP_UNVERIFIED");
+    assert!(
+        pid_is_alive(unrelated.id()),
+        "unrelated/reused PID must never be killed"
+    );
+    assert!(profile_dir.join(CHROME_OWNERSHIP_FILE).exists());
+
+    let _ = unrelated.kill();
+    let _ = unrelated.wait();
+}
+
 /// After daemon graceful shutdown, no Chrome processes should remain.
 #[test]
 #[cfg_attr(windows, ignore = "SIGTERM-based graceful shutdown is Unix-only")]
@@ -1712,9 +2981,9 @@ fn double_close_returns_ok_with_warning() {
 // Group N: daemon crash recovery — orphan Chrome cleanup on next browser start
 // ===========================================================================
 
-/// When the daemon is SIGKILL'd (crash / OOM), Chrome is left as an orphan
-/// process. The next `browser start` must detect the stale `chrome.pid` file,
-/// SIGKILL the orphan, and start fresh — no CDP_CONNECTION_FAILED timeout.
+/// When the daemon is SIGKILL'd (crash / OOM), Chrome is left as an orphan.
+/// The next `browser start` must verify the authoritative ownership record,
+/// reap that exact process tree, and start fresh without a CDP timeout.
 #[test]
 #[cfg_attr(
     windows,
@@ -1772,8 +3041,8 @@ fn lifecycle_daemon_sigkill_orphan_recovered() {
          test setup broken or Chrome exited independently"
     );
 
-    // Step 5: `browser start` must succeed — orphan detection should kill the
-    // stale Chrome and start a new one. Must NOT timeout or return CDP_CONNECTION_FAILED.
+    // Step 5: `browser start` must succeed — verified orphan recovery should
+    // reap the old Chrome and start a new one without CDP_CONNECTION_FAILED.
     let out = env.headless_json(
         &[
             "browser",
@@ -1794,6 +3063,9 @@ fn lifecycle_daemon_sigkill_orphan_recovered() {
     assert_eq!(v["command"], "browser start");
     assert_eq!(v["data"]["session"]["session_id"], "sigkill-recover-2");
     assert_eq!(v["data"]["session"]["status"], "running");
+
+    let close = env.headless_json(&["browser", "close", "--session", "sigkill-recover-2"], 30);
+    assert_success(&close, "close recovered orphan-start session");
 }
 
 /// When SIGHUP is sent to the daemon (terminal closed), it should trigger

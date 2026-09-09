@@ -304,8 +304,13 @@ pub(crate) fn reap_daemon_and_chromes(dir: &std::path::Path) {
     if profiles_dir.exists() {
         #[cfg(unix)]
         {
+            let pattern = format!("--user-data-dir={}", profiles_dir.display());
             let _ = std::process::Command::new("pkill")
-                .args(["-f", &format!("--user-data-dir={}", profiles_dir.display())])
+                .args(["-f", "--", &pattern])
+                .output();
+            std::thread::sleep(Duration::from_millis(200));
+            let _ = std::process::Command::new("pkill")
+                .args(["-9", "-f", "--", &pattern])
                 .output();
         }
         #[cfg(windows)]
@@ -368,6 +373,7 @@ const EXTENSION_INCOMPATIBLE_SUBSTRINGS: &[&str] = &[
     "cloud_mode::",
     "concurrent_two_sessions",
     "cross_session",
+    "preserve_profile_stop",
     "windows_daemon::",
     "_headless",
     "lifecycle_open_headless",
