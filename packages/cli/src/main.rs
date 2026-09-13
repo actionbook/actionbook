@@ -610,7 +610,7 @@ Network:
   network har stop    --session --tab  Stop recording and export HAR 1.2 file
 
 Wait:
-  wait element <selector>  --session --tab  Wait for element to appear
+  wait element <selector>  --session --tab  Wait for CSS selector to appear
   wait navigation          --session --tab  Wait for navigation to complete
   wait network-idle        --session --tab  Wait for network to become idle
   wait condition <expr>    --session --tab  Wait for JS expression to be truthy
