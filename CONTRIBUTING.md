@@ -69,7 +69,6 @@ actionbook/
 │   ├── tools-ai-sdk/    # AI SDK integration
 │   ├── json-ui/         # JSON UI renderer
 │   └── dify-plugin/     # Dify integration
-├── docs/                # Product documentation source
 ├── playground/          # Example projects and experiments
 └── scripts/             # Repository maintenance scripts
 ```
@@ -125,7 +124,6 @@ All commit messages must follow this format:
 ### File Organization
 
 - **Development documentation**: Place in `.docs/`
-- **Product documentation**: Place in `docs/`
 - **Tests**: Keep them close to the affected package and use the package's existing conventions
 
 ## Pull Request Process
