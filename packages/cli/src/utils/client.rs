@@ -345,6 +345,8 @@ fn cleanup_stale_files() {
 
 #[cfg(unix)]
 fn auto_start_daemon() -> Result<(), CliError> {
+    use std::os::unix::process::CommandExt;
+
     let exe = std::env::current_exe().map_err(|e| CliError::Internal(e.to_string()))?;
 
     // Redirect daemon stderr to a log file for diagnostics.
@@ -357,7 +359,8 @@ fn auto_start_daemon() -> Result<(), CliError> {
         .map(std::process::Stdio::from)
         .unwrap_or_else(|_| std::process::Stdio::null());
 
-    std::process::Command::new(&exe)
+    let mut command = std::process::Command::new(&exe);
+    command
         .arg("__daemon")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -365,7 +368,20 @@ fn auto_start_daemon() -> Result<(), CliError> {
         .env(
             "RUST_LOG",
             std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),
-        )
+        );
+
+    // Put the daemon in its own session/process group so shell supervisors that
+    // clean up child process groups do not kill it when the short-lived CLI exits.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+
+    command
         .spawn()
         .map_err(|e| CliError::Internal(format!("failed to start daemon: {e}")))?;
 
